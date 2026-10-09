@@ -91,7 +91,7 @@ order is the composer's: the first skill is chip 1 and **Alt+1**, up to nine.
 
 A Hyprland key runs a skill from anywhere, on the session the window showed
 last, without touching eco. Add a line to `~/.config/hypr/bindings.lua`, after
-the `dofile` that loads eco's rules:
+the line that loads eco's rules (it ends in `-- eco setup`):
 
 ```lua
 o.bind("SUPER + ALT + 3", "eco: minutes", "echo 'action minutes' | socat - UNIX-CONNECT:$XDG_RUNTIME_DIR/eco.sock")

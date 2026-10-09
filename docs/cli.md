@@ -36,7 +36,7 @@ Voice sessions with an AI beside them, for Omarchy
 
 ```text
 Commands:
-  setup        Download the models and keep the agent skill current
+  setup        Download the models, load the Hyprland rules and keep the agent skill current
   start        Start the daemon service and open its window
   stop         Stop the running daemon
   restart      Restart the daemon and reopen its window if it was visible
@@ -71,7 +71,7 @@ Options:
 
 ## `eco setup`
 
-Download the models and keep the agent skill current
+Download the models, load the Hyprland rules and keep the agent skill current
 
 - **Usage:** `eco setup [OPTIONS]`
 

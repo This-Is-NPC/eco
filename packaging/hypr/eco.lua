@@ -1,6 +1,5 @@
 -- eco: overlay rules and shortcuts. One shortcut per action in ~/.config/eco/config.toml.
--- Load it from ~/.config/hypr/bindings.lua:
---   dofile(os.getenv("HOME") .. "/projects/person/eco/packaging/hypr/eco.lua")
+-- `eco setup` adds the line that loads the installed copy to ~/.config/hypr/bindings.lua.
 
 local overlay = os.getenv("HOME") .. "/projects/person/eco/overlay"
 

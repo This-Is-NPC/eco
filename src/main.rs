@@ -31,7 +31,7 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    /// Download the models and keep the agent skill current.
+    /// Download the models, load the Hyprland rules and keep the agent skill current.
     Setup {
         /// Also publish the `eco` skill to these agent harnesses: agents, claude-code.
         #[arg(long, value_delimiter = ',')]
@@ -505,12 +505,17 @@ async fn main() -> Result<()> {
     ran
 }
 
-/// Download the models, then publish the skill to `harnesses` and refresh it
-/// wherever it is already installed.
+/// Download the models, load the Hyprland rules, then publish the skill to
+/// `harnesses` and refresh it wherever it is already installed.
 async fn set_up(harnesses: Vec<String>) -> Result<()> {
     for done in setup::run().await? {
         println!("eco: {done}");
     }
+    let rules = config::shipped("hypr/eco.lua");
+    println!(
+        "eco: {}",
+        setup::hyprland(&config::hypr_bindings(), rules.as_deref())?
+    );
     let home = config::home();
     let mut targets = harnesses;
     for harness in skill::installed(&home) {

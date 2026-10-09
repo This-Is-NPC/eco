@@ -8,14 +8,14 @@ use std::time::Duration;
 use rustix::process::{Pid, Signal, kill_process};
 use tokio::process::{Child, Command};
 
+use crate::config;
+
 /// The QML: installed beside the binary (`<prefix>/share/eco/overlay` for
 /// `<prefix>/bin/eco`), or this checkout's when eco runs from it.
 fn overlay_dir() -> PathBuf {
-    let installed = std::env::current_exe()
-        .ok()
-        .and_then(|exe| Some(exe.parent()?.parent()?.join("share/eco/overlay")))
-        .filter(|dir| dir.join("shell.qml").is_file());
-    installed.unwrap_or_else(|| concat!(env!("CARGO_MANIFEST_DIR"), "/overlay").into())
+    config::shipped("overlay/shell.qml")
+        .and_then(|qml| qml.parent().map(PathBuf::from))
+        .unwrap_or_else(|| concat!(env!("CARGO_MANIFEST_DIR"), "/overlay").into())
 }
 
 /// The overlay windows, each its own quickshell process: a number, which the

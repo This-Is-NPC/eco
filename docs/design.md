@@ -1389,8 +1389,13 @@ leaves sessions, config, models and the agent skill.
 - **User service:** `packaging/eco.service` runs `eco daemon --headless`
   (`Restart=on-failure`). `eco start` starts it through `systemctl --user` when
   nothing answers on the socket.
-- **Hyprland:** `packaging/hypr/eco.lua`, loaded with `dofile` from
-  `~/.config/hypr/bindings.lua`, binds `SUPER+ALT+<n>` to the actions,
+- **Hyprland:** `packaging/hypr/eco.lua`, loaded from
+  `~/.config/hypr/bindings.lua` by one line `eco setup` adds (`src/setup.rs`):
+  the line ends in `-- eco setup`, names the `share/eco/hypr/eco.lua` beside the
+  running binary, and runs `dofile` only when `io.open` finds that file, so a
+  removed package leaves no error. Setup rewrites only its own line, adds none
+  when another line already names an `eco.lua`, and creates no `bindings.lua`.
+  The file binds `SUPER+ALT+<n>` to the actions,
   `SUPER+ALT+N` to a new session, `SUPER+ALT+P` to pause/resume, `SUPER+ALT+H`
   to SESSIONS, `SUPER+ALT+C` to the config window and `SUPER+ALT+E` to bring eco
   to the front; those that open a view also give eco the keyboard. The shortcuts

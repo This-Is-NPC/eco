@@ -14,16 +14,32 @@ use crate::domain::prompts::{DEFAULT_REVIEW, DEFAULT_RULES};
 #[error("{0}")]
 pub struct ConfigError(pub String);
 
-fn xdg(variable: &str, fallback: &str) -> PathBuf {
+/// The XDG base directory `variable` names, or `fallback` under the home.
+fn xdg_base(variable: &str, fallback: &str) -> PathBuf {
     env::var_os(variable)
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
         .unwrap_or_else(|| home().join(fallback))
-        .join("eco")
+}
+
+fn xdg(variable: &str, fallback: &str) -> PathBuf {
+    xdg_base(variable, fallback).join("eco")
 }
 
 pub fn home() -> PathBuf {
     env::var_os("HOME").map(PathBuf::from).unwrap_or_default()
+}
+
+/// A file eco ships beside its binary, `<prefix>/share/eco/<path>` for
+/// `<prefix>/bin/eco`, when it is there.
+pub fn shipped(path: &str) -> Option<PathBuf> {
+    let exe = env::current_exe().ok()?;
+    Some(exe.parent()?.parent()?.join("share/eco").join(path)).filter(|file| file.exists())
+}
+
+/// The Hyprland file that holds the user's key bindings.
+pub fn hypr_bindings() -> PathBuf {
+    xdg_base("XDG_CONFIG_HOME", ".config").join("hypr/bindings.lua")
 }
 
 pub fn config_file() -> PathBuf {
