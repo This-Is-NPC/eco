@@ -1,22 +1,54 @@
-//! Capture from one PipeWire device through `pw-record`.
+//! The platform's audio on PipeWire: devices from `pw-dump`, capture through
+//! `pw-record`, echo cancellation through `pw-cli`.
 
+use futures::FutureExt;
+use futures::future::BoxFuture;
 use futures::stream::BoxStream;
 use tokio::process::Command;
 
-use crate::adapters::pipe;
-use crate::adapters::pipewire_devices::{DEFAULT_INPUT, DEFAULT_OUTPUT, Device};
-use crate::ports::{AudioError, AudioSource, Frame, SAMPLE_RATE};
+use crate::adapters::pipewire_devices::{DEFAULT_INPUT, DEFAULT_OUTPUT, list_devices};
+use crate::adapters::{echo_cancel, pipe};
+use crate::ports::{
+    AudioDevices, AudioError, AudioSource, Device, EchoCancelling, Frame, SAMPLE_RATE,
+};
+
+/// The audio of a PipeWire session.
+pub struct PipeWire;
+
+impl AudioDevices for PipeWire {
+    fn list(&self) -> BoxFuture<'static, Vec<Device>> {
+        list_devices().boxed()
+    }
+
+    fn capture(&self, device: &Device) -> Box<dyn AudioSource> {
+        Box::new(PipeWireSource::new(device))
+    }
+
+    fn capture_cancelled(&self) -> Box<dyn AudioSource> {
+        let node = Device::new(&echo_cancel::source_node(), "eco", "input");
+        Box::new(PipeWireSource::new(&node))
+    }
+
+    fn cancel_echo(&self, mic: &str) -> BoxFuture<'static, Result<EchoCancelling, AudioError>> {
+        let mic = mic.to_owned();
+        async move {
+            let module = echo_cancel::start(&mic).await?;
+            Ok(Box::new(module) as EchoCancelling)
+        }
+        .boxed()
+    }
+}
 
 const CAPTURE_SINK: [&str; 2] = ["--properties", "{ stream.capture.sink = true }"];
 
 /// Mono s16le at 16 kHz from one device, through a `pw-record` that lives as long
 /// as the stream of frames.
-pub struct PipeWireSource {
+struct PipeWireSource {
     args: Vec<String>,
 }
 
 impl PipeWireSource {
-    pub fn new(device: &Device) -> Self {
+    fn new(device: &Device) -> Self {
         let mut args = Vec::new();
         if device.id != DEFAULT_INPUT && device.id != DEFAULT_OUTPUT {
             args.extend(["--target".into(), device.id.clone()]);

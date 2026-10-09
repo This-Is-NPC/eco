@@ -123,6 +123,7 @@ composition happens in `src/session.rs` from `config.toml`. The crate forbids
 | Port | Adapters | Why |
 |---|---|---|
 | `AudioSource` | `pw-record` (any input, or what any sink plays), **WAV file** | The file adapter replays recorded meetings (`--replay <file.wav>`) to tune prompt and trigger and for automated tests. |
+| `AudioDevices` | PipeWire (`pw-dump`, `pw-record`, echo cancellation through `pw-cli`) | A platform seam (§15): it lists the devices, builds an `AudioSource` for one, and runs echo cancellation on a microphone. Tests compose inputs with a fake. |
 | `STT` | Deepgram (streaming), ElevenLabs Scribe (streaming), OpenAI-compatible transcription (`/v1/audio/transcriptions`: LAN whisper.cpp server, Groq, OpenAI) | There is no common real-time STT standard: each protocol needs its own adapter. |
 | `LLM` | a single OpenAI-compatible adapter | Covers OpenRouter, OpenAI, Groq, Ollama, llama.cpp — switching = `base_url` + key + model. |
 | `EventSink` | Unix socket (overlay), text on stdout | stdout is written only when it is a terminal (`mise run start`); under the user service it is the journal, which never gets transcript, note or answer text. |
@@ -1645,7 +1646,7 @@ adapter lives today.
 |---|---|---|
 | Paths | the home and the XDG base directories (`HOME`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_RUNTIME_DIR`, else `/run/user/<uid>`) | `src/paths.rs` |
 | The daemon socket | a Unix domain socket at `$XDG_RUNTIME_DIR/eco.sock`, in `src/adapters/local_socket.rs`; the protocol (`src/adapters/control_socket.rs`), the CLI client (`src/cli.rs`) and the service commands (`src/lifecycle.rs`) reach it only through that module | `src/adapters/local_socket.rs` |
-| Audio devices and capture | PipeWire (`pw-dump`, `pw-record`, `libpipewire-module-echo-cancel` loaded through `pw-cli`) | `src/adapters/pipewire_devices.rs`, `src/adapters/audio_pipewire.rs`, `src/adapters/echo_cancel.rs` |
+| Audio devices and capture | the `AudioDevices` port, adapter `PipeWire`: devices from `pw-dump`, an `AudioSource` per device through `pw-record`, echo cancellation by `libpipewire-module-echo-cancel` loaded through `pw-cli`; composed in `src/session.rs` | `src/ports.rs`, `src/adapters/audio_pipewire.rs`, `src/adapters/pipewire_devices.rs`, `src/adapters/echo_cancel.rs` |
 | Service lifecycle and desktop setup | `ServiceManager`: the systemd user service (`systemctl --user`), chosen in `src/lifecycle.rs`; `DesktopIntegration`: the line loaded into the Hyprland Lua config (`~/.config/hypr/bindings.lua`), chosen in `src/setup.rs` | `src/adapters/service_systemd.rs`, `src/adapters/desktop_hyprland.rs` |
 | Window control | launching Quickshell and giving its window the keyboard through `hyprctl dispatch`; the overlay centering its config window and setting `no_screen_share` through `Hyprland.dispatch` | `src/adapters/overlay.rs`, `overlay/ConfigWindow.qml`, `overlay/Eco.qml` |
 | Shortcuts | a global Hyprland bind that pipes a command to the socket through `socat`, or calls the overlay through `quickshell ipc` | `packaging/hypr/eco.lua` |

@@ -12,17 +12,15 @@ use tokio::sync::{OnceCell, Semaphore, mpsc, watch};
 use tokio::task::{JoinHandle, JoinSet};
 
 use crate::adapters::audio_file::WavFileSource;
-use crate::adapters::audio_pipewire::PipeWireSource;
+use crate::adapters::audio_pipewire::PipeWire;
 use crate::adapters::control_socket::{Clients, ControlSocket};
 use crate::adapters::diarizer_process;
-use crate::adapters::echo_cancel;
 use crate::adapters::hook_shell::ShellHooks;
 use crate::adapters::http::Endpoint;
 use crate::adapters::llm_openai::{OpenAIChat, Unavailable, list_models};
 use crate::adapters::omapass;
 use crate::adapters::overlay;
 use crate::adapters::people_files::PeopleFiles;
-use crate::adapters::pipewire_devices::{Device, list_devices};
 use crate::adapters::session_files::{NoSessionFiles, SessionFiles};
 use crate::adapters::stt_deepgram::{self, DeepgramBilling, DeepgramTranscriber};
 use crate::adapters::stt_elevenlabs::{self, ElevenLabsTranscriber};
@@ -43,8 +41,8 @@ use crate::domain::transcribers::{Listening, Transcribers};
 use crate::import;
 use crate::paths;
 use crate::ports::{
-    AudioError, AudioSource, LanguageModel, PeopleStore, SessionLog, SpeechToText,
-    StreamingSpeechToText, TranscriptionBilling,
+    AudioDevices, AudioError, AudioSource, Device, LanguageModel, PeopleStore, SessionLog,
+    SpeechToText, StreamingSpeechToText, TranscriptionBilling,
 };
 
 /// The longest the assistant's model may send nothing before the request fails.
@@ -68,6 +66,7 @@ pub struct Input {
 pub fn inputs(
     config: &Config,
     replay: Option<&Path>,
+    audio: &dyn AudioDevices,
     devices: &[Device],
     emit: &Emit,
 ) -> Vec<Input> {
@@ -98,17 +97,14 @@ pub fn inputs(
                         && participant.user
                         && device.kind == "input"
                         && inputs.iter().all(|input| input.cancelled.is_none());
-                    let cancelled = cancels.then(|| {
-                        let node = Device::new(&echo_cancel::source_node(), "eco", "input");
-                        Box::new(PipeWireSource::new(&node)) as Box<dyn AudioSource>
-                    });
+                    let cancelled = cancels.then(|| audio.capture_cancelled());
                     inputs.push(Input {
                         id: device.id.clone(),
                         label: device.label.clone(),
                         participant: participant.name.clone(),
                         user: participant.user,
                         color: config.colors.get(&device.id).cloned(),
-                        source: Box::new(PipeWireSource::new(device)),
+                        source: audio.capture(device),
                         cancelled,
                     });
                 }
@@ -225,6 +221,7 @@ async fn build(models: &Models, listening: &Listening) -> Result<Stt, String> {
 
 struct Channels {
     inputs: Vec<Input>,
+    audio: Arc<dyn AudioDevices>,
     models: Models,
     built: Built,
     assistant: Assistant,
@@ -300,6 +297,7 @@ impl Work for Channels {
         Box::pin(async move {
             let Channels {
                 inputs,
+                audio,
                 models,
                 built,
                 assistant,
@@ -314,7 +312,7 @@ impl Work for Channels {
                 .find(|i| i.cancelled.is_some())
                 .map(|i| i.id.clone());
             let echo = match microphone.filter(|_| recording) {
-                Some(mic) => match echo_cancel::start(&mic).await {
+                Some(mic) => match audio.cancel_echo(&mic).await {
                     Ok(module) => Some(module),
                     Err(failure) => {
                         let detail = failure.0;
@@ -546,15 +544,16 @@ async fn pipeline(
     config: Config,
     assistant: Assistant,
     replay: Option<PathBuf>,
+    audio: Arc<dyn AudioDevices>,
     emit: Emit,
     vad: SileroModel,
 ) {
     let devices = if replay.is_some() {
         Vec::new()
     } else {
-        list_devices().await
+        audio.list().await
     };
-    let inputs = inputs(&config, replay.as_deref(), &devices, &emit);
+    let inputs = inputs(&config, replay.as_deref(), &*audio, &devices, &emit);
     // Each part stands on its own: one that cannot be set up — a key missing,
     // say — is reported to every client with the setup, and the rest works on.
     let mut problems = Vec::new();
@@ -751,6 +750,7 @@ async fn pipeline(
     }
     let mut channels = Channels {
         inputs,
+        audio,
         models: transcription_models,
         built,
         assistant: assistant.clone(),
@@ -960,6 +960,7 @@ struct Session {
     /// connects is greeted with its `config_pending` event.
     pending: Arc<Mutex<Pending>>,
     replay: Option<PathBuf>,
+    audio: Arc<dyn AudioDevices>,
     vad: SileroModel,
     assistant: Assistant,
     emit: Emit,
@@ -978,6 +979,7 @@ impl Session {
             self.current.clone(),
             self.assistant.clone(),
             self.replay.clone(),
+            Arc::clone(&self.audio),
             Arc::clone(&self.emit),
             self.vad.clone(),
         )));
@@ -1212,15 +1214,17 @@ impl Session {
             ("note", Some(text)) => self.assistant.note(None, text),
             ("config", None) => {
                 let config = self.current.to_value();
+                let listed = self.audio.list();
                 self.background.spawn(async move {
-                    let devices = serde_json::to_value(list_devices().await).unwrap_or_default();
+                    let devices = serde_json::to_value(listed.await).unwrap_or_default();
                     let omapass = json!({"installed": omapass::installed(), "page": omapass::PAGE});
                     emit(json!({"type": "config", "config": config, "devices": devices, "omapass": omapass, "presets": presets()}));
                 });
             }
             ("devices", None) => {
+                let listed = self.audio.list();
                 self.background.spawn(async move {
-                    let devices = serde_json::to_value(list_devices().await).unwrap_or_default();
+                    let devices = serde_json::to_value(listed.await).unwrap_or_default();
                     emit(json!({"type": "devices", "devices": devices}));
                 });
             }
@@ -1758,6 +1762,7 @@ pub async fn run(
         token,
         pending,
         replay,
+        audio: Arc::new(PipeWire),
         vad,
         assistant,
         emit,
@@ -1817,8 +1822,11 @@ pub async fn run(
 mod tests {
     use std::sync::Mutex;
 
+    use futures::FutureExt;
+    use futures::stream::{self, StreamExt};
+
     use super::*;
-    use crate::adapters::pipewire_devices::defaults;
+    use crate::ports::{EchoCancelling, Frame};
 
     fn raw() -> Value {
         json!({
@@ -1922,13 +1930,52 @@ mod tests {
         )
     }
 
+    /// A source that ends at once.
+    struct Silence;
+
+    impl AudioSource for Silence {
+        fn frames(&mut self) -> stream::BoxStream<'_, Result<Frame, AudioError>> {
+            stream::empty().boxed()
+        }
+    }
+
+    /// Three devices; logs every capture it builds.
+    #[derive(Default)]
+    struct FakeAudio(Mutex<Vec<String>>);
+
+    impl AudioDevices for FakeAudio {
+        fn list(&self) -> BoxFuture<'static, Vec<Device>> {
+            let devices = vec![
+                Device::new("@default-input", "Mic", "input"),
+                Device::new("@default-output", "Out", "output"),
+                Device::new("usb-mic", "USB", "input"),
+            ];
+            async move { devices }.boxed()
+        }
+
+        fn capture(&self, device: &Device) -> Box<dyn AudioSource> {
+            self.0.lock().unwrap().push(device.id.clone());
+            Box::new(Silence)
+        }
+
+        fn capture_cancelled(&self) -> Box<dyn AudioSource> {
+            self.0.lock().unwrap().push("cancelled".into());
+            Box::new(Silence)
+        }
+
+        fn cancel_echo(&self, _: &str) -> BoxFuture<'static, Result<EchoCancelling, AudioError>> {
+            async { Ok(Box::new(()) as EchoCancelling) }.boxed()
+        }
+    }
+
     #[tokio::test]
     async fn inputs_skip_and_report_disconnected_devices() {
         let mut raw = raw();
         raw["colors"] = json!({"@default-input": "#ff4fd8"});
         let config = Config::from_value(raw).unwrap();
         let (emit, events) = recorder();
-        let found = inputs(&config, None, &defaults(), &emit);
+        let audio = FakeAudio::default();
+        let found = inputs(&config, None, &audio, &audio.list().await, &emit);
         let found: Vec<_> = found
             .iter()
             .map(|i| (i.id.as_str(), i.participant.as_str(), i.color.as_deref()))
@@ -1939,6 +1986,10 @@ mod tests {
                 ("@default-input", "Eu", Some("#ff4fd8")),
                 ("@default-output", "Recrutador", None),
             ]
+        );
+        assert_eq!(
+            *audio.0.lock().unwrap(),
+            ["@default-input", "@default-output"]
         );
         let events = events.lock().unwrap();
         assert_eq!(events.len(), 1);
@@ -1953,13 +2004,48 @@ mod tests {
     async fn replay_goes_to_the_first_participant_that_is_not_the_user() {
         let config = Config::from_value(raw()).unwrap();
         let (emit, _) = recorder();
-        let found = inputs(&config, Some(Path::new("dir/x.wav")), &[], &emit);
+        let audio = FakeAudio::default();
+        let found = inputs(&config, Some(Path::new("dir/x.wav")), &audio, &[], &emit);
         let [replay] = found.as_slice() else {
             panic!("one input")
         };
         assert_eq!(
             (&*replay.id, &*replay.label, &*replay.participant),
             ("replay", "x.wav", "Recrutador")
+        );
+        assert!(audio.0.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn echo_is_cancelled_on_the_users_first_microphone() {
+        let mut raw = raw();
+        raw["audio"] = json!({"echo_cancel": true});
+        raw["participants"][0]["devices"] = json!(["usb-mic", "@default-input"]);
+        let config = Config::from_value(raw).unwrap();
+        let (emit, _) = recorder();
+        let audio = FakeAudio::default();
+        let found = inputs(&config, None, &audio, &audio.list().await, &emit);
+        let cancelled: Vec<_> = found
+            .iter()
+            .map(|i| (i.id.as_str(), i.cancelled.is_some()))
+            .collect();
+        assert_eq!(
+            cancelled,
+            [
+                ("usb-mic", true),
+                ("@default-input", false),
+                ("@default-output", false),
+            ]
+        );
+        assert_eq!(
+            audio
+                .0
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|c| *c == "cancelled")
+                .count(),
+            1
         );
     }
 

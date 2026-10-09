@@ -1,31 +1,13 @@
 //! What eco can listen to, read from `pw-dump`.
 
-use serde::Serialize;
 use serde_json::Value;
 use tokio::process::Command;
 
 use crate::adapters::echo_cancel::NODE_PREFIX;
+use crate::ports::Device;
 
 pub const DEFAULT_INPUT: &str = "@default-input";
 pub const DEFAULT_OUTPUT: &str = "@default-output";
-
-/// Something eco can listen to: a microphone ("input") or what a sink plays ("output").
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct Device {
-    pub id: String,
-    pub label: String,
-    pub kind: String,
-}
-
-impl Device {
-    pub fn new(id: &str, label: &str, kind: &str) -> Self {
-        Self {
-            id: id.into(),
-            label: label.into(),
-            kind: kind.into(),
-        }
-    }
-}
 
 pub fn defaults() -> Vec<Device> {
     vec![

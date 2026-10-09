@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 
 use futures::future::BoxFuture;
 use futures::stream::BoxStream;
+use serde::Serialize;
 use serde_json::{Map, Value};
 
 use crate::domain::people::Person;
@@ -23,6 +24,40 @@ pub struct AudioError(pub String);
 pub trait AudioSource: Send {
     /// Frames until the source ends.
     fn frames(&mut self) -> BoxStream<'_, Result<Frame, AudioError>>;
+}
+
+/// Something eco can listen to: a microphone ("input") or what an output plays ("output").
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Device {
+    pub id: String,
+    pub label: String,
+    pub kind: String,
+}
+
+impl Device {
+    pub fn new(id: &str, label: &str, kind: &str) -> Self {
+        Self {
+            id: id.into(),
+            label: label.into(),
+            kind: kind.into(),
+        }
+    }
+}
+
+/// Echo cancellation running on one microphone; dropping it stops it.
+pub type EchoCancelling = Box<dyn Send>;
+
+/// The platform's audio: the devices eco can listen to, and capture from each.
+pub trait AudioDevices: Send + Sync {
+    /// Every device, the system defaults first.
+    fn list(&self) -> BoxFuture<'static, Vec<Device>>;
+    /// Mono s16le at `SAMPLE_RATE` from `device`.
+    fn capture(&self, device: &Device) -> Box<dyn AudioSource>;
+    /// The microphone `cancel_echo` runs on, with what the default output plays
+    /// taken out; it hears only while that cancellation runs.
+    fn capture_cancelled(&self) -> Box<dyn AudioSource>;
+    /// Start cancelling, on `mic` (a device id), what the default output plays.
+    fn cancel_echo(&self, mic: &str) -> BoxFuture<'static, Result<EchoCancelling, AudioError>>;
 }
 
 #[derive(Debug, thiserror::Error)]
