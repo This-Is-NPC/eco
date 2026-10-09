@@ -13,7 +13,10 @@ rm -f "$HOME/.config/systemd/user/eco.service"
 systemctl --user daemon-reload
 rm -f "$prefix/bin/eco" \
   "$prefix/share/applications/eco.desktop" \
-  "$prefix/share/icons/hicolor/scalable/apps/eco.svg"
+  "$prefix/share/icons/hicolor/scalable/apps/eco.svg" \
+  "$prefix/share/bash-completion/completions/eco" \
+  "$prefix/share/zsh/site-functions/_eco" \
+  "$prefix/share/fish/vendor_completions.d/eco.fish"
 rm -rf "$prefix/lib/eco" "$prefix/share/eco/overlay" "$prefix/share/eco/hypr" "$prefix/share/licenses/eco"
 refresh_desktop_entries "$prefix"
 printf 'removed eco from %s\n' "$prefix"

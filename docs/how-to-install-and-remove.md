@@ -228,6 +228,8 @@ The package owns these; `pacman -Ql eco` lists every file and where it is:
 - its window, the QML the daemon launches;
 - the Hyprland rules and keys, `eco.lua`;
 - the launcher and its icon;
+- the bash, zsh and fish completions of `eco`, which complete through the
+  `usage` command the package depends on;
 - the licence;
 - the user service, which runs `eco daemon --headless`.
 
@@ -266,7 +268,7 @@ sudo pacman -R eco
 
 `eco stop` ends the daemon; `pacman -R` then removes everything the package
 put on the machine: the binary, the window, the Hyprland rules, the launcher,
-the icon, the licence and the user service.
+the icon, the completions, the licence and the user service.
 
 **The line `eco setup` added to `~/.config/hypr/bindings.lua` stays,** and
 does nothing: it loads the rules only while the file exists. To remove it too,

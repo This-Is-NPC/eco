@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# completions <eco> <dir> writes the bash, zsh and fish completions of the eco
+# binary <eco> into <dir> as eco.bash, _eco and eco.fish, with
+# `usage generate completion` from the usage spec it prints. At completion time
+# they call `usage complete-word`, so the usage CLI must be on PATH. Idempotent.
+set -euo pipefail
+
+eco="$1"
+dir="$2"
+spec="$(mktemp)"
+trap 'rm -f "$spec"' EXIT
+"$eco" usage >"$spec"
+mkdir -p "$dir"
+usage generate completion bash eco --file - <"$spec" >"$dir/eco.bash"
+usage generate completion zsh eco --file - <"$spec" >"$dir/_eco"
+usage generate completion fish eco --file - <"$spec" >"$dir/eco.fish"

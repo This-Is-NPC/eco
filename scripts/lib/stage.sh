@@ -2,7 +2,8 @@
 # stage_files <root> <prefix> puts what eco ships beside its binary under
 # <root><prefix>: the window program (built by scripts/window-build) in
 # lib/eco, which is eco's alone, the overlay it runs, the Hyprland rules, the
-# launcher, the icon and the licence. Run from the repository root.
+# launcher, the icon, the shell completions (written to target/completions by
+# scripts/completions) and the licence. Run from the repository root.
 stage_files() {
   local share="$1$2/share"
   install -Dm755 target/window/eco-window "$1$2/lib/eco/eco-window"
@@ -12,6 +13,9 @@ stage_files() {
   install -Dm644 packaging/hypr/eco.lua "$share/eco/hypr/eco.lua"
   install -Dm644 packaging/eco.desktop "$share/applications/eco.desktop"
   install -Dm644 packaging/eco.svg "$share/icons/hicolor/scalable/apps/eco.svg"
+  install -Dm644 target/completions/eco.bash "$share/bash-completion/completions/eco"
+  install -Dm644 target/completions/_eco "$share/zsh/site-functions/_eco"
+  install -Dm644 target/completions/eco.fish "$share/fish/vendor_completions.d/eco.fish"
   install -Dm644 LICENSE "$share/licenses/eco/LICENSE"
 }
 

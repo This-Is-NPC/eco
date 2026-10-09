@@ -39,7 +39,7 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Install the build toolchain
-        run: pacman -Syu --noconfirm --needed cmake git github-cli ninja qt6-base qt6-declarative rust
+        run: pacman -Syu --noconfirm --needed cmake git github-cli ninja qt6-base qt6-declarative rust usage
 
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0

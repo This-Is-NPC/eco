@@ -32,7 +32,7 @@ off again. `VERSION=0.1.0` picks a release other than the latest.
 
 The package puts the binary, its window, the Hyprland rules and keys, the
 launcher and icon, the licence and a user service (written and not enabled) on
-the machine. `eco setup --harnesses agents,claude-code` then downloads the VAD
+the machine. It also installs completions of `eco` for bash, zsh and fish. `eco setup --harnesses agents,claude-code` then downloads the VAD
 and speaker models, adds the one line to `~/.config/hypr/bindings.lua` that
 loads the Hyprland rules, and publishes the `eco` skill for agents. **Removing the package keeps the
 config, the sessions, the people, the models and the agent skill** — removing

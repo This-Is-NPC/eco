@@ -1450,8 +1450,12 @@ the committed tree (`git archive HEAD`, never uncommitted changes) and installs
 `/usr/bin/eco`, the window program `/usr/lib/eco/eco-window` (in `lib/eco`,
 not on `PATH`: only the daemon starts it), the overlay it runs under
 `/usr/share/eco/overlay`, the Hyprland rules under
-`/usr/share/eco/hypr/eco.lua`, the launcher, the icon, the licence and the user
-service in `/usr/lib/systemd/user`. Building needs `cargo`, `cmake`, `ninja`
+`/usr/share/eco/hypr/eco.lua`, the launcher, the icon, the licence, the user
+service in `/usr/lib/systemd/user`, and the bash, zsh and fish completions in
+their shells' vendor directories. `scripts/completions` writes those with
+`usage generate completion` from the spec `eco usage` prints; they call
+`usage complete-word` as they complete, so `usage` (in Arch's `extra`) is a
+dependency to build and to run. Building also needs `cargo`, `cmake`, `ninja`
 and Qt 6 (`qt6-base`, `qt6-declarative`); running needs the two Qt packages.
 `mise run package`
 (`scripts/package`) runs `makepkg` into `target/arch/pkg` and writes the
@@ -1479,7 +1483,7 @@ is local (see [Tests and the gate](#tests-and-the-gate)).
 **From a checkout.** `mise run install` (`scripts/install`) builds the release binary and installs it
 under a prefix (`~/.local` unless `PREFIX`): the binary, the window program in
 `lib/eco` (built first by `window:build`), its own copy of the overlay, the
-Hyprland rules, the launcher, icon and user service,
+Hyprland rules, the launcher, icon, shell completions and user service,
 with the models and the agent skill prepared first (`eco setup --harnesses
 agents,claude-code`). It is idempotent: each install replaces the last, and a
 daemon that was running is restarted on the new binary. Sessions, config and

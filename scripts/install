@@ -5,14 +5,15 @@ source scripts/lib/stage.sh
 
 # Install the release build of eco under a prefix (default ~/.local): the
 # binary, the window program (`mise run window:build` builds it first), its own
-# copy of the overlay, the Hyprland rules, the launcher, icon and user service,
-# with models and the agent skill prepared first.
+# copy of the overlay, the Hyprland rules, the launcher, icon, shell completions
+# and user service, with models and the agent skill prepared first.
 # Idempotent: each install replaces the last. Sessions, config and models stay.
 : "${HOME:?HOME is not set}"
 prefix="${PREFIX:-$HOME/.local}"
 share="$prefix/share/eco"
 
 cargo build --release --locked --quiet
+scripts/completions target/release/eco target/completions
 "target/release/eco" setup --harnesses agents,claude-code
 was_running=0
 window_was_open=0
