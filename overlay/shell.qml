@@ -10,8 +10,9 @@ OverlayPanel {
   Loader {
     id: settings
     active: false
-    // A child of the overlay, so Hyprland keeps it above the pinned overlay.
-    sourceComponent: ConfigWindow { transientParent: overlay }
+    // Not a child of the overlay: Hyprland keeps a child above its parent, which
+    // would hide the overlay's dialogs under the settings when a shortcut raises it.
+    sourceComponent: ConfigWindow {}
   }
   Connections {
     target: Eco

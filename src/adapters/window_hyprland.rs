@@ -27,7 +27,7 @@ pub struct HyprlandWindows {
 impl WindowControl for HyprlandWindows {
     fn focus(&self, pid: u32) -> BoxFuture<'static, Result<(), WindowError>> {
         async move {
-            let focus = format!("hl.dsp.focus({{ window = \"pid:{pid}\" }})");
+            let focus = focus_script(pid);
             let mut last = String::new();
             // The window shows a moment after its process starts.
             for _ in 0..50 {
@@ -126,6 +126,24 @@ end)()"#,
     )
 }
 
+/// The Lua that gives the keyboard to the overlay of process `pid` (its window
+/// titled `eco`, never its settings window) and raises it above that process's
+/// other windows, so a dialog it opens is not hidden under the settings; an
+/// error while the window has not shown yet.
+fn focus_script(pid: u32) -> String {
+    format!(
+        r#"(function()
+  for _, w in ipairs(hl.get_windows()) do
+    if w.pid == {pid} and w.title == "eco" then
+      hl.dispatch(hl.dsp.focus({{ window = "address:" .. w.address }}))
+      return hl.dsp.window.bring_to_top({{ window = "address:" .. w.address }})
+    end
+  end
+  error("no eco window yet")
+end)()"#
+    )
+}
+
 /// Leave out of screen sharing each eco window that opens while `hidden` lists
 /// processes, as Hyprland's event socket `events` reports it; connects again
 /// every second while the socket is down.
@@ -166,6 +184,16 @@ mod tests {
         ));
         assert!(!opens_eco_window("openwindow>>55d1,1,firefox,eco"));
         assert!(!opens_eco_window("closewindow>>55d1"));
+    }
+
+    #[test]
+    fn focus_finds_the_overlay_of_the_process_and_raises_it() {
+        let script = focus_script(42);
+        assert!(
+            script.contains(r#"w.pid == 42 and w.title == "eco""#),
+            "{script}"
+        );
+        assert!(script.contains("hl.dsp.window.bring_to_top"), "{script}");
     }
 
     #[test]

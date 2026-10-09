@@ -1506,9 +1506,10 @@ leaves sessions, config, models and the agent skill.
   `eco window` command (§11), never a second daemon: those that open a view
   send `window.call` (§10.2), and the daemon focuses the window. It holds the window rules,
   matching the class `eco`: the overlay (`float`, `pin`, `persistent_size`,
-  opaque) and the config window (`float`, `pin`, centered, opaque). The config window is
-  also a child of the overlay, so it always opens above it. Without the rules,
-  Hyprland tiles both.
+  opaque) and the config window (`float`, `pin`, centered, opaque). The config window opens
+  above the overlay; it is not its child, so a shortcut that focuses the
+  overlay also raises it above the settings, and a dialog it opens shows.
+  Without the rules, Hyprland tiles both.
 - **Screen sharing:** off by default, eco's windows show in captures.
   `[ui] hide_from_share` (Settings › Interface) makes the daemon set
   Hyprland's `no_screen_share` on the windows of every `eco-window` it started
@@ -1702,6 +1703,6 @@ adapter lives today.
 | The daemon socket | a Unix domain socket at `$XDG_RUNTIME_DIR/eco.sock`, in `src/adapters/local_socket.rs`; the protocol (`src/adapters/control_socket.rs`), the CLI client (`src/cli.rs`) and the service commands (`src/lifecycle.rs`) reach it only through that module | `src/adapters/local_socket.rs` |
 | Audio devices and capture | the `AudioDevices` port, adapter `PipeWire`: devices from `pw-dump`, an `AudioSource` per device through `pw-record`, echo cancellation by `libpipewire-module-echo-cancel` loaded through `pw-cli`; composed in `src/session.rs` | `src/ports.rs`, `src/adapters/audio_pipewire.rs`, `src/adapters/pipewire_devices.rs`, `src/adapters/echo_cancel.rs` |
 | Service lifecycle and desktop setup | `ServiceManager`: the systemd user service (`systemctl --user`), chosen in `src/lifecycle.rs`; `DesktopIntegration`: the line loaded into the Hyprland Lua config (`~/.config/hypr/bindings.lua`), chosen in `src/setup.rs` | `src/adapters/service_systemd.rs`, `src/adapters/desktop_hyprland.rs` |
-| Window control | the `WindowControl` port, adapter `HyprlandWindows`: giving a window process's window the keyboard (its overlay, which Hyprland's `pid:` match finds before the settings window) and setting `no_screen_share` on its windows through `hyprctl dispatch`, by pid, again on Hyprland's `openwindow` events while they are hidden; composed in `src/session.rs`, used by `src/adapters/overlay.rs`, which launches `eco-window`. The window rules in `packaging/hypr/eco.lua` centering the config window stay compositor config | `src/ports.rs`, `src/adapters/window_hyprland.rs`, `src/adapters/overlay.rs`, `packaging/hypr/eco.lua` |
+| Window control | the `WindowControl` port, adapter `HyprlandWindows`: giving a window process's overlay (its window titled `eco`, never the settings window) the keyboard and raising it above the settings, so a dialog the shortcut opens shows and setting `no_screen_share` on its windows through `hyprctl dispatch`, by pid, again on Hyprland's `openwindow` events while they are hidden; composed in `src/session.rs`, used by `src/adapters/overlay.rs`, which launches `eco-window`. The window rules in `packaging/hypr/eco.lua` centering the config window stay compositor config | `src/ports.rs`, `src/adapters/window_hyprland.rs`, `src/adapters/overlay.rs`, `packaging/hypr/eco.lua` |
 | The window host's bridge | `eco-window`'s `EcoHost` module: `Host` gives the QML its environment and copies to the Wayland clipboard through `wl-copy`; `LineSocket` is a `QLocalSocket` to the daemon socket, whose path `overlay/Eco.qml` builds from `XDG_RUNTIME_DIR`; `TextFile` reads and watches files, such as the Omarchy theme under `XDG_STATE_HOME` that `overlay/Theme.qml` follows | `window/main.cpp`, `window/host.h`, `window/line_socket.h`, `window/text_file.h` |
 | Shortcuts | a global Hyprland bind that runs an `eco window` command, which sends one line to the socket and returns once the daemon has read it: `window.call` for those that open a view, the daemon giving that window the keyboard | `packaging/hypr/eco.lua`, `src/cli.rs` |
