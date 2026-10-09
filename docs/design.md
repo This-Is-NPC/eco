@@ -1069,7 +1069,8 @@ reconnects to the socket on its own.
   a speaker's name and time head each turn and repeat after two minutes of
   silence or anything else between their lines; answers as framed cards whose
   Markdown is drawn as it streams (marks still open are closed; images, which
-  Qt would fetch, become their alt text, `overlay/markdown.js`) that light up
+  Qt would fetch, become their alt text, and any `![` left, code included,
+  gets a zero-width space so no image can open, `overlay/markdown.js`) that light up
   while they stream, show the question asked and can be removed; a complete
   answer can be copied (its Markdown to the clipboard, `wl-copy`); it follows the
   newest entry, but an answer streaming taller than the view keeps its top in

@@ -26,20 +26,21 @@ function alt(tag) {
   return found ? found[1] || found[2] || found[3] || "" : ""
 }
 
-// `text` outside code: inline and reference images replaced by their alt
-// text, any other `![` escaped so it draws as written, and <img> tags
-// replaced by their alt text.
+// `text` outside code: inline and reference images, and <img> tags, replaced
+// by their alt text.
 function prose(text) {
   return text
     .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
     .replace(/!\[([^\]]*)\]\[[^\]]*\]/g, "$1")
-    .replace(/!\[/g, "!\\[")
     .replace(/<img\b[^>]*>?/gi, alt)
 }
 
-// `text` with no image Qt would load; code blocks and inline code are kept as written.
+// `text` with no image Qt would load. Images outside code become their alt
+// text; then every `![` left, in code or not, gets a zero-width space after
+// its `!`, so no image opens whatever Qt takes for code or for an escape.
 function imageless(text) {
   return text.split(/(```[\s\S]*?(?:```|$)|`[^`\n]*`)/)
     .map((part, i) => i % 2 ? part : prose(part))
     .join("")
+    .replace(/!\[/g, "!\u200b[")
 }
