@@ -4,11 +4,12 @@
 ## bench, which runs the self-contained benchmark/ tool.
 
 [tools]
-rust = { version = "1.97.1", components = "rustfmt,clippy" }
+rust = { version = "1.97.1", components = "rustfmt,clippy,llvm-tools" }
 python = "3.14.8"
 cmake = "4.4.4"
 ninja = "1.13.2"
 watchexec = "2.8.0"
+"cargo:cargo-llvm-cov" = "0.9.1"
 
 [env]
 _.file = ".env"
@@ -63,6 +64,11 @@ run = "scripts/format"
 description = "Run the test suite (the VAD and speaker parity tests need the models; the window's, eco-window)"
 depends = ["setup", "window:build"]
 run = "scripts/test"
+
+[tasks.coverage]
+description = "Measure test coverage per file with cargo-llvm-cov (slow instrumented build; not part of check)"
+depends = ["setup", "window:build"]
+run = "scripts/coverage"
 
 [tasks."cli:gen"]
 description = "Regenerate docs/cli.md from the eco binary's help"

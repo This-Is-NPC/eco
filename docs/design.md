@@ -1581,6 +1581,7 @@ mise run window:build       # eco-window, into target/window (the tasks that run
 mise run check              # the gate: lint, test, cli:check, docs:check
 mise run lint               # cargo fmt and clippy, every warning fatal
 mise run test               # the domain tests, i18n, VAD and speaker parity
+mise run coverage           # per-file test coverage with cargo-llvm-cov (not part of check)
 mise run cli:gen            # docs/cli.md, from the binary's help
 mise run docs:check         # every relative link and picture resolves
 mise run shots              # docs/img, from the real window, offscreen
