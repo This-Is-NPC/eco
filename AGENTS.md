@@ -226,7 +226,7 @@ repository and is reached through the same adapters as any provider.
 
 Two processes. The daemon (`src/`, Rust, toolchain pinned by mise,
 built with cargo) does capture, VAD, transcription, triggers, prompts and the
-LLM call. The overlay (`overlay/`, QML on Quickshell, launched by the daemon) only renders
+LLM call. The overlay (`overlay/`, QML run by the Qt 6 host in `window/`, launched by the daemon) only renders
 events. They talk over one Unix socket at
 `$XDG_RUNTIME_DIR/eco.sock`, one JSON object per line; the overlay
 never calls a provider, never holds a secret and never writes the
