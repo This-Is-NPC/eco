@@ -797,37 +797,42 @@ fn window_shows(payload: &str) -> Option<(u32, String)> {
 }
 
 /// `window.call {"call", "path"}`: what a shortcut asks of an overlay window —
-/// "config", "new_session", "sessions", or "import" with the file's `path`,
-/// which may be left out — as the fields of the `window_call` event; `None`
-/// when it is none of these.
+/// "focus", "config", "new_session", "sessions", or "import" with the file's
+/// `path`, which may be left out — as the fields of the `window_call` event;
+/// `None` when it is none of these.
 fn window_call(payload: &str) -> Option<Value> {
     let request = serde_json::from_str::<Value>(payload).ok()?;
     let call = request.get("call")?.as_str()?;
     let mut fields = json!({"call": call});
     match (call, request.get("path")) {
-        ("config" | "new_session" | "sessions" | "import", None) => {}
+        ("focus" | "config" | "new_session" | "sessions" | "import", None) => {}
         ("import", Some(path)) => fields["path"] = json!(path.as_str()?),
         _ => return None,
     }
     Some(fields)
 }
 
-/// Where a shortcut's call goes: the `window_call` event for the newest window
-/// open, or the call's JSON for a window opened to make it.
+/// Where a shortcut's call goes: the newest window open, focused, with the
+/// `window_call` event it makes; or a window opened, focused, with the call's
+/// JSON to make. "focus" asks nothing more of the window.
 #[derive(Debug, PartialEq)]
 enum CallTo {
-    Window(Value),
-    NewWindow(String),
+    Window(u32, Option<Value>),
+    NewWindow(Option<String>),
 }
 
 fn route_call(newest: Option<u32>, mut call: Value) -> CallTo {
+    let asks = call["call"] != "focus";
     match newest {
-        Some(number) => {
-            call["type"] = json!("window_call");
-            call["window"] = json!(number);
-            CallTo::Window(call)
-        }
-        None => CallTo::NewWindow(call.to_string()),
+        Some(number) => CallTo::Window(
+            number,
+            asks.then(|| {
+                call["type"] = json!("window_call");
+                call["window"] = json!(number);
+                call
+            }),
+        ),
+        None => CallTo::NewWindow(asks.then(|| call.to_string())),
     }
 }
 
@@ -1847,9 +1852,18 @@ pub async fn run(
                     && let Some(call) = window_call(payload)
                 {
                     match route_call(windows.newest(), call) {
-                        CallTo::Window(event) => clients.emit(&event),
+                        CallTo::Window(number, event) => {
+                            // Focused first, so a window the call opens (the
+                            // settings) keeps the keyboard it takes on opening.
+                            if let Err(error) = windows.focus(number).await {
+                                eprintln!("eco: {error}");
+                            }
+                            if let Some(event) = event {
+                                clients.emit(&event);
+                            }
+                        }
                         CallTo::NewWindow(call) => {
-                            open_window(&mut windows, session.assistant.live(), Some(&call), &clients, &overlay_open).await;
+                            open_window(&mut windows, session.assistant.live(), call.as_deref(), &clients, &overlay_open).await;
                         }
                     }
                 } else if let ("window.show", Some(payload)) = split(&command) {
@@ -2260,17 +2274,27 @@ mod tests {
         let call = json!({"call": "import", "path": "/tmp/retro.vtt"});
         assert_eq!(
             route_call(Some(3), call.clone()),
-            CallTo::Window(json!({
-                "type": "window_call",
-                "window": 3,
-                "call": "import",
-                "path": "/tmp/retro.vtt"
-            }))
+            CallTo::Window(
+                3,
+                Some(json!({
+                    "type": "window_call",
+                    "window": 3,
+                    "call": "import",
+                    "path": "/tmp/retro.vtt"
+                }))
+            )
         );
-        let CallTo::NewWindow(made) = route_call(None, call.clone()) else {
+        let CallTo::NewWindow(Some(made)) = route_call(None, call.clone()) else {
             panic!("no window is open, so one opens to make the call");
         };
         assert_eq!(serde_json::from_str::<Value>(&made).unwrap(), call);
+    }
+
+    #[test]
+    fn focus_only_focuses_the_newest_window_or_opens_one() {
+        let focus = window_call(r#"{"call": "focus"}"#).unwrap();
+        assert_eq!(route_call(Some(2), focus.clone()), CallTo::Window(2, None));
+        assert_eq!(route_call(None, focus), CallTo::NewWindow(None));
     }
 
     #[test]

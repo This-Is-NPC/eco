@@ -137,6 +137,17 @@ impl Windows {
         }
     }
 
+    /// Give the keyboard to the open window `number`.
+    pub async fn focus(&self, number: u32) -> io::Result<()> {
+        let pid = self
+            .open
+            .iter()
+            .find(|w| w.number == number)
+            .and_then(|w| w.child.id())
+            .ok_or_else(|| io::Error::other(format!("no eco window {number} is open")))?;
+        self.control.focus(pid).await.map_err(io::Error::other)
+    }
+
     /// Note the session the window `number` shows now, or none when empty.
     pub fn shows(&mut self, number: u32, session: &str) {
         if let Some(window) = self.open.iter_mut().find(|w| w.number == number) {

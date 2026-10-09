@@ -961,10 +961,11 @@ tells that window to show it), `session.timeline <id>` (`session_timeline` of a
 live session),
 `window.show <json>` (`{"window","session"}`: the session a window shows now, or
 `""`), `window.call <json>` (`{"call","path"}`, what a shortcut asks of a
-window: `config` opens or closes the settings, `new_session` the start dialog,
-`sessions` the sessions list when no session is on screen, `import` the import
-dialog with `path`, the only call that takes one; the newest window open gets
-`window_call` with its number, and with none open the daemon opens one, as
+window: `focus` only gives it the keyboard, `config` opens or closes the
+settings, `new_session` the start dialog, `sessions` the sessions list when no
+session is on screen, `import` the import dialog with `path`, the only call
+that takes one; the newest window open gets `window_call` with its number,
+`focus` excepted, and the keyboard; with none open the daemon opens one, as
 `overlay.open` does, which makes the call once the daemon has greeted it
 (`ECO_CALL`); any other call is `command.unknown`),
 `session.pause [<id>]`, `session.resume [<id>]`, `session.end [<id>]` (the live
