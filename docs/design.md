@@ -797,8 +797,9 @@ The `models` command (§10.2) lists a provider's models with a key, so it reads 
 key only where a saved provider would: the key source of a saved model, sent to
 that model's `base_url` (a trailing `/` aside), or one of the window's presets —
 `DEEPGRAM_API_KEY`, `ELEVEN_LABS_API_KEY`, `GROQ_API_KEY`, `OPENAI_API_KEY`,
-`OPENROUTER_API_KEY` — sent to that preset's own URL. The list is `PRESET_KEYS`
-in `src/session.rs`; a test holds the window's presets to it. Any other request
+`OPENROUTER_API_KEY` — sent to that preset's own URL. The presets are `PRESETS`
+in `src/session.rs`, and the window gets them from the `config` event (§10.1),
+so the window and this rule read one table. Any other request
 is refused before a key is read, so whatever can write to the socket, an agent
 included, cannot send a secret to a server of its choosing. A draft model with a
 custom URL and a key, or an omapass key, lists once it is saved.
@@ -853,7 +854,7 @@ session it shows:
 {"type":"import_started","session":{…},"total_s":1834.2}
 {"type":"import_progress","id":"…","done_s":612.5,"total_s":1834.2}
 {"type":"import_done","id":"…","complete":true}
-{"type":"config","config":{...},"devices":[{"id":"@default-input","label":"...","kind":"input"}],"omapass":{"installed":false,"page":"https://plugins.omarchy.org/..."}}
+{"type":"config","config":{...},"devices":[{"id":"@default-input","label":"...","kind":"input"}],"omapass":{"installed":false,"page":"https://plugins.omarchy.org/..."},"presets":{"transcription":[{"name":"DEEPGRAM","values":{"base_url":"wss://api.deepgram.com/v1/listen","model":"nova-3","api_key_env":"DEEPGRAM_API_KEY"}},…],"chat":[{"name":"OPENROUTER","values":{"base_url":"https://openrouter.ai/api/v1","model":"…","api_key_env":"OPENROUTER_API_KEY","extra":{}}},…]}}
 {"type":"config_saved"}
 {"type":"models","target":"llm","models":["..."],"error":"..."}
 {"type":"error","code":"session.none","params":{},"message":"start a session first"}

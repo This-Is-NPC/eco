@@ -195,6 +195,9 @@ Singleton {
   // Whether omapass is on this machine, and the page that tells how to install it.
   property bool omapassInstalled: true
   property string omapassPage: ""
+  // Provider presets by model type, from the daemon: {chat: [...], transcription: [...]},
+  // each {name, values} with the model fields it sets.
+  property var presets: ({ chat: [], transcription: [] })
 
   // Asks the overlay to open the new-session dialog, e.g. from a shortcut.
   signal newSessionRequested()
@@ -987,6 +990,8 @@ Singleton {
       break
     }
     case "config":
+      // Presets first: the settings draft is made from the config.
+      presets = event.presets
       config = event.config
       devices = event.devices
       omapassInstalled = event.omapass.installed

@@ -1050,7 +1050,7 @@ impl Session {
                 self.background.spawn(async move {
                     let devices = serde_json::to_value(list_devices().await).unwrap_or_default();
                     let omapass = json!({"installed": omapass::installed(), "page": omapass::PAGE});
-                    emit(json!({"type": "config", "config": config, "devices": devices, "omapass": omapass}));
+                    emit(json!({"type": "config", "config": config, "devices": devices, "omapass": omapass, "presets": presets()}));
                 });
             }
             ("devices", None) => {
@@ -1333,18 +1333,81 @@ impl Session {
     }
 }
 
-/// The official URL of each provider preset the settings window offers, and the
-/// variable its key comes from; `presets_match_the_window` keeps them in step.
-const PRESET_KEYS: [(&str, &str); 5] = [
-    ("wss://api.deepgram.com/v1/listen", "DEEPGRAM_API_KEY"),
-    (
-        "wss://api.elevenlabs.io/v1/speech-to-text/realtime",
-        "ELEVEN_LABS_API_KEY",
-    ),
-    ("https://api.groq.com/openai/v1", "GROQ_API_KEY"),
-    ("https://api.openai.com/v1", "OPENAI_API_KEY"),
-    ("https://openrouter.ai/api/v1", "OPENROUTER_API_KEY"),
+/// A provider the settings window offers by name: its official URL, a default
+/// model, and the variable its key comes from.
+struct Preset {
+    name: &'static str,
+    kind: ModelType,
+    base_url: &'static str,
+    model: &'static str,
+    api_key_env: &'static str,
+}
+
+/// Every preset, in the order the window shows them.
+const PRESETS: [Preset; 6] = [
+    Preset {
+        name: "DEEPGRAM",
+        kind: ModelType::Transcription,
+        base_url: "wss://api.deepgram.com/v1/listen",
+        model: "nova-3",
+        api_key_env: "DEEPGRAM_API_KEY",
+    },
+    Preset {
+        name: "ELEVENLABS",
+        kind: ModelType::Transcription,
+        base_url: "wss://api.elevenlabs.io/v1/speech-to-text/realtime",
+        model: "scribe_v2_realtime",
+        api_key_env: "ELEVEN_LABS_API_KEY",
+    },
+    Preset {
+        name: "GROQ",
+        kind: ModelType::Transcription,
+        base_url: "https://api.groq.com/openai/v1",
+        model: "whisper-large-v3-turbo",
+        api_key_env: "GROQ_API_KEY",
+    },
+    Preset {
+        name: "OPENAI",
+        kind: ModelType::Transcription,
+        base_url: "https://api.openai.com/v1",
+        model: "whisper-1",
+        api_key_env: "OPENAI_API_KEY",
+    },
+    Preset {
+        name: "OPENROUTER",
+        kind: ModelType::Chat,
+        base_url: "https://openrouter.ai/api/v1",
+        model: "google/gemini-3.5-flash-lite",
+        api_key_env: "OPENROUTER_API_KEY",
+    },
+    Preset {
+        name: "GROQ",
+        kind: ModelType::Chat,
+        base_url: "https://api.groq.com/openai/v1",
+        model: "llama-4-scout",
+        api_key_env: "GROQ_API_KEY",
+    },
 ];
+
+/// The presets by model type, as the `config` event carries them: each a name and
+/// the model fields it sets; a chat preset also empties `extra`.
+fn presets() -> Value {
+    let of = |kind: ModelType| -> Vec<Value> {
+        PRESETS
+            .iter()
+            .filter(|p| p.kind == kind)
+            .map(|p| {
+                let mut values =
+                    json!({"base_url": p.base_url, "model": p.model, "api_key_env": p.api_key_env});
+                if kind == ModelType::Chat {
+                    values["extra"] = json!({});
+                }
+                json!({"name": p.name, "values": values})
+            })
+            .collect()
+    };
+    json!({"transcription": of(ModelType::Transcription), "chat": of(ModelType::Chat)})
+}
 
 /// Whether `key` may be read to list the models at `base_url`: no key, the key of
 /// a saved model at that URL, or a preset's variable at the preset's own URL.
@@ -1353,9 +1416,9 @@ fn key_allowed(key: Key<'_>, base_url: &str, saved: &[ModelConfig]) -> bool {
     let same = |url: &str| url.trim_end_matches('/') == base_url.trim_end_matches('/');
     key == Key::None
         || saved.iter().any(|m| same(&m.base_url) && m.key() == key)
-        || PRESET_KEYS
+        || PRESETS
             .iter()
-            .any(|&(url, variable)| same(url) && key == Key::Env(variable))
+            .any(|p| same(p.base_url) && key == Key::Env(p.api_key_env))
 }
 
 /// The models a provider offers, for the config screen's picker; a key
@@ -1609,21 +1672,21 @@ mod tests {
     }
 
     #[test]
-    fn presets_match_the_window() {
-        let window = include_str!("../overlay/ConfigWindow.qml");
-        let quoted = |line: &str, field: &str| {
-            let rest = &line[line.find(&format!("{field}: \""))? + field.len() + 3..];
-            Some(rest[..rest.find('"')?].to_string())
-        };
-        let offered: BTreeSet<(String, String)> = window
-            .lines()
-            .filter_map(|line| Some((quoted(line, "base_url")?, quoted(line, "api_key_env")?)))
-            .collect();
-        let known: BTreeSet<(String, String)> = PRESET_KEYS
-            .iter()
-            .map(|&(url, variable)| (url.into(), variable.into()))
-            .collect();
-        assert_eq!(offered, known);
+    fn presets_go_to_the_window_by_model_type() {
+        let presets = presets();
+        assert_eq!(presets["transcription"].as_array().unwrap().len(), 4);
+        assert_eq!(
+            presets["chat"][1],
+            json!({"name": "GROQ", "values": {
+                "base_url": "https://api.groq.com/openai/v1", "model": "llama-4-scout",
+                "api_key_env": "GROQ_API_KEY", "extra": {},
+            }})
+        );
+        assert_eq!(
+            presets["transcription"][0]["values"],
+            json!({"base_url": "wss://api.deepgram.com/v1/listen", "model": "nova-3",
+                   "api_key_env": "DEEPGRAM_API_KEY"})
+        );
     }
 
     fn recorder() -> (Emit, Arc<Mutex<Vec<Value>>>) {
