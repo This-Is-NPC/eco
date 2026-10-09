@@ -476,6 +476,14 @@ impl Client {
             Window::Toggle => "session.toggle".into(),
         };
         self.send(&command).await?;
+        // The daemon stops serving a client it can no longer write to, maybe
+        // before reading its line: close only our writing half, and return
+        // once the daemon has read to its end and closed.
+        self.writer
+            .shutdown()
+            .await
+            .map_err(|e| Failure::new("daemon.closed", e.to_string()))?;
+        while let Ok(Some(_)) = self.lines.next_line().await {}
         Ok(Value::Null)
     }
 
@@ -1466,11 +1474,15 @@ mod tests {
         for (window, expected) in asks {
             let (ours, mut theirs) = Stream::pair().unwrap();
             let mut client = Client::over(ours);
-            assert_eq!(client.window(window).await, Ok(Value::Null));
-            drop(client);
+            let mut asked = Box::pin(client.window(window));
+            // Not done while the daemon may still be reading the line.
+            let early = std::time::Duration::from_millis(50);
+            assert!(tokio::time::timeout(early, &mut asked).await.is_err());
             let mut received = String::new();
             theirs.read_to_string(&mut received).await.unwrap();
             assert_eq!(received, format!("{expected}\n"));
+            drop(theirs);
+            assert_eq!(asked.await, Ok(Value::Null));
         }
     }
 
