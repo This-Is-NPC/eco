@@ -835,9 +835,10 @@ Two limits keep one client from growing the daemon's memory. A command line
 longer than 1 MiB (`MAX_LINE` in `src/adapters/control_socket.rs`; a
 `config.set` with a full config is a few kilobytes) closes that connection
 without running it. Each client has a queue of at most 4096 lines
-(`MAX_QUEUED`) still to write; a client that falls that far behind, or stops
-reading, is dropped and its connection closed, while the daemon and the other
-clients go on.
+(`MAX_QUEUED`) still to write. While that queue is full, the client skips
+`signal` events, the live input meter whose next reading replaces the last;
+any other event it cannot take drops it and closes its connection, while the
+daemon and the other clients go on.
 
 ### 10.1 Events
 

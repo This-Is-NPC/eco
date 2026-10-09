@@ -45,9 +45,14 @@ pub async fn connect(path: &Path) -> std::result::Result<Option<UnixStream>, Con
 /// its connection. A `config.set` with a full config is a few kilobytes.
 const MAX_LINE: usize = 1 << 20;
 
-/// How many lines may wait to be written to one client; a client that falls
-/// this far behind is dropped.
+/// How many lines may wait to be written to one client.
 const MAX_QUEUED: usize = 4096;
+
+/// Whether a client whose queue is full may miss `event` and stay connected:
+/// only the live input meter, whose next reading replaces it.
+fn transient(event: &Event) -> bool {
+    event["type"] == "signal"
+}
 
 /// A connected client: the queue of lines still to write to it, and a guard
 /// whose drop ends its connection.
@@ -61,14 +66,18 @@ struct Client {
 pub struct Clients(Arc<Mutex<Vec<Client>>>);
 
 impl Clients {
-    /// Send an event to every client; clients that left or whose queue is
-    /// full are dropped.
+    /// Send an event to every client. A client that left is dropped; so is one
+    /// whose queue is full, unless the event is transient and it skips it.
     pub fn emit(&self, event: &Event) {
         let line = format!("{event}\n");
-        self.0
-            .lock()
-            .expect("not poisoned")
-            .retain(|client| client.lines.try_send(line.clone()).is_ok());
+        let transient = transient(event);
+        self.0.lock().expect("not poisoned").retain(|client| {
+            match client.lines.try_send(line.clone()) {
+                Ok(()) => true,
+                Err(mpsc::error::TrySendError::Full(_)) => transient,
+                Err(mpsc::error::TrySendError::Closed(_)) => false,
+            }
+        });
     }
 
     fn add(&self, client: Client) {
@@ -288,6 +297,32 @@ mod tests {
         )
         .await;
         assert!(closed.is_ok(), "the daemon closes the stalled connection");
+    }
+
+    #[tokio::test]
+    async fn a_client_that_does_not_read_skips_signals_and_is_dropped_for_the_rest() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("eco.sock");
+        let (_socket, clients, _commands) = bound(&path, Vec::new()).await;
+        let _stalled = UnixStream::connect(&path).await.unwrap();
+        while clients.0.lock().unwrap().is_empty() {
+            tokio::task::yield_now().await;
+        }
+        let text = "x".repeat(1024);
+        for _ in 0..MAX_QUEUED * 2 {
+            clients.emit(&json!({"type": "signal", "input": text, "level": 0.5, "speech": true}));
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(
+            clients.0.lock().unwrap().len(),
+            1,
+            "a flood of signals keeps it"
+        );
+        clients.emit(&json!({"type": "suggestion_delta", "text": "olá"}));
+        assert!(
+            clients.0.lock().unwrap().is_empty(),
+            "a lost real event drops it"
+        );
     }
 
     #[tokio::test]
