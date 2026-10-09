@@ -27,7 +27,7 @@ use crate::adapters::session_files::{NoSessionFiles, SessionFiles};
 use crate::adapters::stt_deepgram::{self, DeepgramBilling, DeepgramTranscriber};
 use crate::adapters::stt_elevenlabs::{self, ElevenLabsTranscriber};
 use crate::adapters::stt_openai::OpenAITranscriber;
-use crate::adapters::terminal::print_event;
+use crate::adapters::terminal::terminal;
 use crate::adapters::vad_silero::{SileroModel, SileroVad};
 use crate::adapters::webvtt;
 use crate::config::{self, Config, ConfigError, Key, ModelConfig, ModelType};
@@ -1388,8 +1388,11 @@ pub async fn run(
     let clients = Clients::default();
     let emit: Emit = {
         let clients = clients.clone();
+        let terminal = terminal(std::io::stdout());
         Arc::new(move |event| {
-            print_event(&event);
+            if let Some(terminal) = &terminal {
+                terminal.print(&event);
+            }
             clients.emit(&event);
         })
     };

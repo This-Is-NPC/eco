@@ -125,7 +125,7 @@ composition happens in `src/session.rs` from `config.toml`. The crate forbids
 | `AudioSource` | `pw-record` (any input, or what any sink plays), **WAV file** | The file adapter replays recorded meetings (`--replay <file.wav>`) to tune prompt and trigger and for automated tests. |
 | `STT` | Deepgram (streaming), ElevenLabs Scribe (streaming), OpenAI-compatible transcription (`/v1/audio/transcriptions`: LAN whisper.cpp server, Groq, OpenAI) | There is no common real-time STT standard: each protocol needs its own adapter. |
 | `LLM` | a single OpenAI-compatible adapter | Covers OpenRouter, OpenAI, Groq, Ollama, llama.cpp — switching = `base_url` + key + model. |
-| `EventSink` | Unix socket (overlay), JSON stdout (debug) | |
+| `EventSink` | Unix socket (overlay), text on stdout | stdout is written only when it is a terminal (`mise run start`); under the user service it is the journal, which never gets transcript, note or answer text. |
 | `TranscriptStore` | file in `~/.local/share/eco/`, null (`--no-save`) | |
 
 Rule: only add a port when two real implementations exist or a test clearly
@@ -207,7 +207,8 @@ eco/
   is reported and the raw microphone is used. It costs ~3% of one core while a
   session records.
 - **Errors show:** a failed transcription or a capture that stops mid-session
-  reaches the overlay's status line, not only the terminal.
+  reaches the overlay's status line, and the terminal when the daemon runs in
+  one.
 
 ---
 
@@ -1448,7 +1449,9 @@ mise run uninstall          # asks first, then takes that install back off
 ```
 
 **A checkout is enough to try eco.** `mise run start` runs the daemon and its
-window in the foreground, until Ctrl+C, and installs nothing. `mise run
+window in the foreground, until Ctrl+C, and installs nothing. It prints the
+transcript, notes and answers as they come; the user service prints none of
+them, so the journal holds no conversation. `mise run
 install` is §13: it puts everything under `~/.local`, and the Hyprland rules
 are then loaded with
 `dofile(os.getenv("HOME") .. "/.local/share/eco/hypr/eco.lua")` from

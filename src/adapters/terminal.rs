@@ -1,12 +1,31 @@
 //! Daemon events rendered in the terminal, suggestions streaming inline.
 
-use std::io::Write;
+use std::io::{IsTerminal, Write};
+use std::sync::Mutex;
 
 use serde_json::Value;
 
 use crate::domain::events::Event;
 
-pub fn print_event(event: &Event) {
+/// Prints events live to a terminal.
+pub struct Terminal<W>(Mutex<W>);
+
+/// A printer for `out` only when it is a terminal: under the user service stdout
+/// is the journal, which must never hold transcript, note or answer text.
+pub fn terminal<W: Write + IsTerminal>(out: W) -> Option<Terminal<W>> {
+    out.is_terminal().then(|| Terminal(Mutex::new(out)))
+}
+
+impl<W: Write> Terminal<W> {
+    pub fn print(&self, event: &Event) {
+        let Some(line) = line(event) else { return };
+        let mut out = self.0.lock().expect("not poisoned");
+        let _ = out.write_all(line.as_bytes());
+        let _ = out.flush();
+    }
+}
+
+fn line(event: &Event) -> Option<String> {
     let text = |key: &str| event.get(key).and_then(Value::as_str).unwrap_or_default();
     let number = |key: &str| event.get(key).and_then(Value::as_u64);
     let line = match text("type") {
@@ -48,9 +67,18 @@ pub fn print_event(event: &Event) {
         "suggestion_removed" => format!("\n── sugestão {} removida ──\n", text("id")),
         "note_removed" => format!("\n── nota {} removida ──\n", text("id")),
         "error" => format!("\n!! {}\n", text("message")),
-        _ => return,
+        _ => return None,
     };
-    let mut out = std::io::stdout().lock();
-    let _ = out.write_all(line.as_bytes());
-    let _ = out.flush();
+    Some(line)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn prints_nothing_when_out_is_not_a_terminal() {
+        let journal = tempfile::tempfile().unwrap();
+        assert!(terminal(journal).is_none());
+    }
 }
