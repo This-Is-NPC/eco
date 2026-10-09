@@ -1,0 +1,45 @@
+# eco, packaged for pacman from the committed tree of this repository.
+#
+# scripts/package builds it (`mise run package`), and the release workflow runs
+# that script on the tagged checkout and attaches the package to the GitHub
+# release that install.sh downloads. The tree is taken with `git archive HEAD`,
+# so a build is of a commit, never of uncommitted changes.
+pkgname=eco
+# Moved by release-please, and by nothing else.
+pkgver=0.1.0 # x-release-please-version
+pkgrel=1
+pkgdesc='Voice sessions with an AI beside them, for Omarchy'
+arch=('x86_64')
+url='https://github.com/This-Is-NPC/eco'
+license=('MIT')
+depends=('gcc-libs' 'glibc' 'hyprland' 'pipewire' 'quickshell' 'socat' 'wl-clipboard')
+optdepends=('ffmpeg: import audio or video recordings')
+makedepends=('cargo' 'git')
+options=('!lto' '!debug')
+
+_tree="${ECO_TREE:-$startdir/../..}"
+
+prepare() {
+  rm -rf "$srcdir/tree"
+  mkdir "$srcdir/tree"
+  git -C "$_tree" archive HEAD | tar -x -C "$srcdir/tree"
+  cd "$srcdir/tree"
+  cargo fetch --locked --target "$(rustc --print host-tuple)"
+}
+
+build() {
+  cd "$srcdir/tree"
+  cargo build --release --frozen
+}
+
+package() {
+  cd "$srcdir/tree"
+  source scripts/lib/stage.sh
+  install -Dm755 target/release/eco "$pkgdir/usr/bin/eco"
+  stage_files "$pkgdir" /usr
+  install -d "$pkgdir/usr/lib/systemd/user"
+  service_unit /usr/bin/eco > "$pkgdir/usr/lib/systemd/user/eco.service"
+  chmod 644 "$pkgdir/usr/lib/systemd/user/eco.service"
+  install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+  install -Dm644 docs/cli.md "$pkgdir/usr/share/doc/$pkgname/cli.md"
+}

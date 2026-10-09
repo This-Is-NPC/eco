@@ -1,0 +1,147 @@
+#!/usr/bin/env bash
+# Run the gate (`mise run check`) and post the `local-check` commit status that
+# master requires before a pull request can merge. Nothing on GitHub runs the
+# gate: it needs the pinned toolchain and the VAD and speaker models.
+#
+#   scripts/local-check                    gate HEAD, then post (HEAD must be pushed)
+#   scripts/local-check --pre-push         gate, and post once the push lands
+#   scripts/local-check --post-only --state=success [--sha=<sha>]
+#   scripts/local-check --dry-run [...]    print the API calls instead
+#
+# --post-only is for a commit nobody pushed from here, such as the release pull
+# request release-please opens, after its tree was checked out and gated by hand.
+#
+# Env:
+#   ECO_SKIP_LOCAL_CHECK=1   do nothing (a deliberate skip)
+#   ECO_LOCAL_CHECK_SHA=<s>  same as --sha=
+set -euo pipefail
+
+if [[ "${ECO_SKIP_LOCAL_CHECK:-0}" == 1 ]]; then
+  exit 0
+fi
+
+root="${MISE_PROJECT_ROOT:-$(git rev-parse --show-toplevel)}"
+cd "$root"
+
+DRY_RUN=0
+PRE_PUSH=0
+POST_ONLY=0
+STATE=""
+SHA="${ECO_LOCAL_CHECK_SHA:-}"
+for arg in "$@"; do
+  case "$arg" in
+    --dry-run) DRY_RUN=1 ;;
+    --pre-push) PRE_PUSH=1 ;;
+    --post-only) POST_ONLY=1 ;;
+    --state=*) STATE="${arg#--state=}" ;;
+    --sha=*) SHA="${arg#--sha=}" ;;
+    -h | --help)
+      sed -n '2,17p' "$0"
+      exit 0
+      ;;
+    *)
+      printf 'local-check: unknown arg: %s\n' "$arg" >&2
+      exit 2
+      ;;
+  esac
+done
+SHA="${SHA:-$(git rev-parse HEAD)}"
+CONTEXT="local-check"
+
+post_now() {
+  local state="$1" desc="$2"
+  if ((DRY_RUN)); then
+    printf '[dry-run] POST /repos/%s/statuses/%s state=%s context=%s desc=%q\n' \
+      "$REPO" "$SHA" "$state" "$CONTEXT" "$desc"
+    return 0
+  fi
+  gh api --silent -X POST "repos/$REPO/statuses/$SHA" \
+    -f "state=$state" -f "context=$CONTEXT" -f "description=$desc"
+}
+
+# The hook runs before the push, so GitHub does not know the commit yet and
+# refuses a status on it. A detached poller posts it once the commit is there,
+# and gives up after a minute.
+post_when_pushed() {
+  local state="$1" desc="$2"
+  if ((DRY_RUN)); then
+    printf '[dry-run] poll until %s is on GitHub, then POST state=%s\n' "$SHA" "$state"
+    return 0
+  fi
+  setsid nohup bash -c '
+    repo="$1"; sha="$2"; state="$3"; ctx="$4"; desc="$5"
+    for _ in $(seq 1 60); do
+      if gh api -X GET "repos/$repo/commits/$sha" --silent >/dev/null 2>&1; then
+        gh api --silent -X POST "repos/$repo/statuses/$sha" \
+          -f "state=$state" -f "context=$ctx" -f "description=$desc"
+        exit 0
+      fi
+      sleep 1
+    done
+  ' bash "$REPO" "$SHA" "$state" "$CONTEXT" "$desc" </dev/null >/dev/null 2>&1 &
+  disown 2>/dev/null || true
+}
+
+if ! REPO="$(gh repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null)"; then
+  if ((PRE_PUSH)); then
+    printf 'local-check: gh is not logged in, so the gate runs but posts no status,\n' >&2
+    printf '             and master will refuse the merge.\n' >&2
+    REPO=""
+  else
+    printf 'local-check: gh is not logged in, or this is not a GitHub checkout\n' >&2
+    exit 1
+  fi
+fi
+
+if ((POST_ONLY)); then
+  if [[ -z "$STATE" ]]; then
+    printf 'local-check: --post-only needs --state=...\n' >&2
+    exit 2
+  fi
+  post_now "$STATE" "mise run check - ${STATE} (post-only)"
+  exit 0
+fi
+
+# The gate runs on the working tree, so it only vouches for the commit being
+# pushed when the two are the same tree.
+if [[ "$(git rev-parse HEAD)" != "$SHA" ]] || ! git diff --quiet HEAD --; then
+  printf 'local-check: %s is not the clean HEAD, and the gate only vouches for the\n' "${SHA:0:7}" >&2
+  printf '             tree it runs on. Check it out with nothing changed, or skip with\n' >&2
+  printf '             ECO_SKIP_LOCAL_CHECK=1.\n' >&2
+  exit 1
+fi
+
+if ((!PRE_PUSH)); then
+  post_now pending "mise run check - running locally"
+fi
+
+start="$(date +%s)"
+rc=0
+if ((DRY_RUN)); then
+  printf '[dry-run] would run: mise run check\n'
+else
+  mise run check || rc=$?
+fi
+elapsed=$(($(date +%s) - start))
+
+if ((rc == 0)); then
+  state=success
+  desc="mise run check - passed in ${elapsed}s"
+else
+  state=failure
+  desc="mise run check - failed (rc=$rc) after ${elapsed}s"
+fi
+
+if ((PRE_PUSH)); then
+  if ((rc != 0)); then
+    printf 'local-check: %s - the push is refused.\n' "$desc" >&2
+    exit "$rc"
+  fi
+  if [[ -n "$REPO" ]]; then
+    post_when_pushed "$state" "$desc"
+  fi
+  exit 0
+fi
+
+post_now "$state" "$desc"
+exit "$rc"

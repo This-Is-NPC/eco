@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 source scripts/lib/desktop-entry.sh
+source scripts/lib/stage.sh
 
 # Install the release build of eco under a prefix (default ~/.local): the
 # binary, its own copy of the overlay, the Hyprland rules pointing at it, the
@@ -30,17 +31,10 @@ if [ "$was_running" -eq 1 ]; then
   "target/release/eco" stop
 fi
 install -Dm755 target/release/eco "$prefix/bin/eco"
-rm -rf "$share/overlay"
-mkdir -p "$share"
-cp -r overlay "$share/overlay"
-install -d "$share/hypr"
-sed "s|^local overlay = .*|local overlay = \"$share/overlay\"|" packaging/hypr/eco.lua > "$share/hypr/eco.lua"
-install -Dm644 packaging/eco.desktop "$prefix/share/applications/eco.desktop"
-install -Dm644 packaging/eco.svg "$prefix/share/icons/hicolor/scalable/apps/eco.svg"
-install -Dm644 LICENSE "$prefix/share/licenses/eco/LICENSE"
+stage_files "" "$prefix"
 unit_dir="$HOME/.config/systemd/user"
 install -d "$unit_dir"
-sed "s|@ECO_BINARY@|$prefix/bin/eco|" packaging/eco.service > "$unit_dir/eco.service"
+service_unit "$prefix/bin/eco" > "$unit_dir/eco.service"
 systemctl --user daemon-reload
 if [ "$was_running" -eq 1 ]; then
   "$prefix/bin/eco" start --headless

@@ -71,6 +71,18 @@ run = "scripts/docs-check"
 description = "Run lint, tests, the docs/cli.md check and the docs link check"
 depends = ["lint", "test", "cli:check", "docs:check"]
 
+[tasks."local-check"]
+description = "Run the gate on HEAD and post the local-check status master requires"
+run = "scripts/local-check"
+
+[tasks."hooks:install"]
+description = "Install the versioned pre-push hook that runs the gate and posts local-check"
+run = "scripts/hooks-install"
+
+[tasks.package]
+description = "Build the Arch package of the committed HEAD into target/arch/pkg, with its SHA256SUMS"
+run = "scripts/package"
+
 [tasks."bench:llm"]
 description = "Measure time to first token of candidate models on OpenRouter (needs OPENROUTER_API_KEY)"
 run = "scripts/bench-llm"

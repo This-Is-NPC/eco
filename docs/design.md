@@ -1322,7 +1322,26 @@ another tab decides is only read, never picked, there.
 
 ## 13. Packaging
 
-`mise run install` (`scripts/install`) builds the release binary and installs it
+**The release package.** `packaging/arch/PKGBUILD` builds eco for pacman from
+the committed tree (`git archive HEAD`, never uncommitted changes) and installs
+`/usr/bin/eco`, the overlay under `/usr/share/eco/overlay`, the Hyprland rules
+under `/usr/share/eco/hypr/eco.lua` pointing at it, the launcher, the icon, the
+licence and the user service in `/usr/lib/systemd/user`. `mise run package`
+(`scripts/package`) runs `makepkg` into `target/arch/pkg` and writes the
+`SHA256SUMS` beside the package; `install.sh` downloads both from a GitHub
+release, checks one against the other and runs `pacman -U`.
+
+**Releases.** Commits follow Conventional Commits, and release-please reads
+them (`release-please-config.json`, `.release-please-manifest.json`). Every
+pull request merged into `master` runs `.github/workflows/release.yml`, which
+opens or updates a release pull request: it moves the version in `Cargo.toml`,
+`Cargo.lock` and the `PKGBUILD`, and writes `CHANGELOG.md`. Merging that pull
+request tags `v<version>`, and the same workflow builds the package from the
+tag with `scripts/package` in an Arch container and attaches it, with its
+`SHA256SUMS`, to the release. The workflow runs no test; the gate is local
+(see [Tests and the gate](#tests-and-the-gate)).
+
+**From a checkout.** `mise run install` (`scripts/install`) builds the release binary and installs it
 under a prefix (`~/.local` unless `PREFIX`): the binary, its own copy of the
 overlay, the Hyprland rules pointing at it, the launcher, icon and user service,
 with the models and the agent skill prepared first (`eco setup --harnesses
@@ -1419,6 +1438,9 @@ mise run bench:llm          # model latency on OpenRouter
 mise run bench:diarization <dir>   # diarization error rate on WAV + RTTM
 mise run readme:gif         # the README icon, from packaging/eco.omapixel
 mise run install            # the release build, under ~/.local (PREFIX moves it)
+mise run package            # the Arch package of HEAD, into target/arch/pkg
+mise run hooks:install      # run the gate on every push, and post local-check
+mise run local-check        # gate HEAD and post local-check by hand
 mise run uninstall          # asks first, then takes that install back off
 ```
 
@@ -1452,6 +1474,17 @@ That is the whole gate. It runs:
 | `test` | a failing `cargo test`: the domain tests, the i18n checks (`tests/i18n.rs`) and the VAD and speaker parity tests against the Python fixtures (these need the models from `mise run setup`) |
 | `cli:check` | a `docs/cli.md` that is not what the binary's help generates |
 | `docs:check` | a relative link or image in `README.md` or `docs/*.md` whose file, or whose heading for an `#anchor`, is missing |
+
+**The gate guards `master`, from this machine.** Nothing on GitHub runs it: it
+needs the pinned toolchain and the models. `mise run hooks:install` points git
+at `.githooks`, whose `pre-push` runs `scripts/local-check --pre-push` for the
+commit being pushed: a red gate refuses the push, and a green one posts the
+`local-check` commit status. `master` is protected: a pull request merges only
+when its head carries `local-check`, and nobody pushes to it directly or
+rewrites it. An administrator can merge past the rule; that is how the release
+pull request, which no hook ran on, is merged. To gate it instead, check its
+branch out and run `mise run local-check`, which gates that commit and posts the
+status. `ECO_SKIP_LOCAL_CHECK=1` or `git push --no-verify` skips the hook.
 
 Recorded audio replays with `--replay <file.wav>` instead of joining a call.
 `mise run preview:controls` opens the control lab, and `mise run shots`
