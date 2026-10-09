@@ -10,12 +10,12 @@ use std::time::Duration;
 use rustix::process::{Pid, Signal, kill_process};
 use tokio::process::{Child, Command};
 
-use crate::config;
+use crate::paths;
 
 /// The QML: installed beside the binary (`<prefix>/share/eco/overlay` for
 /// `<prefix>/bin/eco`), or this checkout's when eco runs from it.
 fn overlay_dir() -> PathBuf {
-    config::shipped("overlay/shell.qml")
+    paths::shipped("overlay/shell.qml")
         .and_then(|qml| qml.parent().map(PathBuf::from))
         .unwrap_or_else(|| concat!(env!("CARGO_MANIFEST_DIR"), "/overlay").into())
 }
@@ -23,7 +23,7 @@ fn overlay_dir() -> PathBuf {
 /// The overlay windows, each its own quickshell process: a number, which the
 /// window is told, and the session it shows, which it tells back. Every window
 /// is handed the same token, which tells its commands apart from other clients';
-/// a window the daemon did not start reads it from `config::token_path()`.
+/// a window the daemon did not start reads it from `paths::token_path()`.
 pub struct Windows {
     token: String,
     _kept: TokenFile,
@@ -41,7 +41,7 @@ struct Window {
 impl Windows {
     pub fn new(token: String) -> io::Result<Self> {
         Ok(Self {
-            _kept: TokenFile::write(&config::token_path(), &token)?,
+            _kept: TokenFile::write(&paths::token_path(), &token)?,
             token,
             last: 0,
             open: Vec::new(),

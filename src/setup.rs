@@ -9,6 +9,7 @@ use sha2::{Digest, Sha256};
 
 use crate::adapters::http;
 use crate::config;
+use crate::paths;
 
 /// A model file eco downloads, pinned by checksum.
 struct Model {
@@ -25,14 +26,14 @@ const MODELS: [Model; 2] = [
         name: "Silero VAD",
         url: "https://github.com/snakers4/silero-vad/raw/v6.2.3/src/silero_vad/data/silero_vad_op18_ifless.onnx",
         sha256: "7671cd04b004e9076da0d4a7b1a5aec36adf161c39230c1cb94a4fd5db6bbd28",
-        target: config::vad_model,
+        target: paths::vad_model,
     },
     // WeSpeaker CAM++ trained on VoxCeleb (Apache-2.0), for telling speakers apart.
     Model {
         name: "WeSpeaker CAM++",
         url: "https://huggingface.co/Wespeaker/wespeaker-voxceleb-campplus/resolve/main/voxceleb_CAM%2B%2B.onnx",
         sha256: "b50810498b5bcf5773d086f6993d344476bd0c88b566a41e8d801aaf8461efad",
-        target: config::speaker_model,
+        target: paths::speaker_model,
     },
 ];
 

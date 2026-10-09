@@ -8,6 +8,7 @@ mod config;
 mod domain;
 mod import;
 mod lifecycle;
+mod paths;
 mod ports;
 mod session;
 mod setup;
@@ -326,7 +327,7 @@ async fn main() -> Result<()> {
             replay,
             headless,
             no_save,
-        } => session::run(&config::config_file(), replay, headless, !no_save).await,
+        } => session::run(&paths::config_file(), replay, headless, !no_save).await,
         Command::Diarize { model } => adapters::diarizer_process::serve(&model),
         Command::Bench { target } => match target {
             Bench::Llm => bench::llm::run().await,
@@ -512,13 +513,13 @@ async fn set_up(harnesses: Vec<String>) -> Result<()> {
     for done in setup::run().await? {
         println!("eco: {done}");
     }
-    let rules = config::shipped("hypr/eco.lua");
-    let hyprland = setup::hyprland(&config::hypr_bindings(), rules.as_deref());
+    let rules = paths::shipped("hypr/eco.lua");
+    let hyprland = setup::hyprland(&paths::hypr_bindings(), rules.as_deref());
     match &hyprland {
         Ok(done) => println!("eco: {done}"),
         Err(warning) => eprintln!("eco: warning: {warning}"),
     }
-    let home = config::home();
+    let home = paths::home();
     let mut targets = harnesses;
     for harness in skill::installed(&home) {
         if !targets.iter().any(|target| target == harness) {
@@ -537,7 +538,7 @@ async fn set_up(harnesses: Vec<String>) -> Result<()> {
 
 /// Run a session command against the daemon; it prints its JSON and sets the exit code.
 async fn sessions(request: cli::Request) -> Result<()> {
-    let code = cli::run(&config::socket_path(), request).await;
+    let code = cli::run(&paths::socket_path(), request).await;
     if code != 0 {
         std::process::exit(code);
     }

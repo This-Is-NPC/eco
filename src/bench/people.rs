@@ -12,9 +12,9 @@ use crate::adapters::speaker_tract::TractEmbedder;
 use crate::adapters::vad_silero::SileroModel;
 use crate::bench::der::{Segment, parse_rttm};
 use crate::bench::diarization::diarize;
-use crate::config;
 use crate::domain::diarization::{Clustering, Diarization};
 use crate::domain::people::{Person, ranked};
+use crate::paths;
 
 /// The reference speaker each found speaker overlaps most.
 fn references(diarization: &Diarization, reference: &[Segment]) -> Vec<Option<String>> {
@@ -37,8 +37,8 @@ fn references(diarization: &Diarization, reference: &[Segment]) -> Vec<Option<St
 
 pub async fn run(dir: PathBuf, series: Vec<String>) -> Result<()> {
     let embedder =
-        TractEmbedder::load(&config::speaker_model()).map_err(|e| anyhow::anyhow!(e.0))?;
-    let vad = SileroModel::load(&config::vad_model())?;
+        TractEmbedder::load(&paths::speaker_model()).map_err(|e| anyhow::anyhow!(e.0))?;
+    let vad = SileroModel::load(&paths::vad_model())?;
     let mut people: Vec<Person> = Vec::new();
     // (reference speaker, voice) of every speaker found outside the `a` meetings.
     let mut heard: Vec<(String, Vec<f32>)> = Vec::new();

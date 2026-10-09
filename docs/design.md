@@ -148,6 +148,7 @@ eco/
 │   ├── setup.rs, skill.rs   # `eco setup`: models and the agent skill
 │   ├── import.rs            # a file into a session (§7.7)
 │   ├── config.rs            # config.toml: schema, validation, atomic save (§9)
+│   ├── paths.rs             # every path eco reads or writes (§8, §15)
 │   ├── session.rs           # adapter composition + orchestration
 │   ├── ports.rs             # traits
 │   ├── domain/              # segmenter, sessions, assistant, prompts, people, billing
@@ -630,7 +631,8 @@ session's cost; the overlay shows one only when asked (§12.3).
 
 ## 8. State on disk
 
-Never audio. Everything below is text the user can read.
+Never audio. Everything below is text the user can read. Every path
+below is built in `src/paths.rs` (§15).
 
 | Path | Holds | Written by |
 |---|---|---|
@@ -1640,7 +1642,7 @@ adapter lives today.
 
 | Seam | Linux adapter today | File(s) |
 |---|---|---|
-| Paths | XDG base directories (`XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_RUNTIME_DIR`) | `src/config.rs` |
+| Paths | the home and the XDG base directories (`HOME`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_RUNTIME_DIR`, else `/run/user/<uid>`) | `src/paths.rs` |
 | The daemon socket | a Unix domain socket at `$XDG_RUNTIME_DIR/eco.sock`, in `src/adapters/local_socket.rs`; the protocol (`src/adapters/control_socket.rs`), the CLI client (`src/cli.rs`) and the service commands (`src/lifecycle.rs`) reach it only through that module | `src/adapters/local_socket.rs` |
 | Audio devices and capture | PipeWire (`pw-dump`, `pw-record`, `libpipewire-module-echo-cancel` loaded through `pw-cli`) | `src/adapters/pipewire_devices.rs`, `src/adapters/audio_pipewire.rs`, `src/adapters/echo_cancel.rs` |
 | Service lifecycle and desktop setup | the systemd user service (`systemctl --user`) and the line loaded into the Hyprland Lua config (`~/.config/hypr/bindings.lua`) | `src/lifecycle.rs`, `src/setup.rs` |

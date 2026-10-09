@@ -14,13 +14,13 @@ use crate::adapters::audio_ffmpeg::{FfmpegSource, Probe, probe};
 use crate::adapters::diarizer_process;
 use crate::adapters::vad_silero::{SileroModel, SileroVad};
 use crate::adapters::webvtt;
-use crate::config;
 use crate::domain::assistant::Emit;
 use crate::domain::channel::{Listeners, Transcriber, Utterance, transcribe_channel};
 use crate::domain::diarization::{Diarization, label_lines};
 use crate::domain::events::{error, transcription_failed};
 use crate::domain::segmenter::{Segment, SegmenterConfig};
 use crate::domain::session::{ENDED, HeardBy, IMPORT, Session, now, recorded_at};
+use crate::paths;
 use crate::ports::{AudioError, PeopleStore, SessionLog};
 
 /// A file to import and what the session it becomes is.
@@ -233,7 +233,7 @@ async fn media(
             .map_err(|e| AudioError(e.to_string()))
     };
     // Without the model (no `eco setup`), lines keep the participant.
-    let model = config::speaker_model();
+    let model = paths::speaker_model();
     let diarization = model.exists().then(|| diarizing(&model));
     let spans = Mutex::new(Vec::new());
     let utterance = |heard: Utterance| {

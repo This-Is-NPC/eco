@@ -11,7 +11,7 @@ use tokio::process::Command;
 use tokio::time::{sleep, timeout};
 
 use crate::adapters::local_socket::{self, Stream};
-use crate::config;
+use crate::paths;
 
 const READY_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -23,7 +23,7 @@ struct Daemon {
 }
 
 async fn socket() -> Result<Option<Stream>> {
-    socket_at(&config::socket_path()).await
+    socket_at(&paths::socket_path()).await
 }
 
 async fn socket_at(path: &Path) -> Result<Option<Stream>> {
@@ -31,7 +31,7 @@ async fn socket_at(path: &Path) -> Result<Option<Stream>> {
 }
 
 async fn connect() -> Result<Option<Daemon>> {
-    connect_at(&config::socket_path()).await
+    connect_at(&paths::socket_path()).await
 }
 
 async fn connect_at(path: &Path) -> Result<Option<Daemon>> {

@@ -41,6 +41,7 @@ use crate::domain::hub::{Capture, Hub};
 use crate::domain::segmenter::{Segment, SegmenterConfig};
 use crate::domain::transcribers::{Listening, Transcribers};
 use crate::import;
+use crate::paths;
 use crate::ports::{
     AudioError, AudioSource, LanguageModel, PeopleStore, SessionLog, SpeechToText,
     StreamingSpeechToText, TranscriptionBilling,
@@ -441,7 +442,7 @@ struct Voices {
 /// Start telling the voices heard as `who` apart, when the speaker model is set
 /// up; once the input stops recording, the session's lines get their voices.
 fn voices(assistant: &Assistant, emit: &Emit, who: &str) -> Option<Voices> {
-    let model = config::speaker_model();
+    let model = paths::speaker_model();
     if !model.exists() {
         return None;
     }
@@ -1688,7 +1689,7 @@ pub async fn run(
     headless: bool,
     save_sessions: bool,
 ) -> Result<()> {
-    let vad_model = config::vad_model();
+    let vad_model = paths::vad_model();
     if !vad_model.exists() {
         bail!(ConfigError(format!(
             "missing {}; run `eco setup`",
@@ -1698,7 +1699,7 @@ pub async fn run(
     let vad = SileroModel::load(&vad_model)?;
     let current = config::load(config_path)?;
     let log: Arc<dyn SessionLog> = if save_sessions {
-        let files = SessionFiles::new(config::sessions_dir());
+        let files = SessionFiles::new(paths::sessions_dir());
         files.pause_unfinished();
         Arc::new(files)
     } else {
@@ -1716,7 +1717,7 @@ pub async fn run(
             clients.emit(&event);
         })
     };
-    let people: Arc<dyn PeopleStore> = Arc::new(PeopleFiles::new(config::people_dir()));
+    let people: Arc<dyn PeopleStore> = Arc::new(PeopleFiles::new(paths::people_dir()));
     let assistant = Assistant::new(
         Arc::clone(&emit),
         Arc::clone(&log),
@@ -1744,7 +1745,7 @@ pub async fn run(
     };
     let token = uuid::Uuid::new_v4().simple().to_string();
     let _control =
-        ControlSocket::bind(&config::socket_path(), clients.clone(), greeting, commands).await?;
+        ControlSocket::bind(&paths::socket_path(), clients.clone(), greeting, commands).await?;
     let mut windows = overlay::Windows::new(token.clone())?;
     if !headless {
         windows.open(None).await?;

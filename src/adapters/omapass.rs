@@ -8,7 +8,7 @@ use std::process::Stdio;
 use serde_json::Value;
 use tokio::process::Command;
 
-use crate::config;
+use crate::paths;
 
 /// One login omapass keeps.
 #[derive(Debug, Clone, PartialEq)]
@@ -23,8 +23,7 @@ fn program() -> Option<PathBuf> {
         .into_iter()
         .flat_map(|path| std::env::split_paths(&path).collect::<Vec<_>>())
         .map(|dir| dir.join("omapass"));
-    let plugin =
-        config::home().join(".config/omarchy/plugins/io.github.this-is-npc.omapass/bin/omapass");
+    let plugin = paths::omapass_plugin();
     on_path
         .chain([plugin])
         .find(|candidate| candidate.is_file())

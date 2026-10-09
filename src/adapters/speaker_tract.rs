@@ -64,7 +64,7 @@ mod tests {
     use serde_json::Value;
 
     use super::*;
-    use crate::config;
+    use crate::paths;
 
     fn cosine(a: &[f32], b: &[f32]) -> f32 {
         let dot: f32 = a.iter().zip(b).map(|(x, y)| x * y).sum();
@@ -83,7 +83,7 @@ mod tests {
     /// the WeSpeaker pipeline (kaldi-native-fbank and ONNX Runtime).
     #[test]
     fn matches_the_wespeaker_pipeline() {
-        let model = config::speaker_model();
+        let model = paths::speaker_model();
         assert!(
             model.exists(),
             "run `mise run setup` first: {} is missing",

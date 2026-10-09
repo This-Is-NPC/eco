@@ -75,12 +75,12 @@ impl SileroVad {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config;
+    use crate::paths;
 
     /// The same frames give the probabilities the Python daemon computed.
     #[test]
     fn matches_the_python_vad() {
-        let model = config::vad_model();
+        let model = paths::vad_model();
         assert!(
             model.exists(),
             "run `mise run setup` first: {} is missing",
