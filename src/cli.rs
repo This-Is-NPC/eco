@@ -8,10 +8,8 @@ use std::path::{Path, PathBuf};
 use chrono::{Local, NaiveDateTime, TimeZone};
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines};
-use tokio::net::UnixStream;
-use tokio::net::unix::{OwnedReadHalf, OwnedWriteHalf};
 
-use crate::adapters::control_socket::{self, ConnectError};
+use crate::adapters::local_socket::{self, ConnectError, ReadHalf, Stream, WriteHalf};
 use crate::domain::session::same_tag;
 
 /// What the CLI asks the daemon.
@@ -235,13 +233,13 @@ impl Filter<'_> {
 }
 
 struct Client {
-    lines: Lines<BufReader<OwnedReadHalf>>,
-    writer: OwnedWriteHalf,
+    lines: Lines<BufReader<ReadHalf>>,
+    writer: WriteHalf,
 }
 
 impl Client {
     async fn connect(socket: &Path) -> Result<Self, Failure> {
-        let stream = control_socket::connect(socket)
+        let stream = local_socket::connect(socket)
             .await
             .map_err(connect_failure)?
             .ok_or_else(|| {
@@ -253,8 +251,8 @@ impl Client {
         Ok(Self::over(stream))
     }
 
-    fn over(stream: UnixStream) -> Self {
-        let (reader, writer) = stream.into_split();
+    fn over(stream: Stream) -> Self {
+        let (reader, writer) = local_socket::split(stream);
         Self {
             lines: BufReader::new(reader).lines(),
             writer,
@@ -944,9 +942,9 @@ mod tests {
     /// A client wired to a fake daemon that, turn by turn, checks the command it
     /// receives and answers with that turn's events.
     fn conversing(turns: Vec<(&'static str, Vec<Value>)>) -> Client {
-        let (ours, theirs) = UnixStream::pair().unwrap();
+        let (ours, theirs) = Stream::pair().unwrap();
         tokio::spawn(async move {
-            let (mut reader, mut writer) = theirs.into_split();
+            let (mut reader, mut writer) = local_socket::split(theirs);
             let greeting = json!({"type": "snapshot", "kinds": ["meeting"]});
             writer
                 .write_all(format!("{greeting}\n").as_bytes())
@@ -1257,9 +1255,9 @@ mod tests {
         speakers: Value,
         steps: Vec<(&'static str, Vec<Value>)>,
     ) -> Client {
-        let (ours, theirs) = UnixStream::pair().unwrap();
+        let (ours, theirs) = Stream::pair().unwrap();
         tokio::spawn(async move {
-            let (reader, mut writer) = theirs.into_split();
+            let (reader, mut writer) = local_socket::split(theirs);
             let mut lines = BufReader::new(reader).lines();
             assert_eq!(lines.next_line().await.unwrap().unwrap(), "session.show n1");
             let detail = json!({"type": "session_detail", "session": {"id": "n1", "source": source}, "timeline": [], "speakers": speakers});
@@ -1384,7 +1382,7 @@ mod tests {
     #[tokio::test]
     async fn an_argument_with_a_line_break_is_never_sent() {
         for id in ["x\nconfig.set {}", "x\rstop"] {
-            let (ours, mut theirs) = UnixStream::pair().unwrap();
+            let (ours, mut theirs) = Stream::pair().unwrap();
             let mut client = Client::over(ours);
             let failure = client.show(id).await.err().unwrap();
             assert_eq!(failure.code, "argument.invalid");

@@ -1641,7 +1641,7 @@ adapter lives today.
 | Seam | Linux adapter today | File(s) |
 |---|---|---|
 | Paths | XDG base directories (`XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_RUNTIME_DIR`) | `src/config.rs` |
-| The daemon socket | a Unix domain socket at `$XDG_RUNTIME_DIR/eco.sock` | `src/adapters/control_socket.rs`, `src/cli.rs` |
+| The daemon socket | a Unix domain socket at `$XDG_RUNTIME_DIR/eco.sock`, in `src/adapters/local_socket.rs`; the protocol (`src/adapters/control_socket.rs`), the CLI client (`src/cli.rs`) and the service commands (`src/lifecycle.rs`) reach it only through that module | `src/adapters/local_socket.rs` |
 | Audio devices and capture | PipeWire (`pw-dump`, `pw-record`, `libpipewire-module-echo-cancel` loaded through `pw-cli`) | `src/adapters/pipewire_devices.rs`, `src/adapters/audio_pipewire.rs`, `src/adapters/echo_cancel.rs` |
 | Service lifecycle and desktop setup | the systemd user service (`systemctl --user`) and the line loaded into the Hyprland Lua config (`~/.config/hypr/bindings.lua`) | `src/lifecycle.rs`, `src/setup.rs` |
 | Window control | launching Quickshell and giving its window the keyboard through `hyprctl dispatch`; the overlay centering its config window and setting `no_screen_share` through `Hyprland.dispatch` | `src/adapters/overlay.rs`, `overlay/ConfigWindow.qml`, `overlay/Eco.qml` |

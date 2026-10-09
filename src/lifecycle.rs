@@ -7,28 +7,27 @@ use std::time::Duration;
 use anyhow::{Context, Result, bail};
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::net::UnixStream;
 use tokio::process::Command;
 use tokio::time::{sleep, timeout};
 
-use crate::adapters::control_socket;
+use crate::adapters::local_socket::{self, Stream};
 use crate::config;
 
 const READY_TIMEOUT: Duration = Duration::from_secs(10);
 
 struct Daemon {
-    stream: BufReader<UnixStream>,
+    stream: BufReader<Stream>,
     overlay: bool,
     pid: u32,
     version: String,
 }
 
-async fn socket() -> Result<Option<UnixStream>> {
+async fn socket() -> Result<Option<Stream>> {
     socket_at(&config::socket_path()).await
 }
 
-async fn socket_at(path: &Path) -> Result<Option<UnixStream>> {
-    Ok(control_socket::connect(path).await?)
+async fn socket_at(path: &Path) -> Result<Option<Stream>> {
+    Ok(local_socket::connect(path).await?)
 }
 
 async fn connect() -> Result<Option<Daemon>> {
@@ -231,15 +230,14 @@ pub async fn status(expect_current_exe: bool, window_open: bool) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio::net::UnixListener;
 
     #[tokio::test]
     async fn window_open_waits_for_a_daemon_acknowledgement() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("eco.sock");
-        let listener = UnixListener::bind(&path).unwrap();
+        let listener = local_socket::Listener::bind(&path).await.unwrap();
         let server = tokio::spawn(async move {
-            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut stream = listener.accept().await.unwrap();
             stream
                 .write_all(
                     b"{\"type\":\"daemon\",\"pid\":1,\"version\":\"test\",\"overlay\":false}\n",
@@ -266,9 +264,9 @@ mod tests {
     async fn incompatible_socket_is_reported() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("eco.sock");
-        let listener = UnixListener::bind(&path).unwrap();
+        let listener = local_socket::Listener::bind(&path).await.unwrap();
         let server = tokio::spawn(async move {
-            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut stream = listener.accept().await.unwrap();
             stream.write_all(b"{\"type\":\"session\"}\n").await.unwrap();
         });
         assert!(

@@ -10,6 +10,7 @@ pub mod fbank;
 pub mod hook_shell;
 pub mod http;
 pub mod llm_openai;
+pub mod local_socket;
 pub mod omapass;
 pub mod overlay;
 pub mod people_files;
