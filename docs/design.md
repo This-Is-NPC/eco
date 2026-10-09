@@ -641,6 +641,11 @@ Never audio. Everything below is text the user can read.
 | `~/.local/share/eco/models/` | the Silero VAD and WeSpeaker CAM++ models | `eco setup` |
 | `$XDG_RUNTIME_DIR/eco.sock` | the socket (§10) | the daemon |
 
+The config, session logs, people and voices are the user's alone: eco creates
+their files `0600` and the directories it makes for them `0700`. A file eco
+rewrites (the config, a person, a session's voices) comes back `0600` on its next
+save; a session log made before keeps the mode it had.
+
 A session log holds `session`, `state`, `speech`, `suggestion`, `removed`,
 `meta`, `speaker`, `diarized`, `person`, `attendee`, `unheard`, `edited`,
 `line_person`, `transcriber`, `listening`, `billed`, `spent`, `tags` records, and also

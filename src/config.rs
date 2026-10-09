@@ -720,14 +720,41 @@ pub fn load(path: &Path) -> Result<Config, ConfigError> {
     Config::from_raw(raw)
 }
 
-/// Replace `path` with `bytes` through a temporary file, so a crash never
-/// leaves half a file; its directory is created when missing.
+/// Options that create a file only its owner may read or write (0600).
+pub fn private_file() -> fs::OpenOptions {
+    use std::os::unix::fs::OpenOptionsExt;
+    let mut options = fs::OpenOptions::new();
+    options.mode(0o600);
+    options
+}
+
+/// Create `path` and its missing parents, each only its owner may enter (0700).
+pub fn private_dir(path: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::DirBuilderExt;
+    fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(path)
+}
+
+/// Replace `path` with `bytes` through a new private temporary file, so a crash
+/// never leaves half a file; its directory is created private when missing.
 pub fn write_atomically(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
+        private_dir(parent)?;
     }
     let temporary = path.with_extension("tmp");
-    fs::write(&temporary, bytes)?;
+    // A temporary left by a crash would keep its mode, so it goes first.
+    match fs::remove_file(&temporary) {
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error),
+        _ => {}
+    }
+    private_file()
+        .write(true)
+        .create_new(true)
+        .open(&temporary)?
+        .write_all(bytes)?;
     fs::rename(&temporary, path)
 }
 
