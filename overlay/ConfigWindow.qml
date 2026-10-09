@@ -42,17 +42,6 @@ FloatingWindow {
   // Asks the fields that apply a change only once it is left to apply it now.
   signal committing()
 
-  // Provider presets by model type.
-  readonly property var presets: ({ transcription: [
-    { name: "DEEPGRAM", values: { base_url: "wss://api.deepgram.com/v1/listen", model: "nova-3", api_key_env: "DEEPGRAM_API_KEY" } },
-    { name: "ELEVENLABS", values: { base_url: "wss://api.elevenlabs.io/v1/speech-to-text/realtime", model: "scribe_v2_realtime", api_key_env: "ELEVEN_LABS_API_KEY" } },
-    { name: "GROQ", values: { base_url: "https://api.groq.com/openai/v1", model: "whisper-large-v3-turbo", api_key_env: "GROQ_API_KEY" } },
-    { name: "OPENAI", values: { base_url: "https://api.openai.com/v1", model: "whisper-1", api_key_env: "OPENAI_API_KEY" } }
-  ], chat: [
-    { name: "OPENROUTER", values: { base_url: "https://openrouter.ai/api/v1", model: "google/gemini-3.5-flash-lite", api_key_env: "OPENROUTER_API_KEY", extra: {} } },
-    { name: "GROQ", values: { base_url: "https://api.groq.com/openai/v1", model: "llama-4-scout", api_key_env: "GROQ_API_KEY", extra: {} } }
-  ] })
-
   // Fixed, untranslated: packaging/hypr/eco.lua matches the window by this title.
   title: "eco · configuração"
   // Fits the screen it opens on, with a margin.
@@ -751,7 +740,7 @@ FloatingWindow {
             id: models
             Layout.fillWidth: true
             draft: window.draft
-            presets: window.presets
+            presets: Eco.presets
             resets: window.resets
             errors: window.errors
             onChanged: change => window.update(change)

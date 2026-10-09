@@ -50,20 +50,23 @@ eco setup --harnesses agents,claude-code
 
 `eco setup` downloads the two models eco runs on the laptop — Silero VAD, which
 finds speech, and WeSpeaker CAM++, which tells voices apart — checks each
-against a pinned checksum, and publishes the `eco` skill for agents:
+against a pinned checksum, loads eco's Hyprland rules (step 4) and publishes the
+`eco` skill for agents:
 
 ```
 eco: saved /home/you/.local/share/eco/models/silero_vad.onnx
 eco: saved /home/you/.local/share/eco/models/wespeaker_campplus.onnx
+eco: Hyprland rules added in /home/you/.config/hypr/bindings.lua; `hyprctl reload` loads them
 eco: skill /home/you/.agents/skills/eco/SKILL.md installed
 eco: skill /home/you/.claude/skills/eco/SKILL.md installed
 ```
 
-Run again, it downloads nothing:
+Run again, it downloads and changes nothing:
 
 ```
 eco: /home/you/.local/share/eco/models/silero_vad.onnx is up to date
 eco: /home/you/.local/share/eco/models/wespeaker_campplus.onnx is up to date
+eco: Hyprland rules in /home/you/.config/hypr/bindings.lua are up to date
 eco: skill /home/you/.agents/skills/eco/SKILL.md is up to date
 eco: skill /home/you/.claude/skills/eco/SKILL.md is up to date
 ```
@@ -120,17 +123,45 @@ not stop the daemon: everything else works, and what uses that model says why.
 
 ## 4. Load the Hyprland rules
 
-The package carries eco's Hyprland rules and keys as one Lua file, `eco.lua`.
-`pacman -Ql eco | grep eco.lua` prints where it is. Add one line to
-`~/.config/hypr/bindings.lua` that loads it:
+The package carries eco's Hyprland rules and keys as one Lua file,
+`/usr/share/eco/hypr/eco.lua`. **`eco setup` (step 2) already did this step:**
+it added one line to the end of `~/.config/hypr/bindings.lua`
+(`$XDG_CONFIG_HOME/hypr/bindings.lua` when that is set) that loads it:
 
 ```lua
-dofile("<eco.lua>")
+do local eco = "/usr/share/eco/hypr/eco.lua"; local file = io.open(eco, "r"); if file then file:close(); dofile(eco) end end -- eco setup
 ```
 
-`<eco.lua>` is the path `pacman -Ql` printed.
+The line loads the file only while it exists, so Hyprland does not fail on it
+once the package is removed. Run `hyprctl reload` to load the rules now.
 
-Without it Hyprland tiles the window like any other. With it, the window floats,
+`eco setup` writes nothing else in your Hyprland config, and it writes this line
+only once. Before it changes the file it keeps a copy beside it,
+`bindings.lua.bak.<seconds>` (the Unix time, a placeholder here), as Omarchy's
+own tools do. A `bindings.lua` it cannot read or write is a warning: the rest of
+setup still runs, and it exits with status 1. It leaves the file alone in two
+cases, and says so:
+
+- **A line already names an `eco.lua`** — your own `dofile`, say:
+
+  ```
+  eco: /home/you/.config/hypr/bindings.lua already loads an eco.lua; left as is
+  ```
+
+- **There is no `bindings.lua`**, as in a Hyprland config that is not
+  Omarchy's. It does not create one; it prints the line, and you put it in the
+  Lua file your config loads:
+
+  ```
+  eco: no /home/you/.config/hypr/bindings.lua; add this line to your Hyprland config to load eco's rules: do local eco = …
+  ```
+
+**To stop loading the rules,** put `--` in front of the line, which makes it a
+comment. A commented line names an `eco.lua`, so `eco setup` leaves it as it is
+from then on. Deleting the line works too, until the next `eco setup` adds it
+back.
+
+Without the rules Hyprland tiles the window like any other. With it, the window floats,
 is pinned to every workspace and keeps the size you give it, and the settings
 window opens centred above it. It also binds the global keys:
 
@@ -205,6 +236,7 @@ The package owns these; `pacman -Ql eco` lists every file and where it is:
 |---|---|
 | the VAD and speaker models | `~/.local/share/eco/models/` |
 | the agent skill | `~/.agents/skills/eco/SKILL.md` and `~/.claude/skills/eco/SKILL.md` |
+| the line loading the Hyprland rules | the end of `~/.config/hypr/bindings.lua` |
 
 And what eco writes as it is used, which is yours and not the install's:
 
@@ -235,8 +267,9 @@ sudo pacman -R eco
 put on the machine: the binary, the window, the Hyprland rules, the launcher,
 the icon, the licence and the user service.
 
-**Take the `dofile` line out of `~/.config/hypr/bindings.lua` yourself.** The
-file it names is gone.
+**The line `eco setup` added to `~/.config/hypr/bindings.lua` stays,** and
+does nothing: it loads the rules only while the file exists. To remove it too,
+delete the line that ends in `-- eco setup`.
 
 **Kept on purpose:** the config, the sessions, the people, the models and the
 agent skill. Removing the program is not a reason to lose a year of meetings.

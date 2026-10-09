@@ -1,6 +1,7 @@
 //! Any audio or video file ffmpeg decodes, as 16 kHz mono frames through a pipe:
 //! the decoded audio never touches the disk.
 
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 use chrono::DateTime;
@@ -22,12 +23,26 @@ impl FfmpegSource {
     }
 }
 
+/// The input options that read `path` only as a local file: behind `file:`, a
+/// name that begins with `-` is not an option and one with `:` is not a URL, and
+/// no other protocol may open, not even from inside the file.
+fn local_input(path: &Path) -> [OsString; 4] {
+    let mut url = OsString::from("file:");
+    url.push(path);
+    [
+        "-protocol_whitelist".into(),
+        "file".into(),
+        "-i".into(),
+        url,
+    ]
+}
+
 impl AudioSource for FfmpegSource {
     fn frames(&mut self) -> BoxStream<'_, Result<Frame, AudioError>> {
         let mut command = Command::new("ffmpeg");
         command
-            .args(["-nostdin", "-v", "error", "-i"])
-            .arg(&self.path)
+            .args(["-nostdin", "-v", "error"])
+            .args(local_input(&self.path))
             .args(["-vn", "-ac", "1", "-ar", &SAMPLE_RATE.to_string()])
             .args(["-f", "s16le", "-"]);
         pipe::frames(command)
@@ -49,7 +64,7 @@ pub async fn probe(path: &Path) -> Option<Probe> {
         .args(["-v", "error", "-show_entries"])
         .arg("format=duration:format_tags=creation_time:stream_tags=creation_time")
         .args(["-of", "json"])
-        .arg(path)
+        .args(local_input(path))
         .output()
         .await
         .ok()?;
@@ -125,6 +140,37 @@ mod tests {
             probe(&tagged).await.unwrap().recorded,
             Some(1_790_759_700.0)
         );
+    }
+
+    /// A relative name that begins with `-` reaches ffmpeg and ffprobe as a file.
+    #[tokio::test]
+    async fn a_name_like_an_option_is_a_file() {
+        let directory = tempfile::tempdir().unwrap();
+        write_wav(
+            &directory.path().join("-y.wav"),
+            &vec![1000; SAMPLE_RATE as usize],
+            SAMPLE_RATE,
+        );
+        let relative = Path::new("-y.wav");
+        let probed = Command::new("ffprobe")
+            .current_dir(directory.path())
+            .args(["-v", "error", "-show_entries", "format=duration"])
+            .args(local_input(relative))
+            .output()
+            .await
+            .unwrap();
+        assert!(probed.status.success(), "{probed:?}");
+        assert!(String::from_utf8_lossy(&probed.stdout).contains("duration=1.0"));
+        let decoded = Command::new("ffmpeg")
+            .current_dir(directory.path())
+            .args(["-nostdin", "-v", "error"])
+            .args(local_input(relative))
+            .args(["-f", "s16le", "-"])
+            .output()
+            .await
+            .unwrap();
+        assert!(decoded.status.success(), "{decoded:?}");
+        assert_eq!(decoded.stdout.len(), SAMPLE_RATE as usize * 2);
     }
 
     #[tokio::test]

@@ -218,8 +218,22 @@ With omapass and no passwords in it, **PICK A PASSWORD** says
 **Both sources for one key.** Refused, by the window and by the daemon at start:
 `a provider's key comes from api_key_env or api_key_omapass, not both`.
 
+**LIST refuses a key before the model is saved.** **LIST** reads a key only for
+a saved model at its own base URL, or for a preset's variable at the preset's
+URL. A new model with **CUSTOM** and a key, or with a key from **OMAPASS**, says
+`no model list: save the model first; its key is read only for a saved model or
+a preset (<base URL>)`, where `<base URL>` is a placeholder for the one typed.
+Press **SAVE**, then **LIST** again. A custom base URL with no key lists at
+once.
+
 **A wrong model id, or a base URL without `/v1`.** The answer fails with the
 provider's own error, and a hint when the base URL has no path.
+
+**The eco window asks to approve a model you did not add here.** Another
+program on the socket (an agent, a script) sent a config that adds a model or
+moves a model's address or key source. Nothing is saved until you choose: the
+dialog names the address and where the key comes from
+([screens §12](screens.md#12-settings)). REJECT unless you asked for it.
 
 **A model cannot be removed.** The assistant's and the default transcription
 model cannot. Removing any other asks first, listing what falls back to which

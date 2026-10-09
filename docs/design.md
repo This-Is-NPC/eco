@@ -125,7 +125,7 @@ composition happens in `src/session.rs` from `config.toml`. The crate forbids
 | `AudioSource` | `pw-record` (any input, or what any sink plays), **WAV file** | The file adapter replays recorded meetings (`--replay <file.wav>`) to tune prompt and trigger and for automated tests. |
 | `STT` | Deepgram (streaming), ElevenLabs Scribe (streaming), OpenAI-compatible transcription (`/v1/audio/transcriptions`: LAN whisper.cpp server, Groq, OpenAI) | There is no common real-time STT standard: each protocol needs its own adapter. |
 | `LLM` | a single OpenAI-compatible adapter | Covers OpenRouter, OpenAI, Groq, Ollama, llama.cpp — switching = `base_url` + key + model. |
-| `EventSink` | Unix socket (overlay), JSON stdout (debug) | |
+| `EventSink` | Unix socket (overlay), text on stdout | stdout is written only when it is a terminal (`mise run start`); under the user service it is the journal, which never gets transcript, note or answer text. |
 | `TranscriptStore` | file in `~/.local/share/eco/`, null (`--no-save`) | |
 
 Rule: only add a port when two real implementations exist or a test clearly
@@ -207,7 +207,8 @@ eco/
   is reported and the raw microphone is used. It costs ~3% of one core while a
   session records.
 - **Errors show:** a failed transcription or a capture that stops mid-session
-  reaches the overlay's status line, not only the terminal.
+  reaches the overlay's status line, and the terminal when the daemon runs in
+  one.
 
 ---
 
@@ -531,7 +532,9 @@ no STT. Any file ffmpeg decodes (mp4, mkv, webm, m4a, mp3, ogg, flac, wav…)
 becomes a session — from the overlay (§12.3), or
 `quickshell ipc --path overlay call eco importFile <path>`.
 
-ffmpeg decodes it to 16 kHz mono through a pipe (never to disk), ffprobe gives
+Both get the path as `file:<path>` with `-protocol_whitelist file`: a name that
+begins with `-` is never an option, and nothing in the file makes them open a
+URL. ffmpeg decodes it to 16 kHz mono through a pipe (never to disk), ffprobe gives
 its length, and the VAD and the configured STT transcribe it as fast as they
 go, one line per phrase the STT times, each at its time in the recording.
 The lines start as the audio source chosen at import; meanwhile a child
@@ -637,6 +640,12 @@ Never audio. Everything below is text the user can read.
 | `~/.local/share/eco/people/voices/<session>.json` | the voices of a session's diarized speakers (§7.3) | the daemon |
 | `~/.local/share/eco/models/` | the Silero VAD and WeSpeaker CAM++ models | `eco setup` |
 | `$XDG_RUNTIME_DIR/eco.sock` | the socket (§10) | the daemon |
+| `$XDG_RUNTIME_DIR/eco.token` | the windows' token for this run (§9), `0600`, removed when the daemon exits | the daemon |
+
+The config, session logs, people and voices are the user's alone: eco creates
+their files `0600` and the directories it makes for them `0700`. A file eco
+rewrites (the config, a person, a session's voices) comes back `0600` on its next
+save; a session log made before keeps the mode it had.
 
 A session log holds `session`, `state`, `speech`, `suggestion`, `removed`,
 `meta`, `speaker`, `diarized`, `person`, `attendee`, `unheard`, `edited`,
@@ -768,6 +777,43 @@ The config window saves a draft whole; the daemon validates it, writes
 and its capture or monitor task completely, then starts the new one, so a save
 never leaves a second `pw-record` duplicating frames or transcribing twice.
 
+A hook runs a shell command, a context file is sent to a model, and a model's
+key is sent to its `base_url`, so only the user adds them. The daemon starts
+every window with one random token per run in `ECO_TOKEN`, and the window's
+`config.set` carries it. A `config.set` from any other socket client that adds
+or changes an action's `hook`, adds a file to `[context]` or a `[[contexts]]`
+slot, or adds a model or changes a model's `base_url`, `api_key_env` or
+`api_key_omapass`, is not saved: the daemon holds it, announces
+`config_pending` with its `id` and each hook command, file path, and model's
+address and key source (a variable's or an omapass account's name, never a
+key), and answers the error `config.pending`. The window shows them in a
+dialog; APPROVE sends `config.approve <token> <id>` and saves it, REJECT sends
+`config.reject <token> <id>`, which drops it with the error `config.rejected`.
+Approving or rejecting without the token answers `config.not_window`; naming
+another id than the held change's answers `config.stale` and saves and drops
+nothing. The id is a counter that starts at 1 for each run of the daemon, so a
+held change never has the id of an earlier one. One change is held at a time,
+and while it waits only the window changes the config: any other client's
+`config.set`, risky or not, answers `config.busy` and is not saved, so the
+dialog never changes under the user's pointer. The window's own save drops the
+held change. Every other change from any client is saved at once, as before.
+
+The daemon also writes the token to `$XDG_RUNTIME_DIR/eco.token`, mode `0600`,
+when it starts, and removes it when it exits; a file left by a killed daemon is
+replaced by the next one. A window the daemon did not start, `mise run overlay`
+beside `mise run start -- --headless`, reads it into `ECO_TOKEN`; started
+before the daemon, or kept across a restart, it has no token or an old one, and
+its saves of these fields are held like any other client's until it is started
+again.
+
+The token keeps a client that only talks to the socket, such as an agent
+driving it with a prompt it was handed, from saving or approving these changes
+itself. It does not stop a program running as the same user that wants to:
+such a program can read `eco.token`, exactly as it can read a window's
+environment in `/proc/<pid>/environ`, and it can edit `config.toml` directly.
+Neither the file nor the environment is a secret from the user's own
+processes.
+
 ### 9.1 Secrets
 
 Secrets come from environment variables: `OPENROUTER_API_KEY`,
@@ -785,6 +831,17 @@ Hyprland shortcut (which does not read `.bashrc`), set them in
 them. During development, mise loads them from `.env` at the project root
 (git-ignored).
 
+The `models` command (§10.2) lists a provider's models with a key, so it reads a
+key only where a saved provider would: the key source of a saved model, sent to
+that model's `base_url` (a trailing `/` aside), or one of the window's presets —
+`DEEPGRAM_API_KEY`, `ELEVEN_LABS_API_KEY`, `GROQ_API_KEY`, `OPENAI_API_KEY`,
+`OPENROUTER_API_KEY` — sent to that preset's own URL. The presets are `PRESETS`
+in `src/session.rs`, and the window gets them from the `config` event (§10.1),
+so the window and this rule read one table. Any other request
+is refused before a key is read, so whatever can write to the socket, an agent
+included, cannot send a secret to a server of its choosing. A draft model with a
+custom URL and a key, or an omapass key, lists once it is saved.
+
 ---
 
 ## 10. The socket
@@ -793,6 +850,15 @@ The daemon listens on `$XDG_RUNTIME_DIR/eco.sock`. Every client receives all
 events as JSON lines and may send commands, one per line. The first event on
 every connection is `daemon` with `pid`, `version`, and `overlay` fields. A
 daemon error carries a `code`, which the overlay translates as `error.<code>`.
+
+Two limits keep one client from growing the daemon's memory. A command line
+longer than 1 MiB (`MAX_LINE` in `src/adapters/control_socket.rs`; a
+`config.set` with a full config is a few kilobytes) closes that connection
+without running it. Each client has a queue of at most 4096 lines
+(`MAX_QUEUED`) still to write. While that queue is full, the client skips
+`signal` events, the live input meter whose next reading replaces the last;
+any other event it cannot take drops it and closes its connection, while the
+daemon and the other clients go on.
 
 ### 10.1 Events
 
@@ -835,8 +901,9 @@ session it shows:
 {"type":"import_started","session":{…},"total_s":1834.2}
 {"type":"import_progress","id":"…","done_s":612.5,"total_s":1834.2}
 {"type":"import_done","id":"…","complete":true}
-{"type":"config","config":{...},"devices":[{"id":"@default-input","label":"...","kind":"input"}],"omapass":{"installed":false,"page":"https://plugins.omarchy.org/..."}}
+{"type":"config","config":{...},"devices":[{"id":"@default-input","label":"...","kind":"input"}],"omapass":{"installed":false,"page":"https://plugins.omarchy.org/..."},"presets":{"transcription":[{"name":"DEEPGRAM","values":{"base_url":"wss://api.deepgram.com/v1/listen","model":"nova-3","api_key_env":"DEEPGRAM_API_KEY"}},…],"chat":[{"name":"OPENROUTER","values":{"base_url":"https://openrouter.ai/api/v1","model":"…","api_key_env":"OPENROUTER_API_KEY","extra":{}}},…]}}
 {"type":"config_saved"}
+{"type":"config_pending","id":"1","hooks":[{"action":"minutes","command":"~/bin/crm-push"}],"files":["~/notes/cv.md"],"models":[{"name":"fast","base_url":"http://192.0.2.10:8000/v1","api_key_env":null,"api_key_omapass":"openrouter"}]}
 {"type":"models","target":"llm","models":["..."],"error":"..."}
 {"type":"error","code":"session.none","params":{},"message":"start a session first"}
 ```
@@ -844,9 +911,19 @@ session it shows:
 ### 10.2 Commands
 
 `action <name>`, `ask <question>`,
-`config` (current config and devices), `config.set <json>`,
+`config` (current config and devices), `config.set <json>` (the config whole;
+a window adds `"token"`; one from another client that adds a hook, a context
+file or a model, or moves a model's key, is held, §9; while one is held, any
+other client's answers `config.busy`), `config.approve <token> <id>` and
+`config.reject <token> <id>` (the held change `id`; another id answers
+`config.stale`; once nothing is held, `config_pending` with a null `id` and
+empty lists; a client that connects while a change is held is greeted with its
+`config_pending`),
 `session.language <json>`, `models <json>`
-(`{"target","base_url","api_key_env","api_key_omapass"}`), `omapass` (its
+(`{"target","base_url","api_key_env","api_key_omapass"}`; the key is read only
+with no key source, a saved model's own source at that model's `base_url`, or a
+preset's variable at the preset's URL, as in §9.1; anything else answers `models`
+with `"code":"models.key_refused"` and `params` `{"base_url"}`), `omapass` (its
 passwords: `{"type":"omapass","installed","accounts":[{"account","folder"}],"error"?}`;
 not installed is `"installed":false`, not an error),
 `session.start <json>` (`{"title","kind","language","tags"}`; the kind defaults
@@ -927,6 +1004,8 @@ How the commands are built:
   with `eco start --headless` when the overlay is not wanted) and print one
   JSON object, as `okt` does: `{"ok":true,"data":…}`, or
   `{"ok":false,"code":"…","message":"…"}` with a non-zero exit —
+  `argument.invalid` (an argument holds a line feed or a carriage return,
+  which could end the command line early; nothing is sent),
   `daemon.offline`, `daemon.access_denied`, `daemon.unavailable`,
   `session.not_found`, `action.unknown`, `completion.failed`,
   `suggestion.removed` (replaced by a newer request), `import.busy`,
@@ -1013,7 +1092,9 @@ reconnects to the socket on its own.
   line at full brightness (only words still being said are dim), no side rules;
   a speaker's name and time head each turn and repeat after two minutes of
   silence or anything else between their lines; answers as framed cards whose
-  Markdown is drawn as it streams (marks still open are closed) that light up
+  Markdown is drawn as it streams (marks still open are closed; images, which
+  Qt would fetch, become their alt text, and any `![` left, code included,
+  gets a zero-width space so no image can open, `overlay/markdown.js`) that light up
   while they stream, show the question asked and can be removed; a complete
   answer can be copied (its Markdown to the clipboard, `wl-copy`); it follows the
   newest entry, but an answer streaming taller than the view keeps its top in
@@ -1338,8 +1419,14 @@ opens or updates a release pull request: it moves the version in `Cargo.toml`,
 `Cargo.lock` and the `PKGBUILD`, and writes `CHANGELOG.md`. Merging that pull
 request tags `v<version>`, and the same workflow builds the package from the
 tag with `scripts/package` in an Arch container and attaches it, with its
-`SHA256SUMS`, to the release. The workflow runs no test; the gate is local
-(see [Tests and the gate](#tests-and-the-gate)).
+`SHA256SUMS`, to the release. The container is `archlinux:base-devel` pinned
+by its multi-arch index digest, so the base image cannot change under a tag;
+the job's `pacman -Syu` still installs the Rust toolchain and system packages
+current on the day of the build, so the toolchain itself is not pinned. To
+move the image, read the `docker-content-digest` header of the registry's
+`library/archlinux/manifests/base-devel` and replace the digest and the date
+in the workflow. The workflow runs no test; the gate
+is local (see [Tests and the gate](#tests-and-the-gate)).
 
 **From a checkout.** `mise run install` (`scripts/install`) builds the release binary and installs it
 under a prefix (`~/.local` unless `PREFIX`): the binary, its own copy of the
@@ -1353,8 +1440,17 @@ leaves sessions, config, models and the agent skill.
 - **User service:** `packaging/eco.service` runs `eco daemon --headless`
   (`Restart=on-failure`). `eco start` starts it through `systemctl --user` when
   nothing answers on the socket.
-- **Hyprland:** `packaging/hypr/eco.lua`, loaded with `dofile` from
-  `~/.config/hypr/bindings.lua`, binds `SUPER+ALT+<n>` to the actions,
+- **Hyprland:** `packaging/hypr/eco.lua`, loaded from
+  `~/.config/hypr/bindings.lua` by one line `eco setup` adds (`src/setup.rs`):
+  the line ends in `-- eco setup`, names the `share/eco/hypr/eco.lua` beside the
+  running binary, and runs `dofile` only when `io.open` finds that file, so a
+  removed package leaves no error. Setup rewrites only its own line, adds none
+  when another line already names an `eco.lua`, and creates no `bindings.lua`.
+  A change keeps `bindings.lua.bak.<unix seconds>` first, then replaces the
+  file (through a symlink, its target) atomically in its own mode, every other
+  byte kept; a file it cannot read or write is a warning and exit status 1
+  after the rest of setup ran.
+  The file binds `SUPER+ALT+<n>` to the actions,
   `SUPER+ALT+N` to a new session, `SUPER+ALT+P` to pause/resume, `SUPER+ALT+H`
   to SESSIONS, `SUPER+ALT+C` to the config window and `SUPER+ALT+E` to bring eco
   to the front; those that open a view also give eco the keyboard. The shortcuts
@@ -1425,7 +1521,7 @@ mise run start              # build and run this checkout with its window
 mise run start -- --replay session.wav   # a 16 kHz mono WAV instead of a call
 mise run start -- --headless             # no window; pair with `mise run overlay`
 mise run start -- --no-save              # keep sessions in memory only
-mise run overlay            # only the window, reloading QML on save
+mise run overlay            # only the window, reloading QML on save; start it after the daemon
 mise run check              # the gate: lint, test, cli:check, docs:check
 mise run lint               # cargo fmt and clippy, every warning fatal
 mise run test               # the domain tests, i18n, VAD and speaker parity
@@ -1445,7 +1541,9 @@ mise run uninstall          # asks first, then takes that install back off
 ```
 
 **A checkout is enough to try eco.** `mise run start` runs the daemon and its
-window in the foreground, until Ctrl+C, and installs nothing. `mise run
+window in the foreground, until Ctrl+C, and installs nothing. It prints the
+transcript, notes and answers as they come; the user service prints none of
+them, so the journal holds no conversation. `mise run
 install` is §13: it puts everything under `~/.local`, and the Hyprland rules
 are then loaded with
 `dofile(os.getenv("HOME") .. "/.local/share/eco/hypr/eco.lua")` from
@@ -1471,7 +1569,7 @@ That is the whole gate. It runs:
 | step | what it refuses |
 |---|---|
 | `lint` | Rust not formatted by `cargo fmt`, any clippy warning (`-D warnings`, all targets) |
-| `test` | a failing `cargo test`: the domain tests, the i18n checks (`tests/i18n.rs`) and the VAD and speaker parity tests against the Python fixtures (these need the models from `mise run setup`) |
+| `test` | a failing `cargo test`: the domain tests, the i18n checks (`tests/i18n.rs`), the answer Markdown (`overlay/markdown.js`) against its QML test case (`tests/overlay.rs`, run offscreen by Qt's `qmltestrunner`) and the VAD and speaker parity tests against the Python fixtures (these need the models from `mise run setup`) |
 | `cli:check` | a `docs/cli.md` that is not what the binary's help generates |
 | `docs:check` | a relative link or image in `README.md` or `docs/*.md` whose file, or whose heading for an `#anchor`, is missing |
 

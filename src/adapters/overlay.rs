@@ -1,27 +1,32 @@
 //! The Quickshell overlay windows, running for as long as the session holds them.
 
-use std::io;
-use std::path::PathBuf;
+use std::fs::{self, OpenOptions};
+use std::io::{self, Write};
+use std::os::unix::fs::OpenOptionsExt;
+use std::path::{Path, PathBuf};
 use std::process::{ExitStatus, Stdio};
 use std::time::Duration;
 
 use rustix::process::{Pid, Signal, kill_process};
 use tokio::process::{Child, Command};
 
+use crate::config;
+
 /// The QML: installed beside the binary (`<prefix>/share/eco/overlay` for
 /// `<prefix>/bin/eco`), or this checkout's when eco runs from it.
 fn overlay_dir() -> PathBuf {
-    let installed = std::env::current_exe()
-        .ok()
-        .and_then(|exe| Some(exe.parent()?.parent()?.join("share/eco/overlay")))
-        .filter(|dir| dir.join("shell.qml").is_file());
-    installed.unwrap_or_else(|| concat!(env!("CARGO_MANIFEST_DIR"), "/overlay").into())
+    config::shipped("overlay/shell.qml")
+        .and_then(|qml| qml.parent().map(PathBuf::from))
+        .unwrap_or_else(|| concat!(env!("CARGO_MANIFEST_DIR"), "/overlay").into())
 }
 
 /// The overlay windows, each its own quickshell process: a number, which the
-/// window is told, and the session it shows, which it tells back.
-#[derive(Default)]
+/// window is told, and the session it shows, which it tells back. Every window
+/// is handed the same token, which tells its commands apart from other clients';
+/// a window the daemon did not start reads it from `config::token_path()`.
 pub struct Windows {
+    token: String,
+    _kept: TokenFile,
     last: u32,
     open: Vec<Window>,
 }
@@ -34,6 +39,15 @@ struct Window {
 }
 
 impl Windows {
+    pub fn new(token: String) -> io::Result<Self> {
+        Ok(Self {
+            _kept: TokenFile::write(&config::token_path(), &token)?,
+            token,
+            last: 0,
+            open: Vec::new(),
+        })
+    }
+
     pub fn is_open(&self) -> bool {
         !self.open.is_empty()
     }
@@ -51,6 +65,7 @@ impl Windows {
             .arg(overlay_dir())
             .env("ECO_WINDOW", number.to_string())
             .env("ECO_SHOW", show.unwrap_or_default())
+            .env("ECO_TOKEN", &self.token)
             .stdout(Stdio::null())
             .stderr(Stdio::inherit())
             .kill_on_drop(true)
@@ -101,6 +116,32 @@ impl Windows {
     }
 }
 
+/// The token in a file only its user reads; dropping it removes the file.
+struct TokenFile(PathBuf);
+
+impl TokenFile {
+    fn write(path: &Path, token: &str) -> io::Result<Self> {
+        // A file left by a daemon that was killed is replaced, never reused.
+        match fs::remove_file(path) {
+            Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error),
+            _ => {}
+        }
+        OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(path)?
+            .write_all(token.as_bytes())?;
+        Ok(Self(path.into()))
+    }
+}
+
+impl Drop for TokenFile {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.0);
+    }
+}
+
 /// Give the keyboard to the window of the quickshell process `child`.
 async fn activate(child: &Child) -> io::Result<()> {
     let pid = child
@@ -127,4 +168,25 @@ async fn activate(child: &Child) -> io::Result<()> {
     Err(io::Error::other(format!(
         "Hyprland could not focus the eco window ({last})"
     )))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::os::unix::fs::PermissionsExt;
+
+    use super::*;
+
+    #[test]
+    fn the_token_file_is_the_users_alone_and_goes_with_the_daemon() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("eco.token");
+        fs::write(&path, "stale").unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+        let file = TokenFile::write(&path, "secret").unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "secret");
+        let mode = fs::metadata(&path).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
+        drop(file);
+        assert!(!path.exists());
+    }
 }

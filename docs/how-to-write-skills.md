@@ -91,7 +91,7 @@ order is the composer's: the first skill is chip 1 and **Alt+1**, up to nine.
 
 A Hyprland key runs a skill from anywhere, on the session the window showed
 last, without touching eco. Add a line to `~/.config/hypr/bindings.lua`, after
-the `dofile` that loads eco's rules:
+the line that loads eco's rules (it ends in `-- eco setup`):
 
 ```lua
 o.bind("SUPER + ALT + 3", "eco: minutes", "echo 'action minutes' | socat - UNIX-CONNECT:$XDG_RUNTIME_DIR/eco.sock")
@@ -165,7 +165,9 @@ model = "gemini"                        # a registered chat model; the default w
 
 `hook_auto = true` is SEND ON ITS OWN. The daemon reads the file when it starts,
 so after editing it by hand run `eco restart`; a save from the window applies at
-once.
+once. Another program that sends the daemon a config with a new or changed hook
+saves nothing until you approve the exact command in the eco window
+([screens §12](screens.md#12-settings)).
 
 ---
 

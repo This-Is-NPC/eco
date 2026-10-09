@@ -14,16 +14,32 @@ use crate::domain::prompts::{DEFAULT_REVIEW, DEFAULT_RULES};
 #[error("{0}")]
 pub struct ConfigError(pub String);
 
-fn xdg(variable: &str, fallback: &str) -> PathBuf {
+/// The XDG base directory `variable` names, or `fallback` under the home.
+fn xdg_base(variable: &str, fallback: &str) -> PathBuf {
     env::var_os(variable)
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
         .unwrap_or_else(|| home().join(fallback))
-        .join("eco")
+}
+
+fn xdg(variable: &str, fallback: &str) -> PathBuf {
+    xdg_base(variable, fallback).join("eco")
 }
 
 pub fn home() -> PathBuf {
     env::var_os("HOME").map(PathBuf::from).unwrap_or_default()
+}
+
+/// A file eco ships beside its binary, `<prefix>/share/eco/<path>` for
+/// `<prefix>/bin/eco`, when it is there.
+pub fn shipped(path: &str) -> Option<PathBuf> {
+    let exe = env::current_exe().ok()?;
+    Some(exe.parent()?.parent()?.join("share/eco").join(path)).filter(|file| file.exists())
+}
+
+/// The Hyprland file that holds the user's key bindings.
+pub fn hypr_bindings() -> PathBuf {
+    xdg_base("XDG_CONFIG_HOME", ".config").join("hypr/bindings.lua")
 }
 
 pub fn config_file() -> PathBuf {
@@ -50,12 +66,20 @@ pub fn sessions_dir() -> PathBuf {
     data_dir().join("sessions")
 }
 
-pub fn socket_path() -> PathBuf {
+fn runtime_dir() -> PathBuf {
     env::var_os("XDG_RUNTIME_DIR")
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from(format!("/run/user/{}", users_uid())))
-        .join("eco.sock")
+}
+
+pub fn socket_path() -> PathBuf {
+    runtime_dir().join("eco.sock")
+}
+
+/// Where a running daemon keeps the windows' token, for a window it did not start.
+pub fn token_path() -> PathBuf {
+    runtime_dir().join("eco.token")
 }
 
 fn users_uid() -> u32 {
@@ -720,15 +744,61 @@ pub fn load(path: &Path) -> Result<Config, ConfigError> {
     Config::from_raw(raw)
 }
 
-/// Replace `path` with `bytes` through a temporary file, so a crash never
-/// leaves half a file; its directory is created when missing.
+/// Options that create a file only its owner may read or write (0600).
+pub fn private_file() -> fs::OpenOptions {
+    use std::os::unix::fs::OpenOptionsExt;
+    let mut options = fs::OpenOptions::new();
+    options.mode(0o600);
+    options
+}
+
+/// Create `path` and its missing parents, each only its owner may enter (0700).
+pub fn private_dir(path: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::DirBuilderExt;
+    fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(path)
+}
+
+/// Replace `path` with `bytes` through a new private temporary file, so a crash
+/// never leaves half a file; its directory is created private when missing.
 pub fn write_atomically(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
+        private_dir(parent)?;
     }
-    let temporary = path.with_extension("tmp");
-    fs::write(&temporary, bytes)?;
-    fs::rename(&temporary, path)
+    replace_file(path, bytes, 0o600)
+}
+
+/// Replace `path` with `bytes` through `<name>.tmp` beside it, created with
+/// `mode` and synced before the rename, so a crash never leaves half a file.
+pub fn replace_file(path: &Path, bytes: &[u8], mode: u32) -> std::io::Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+    let mut name = path.file_name().unwrap_or_default().to_os_string();
+    name.push(".tmp");
+    let temporary = path.with_file_name(name);
+    // A temporary left by a crash would keep its mode, so it goes first.
+    match fs::remove_file(&temporary) {
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error),
+        _ => {}
+    }
+    let written = (|| {
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(mode)
+            .open(&temporary)?;
+        // The umask may have cleared bits of `mode`.
+        file.set_permissions(fs::Permissions::from_mode(mode))?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        fs::rename(&temporary, path)
+    })();
+    if written.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+    written
 }
 
 /// Write the config atomically.
@@ -968,7 +1038,7 @@ mod tests {
             written["participants"][1]["devices"][1].as_str(),
             Some("alsa_output.usb-G522")
         );
-        assert!(!path.with_extension("tmp").exists());
+        assert!(!path.with_file_name("config.toml.tmp").exists());
     }
 
     #[test]

@@ -2,4 +2,9 @@
 set -euo pipefail
 source scripts/lib/wayland-env.sh
 eco_wayland_env
+# The running daemon's token, so this window's saves and approvals are the user's.
+if [[ -r $XDG_RUNTIME_DIR/eco.token ]]; then
+  ECO_TOKEN=$(<"$XDG_RUNTIME_DIR/eco.token")
+  export ECO_TOKEN
+fi
 exec quickshell --path overlay

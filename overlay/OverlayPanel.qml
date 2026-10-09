@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls.Basic as C
 import QtQuick.Layouts
 import Quickshell
 
@@ -285,6 +286,22 @@ FloatingWindow {
       warning: I18n.t("delete.warning")
       confirmText: I18n.t("delete.action")
       onConfirmed: Eco.deleteSession(session.id)
+    }
+    // A change to hooks, context files or models another client asked for:
+    // only the user's choice here closes it.
+    ConfirmDialog {
+      id: pendingDialog
+      readonly property var change: Eco.pendingConfig
+      closePolicy: C.Popup.NoAutoClose
+      title: I18n.t("pending.title")
+      question: I18n.t("pending.question")
+      warning: Eco.pendingText
+      cancelText: I18n.t("pending.reject")
+      confirmIcon: "check"
+      confirmText: I18n.t("pending.approve")
+      onChangeChanged: change === null ? close() : open()
+      onConfirmed: Eco.approveConfig(change.id)
+      onCancelled: Eco.rejectConfig(change.id)
     }
     ImportDialog { id: importer }
     ShortcutsDialog { id: shortcuts }

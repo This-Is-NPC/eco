@@ -19,7 +19,7 @@ agents.
 
 Every command prints one JSON object: `{"ok": true, "data": …}`, or
 `{"ok": false, "code": "…", "message": "…"}` with exit status 1. Check `ok`.
-Codes: `daemon.offline`, `daemon.access_denied`, `daemon.unavailable`,
+Codes: `argument.invalid`, `daemon.offline`, `daemon.access_denied`, `daemon.unavailable`,
 `session.not_found`, `session.invalid`, `action.unknown`,
 `completion.failed`, `suggestion.removed`, `import.busy`, `import.failed`,
 `person.not_found`, `person.invalid`, `person.exists`, `people.failed`,
@@ -30,6 +30,8 @@ user; run `eco start --headless` only if they agree. On
 `daemon.access_denied`, explain that this agent cannot access the socket and
 ask for a less restricted environment. Do not start another daemon. On
 `daemon.unavailable`, report the connection error without claiming eco stopped.
+On `argument.invalid`, an argument held a line break (a line feed or a
+carriage return) and nothing was sent; pass ids and names on one line.
 `eco status` checks whether the daemon is running. `eco stop` and `eco restart`
 control it; use them only when the user asks.
 
@@ -103,6 +105,13 @@ eco send <id> <answer>    # the answer's id, from `eco show`; waits until the ho
 It returns `{session, id, sent}`. It fails with `hook.none` when the answer's
 action has no hook, `answer.not_found` when there is no finished answer with
 that id, and `hook.failed` with what the command wrote to stderr.
+
+Hooks, context files and models are the user's to set, in the eco window. A
+config sent to the socket by anything else that adds or changes a hook, adds a
+context file, or adds a model or changes its address or key source, is not
+saved: it fails with `config.pending` and waits for the user to approve or
+reject it in the window. While it waits, any other config sent to the socket
+fails with `config.busy` and is not saved.
 
 Answers use the user's global context and the context slots the session has on:
 named groups of files (`[[contexts]]` in the config, e.g. a résumé for

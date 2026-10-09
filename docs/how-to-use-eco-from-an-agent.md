@@ -121,6 +121,7 @@ output.
 | `daemon.offline` | tell you; run `eco start --headless` only if you agree. Never start a second daemon. |
 | `daemon.access_denied` | explain it cannot reach the socket from where it runs, and ask for a less restricted environment |
 | `daemon.unavailable` | report the connection error, without claiming eco stopped |
+| `argument.invalid` | an argument held a line break (a line feed or a carriage return); nothing was sent |
 | `action.unknown` | the skill name is not one of your `[[actions]]` |
 | `suggestion.removed` | a newer request on the same session replaced this one while it waited |
 
@@ -174,6 +175,13 @@ wrote to stderr.
 
 - **No MCP server, no HTTP API.** The CLI over the socket is the whole
   interface for agents.
+- **No hooks, context files or models of its own.** The CLI does not change the
+  settings. A program that sends `config.set` on the socket itself and adds or
+  changes a hook, adds a context file, or adds a model or changes its address or
+  key source, saves nothing: the change waits in the
+  eco window until you approve or reject it, and the program gets
+  `config.pending` ([screens §12](screens.md#12-settings)). Until you choose,
+  any other `config.set` it sends gets `config.busy` and is not saved.
 - **No access without the daemon.** The logs in `~/.local/share/eco/sessions/`
   are plain JSON Lines and readable, but the skill sends agents through the CLI,
   which reads them as they read now — corrections, removals and names applied.
