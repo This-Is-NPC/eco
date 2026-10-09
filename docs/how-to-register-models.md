@@ -229,6 +229,12 @@ once.
 **A wrong model id, or a base URL without `/v1`.** The answer fails with the
 provider's own error, and a hint when the base URL has no path.
 
+**The eco window asks to approve a model you did not add here.** Another
+program on the socket (an agent, a script) sent a config that adds a model or
+moves a model's address or key source. Nothing is saved until you choose: the
+dialog names the address and where the key comes from
+([screens §12](screens.md#12-settings)). REJECT unless you asked for it.
+
 **A model cannot be removed.** The assistant's and the default transcription
 model cannot. Removing any other asks first, listing what falls back to which
 model and whether the reviewer turns off.

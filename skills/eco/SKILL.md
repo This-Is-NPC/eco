@@ -106,6 +106,12 @@ It returns `{session, id, sent}`. It fails with `hook.none` when the answer's
 action has no hook, `answer.not_found` when there is no finished answer with
 that id, and `hook.failed` with what the command wrote to stderr.
 
+Hooks, context files and models are the user's to set, in the eco window. A
+config sent to the socket by anything else that adds or changes a hook, adds a
+context file, or adds a model or changes its address or key source, is not
+saved: it fails with `config.pending` and waits for the user to approve or
+reject it in the window.
+
 Answers use the user's global context and the context slots the session has on:
 named groups of files (`[[contexts]]` in the config, e.g. a résumé for
 interviews). A session has the slots of its kind on until someone chooses.

@@ -165,7 +165,9 @@ model = "gemini"                        # a registered chat model; the default w
 
 `hook_auto = true` is SEND ON ITS OWN. The daemon reads the file when it starts,
 so after editing it by hand run `eco restart`; a save from the window applies at
-once.
+once. Another program that sends the daemon a config with a new or changed hook
+saves nothing until you approve the exact command in the eco window
+([screens §12](screens.md#12-settings)).
 
 ---
 

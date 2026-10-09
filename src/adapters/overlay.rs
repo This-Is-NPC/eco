@@ -19,9 +19,10 @@ fn overlay_dir() -> PathBuf {
 }
 
 /// The overlay windows, each its own quickshell process: a number, which the
-/// window is told, and the session it shows, which it tells back.
-#[derive(Default)]
+/// window is told, and the session it shows, which it tells back. Every window
+/// is handed the same token, which tells its commands apart from other clients'.
 pub struct Windows {
+    token: String,
     last: u32,
     open: Vec<Window>,
 }
@@ -34,6 +35,14 @@ struct Window {
 }
 
 impl Windows {
+    pub fn new(token: String) -> Self {
+        Self {
+            token,
+            last: 0,
+            open: Vec::new(),
+        }
+    }
+
     pub fn is_open(&self) -> bool {
         !self.open.is_empty()
     }
@@ -51,6 +60,7 @@ impl Windows {
             .arg(overlay_dir())
             .env("ECO_WINDOW", number.to_string())
             .env("ECO_SHOW", show.unwrap_or_default())
+            .env("ECO_TOKEN", &self.token)
             .stdout(Stdio::null())
             .stderr(Stdio::inherit())
             .kill_on_drop(true)

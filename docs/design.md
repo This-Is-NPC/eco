@@ -776,6 +776,24 @@ The config window saves a draft whole; the daemon validates it, writes
 and its capture or monitor task completely, then starts the new one, so a save
 never leaves a second `pw-record` duplicating frames or transcribing twice.
 
+A hook runs a shell command, a context file is sent to a model, and a model's
+key is sent to its `base_url`, so only the user adds them. The daemon starts
+every window with one random token per run in `ECO_TOKEN`, and the window's
+`config.set` carries it. A `config.set` from any other socket client that adds
+or changes an action's `hook`, adds a file to `[context]` or a `[[contexts]]`
+slot, or adds a model or changes a model's `base_url`, `api_key_env` or
+`api_key_omapass`, is not saved: the daemon holds it, announces
+`config_pending` with each hook command, file path, and model's address and key
+source (a variable's or an omapass account's name, never a key), and answers
+the error `config.pending`. The window shows them in a dialog; APPROVE sends
+`config.approve <token>` and saves it, REJECT sends `config.reject <token>`,
+which drops it with the error `config.rejected`. Approving or rejecting without
+the token answers `config.not_window`. One change is held at a time: a newer
+one replaces it, and any saved config drops it. Every other change from any
+client is saved at once, as before. The token keeps another client from
+approving its own change; a process of the same user that reads the window's
+environment or edits `config.toml` itself is not stopped by it.
+
 ### 9.1 Secrets
 
 Secrets come from environment variables: `OPENROUTER_API_KEY`,
@@ -864,6 +882,7 @@ session it shows:
 {"type":"import_done","id":"…","complete":true}
 {"type":"config","config":{...},"devices":[{"id":"@default-input","label":"...","kind":"input"}],"omapass":{"installed":false,"page":"https://plugins.omarchy.org/..."},"presets":{"transcription":[{"name":"DEEPGRAM","values":{"base_url":"wss://api.deepgram.com/v1/listen","model":"nova-3","api_key_env":"DEEPGRAM_API_KEY"}},…],"chat":[{"name":"OPENROUTER","values":{"base_url":"https://openrouter.ai/api/v1","model":"…","api_key_env":"OPENROUTER_API_KEY","extra":{}}},…]}}
 {"type":"config_saved"}
+{"type":"config_pending","hooks":[{"action":"minutes","command":"~/bin/crm-push"}],"files":["~/notes/cv.md"],"models":[{"name":"fast","base_url":"http://192.0.2.10:8000/v1","api_key_env":null,"api_key_omapass":"openrouter"}]}
 {"type":"models","target":"llm","models":["..."],"error":"..."}
 {"type":"error","code":"session.none","params":{},"message":"start a session first"}
 ```
@@ -871,7 +890,11 @@ session it shows:
 ### 10.2 Commands
 
 `action <name>`, `ask <question>`,
-`config` (current config and devices), `config.set <json>`,
+`config` (current config and devices), `config.set <json>` (the config whole;
+a window adds `"token"`; one from another client that adds a hook, a context
+file or a model, or moves a model's key, is held, §9), `config.approve <token>`
+and `config.reject <token>` (the held change; once nothing is held, `config_pending` with empty lists; a client
+that connects while a change is held is greeted with its `config_pending`),
 `session.language <json>`, `models <json>`
 (`{"target","base_url","api_key_env","api_key_omapass"}`; the key is read only
 with no key source, a saved model's own source at that model's `base_url`, or a
