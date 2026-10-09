@@ -261,7 +261,16 @@ impl Client {
         }
     }
 
+    /// Write `command` as one line. A raw argument with a control character
+    /// could end the line early and smuggle a second command, so such a command
+    /// is refused and nothing is written.
     async fn send(&mut self, command: &str) -> Result<(), Failure> {
+        if command.contains(char::is_control) {
+            return Err(Failure::new(
+                "argument.invalid",
+                "an argument contains a control character such as a line break",
+            ));
+        }
         let line = format!("{command}\n");
         self.writer
             .write_all(line.as_bytes())
@@ -1370,6 +1379,28 @@ mod tests {
         let change = LineChange::Edit("Windhawk".into());
         let line = client.line("n1", "Eles", 1.5, change).await.unwrap();
         assert_eq!(line["text"], "Windhawk");
+    }
+
+    #[tokio::test]
+    async fn an_argument_with_a_control_character_is_never_sent() {
+        for id in ["x\nconfig.set {}", "x\rstop", "x\0"] {
+            let (ours, mut theirs) = UnixStream::pair().unwrap();
+            let mut client = Client::over(ours);
+            let failure = client.show(id).await.err().unwrap();
+            assert_eq!(failure.code, "argument.invalid");
+            drop(client);
+            let mut received = Vec::new();
+            theirs.read_to_end(&mut received).await.unwrap();
+            assert!(received.is_empty(), "sent {received:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_line_break_inside_a_json_argument_is_kept() {
+        let note = json!({"type": "note", "id": "c1", "session": "n1", "text": "a\nb", "at": 1.0});
+        let mut client = talking_to(r#"session.note {"id":"n1","text":"a\nb"}"#, vec![note]);
+        let kept = client.note("n1", "a\nb").await.unwrap();
+        assert_eq!(kept["text"], "a\nb");
     }
 
     #[tokio::test]

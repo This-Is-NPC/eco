@@ -19,7 +19,7 @@ agents.
 
 Every command prints one JSON object: `{"ok": true, "data": …}`, or
 `{"ok": false, "code": "…", "message": "…"}` with exit status 1. Check `ok`.
-Codes: `daemon.offline`, `daemon.access_denied`, `daemon.unavailable`,
+Codes: `argument.invalid`, `daemon.offline`, `daemon.access_denied`, `daemon.unavailable`,
 `session.not_found`, `session.invalid`, `action.unknown`,
 `completion.failed`, `suggestion.removed`, `import.busy`, `import.failed`,
 `person.not_found`, `person.invalid`, `person.exists`, `people.failed`,
@@ -30,6 +30,8 @@ user; run `eco start --headless` only if they agree. On
 `daemon.access_denied`, explain that this agent cannot access the socket and
 ask for a less restricted environment. Do not start another daemon. On
 `daemon.unavailable`, report the connection error without claiming eco stopped.
+On `argument.invalid`, an argument held a control character such as a line
+break and nothing was sent; pass ids and names on one line.
 `eco status` checks whether the daemon is running. `eco stop` and `eco restart`
 control it; use them only when the user asks.
 
