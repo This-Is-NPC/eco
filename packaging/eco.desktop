@@ -8,4 +8,4 @@ Icon=eco
 Terminal=false
 Categories=Office;
 Keywords=sessions;meeting;transcription;voice;ai;
-StartupWMClass=org.quickshell
+StartupWMClass=eco

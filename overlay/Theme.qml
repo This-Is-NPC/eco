@@ -1,12 +1,11 @@
 pragma Singleton
 import QtQuick
-import Quickshell
-import Quickshell.Io
+import EcoHost
 
 Singleton {
   id: root
 
-  readonly property string stateHome: Quickshell.env("XDG_STATE_HOME") || Quickshell.env("HOME") + "/.local/state"
+  readonly property string stateHome: Host.env("XDG_STATE_HOME") || Host.env("HOME") + "/.local/state"
   readonly property string currentPath: stateHome + "/omarchy/current"
   readonly property string themePath: currentPath + "/theme"
   readonly property string colorsPath: themePath + "/colors.toml"
@@ -73,28 +72,24 @@ Singleton {
     return tones[index % tones.length]
   }
 
-  FileView {
+  // Omarchy replaces the theme directory when the theme changes: the colours,
+  // that directory and the one holding it are watched, and read again together.
+  TextFile {
     id: colorsFile
     path: root.colorsPath
-    watchChanges: true
-    printErrors: false
-    onFileChanged: root.scheduleReload()
-    onLoaded: root.apply(text())
+    onChanged: root.scheduleReload()
+    onTextChanged: if (text) root.apply(text)
   }
 
-  FileView {
+  TextFile {
     id: themeDirectory
     path: root.themePath
-    watchChanges: true
-    printErrors: false
-    onFileChanged: root.scheduleReload()
+    onChanged: root.scheduleReload()
   }
 
-  FileView {
+  TextFile {
     path: root.currentPath
-    watchChanges: true
-    printErrors: false
-    onFileChanged: root.scheduleReload()
+    onChanged: root.scheduleReload()
   }
 
   Timer {

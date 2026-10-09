@@ -12,9 +12,9 @@ pkgdesc='Voice sessions with an AI beside them, for Omarchy'
 arch=('x86_64')
 url='https://github.com/This-Is-NPC/eco'
 license=('MIT')
-depends=('gcc-libs' 'glibc' 'hyprland' 'pipewire' 'quickshell' 'socat' 'wl-clipboard')
+depends=('gcc-libs' 'glibc' 'hyprland' 'pipewire' 'qt6-base' 'qt6-declarative' 'socat' 'wl-clipboard')
 optdepends=('ffmpeg: import audio or video recordings')
-makedepends=('cargo' 'git')
+makedepends=('cargo' 'cmake' 'git' 'ninja')
 options=('!lto' '!debug')
 
 _tree="${ECO_TREE:-$startdir/../..}"
@@ -30,6 +30,7 @@ prepare() {
 build() {
   cd "$srcdir/tree"
   cargo build --release --frozen
+  scripts/window-build
 }
 
 package() {

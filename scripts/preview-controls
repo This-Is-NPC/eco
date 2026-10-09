@@ -2,4 +2,4 @@
 set -euo pipefail
 source scripts/lib/wayland-env.sh
 eco_wayland_env
-exec quickshell --path overlay/control-lab.qml
+exec target/window/eco-window overlay/ControlLab.qml

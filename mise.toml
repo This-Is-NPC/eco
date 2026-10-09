@@ -8,6 +8,7 @@ rust = { version = "1.97.1", components = "rustfmt,clippy" }
 python = "3.14.8"
 cmake = "4.4.4"
 ninja = "1.13.2"
+watchexec = "2.8.0"
 
 [env]
 _.file = ".env"
@@ -23,7 +24,8 @@ sources = ["window/**/*"]
 outputs = ["target/window/eco-window"]
 
 [tasks.install]
-description = "Build eco for release and install it under ~/.local (PREFIX overrides): binary, overlay, Hyprland rules, launcher, icon, agent skill"
+description = "Build eco for release and install it under ~/.local (PREFIX overrides): binary, window program, overlay, Hyprland rules, launcher, icon, agent skill"
+depends = ["window:build"]
 run = "scripts/install"
 
 [tasks."readme:gif"]
@@ -34,9 +36,9 @@ outputs = ["docs/img/eco.gif"]
 
 [tasks.shots]
 description = "Regenerate the pictures in docs/img from the real overlay, offscreen, against an isolated daemon seeded with synthetic fixtures"
-depends = ["setup"]
+depends = ["setup", "window:build"]
 run = "scripts/shots/shoot"
-sources = ["src/**/*.rs", "Cargo.toml", "Cargo.lock", "overlay/**/*", "scripts/shots/**/*"]
+sources = ["src/**/*.rs", "Cargo.toml", "Cargo.lock", "overlay/**/*", "window/**/*", "scripts/shots/**/*"]
 outputs = ["docs/img/[0-9][0-9]-*.png"]
 
 [tasks.uninstall]
@@ -46,6 +48,7 @@ run = "scripts/uninstall"
 
 [tasks.start]
 description = "Build and run the checkout daemon and overlay in the foreground; pass development flags after --"
+depends = ["window:build"]
 run = "scripts/start"
 
 [tasks.lint]
@@ -108,11 +111,14 @@ flag "--output <dir>" help="Write eco's turns there as <name>.rttm (first thresh
 run = "scripts/bench-diarization"
 
 [tasks.overlay]
-description = "Run only the overlay, reloading QML on save; pair with `mise run start -- --headless`"
+description = "Run only the overlay; `mise watch overlay -o restart` runs it again on every save; pair with `mise run start -- --headless`"
+depends = ["window:build"]
 run = "scripts/overlay"
+sources = ["overlay/**/*"]
 
 [tasks."preview:controls"]
 description = "Open the interactive control lab without changing session data"
+depends = ["window:build"]
 run = "scripts/preview-controls"
 
 [tasks.bench]

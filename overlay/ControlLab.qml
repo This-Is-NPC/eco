@@ -2,9 +2,8 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic as C
 import QtQuick.Layouts
-import Quickshell
 
-FloatingWindow {
+Window {
   id: lab
 
   property bool ending: false
@@ -29,12 +28,13 @@ FloatingWindow {
   Timer { id: labEnd; interval: 1800; onTriggered: lab.endBusy = false }
 
   title: I18n.t("lab.window")
-  implicitWidth: 980
-  implicitHeight: 720
-  minimumSize: Qt.size(680, 480)
+  width: 980
+  height: 720
+  minimumWidth: 680
+  minimumHeight: 480
   color: Theme.background
   visible: true
-  onClosed: Qt.quit()
+  onClosing: Qt.quit()
 
   Rectangle {
     anchors.fill: parent

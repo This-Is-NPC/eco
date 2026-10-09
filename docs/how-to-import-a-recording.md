@@ -181,10 +181,14 @@ until then stays in the session:
 
 ![SESSIONS with a strip above the filters: IMPORTING, "Sprint retro", a fill across 62% of it, "62%" and a × button.](img/35-import-progress.png)
 
-From a script or a key binding, the window takes a file too:
+From a script or a key binding, the window takes a file too: the newest window
+opens the import dialog with it filled in, and the daemon opens a window first
+when none is open. The path is absolute; `/home/you` is a placeholder for your
+home:
 
 ```bash
-quickshell ipc --path overlay call eco importFile ~/recordings/rust-talk.mp4
+echo 'window.call {"call":"import","path":"/home/you/recordings/rust-talk.mp4"}' |
+  socat - UNIX-CONNECT:$XDG_RUNTIME_DIR/eco.sock
 ```
 
 ---

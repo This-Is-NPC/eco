@@ -1,8 +1,7 @@
 pragma Singleton
 import QtQuick
 import Qt.labs.folderlistmodel
-import Quickshell
-import Quickshell.Io
+import EcoHost
 
 // I18n holds the language packs: one JSON file per language in ./i18n, found
 // on their own and reloaded when edited, so fixing or adding a translation
@@ -106,16 +105,15 @@ Singleton {
 
   property Instantiator loaders: Instantiator {
     model: root.folder
-    delegate: FileView {
+    delegate: TextFile {
       required property string filePath
       required property string fileBaseName
       path: filePath
-      watchChanges: true
-      onFileChanged: reload()
-      onLoaded: {
+      onChanged: reload()
+      onTextChanged: {
         try {
           const next = Object.assign({}, root.packs)
-          next[fileBaseName] = JSON.parse(text())
+          next[fileBaseName] = JSON.parse(text)
           root.packs = next
         } catch (error) {
           console.warn("i18n: " + fileBaseName + ".json is not valid JSON: " + error)

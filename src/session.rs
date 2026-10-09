@@ -796,6 +796,65 @@ fn window_shows(payload: &str) -> Option<(u32, String)> {
     Some((number, session))
 }
 
+/// `window.call {"call", "path"}`: what a shortcut asks of an overlay window —
+/// "config", "new_session", "sessions", or "import" with the file's `path`,
+/// which may be left out — as the fields of the `window_call` event; `None`
+/// when it is none of these.
+fn window_call(payload: &str) -> Option<Value> {
+    let request = serde_json::from_str::<Value>(payload).ok()?;
+    let call = request.get("call")?.as_str()?;
+    let mut fields = json!({"call": call});
+    match (call, request.get("path")) {
+        ("config" | "new_session" | "sessions" | "import", None) => {}
+        ("import", Some(path)) => fields["path"] = json!(path.as_str()?),
+        _ => return None,
+    }
+    Some(fields)
+}
+
+/// Where a shortcut's call goes: the `window_call` event for the newest window
+/// open, or the call's JSON for a window opened to make it.
+#[derive(Debug, PartialEq)]
+enum CallTo {
+    Window(Value),
+    NewWindow(String),
+}
+
+fn route_call(newest: Option<u32>, mut call: Value) -> CallTo {
+    match newest {
+        Some(number) => {
+            call["type"] = json!("window_call");
+            call["window"] = json!(number);
+            CallTo::Window(call)
+        }
+        None => CallTo::NewWindow(call.to_string()),
+    }
+}
+
+/// Open another overlay window that shows a live session no window shows, and
+/// makes `call` when given; say whether it opened.
+async fn open_window(
+    windows: &mut overlay::Windows,
+    live: Vec<String>,
+    call: Option<&str>,
+    clients: &Clients,
+    overlay_open: &std::sync::atomic::AtomicBool,
+) {
+    let shown: Vec<&str> = windows.shown().collect();
+    let unshown = live
+        .into_iter()
+        .rev()
+        .find(|id| !shown.contains(&id.as_str()));
+    match windows.open(unshown.as_deref(), call).await {
+        Ok(()) => {
+            overlay_open.store(true, std::sync::atomic::Ordering::Relaxed);
+            clients.emit(&json!({"type": "overlay_status", "open": true}));
+        }
+        Err(error) => clients
+            .emit(&json!({"type": "overlay_status", "open": false, "message": error.to_string()})),
+    }
+}
+
 /// What a `config.set` leads to: a config to save, `own` when the window sent
 /// it, or one held until the user confirms it in an eco window, with the
 /// `config_pending` event that names why.
@@ -1752,7 +1811,7 @@ pub async fn run(
         ControlSocket::bind(&paths::socket_path(), clients.clone(), greeting, commands).await?;
     let mut windows = overlay::Windows::new(token.clone())?;
     if !headless {
-        windows.open(None).await?;
+        windows.open(None, None).await?;
         overlay_open.store(true, std::sync::atomic::Ordering::Relaxed);
     }
 
@@ -1777,16 +1836,17 @@ pub async fn run(
     loop {
         tokio::select! {
             Some(command) = received.recv() => {
-                // Opening the app again opens another window, showing a live session no window shows.
+                // Opening the app again opens another window.
                 if command.trim() == "overlay.open" {
-                    let shown: Vec<&str> = windows.shown().collect();
-                    let unshown = session.assistant.live().into_iter().rev().find(|id| !shown.contains(&id.as_str()));
-                    match windows.open(unshown.as_deref()).await {
-                        Ok(()) => {
-                            overlay_open.store(true, std::sync::atomic::Ordering::Relaxed);
-                            clients.emit(&json!({"type": "overlay_status", "open": true}));
+                    open_window(&mut windows, session.assistant.live(), None, &clients, &overlay_open).await;
+                } else if let ("window.call", Some(payload)) = split(&command)
+                    && let Some(call) = window_call(payload)
+                {
+                    match route_call(windows.newest(), call) {
+                        CallTo::Window(event) => clients.emit(&event),
+                        CallTo::NewWindow(call) => {
+                            open_window(&mut windows, session.assistant.live(), Some(&call), &clients, &overlay_open).await;
                         }
-                        Err(error) => clients.emit(&json!({"type": "overlay_status", "open": false, "message": error.to_string()})),
                     }
                 } else if let ("window.show", Some(payload)) = split(&command) {
                     if let Some((number, shows)) = window_shows(payload) {
@@ -2168,6 +2228,44 @@ mod tests {
             Some((1, String::new()))
         );
         assert_eq!(window_shows(r#"{"session": "abc"}"#), None);
+    }
+
+    #[test]
+    fn a_window_call_names_a_known_call_and_only_import_takes_a_path() {
+        assert_eq!(
+            window_call(r#"{"call": "config"}"#),
+            Some(json!({"call": "config"}))
+        );
+        assert_eq!(
+            window_call(r#"{"call": "import", "path": "/tmp/retro.vtt"}"#),
+            Some(json!({"call": "import", "path": "/tmp/retro.vtt"}))
+        );
+        assert_eq!(
+            window_call(r#"{"call": "import"}"#),
+            Some(json!({"call": "import"}))
+        );
+        assert_eq!(window_call(r#"{"call": "sessions", "path": "/x"}"#), None);
+        assert_eq!(window_call(r#"{"call": "import", "path": 3}"#), None);
+        assert_eq!(window_call(r#"{"call": "quit"}"#), None);
+        assert_eq!(window_call("sessions"), None);
+    }
+
+    #[test]
+    fn a_window_call_goes_to_the_newest_window_or_opens_one() {
+        let call = json!({"call": "import", "path": "/tmp/retro.vtt"});
+        assert_eq!(
+            route_call(Some(3), call.clone()),
+            CallTo::Window(json!({
+                "type": "window_call",
+                "window": 3,
+                "call": "import",
+                "path": "/tmp/retro.vtt"
+            }))
+        );
+        let CallTo::NewWindow(made) = route_call(None, call.clone()) else {
+            panic!("no window is open, so one opens to make the call");
+        };
+        assert_eq!(serde_json::from_str::<Value>(&made).unwrap(), call);
     }
 
     #[test]

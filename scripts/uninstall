@@ -14,6 +14,6 @@ systemctl --user daemon-reload
 rm -f "$prefix/bin/eco" \
   "$prefix/share/applications/eco.desktop" \
   "$prefix/share/icons/hicolor/scalable/apps/eco.svg"
-rm -rf "$prefix/share/eco/overlay" "$prefix/share/eco/hypr" "$prefix/share/licenses/eco"
+rm -rf "$prefix/lib/eco" "$prefix/share/eco/overlay" "$prefix/share/eco/hypr" "$prefix/share/licenses/eco"
 refresh_desktop_entries "$prefix"
 printf 'removed eco from %s\n' "$prefix"

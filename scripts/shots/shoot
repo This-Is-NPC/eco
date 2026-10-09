@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """Write the pictures in docs/img/ from the real overlay.
 
-The checkout's daemon and a copy of overlay/ run offscreen, in a temporary
-home of their own (runtime, data, config, state and cache directories), seeded
-with the synthetic fixtures beside this script. A test-only driver, Drive.qml,
-is added to the copy and evaluates JavaScript sent over `quickshell ipc`: it
-clicks and types as a user would and saves each window as it is drawn. No
-window opens on the desktop and the user's daemon and socket are never touched.
+The checkout's daemon and a copy of overlay/, run by the checkout's
+eco-window, run offscreen, in a temporary home of their own (runtime, data,
+config, state and cache directories), seeded with the synthetic fixtures beside
+this script. A test-only driver, Drive.qml, is added to the copy and evaluates
+JavaScript sent over a socket of its own: it clicks and types as a user would
+and saves each window as it is drawn. No window opens on the desktop and the
+user's daemon and socket are never touched.
 
 Called with a directory, writes the pictures there and leaves docs/img alone.
 """
@@ -32,6 +33,7 @@ HERE = ROOT / "scripts" / "shots"
 FIXTURES = HERE / "fixtures"
 OUT = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else ROOT / "docs" / "img"
 ECO = ROOT / "target" / "debug" / "eco"
+WINDOW = ROOT / "target" / "window" / "eco-window"
 # The temporary home, at a fixed path: the session details show where a session
 # is stored, and the pictures must say the same in every run.
 HOME = Path("/tmp/eco-shots")
@@ -130,10 +132,10 @@ def seed(home):
     shutil.copytree(ROOT / "overlay", home / "overlay")
     shutil.copy(HERE / "Drive.qml", home / "overlay")
     shell = home / "overlay" / "shell.qml"
-    anchor = "  OverlayPanel { id: overlay }\n"
+    anchor = "OverlayPanel {\n  id: overlay\n"
     text = shell.read_text()
     if anchor not in text:
-        fail("overlay/shell.qml no longer declares `OverlayPanel { id: overlay }`; update the driver's anchor")
+        fail("overlay/shell.qml no longer opens with `OverlayPanel { id: overlay`; update the driver's anchor")
     shell.write_text(text.replace(anchor, anchor + "  Drive { overlay: overlay; settings: settings }\n", 1))
 
 
@@ -163,15 +165,28 @@ def start_daemon(home, env):
 
 
 class Window:
-    """The overlay copy, offscreen, and the driver inside it."""
+    """The overlay copy, offscreen, and the driver inside it, which connects to
+    a socket this listens on."""
 
     def __init__(self, home, env):
-        self.env = env
+        drive = home / "run" / "drive.sock"
+        server = socket.socket(socket.AF_UNIX)
+        server.bind(str(drive))
+        server.listen(1)
+        server.settimeout(10)
         self.log = open(home / "overlay.log", "w")
         self.process = subprocess.Popen(
-            ["quickshell", "--path", str(home / "overlay")],
-            env=env, stdout=self.log, stderr=subprocess.STDOUT, start_new_session=True,
+            [str(WINDOW), str(home / "overlay" / "shell.qml")],
+            env=dict(env, ECO_DRIVE=str(drive)), stdout=self.log, stderr=subprocess.STDOUT, start_new_session=True,
         )
+        try:
+            self.link, _ = server.accept()
+        except TimeoutError:
+            fail("the driver did not connect:\n" + (home / "overlay.log").read_text())
+        finally:
+            server.close()
+        self.link.settimeout(60)
+        self.answers = self.link.makefile("r", encoding="utf-8")
         for _ in range(100):
             if self.process.poll() is not None:
                 fail("the overlay exited:\n" + (home / "overlay.log").read_text())
@@ -181,13 +196,13 @@ class Window:
         fail("the overlay did not connect to the daemon")
 
     def js(self, code, quiet=False):
-        done = subprocess.run(
-            ["quickshell", "ipc", "--pid", str(self.process.pid), "call", "drive", "run", code],
-            env=self.env, capture_output=True, text=True,
-        )
-        answer = done.stdout.strip()
-        if not quiet and (done.returncode != 0 or answer.startswith("error:")):
-            fail(f"driver: {answer or done.stderr.strip()}\n  in: {code}")
+        self.link.sendall((json.dumps(code) + "\n").encode())
+        line = self.answers.readline()
+        if not line:
+            fail("the driver closed its socket:\n" + Path(self.log.name).read_text())
+        answer = json.loads(line)
+        if not quiet and answer.startswith("error:"):
+            fail(f"driver: {answer}\n  in: {code}")
         return answer
 
     def do(self, code, wait=0.6):
@@ -555,7 +570,7 @@ def scenes(w, shots, stop):
     w.do("Eco.openConfigAt(4)")
     w.do("return d.click('title=\"minutes\"')")
     w.do("return d.type('label=\"NAME\" value=\"minutes\"', 'weekly minutes')")
-    w.do("settings.contentItem.forceActiveFocus()")
+    w.do("d.blur('settings')")
     shots.take("50-settings-errors", "settings")
     w.do("settings.attemptClose()")
     shots.take("51-settings-unsaved", "settings")
@@ -576,8 +591,8 @@ def scenes(w, shots, stop):
 
 
 def main():
-    if not shutil.which("quickshell"):
-        fail("quickshell is not installed")
+    if not WINDOW.is_file():
+        fail(f"missing {WINDOW}; run `mise run window:build`")
     subprocess.run(["cargo", "build", "--locked", "--quiet"], cwd=ROOT, check=True)
     lock = open(f"{HOME}.lock", "w")
     try:

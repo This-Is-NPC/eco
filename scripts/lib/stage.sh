@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 # stage_files <root> <prefix> puts what eco ships beside its binary under
-# <root><prefix>: the overlay, the Hyprland rules pointing at <prefix>'s copy of
-# it, the launcher, the icon and the licence. Run from the repository root.
+# <root><prefix>: the window program (built by scripts/window-build) in
+# lib/eco, which is eco's alone, the overlay it runs, the Hyprland rules, the
+# launcher, the icon and the licence. Run from the repository root.
 stage_files() {
-  local prefix="$2" share="$1$2/share"
+  local share="$1$2/share"
+  install -Dm755 target/window/eco-window "$1$2/lib/eco/eco-window"
   rm -rf "$share/eco/overlay"
-  install -d "$share/eco/hypr"
+  install -d "$share/eco"
   cp -r overlay "$share/eco/overlay"
-  sed "s|^local overlay = .*|local overlay = \"$prefix/share/eco/overlay\"|" \
-    packaging/hypr/eco.lua > "$share/eco/hypr/eco.lua"
+  install -Dm644 packaging/hypr/eco.lua "$share/eco/hypr/eco.lua"
   install -Dm644 packaging/eco.desktop "$share/applications/eco.desktop"
   install -Dm644 packaging/eco.svg "$share/icons/hicolor/scalable/apps/eco.svg"
   install -Dm644 LICENSE "$share/licenses/eco/LICENSE"

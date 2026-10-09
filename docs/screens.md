@@ -25,8 +25,9 @@ If you are looking for a task rather than a screen, start at
 `mise run shots` needs no display and no call. It builds the checkout's daemon,
 starts it with `--headless --replay` in a home of its own at `/tmp/eco-shots`
 (runtime, data, config, state and cache directories), copies `overlay/` there
-with a test-only driver, `scripts/shots/Drive.qml`, and runs that copy under
-`QT_QPA_PLATFORM=offscreen`. The driver clicks and types as somebody would and
+with a test-only driver, `scripts/shots/Drive.qml`, and runs that copy with the
+checkout's `eco-window` under `QT_QPA_PLATFORM=offscreen`. The driver takes
+JavaScript over a socket of its own, clicks and types as somebody would and
 saves each window as it is drawn. A frame is refused if the window has lost the
 daemon (except `02`, which is that), if it shows an error, or if it is flat —
 eight colours or fewer, which is a window that drew nothing. The user's
@@ -113,7 +114,7 @@ eco start
 
 `eco start` starts the daemon's user service if nothing answers on the socket
 and opens a window (`--headless` leaves it closed). Opening the app again opens
-another window; each is its own Quickshell process.
+another window; each is its own `eco-window` process.
 
 ![The start screen: the masthead "ECO / READY" with the settings button on the right; a wide input trace swinging in two bursts with a flat stretch between them; four stacked buttons, NEW SESSION lit as the primary one, then SESSIONS, IMPORT and PEOPLE; under them "Outside a session the signal is only measured: nothing is transcribed or recorded."](img/01-start.png)
 
@@ -472,8 +473,9 @@ The dialog scrolls (arrows, `PgUp`, `PgDn`). Its end:
 ![The keyboard shortcuts dialog scrolled to its end: the rest of PEOPLE SCREEN (F2 rename, M merge), STORED SESSION (R resume or reopen, E edit title and kind), CONVERSATION (↑ · ↓ · PgUp · PgDn, Home · End, N, Tab), QUESTION BOX (Enter, Shift+Enter, / with ↑ · ↓, Tab and Enter, Alt+1…9), MENUS AND OPTION LISTS (↑ · ↓ · Home · End, Enter · Space, Esc) and SETTINGS (Ctrl+1…8, Ctrl+S, Alt+↑ · Alt+↓, Esc).](img/37-shortcuts-end.png)
 
 The GLOBAL keys are not the window's: `packaging/hypr/eco.lua` binds them in
-Hyprland and sends them to the daemon through `socat` or to the window through
-`quickshell ipc`, so they work with eco in the background.
+Hyprland and sends them to the daemon through `socat`; those that open a view
+ask the daemon to hand them to the newest window (`window.call`), so they work
+with eco in the background.
 
 Everything the pointer does, the keyboard does: `Tab` reaches every control,
 with a focus ring apart from its hover, and a control's hint shows on focus as

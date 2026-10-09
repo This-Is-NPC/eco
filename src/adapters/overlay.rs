@@ -1,4 +1,5 @@
-//! The Quickshell overlay windows, running for as long as the session holds them.
+//! The overlay windows, each an `eco-window` process running the QML in
+//! `overlay/`, for as long as the session holds them (docs/design.md §3).
 
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
@@ -12,15 +13,23 @@ use tokio::process::{Child, Command};
 
 use crate::paths;
 
-/// The QML: installed beside the binary (`<prefix>/share/eco/overlay` for
-/// `<prefix>/bin/eco`), or this checkout's when eco runs from it.
-fn overlay_dir() -> PathBuf {
+/// The window's QML: installed beside the binary
+/// (`<prefix>/share/eco/overlay/shell.qml` for `<prefix>/bin/eco`), or this
+/// checkout's when eco runs from it.
+fn shell() -> PathBuf {
     paths::shipped("overlay/shell.qml")
-        .and_then(|qml| qml.parent().map(PathBuf::from))
-        .unwrap_or_else(|| concat!(env!("CARGO_MANIFEST_DIR"), "/overlay").into())
+        .unwrap_or_else(|| concat!(env!("CARGO_MANIFEST_DIR"), "/overlay/shell.qml").into())
 }
 
-/// The overlay windows, each its own quickshell process: a number, which the
+/// The program that runs it: installed beside the binary
+/// (`<prefix>/lib/eco/eco-window`), or this checkout's build
+/// (`mise run window:build`) when eco runs from it.
+fn program() -> PathBuf {
+    paths::shipped_program("eco-window")
+        .unwrap_or_else(|| concat!(env!("CARGO_MANIFEST_DIR"), "/target/window/eco-window").into())
+}
+
+/// The overlay windows, each its own eco-window process: a number, which the
 /// window is told, and the session it shows, which it tells back. Every window
 /// is handed the same token, which tells its commands apart from other clients';
 /// a window the daemon did not start reads it from `paths::token_path()`.
@@ -57,22 +66,30 @@ impl Windows {
         self.open.iter().map(|window| window.shows.as_str())
     }
 
-    /// Open another window, focused, that shows `show` when it is a live session.
-    pub async fn open(&mut self, show: Option<&str>) -> io::Result<()> {
+    /// The window opened last of those still open.
+    pub fn newest(&self) -> Option<u32> {
+        self.open.last().map(|window| window.number)
+    }
+
+    /// Open another window, focused, that shows `show` when it is a live
+    /// session and makes `call` (a `window_call`'s JSON) once it meets the daemon.
+    pub async fn open(&mut self, show: Option<&str>, call: Option<&str>) -> io::Result<()> {
         let number = self.last + 1;
-        let mut child = Command::new("quickshell")
-            .arg("--path")
-            .arg(overlay_dir())
+        let program = program();
+        let mut child = Command::new(&program)
+            .arg(shell())
             .env("ECO_WINDOW", number.to_string())
             .env("ECO_SHOW", show.unwrap_or_default())
+            .env("ECO_CALL", call.unwrap_or_default())
             .env("ECO_TOKEN", &self.token)
             .stdout(Stdio::null())
             .stderr(Stdio::inherit())
             .kill_on_drop(true)
-            .spawn()?;
+            .spawn()
+            .map_err(|error| io::Error::other(format!("{}: {error}", program.display())))?;
         tokio::time::sleep(Duration::from_millis(200)).await;
         if let Some(status) = child.try_wait()? {
-            return Err(io::Error::other(format!("quickshell exited with {status}")));
+            return Err(io::Error::other(format!("eco-window exited with {status}")));
         }
         activate(&child).await?;
         self.last = number;
@@ -142,7 +159,7 @@ impl Drop for TokenFile {
     }
 }
 
-/// Give the keyboard to the window of the quickshell process `child`.
+/// Give the keyboard to the window of the eco-window process `child`.
 async fn activate(child: &Child) -> io::Result<()> {
     let pid = child
         .id()

@@ -208,8 +208,8 @@ between processes.
 Sessions in one daemon share the capture, the VAD and the diarizer (a child
 process per input: 7.8% CPU and 178 MB RSS of the daemon's total); a second
 transcription model costs only its connection. Two daemons pay for all of it
-twice. Each overlay is its own Quickshell process and shares nothing but the
-Qt libraries.
+twice. Each overlay was its own Quickshell process, as the window ran then,
+and shared nothing but the Qt libraries.
 
 Most of the overlay's CPU was its input traces: each sample laid the whole
 curve out again (480 points, two strokes). Laying out only the newest piece,
@@ -228,6 +228,23 @@ software rendering, so about 25 MB is the GPU driver); the overlay adds about
 65 MB, spread over first-use costs — text at a few sizes (~11 MB), Shapes
 (~6 MB), the Quickshell modules its singletons load (~18 MB) — with no single
 view or dialog above noise. The overlay's floor is Qt's.
+
+### The window on plain Qt 6 (2026-10-09)
+
+The same overlay, run by `eco-window` (§3 of [design.md](design.md#3-architecture))
+and, for comparison, by Quickshell 0.3.1 from the commit before the change.
+Release build of `eco-window`, Qt 6.11.2, on Hyprland on the Omarchy laptop;
+one window on the start screen against an isolated daemon replaying a WAV, no
+session. Time is from starting the process to Hyprland listing its window as
+mapped (`hyprctl clients`, polled every 10 ms); memory is PSS six seconds later.
+Four runs each; the first `eco-window` run had an empty QML disk cache.
+
+| Window | Time to a mapped window | PSS |
+|---|---|---|
+| `eco-window` | 315 ms with an empty cache; 175–241 ms after | 120–124 MB |
+| Quickshell | 297–314 ms | 196–200 MB |
+
+`eco-window` is 77 KB, built in about 8 s.
 
 The diarizer child held 159 MB RSS for a 29 MB model: glibc kept the tensors
 each clip's length sized differently. A fixed `MALLOC_TRIM_THRESHOLD_` (1 MB)

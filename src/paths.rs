@@ -102,11 +102,22 @@ pub fn home() -> PathBuf {
     layout().home()
 }
 
+/// `<prefix>/<directory>/<path>` for the running `<prefix>/bin/eco`, when it is there.
+fn beside_binary(directory: &str, path: &str) -> Option<PathBuf> {
+    let exe = env::current_exe().ok()?;
+    Some(exe.parent()?.parent()?.join(directory).join(path)).filter(|file| file.exists())
+}
+
 /// A file eco ships beside its binary, `<prefix>/share/eco/<path>` for
 /// `<prefix>/bin/eco`, when it is there.
 pub fn shipped(path: &str) -> Option<PathBuf> {
-    let exe = env::current_exe().ok()?;
-    Some(exe.parent()?.parent()?.join("share/eco").join(path)).filter(|file| file.exists())
+    beside_binary("share/eco", path)
+}
+
+/// A program eco ships for itself alone, `<prefix>/lib/eco/<name>` for
+/// `<prefix>/bin/eco`, when it is there.
+pub fn shipped_program(name: &str) -> Option<PathBuf> {
+    beside_binary("lib/eco", name)
 }
 
 pub fn config_file() -> PathBuf {

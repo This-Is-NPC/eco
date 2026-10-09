@@ -13,8 +13,8 @@ log on the laptop; the audio is heard and never kept.
 ![what one session cost, charge by charge](docs/img/27-session-cost.png)
 
 Two processes. The daemon (`src/`, Rust) captures, transcribes, keeps the
-sessions and calls the models; the window (`overlay/`, QML on Quickshell) only
-draws what the daemon sends it, over one Unix socket at
+sessions and calls the models; the window (`overlay/`, QML on Qt 6, run by
+the small `eco-window` program) only draws what the daemon sends it, over one Unix socket at
 `$XDG_RUNTIME_DIR/eco.sock`. The interface speaks English, Brazilian Portuguese
 and Japanese.
 
@@ -203,7 +203,7 @@ has the commands.
 
 - Omarchy, or Arch with Hyprland, PipeWire (`pw-record`, `pw-dump`) and a
   systemd user session
-- Quickshell, which draws the window
+- Qt 6 (`qt6-base`, `qt6-declarative`), which draws the window
 - `socat`, for the global keys
 - `wl-copy`, to copy an answer or a transcript
 - `ffmpeg` and `ffprobe`, only to import audio or video

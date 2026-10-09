@@ -1,19 +1,20 @@
 import QtQuick
 import QtQuick.Controls.Basic as C
 import QtQuick.Layouts
-import Quickshell
 
 // OverlayPanel is eco's window. Without a session: start one, or read the
 // past ones. During one: its state, the live inputs, the conversation with
 // the AI's answers, and a composer to ask. A normal window, so Hyprland
 // floats, pins and moves it; packaging/hypr/eco.lua matches its title.
-FloatingWindow {
+Window {
   id: panel
 
   title: "eco"
-  implicitWidth: 720
-  implicitHeight: 720
-  minimumSize: Qt.size(240, 320)
+  width: 720
+  height: 720
+  minimumWidth: 240
+  minimumHeight: 320
+  visible: true
   color: Theme.background
 
   // Below this width, controls drop their labels and keep their icons.
@@ -39,7 +40,7 @@ FloatingWindow {
 
   // Closing the window closes the overlay; the daemon keeps any session going and
   // opens it again when the app is opened.
-  onClosed: Qt.quit()
+  onClosing: Qt.quit()
 
   Rectangle {
     anchors.fill: parent

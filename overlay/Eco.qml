@@ -1,8 +1,6 @@
 pragma Singleton
 import QtQuick
-import Quickshell
-import Quickshell.Hyprland
-import Quickshell.Io
+import EcoHost
 
 // Eco is the daemon as the overlay sees it: the socket, the session it
 // announces, the session and its timeline (speech and suggestions), the live
@@ -11,7 +9,7 @@ import Quickshell.Io
 Singleton {
   id: root
 
-  readonly property bool connected: link.item !== null && link.item.connected
+  readonly property bool connected: link.connected
   property var actions: []
   // The actions with a hook: their answers can be sent to it.
   property var hooks: []
@@ -37,8 +35,8 @@ Singleton {
   property var signals: ({})
   // This window's number, given by the daemon, and the session it shows — at
   // first the live one the daemon gave it — or "". Each window shows its own.
-  readonly property int window: Number(Quickshell.env("ECO_WINDOW") || 0)
-  property string shown: Quickshell.env("ECO_SHOW") || ""
+  readonly property int window: Number(Host.env("ECO_WINDOW") || 0)
+  property string shown: Host.env("ECO_SHOW") || ""
   // The session this window shows when it is live ({id, title, kind, source,
   // language, state, started_at, people, attendees, contexts, translating}) or
   // null.
@@ -183,7 +181,7 @@ Singleton {
   }
   property var config: null
   // The token the daemon gave this window: its config.set is the user's own.
-  readonly property string token: Quickshell.env("ECO_TOKEN") || ""
+  readonly property string token: Host.env("ECO_TOKEN") || ""
   // A change another client asked for, held until the user approves or rejects
   // it ({id, hooks: [{action, command}], files, models: [{name, base_url,
   // api_key_env, api_key_omapass}]}), or null. The daemon says it again on
@@ -228,11 +226,28 @@ Singleton {
   // A tag every session now carries under another name.
   signal tagRenamed(string from, string to)
 
+  // act does what a shortcut asks of this window (a `window_call` event, see
+  // docs/design.md §10): "config" opens or closes the settings, "new_session" the
+  // new-session dialog, "sessions" lists the sessions when none is on screen,
+  // "import" opens the import dialog with `path` filled in.
+  function act(call) {
+    if (call.call === "config")
+      toggleConfig()
+    else if (call.call === "new_session")
+      newSessionRequested()
+    else if (call.call === "sessions" && session === null)
+      openAllHistory()
+    else if (call.call === "import")
+      importRequested(call.path || "")
+  }
+  // The call the daemon opened this window to make, as JSON, or "": made once
+  // the daemon has said what it holds.
+  property string opening: Host.env("ECO_CALL")
+
   function send(command) {
     if (!connected)
       return
-    link.item.write(command + "\n")
-    link.item.flush()
+    link.send(command)
   }
   // sendHook runs the hook of the action that gave answer `id`, in the open session or the one read back.
   function sendHook(id) {
@@ -276,8 +291,7 @@ Singleton {
   }
   // copy puts text on the Wayland clipboard, as it is, and says what it was.
   function copy(text, notice) {
-    clipboard.command = ["wl-copy", "--", text]
-    clipboard.startDetached()
+    Host.copy(text)
     tell([[notice || "status.copied"]], false)
   }
   // The session whose WebVTT the overlay asked for: exports others request are
@@ -721,6 +735,10 @@ Singleton {
       follow()
       send("people")
       send("tags")
+      if (opening) {
+        act(JSON.parse(opening))
+        opening = ""
+      }
       break
     case "session":
       live = event.live || []
@@ -735,6 +753,10 @@ Singleton {
     case "session_opened":
       if (event.window === window)
         shown = event.id
+      break
+    case "window_call":
+      if (event.window === window)
+        act(event)
       break
     case "session_timeline":
       if (session !== null && event.session === session.id) {
@@ -1072,25 +1094,17 @@ Singleton {
     }
   }
 
-  Process { id: clipboard }
-
   // Sets Hyprland's no_screen_share on every window of this process (the overlay
   // and its settings window), on or off as hideFromShare says.
-  function shareWindows() {
-    Hyprland.dispatch(`(function()
-      for _, w in ipairs(hl.get_windows()) do
-        if w.pid == ${Quickshell.processId} then
-          hl.dispatch(hl.dsp.window.set_prop({ prop = "no_screen_share", value = "${hideFromShare ? 1 : 0}", window = "address:" .. w.address }))
-        end
-      end
-      return hl.dsp.no_op()
-    end)()`)
-  }
-  // A window opens without the prop: a Quickshell one may be this process's.
-  Connections {
-    target: Hyprland
-    function onRawEvent(event) {
-      if (root.hideFromShare && event.name === "openwindow" && event.parse(4)[2] === "org.quickshell")
+  function shareWindows() { Host.hideFromScreenShare(hideFromShare) }
+  // A window opens without the prop: an eco one may be this process's. Hyprland's
+  // events ("openwindow>>address,workspace,class,title") are read only while
+  // the windows are hidden.
+  LineSocket {
+    readonly property string instance: Host.env("HYPRLAND_INSTANCE_SIGNATURE")
+    path: root.hideFromShare && instance ? Host.env("XDG_RUNTIME_DIR") + "/hypr/" + instance + "/.socket2.sock" : ""
+    onReceived: line => {
+      if (line.startsWith("openwindow>>") && line.split(",")[2] === "eco")
         root.shareWindows()
     }
   }
@@ -1114,25 +1128,11 @@ Singleton {
     InputSignal {}
   }
 
-  // The connection to the daemon. A closed Socket does not connect again, so
-  // a new one is made every second until the daemon (which may restart) answers.
-  Loader {
+  // The connection to the daemon, made again every second while it (which may
+  // restart) does not answer.
+  LineSocket {
     id: link
-    sourceComponent: Socket {
-      path: Quickshell.env("XDG_RUNTIME_DIR") + "/eco.sock"
-      connected: true
-      parser: SplitParser {
-        onRead: line => root.handle(JSON.parse(line))
-      }
-    }
-  }
-  Timer {
-    interval: 1000
-    repeat: true
-    running: !root.connected
-    onTriggered: {
-      link.active = false
-      link.active = true
-    }
+    path: Host.env("XDG_RUNTIME_DIR") + "/eco.sock"
+    onReceived: line => root.handle(JSON.parse(line))
   }
 }

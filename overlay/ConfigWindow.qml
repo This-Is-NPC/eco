@@ -1,13 +1,11 @@
 pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
-import Quickshell
-import Quickshell.Hyprland
 import "draft.js" as Draft
 
 // ConfigWindow edits a draft of the daemon's config and saves it whole;
 // the daemon validates, writes config.toml and restarts capture.
-FloatingWindow {
+Window {
   id: window
 
   property var draft: null
@@ -45,25 +43,24 @@ FloatingWindow {
   // Fixed, untranslated: packaging/hypr/eco.lua matches the window by this title.
   title: "eco · configuração"
   // Fits the screen it opens on, with a margin.
-  implicitWidth: Math.min(1040, screen ? screen.width - 96 : 1040)
-  implicitHeight: Math.min(760, screen ? screen.height - 96 : 760)
-  minimumSize: Qt.size(240, 320)
+  width: Math.min(1040, screen ? screen.width - 96 : 1040)
+  height: Math.min(760, screen ? screen.height - 96 : 760)
+  minimumWidth: 240
+  minimumHeight: 320
   color: Theme.background
   // Shown while the settings are open. The window is created once and then kept:
   // destroying a window makes Qt write its pipeline cache to disk, and the whole
   // interface waits for that, often for seconds.
   visible: Eco.configOpen
-  // Closed by the compositor: the settings close, unless they are saving or have
-  // unsaved changes; then they open again on the next turn, asking first when
-  // there are changes.
-  onClosed: {
-    Eco.configOpen = false
-    if (saving || dirty)
-      Qt.callLater(() => {
-        Eco.configOpen = true
-        if (!saving)
-          confirmClose.open()
-      })
+  // Closed by the compositor: the window is kept, as above, and the settings
+  // close, unless they are saving or have unsaved changes; with changes, it asks
+  // first.
+  onClosing: close => {
+    close.accepted = false
+    if (!saving && !dirty)
+      Eco.configOpen = false
+    else if (!saving)
+      confirmClose.open()
   }
 
   function reset() {
@@ -179,20 +176,6 @@ FloatingWindow {
       window.saving = false
       window.closing = false
       window.issue = detail
-    }
-  }
-
-  // Hyprland opens a child window centered on its parent, which can leave part
-  // of it off the screen, so it centers this one on its monitor once it opens.
-  // Any eco instance may center another's settings window: the same move.
-  Connections {
-    target: Hyprland
-    function onRawEvent(event) {
-      if (event.name !== "openwindow")
-        return
-      const [address, , , title] = event.parse(4)
-      if (title === window.title)
-        Hyprland.dispatch(`hl.dsp.window.center({ window = "address:0x${address}" })`)
     }
   }
 
