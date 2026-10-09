@@ -532,7 +532,9 @@ no STT. Any file ffmpeg decodes (mp4, mkv, webm, m4a, mp3, ogg, flac, wav…)
 becomes a session — from the overlay (§12.3), or
 `quickshell ipc --path overlay call eco importFile <path>`.
 
-ffmpeg decodes it to 16 kHz mono through a pipe (never to disk), ffprobe gives
+Both get the path as `file:<path>` with `-protocol_whitelist file`: a name that
+begins with `-` is never an option, and nothing in the file makes them open a
+URL. ffmpeg decodes it to 16 kHz mono through a pipe (never to disk), ffprobe gives
 its length, and the VAD and the configured STT transcribe it as fast as they
 go, one line per phrase the STT times, each at its time in the recording.
 The lines start as the audio source chosen at import; meanwhile a child
