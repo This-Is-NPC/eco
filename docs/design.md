@@ -1395,9 +1395,12 @@ opens or updates a release pull request: it moves the version in `Cargo.toml`,
 request tags `v<version>`, and the same workflow builds the package from the
 tag with `scripts/package` in an Arch container and attaches it, with its
 `SHA256SUMS`, to the release. The container is `archlinux:base-devel` pinned
-by its multi-arch index digest; to move it, read the `docker-content-digest`
-header of the registry's `library/archlinux/manifests/base-devel` and replace
-the digest and the date in the workflow. The workflow runs no test; the gate
+by its multi-arch index digest, so the base image cannot change under a tag;
+the job's `pacman -Syu` still installs the Rust toolchain and system packages
+current on the day of the build, so the toolchain itself is not pinned. To
+move the image, read the `docker-content-digest` header of the registry's
+`library/archlinux/manifests/base-devel` and replace the digest and the date
+in the workflow. The workflow runs no test; the gate
 is local (see [Tests and the gate](#tests-and-the-gate)).
 
 **From a checkout.** `mise run install` (`scripts/install`) builds the release binary and installs it
