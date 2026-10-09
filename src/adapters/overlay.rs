@@ -103,7 +103,10 @@ impl Windows {
         let pid = child
             .id()
             .ok_or_else(|| io::Error::other("the eco window has exited"))?;
-        self.control.focus(pid).await.map_err(io::Error::other)?;
+        // A window Hyprland could not focus is still the user's window.
+        if let Err(error) = self.control.focus(pid).await {
+            eprintln!("eco: {error}");
+        }
         self.last = number;
         self.open.push(Window {
             number,
@@ -264,7 +267,7 @@ mod tests {
     }
 
     /// Windows whose program only waits, with their token file in `dir`.
-    fn windows(dir: &Path, control: Arc<Noted>, hidden: bool) -> Windows {
+    fn windows(dir: &Path, control: Arc<dyn WindowControl>, hidden: bool) -> Windows {
         let program = dir.join("eco-window");
         fs::write(&program, "#!/bin/sh\nexec sleep 30\n").unwrap();
         fs::set_permissions(&program, fs::Permissions::from_mode(0o755)).unwrap();
@@ -287,10 +290,37 @@ mod tests {
     async fn a_window_is_focused_once_it_opens() {
         let dir = tempfile::tempdir().unwrap();
         let control = Arc::new(Noted::default());
-        let mut windows = windows(dir.path(), Arc::clone(&control), false);
+        let mut windows = windows(dir.path(), control.clone(), false);
         windows.open(None, None).await.unwrap();
         let first = pids(&windows)[0];
         assert_eq!(control.take(), [format!("focus {first}")]);
+        windows.close().await;
+    }
+
+    /// A WindowControl that cannot focus.
+    struct Unfocusable;
+
+    impl WindowControl for Unfocusable {
+        fn focus(&self, _: u32) -> BoxFuture<'static, Result<(), WindowError>> {
+            async { Err(WindowError("no compositor".into())) }.boxed()
+        }
+
+        fn hide_from_share(
+            &self,
+            _: Vec<u32>,
+            _: bool,
+        ) -> BoxFuture<'static, Result<(), WindowError>> {
+            async { Ok(()) }.boxed()
+        }
+    }
+
+    #[tokio::test]
+    async fn a_window_that_cannot_be_focused_stays_open() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut windows = windows(dir.path(), Arc::new(Unfocusable), false);
+        windows.open(None, None).await.unwrap();
+        assert_eq!(pids(&windows).len(), 1);
+        assert_eq!(windows.newest(), Some(1));
         windows.close().await;
     }
 
@@ -298,7 +328,7 @@ mod tests {
     async fn every_window_is_hidden_from_share_when_it_opens_while_the_setting_is_on() {
         let dir = tempfile::tempdir().unwrap();
         let control = Arc::new(Noted::default());
-        let mut windows = windows(dir.path(), Arc::clone(&control), true);
+        let mut windows = windows(dir.path(), control.clone(), true);
         windows.open(None, None).await.unwrap();
         windows.open(None, None).await.unwrap();
         let [first, second] = pids(&windows)[..] else {
@@ -320,7 +350,7 @@ mod tests {
     async fn the_windows_follow_the_setting_when_it_changes() {
         let dir = tempfile::tempdir().unwrap();
         let control = Arc::new(Noted::default());
-        let mut windows = windows(dir.path(), Arc::clone(&control), false);
+        let mut windows = windows(dir.path(), control.clone(), false);
         windows.open(None, None).await.unwrap();
         let first = pids(&windows)[0];
         control.take();
