@@ -1,11 +1,12 @@
 import QtQuick
+import "markdown.js" as Markdown
 
 // SuggestionCard is an answer inside the timeline: what was asked (an action,
 // or the user's question), and the AI's reply. Until anything arrives it draws
 // the loading trace, which reaches the end and goes as soon as content comes;
 // it says how long the model has been waited for, and its reasoning and then
 // its reply grow as they stream, its frame lit, the reply's Markdown drawn as it
-// comes. Once complete it
+// comes, its images as their alt text. Once complete it
 // can be copied, and it can be removed — a removed card also leaves the context
 // of what comes next. A reply that failed shows why, in red. With the reviewer's
 // verbose mode, the draft it rewrote shows dimmed above the reply. When its
@@ -45,22 +46,6 @@ SurfaceFrame {
   property bool reachable: true
 
   readonly property bool question: action === "chat"
-  // `text` with the Markdown marks a stream left open closed, so a reply still
-  // arriving draws as it will once complete: an open code fence, then the bold
-  // and inline code marks, innermost first; a mark with nothing after it yet is
-  // dropped instead.
-  function closed(text) {
-    if ((text.match(/^```/gm) || []).length % 2)
-      return text + "\n```"
-    let shown = text.replace(/\s+$/, "")
-    const open = ["**", "`"].filter(mark => shown.split(mark).length % 2 === 0)
-      .map(mark => ({ mark: mark, at: shown.lastIndexOf(mark) }))
-      .sort((a, b) => b.at - a.at)
-    for (const left of open)
-      shown = shown.slice(left.at + left.mark.length).trim() === "" ? shown.slice(0, left.at).replace(/\s+$/, "") : shown + left.mark
-    return shown
-  }
-
   // Waiting for the first word of the reply: before anything arrives, or while it reasons.
   readonly property bool waiting: streaming && text.length === 0
   // Nothing has arrived yet, not even reasoning: the loading trace runs only then.
@@ -165,7 +150,7 @@ SurfaceFrame {
     Label { text: I18n.t("card.draft"); color: Theme.dim; font.pixelSize: 10; font.letterSpacing: 2 }
     Label {
       width: parent.width
-      text: card.draft
+      text: Markdown.imageless(card.draft)
       textFormat: Text.MarkdownText
       color: Theme.dim
       font.pixelSize: 12
@@ -213,7 +198,7 @@ SurfaceFrame {
   Label {
     id: body
     anchors { left: parent.left; right: parent.right; top: progress.bottom; leftMargin: 14; rightMargin: 14; topMargin: 10 }
-    text: card.failure ? I18n.t("card.failed", { detail: card.failure }) : card.streaming ? card.closed(card.text) : card.text
+    text: card.failure ? I18n.t("card.failed", { detail: card.failure }) : Markdown.imageless(card.streaming ? Markdown.closed(card.text) : card.text)
     textFormat: card.failure ? Text.PlainText : Text.MarkdownText
     color: card.failure ? Theme.error : Theme.foreground
     font.pixelSize: 13
@@ -225,7 +210,7 @@ SurfaceFrame {
     id: translated
     anchors { left: parent.left; right: parent.right; top: body.bottom; leftMargin: 14; rightMargin: 14; topMargin: 10 }
     visible: card.translation !== ""
-    text: card.translation
+    text: Markdown.imageless(card.translation)
     textFormat: Text.MarkdownText
     color: Theme.dim
     font.pixelSize: 12

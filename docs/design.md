@@ -1021,7 +1021,8 @@ reconnects to the socket on its own.
   line at full brightness (only words still being said are dim), no side rules;
   a speaker's name and time head each turn and repeat after two minutes of
   silence or anything else between their lines; answers as framed cards whose
-  Markdown is drawn as it streams (marks still open are closed) that light up
+  Markdown is drawn as it streams (marks still open are closed; images, which
+  Qt would fetch, become their alt text, `overlay/markdown.js`) that light up
   while they stream, show the question asked and can be removed; a complete
   answer can be copied (its Markdown to the clipboard, `wl-copy`); it follows the
   newest entry, but an answer streaming taller than the view keeps its top in
@@ -1484,7 +1485,7 @@ That is the whole gate. It runs:
 | step | what it refuses |
 |---|---|
 | `lint` | Rust not formatted by `cargo fmt`, any clippy warning (`-D warnings`, all targets) |
-| `test` | a failing `cargo test`: the domain tests, the i18n checks (`tests/i18n.rs`) and the VAD and speaker parity tests against the Python fixtures (these need the models from `mise run setup`) |
+| `test` | a failing `cargo test`: the domain tests, the i18n checks (`tests/i18n.rs`), the answer Markdown (`overlay/markdown.js`) against its QML test case (`tests/overlay.rs`, run offscreen by Qt's `qmltestrunner`) and the VAD and speaker parity tests against the Python fixtures (these need the models from `mise run setup`) |
 | `cli:check` | a `docs/cli.md` that is not what the binary's help generates |
 | `docs:check` | a relative link or image in `README.md` or `docs/*.md` whose file, or whose heading for an `#anchor`, is missing |
 
