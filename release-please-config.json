@@ -1,0 +1,18 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "bootstrap-sha": "5617a6486439a7ed5ceddc01d062043181f1f90a",
+  "packages": {
+    ".": {
+      "release-type": "rust",
+      "package-name": "eco",
+      "include-component-in-tag": false,
+      "include-v-in-tag": true,
+      "draft": false,
+      "prerelease": false,
+      "bump-minor-pre-major": true,
+      "extra-files": [
+        "packaging/arch/PKGBUILD"
+      ]
+    }
+  }
+}

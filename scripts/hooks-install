@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Point git at the versioned hooks in .githooks. Idempotent.
+set -euo pipefail
+cd "${MISE_PROJECT_ROOT:-$(git rev-parse --show-toplevel)}"
+chmod +x .githooks/*
+git config core.hooksPath .githooks
+printf 'hooks installed: core.hooksPath=%s\n' "$(git config --get core.hooksPath)"
+printf '  pre-push runs scripts/local-check: a red gate refuses the push, a green one posts local-check.\n'

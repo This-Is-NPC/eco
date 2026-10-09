@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Push gate, installed by `mise run hooks:install`.
+#
+# Runs scripts/local-check --pre-push once per commit being pushed: a red gate
+# refuses the push, a green one posts the `local-check` status master requires
+# before a merge. Tags and deletions carry no new tree and pass. Skip with
+# ECO_SKIP_LOCAL_CHECK=1, or `git push --no-verify`.
+set -uo pipefail
+
+root="$(git rev-parse --show-toplevel)" || exit 1
+cd "$root" || exit 1
+
+zero="0000000000000000000000000000000000000000"
+checked=""
+while read -r _local_ref local_sha remote_ref _remote_sha; do
+  [ "$local_sha" = "$zero" ] && continue
+  case "$remote_ref" in refs/tags/*) continue ;; esac
+  case " $checked " in *" $local_sha "*) continue ;; esac
+  ECO_LOCAL_CHECK_SHA="$local_sha" scripts/local-check --pre-push </dev/null || exit $?
+  checked="$checked $local_sha"
+done

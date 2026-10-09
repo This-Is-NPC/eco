@@ -273,7 +273,10 @@ library (pinned by mise), its README, config, synthetic data and run folders —
 and `mise run bench` calls `benchmark/bench.py` directly. Its data is
 synthetic; never put a real person's résumé, sessions or keys there.
 
-`mise tasks ls` lists the commands. Verify with `mise run check`.
+`mise tasks ls` lists the commands. Verify with `mise run check`; the
+pre-push hook (`mise run hooks:install`) runs it and posts the `local-check`
+status `master` requires, and release-please cuts releases from merged pull
+requests (`docs/design.md §13`).
 Replay recorded audio with `--replay <file.wav>` instead of joining a
 call.
 
