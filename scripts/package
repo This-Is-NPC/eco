@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Build the Arch package of the committed HEAD into target/arch/pkg, with the
+# SHA256SUMS that install.sh checks it against. Needs makepkg; not as root.
+set -euo pipefail
+root="${MISE_PROJECT_ROOT:-$(pwd)}"
+out="$root/target/arch"
+rm -rf "$out"
+mkdir -p "$out/build" "$out/pkg" "$out/src" "$out/log"
+cd "$root/packaging/arch"
+# -d: the runtime dependencies are the target machine's, not the builder's.
+ECO_TREE="$root" BUILDDIR="$out/build" PKGDEST="$out/pkg" SRCDEST="$out/src" LOGDEST="$out/log" \
+  makepkg -f -d --noconfirm
+cd "$out/pkg"
+sha256sum eco-[0-9]*.pkg.tar.zst > SHA256SUMS
+cat SHA256SUMS
