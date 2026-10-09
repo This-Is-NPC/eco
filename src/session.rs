@@ -28,6 +28,7 @@ use crate::adapters::stt_openai::OpenAITranscriber;
 use crate::adapters::terminal::terminal;
 use crate::adapters::vad_silero::{SileroModel, SileroVad};
 use crate::adapters::webvtt;
+use crate::adapters::window_hyprland::HyprlandWindows;
 use crate::config::{self, Config, ConfigError, Key, ModelConfig, ModelType};
 use crate::domain::assistant::{Assistant, ContextSlot, Emit, Model, Reviewer, Setup, Translating};
 use crate::domain::channel::{
@@ -728,7 +729,6 @@ async fn pipeline(
         kinds: config.kinds.clone(),
         drop_echoes: config.audio.drop_echoes,
         ui_language: config.ui_language.clone(),
-        hide_from_share: config.hide_from_share,
         transcription: kind_transcribers.clone(),
         default_transcription: config.stt.model.clone(),
         transcription_prices: config
@@ -1809,7 +1809,11 @@ pub async fn run(
     let token = uuid::Uuid::new_v4().simple().to_string();
     let _control =
         ControlSocket::bind(&paths::socket_path(), clients.clone(), greeting, commands).await?;
-    let mut windows = overlay::Windows::new(token.clone())?;
+    let mut windows = overlay::Windows::new(
+        token.clone(),
+        Arc::new(HyprlandWindows::default()),
+        current.hide_from_share,
+    )?;
     if !headless {
         windows.open(None, None).await?;
         overlay_open.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -1858,6 +1862,7 @@ pub async fn run(
                 } else if !session.command(&command).await {
                     break;
                 }
+                windows.hide_from_share(session.current.hide_from_share).await;
             }
             status = windows.exited() => {
                 overlay_open.store(windows.is_open(), std::sync::atomic::Ordering::Relaxed);

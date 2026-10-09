@@ -18,9 +18,6 @@ Singleton {
   property string language: ""
   // Interface language pack chosen in the config, or "auto".
   property string uiLanguage: "auto"
-  // This process's windows are left out of screen sharing, as the config says.
-  property bool hideFromShare: false
-  onHideFromShareChanged: shareWindows()
   property var languages: []
   // The kinds a session can be given, as configured.
   property var kinds: []
@@ -726,7 +723,6 @@ Singleton {
       kindModels = event.kind_models || {}
       contexts = event.contexts || []
       uiLanguage = event.ui_language
-      hideFromShare = event.hide_from_share
       transcribers = event.transcribers || []
       answers = ({})
       // A daemon met again sends the timeline again.
@@ -1091,21 +1087,6 @@ Singleton {
         say(event.message, true)
       break
     }
-    }
-  }
-
-  // Sets Hyprland's no_screen_share on every window of this process (the overlay
-  // and its settings window), on or off as hideFromShare says.
-  function shareWindows() { Host.hideFromScreenShare(hideFromShare) }
-  // A window opens without the prop: an eco one may be this process's. Hyprland's
-  // events ("openwindow>>address,workspace,class,title") are read only while
-  // the windows are hidden.
-  LineSocket {
-    readonly property string instance: Host.env("HYPRLAND_INSTANCE_SIGNATURE")
-    path: root.hideFromShare && instance ? Host.env("XDG_RUNTIME_DIR") + "/hypr/" + instance + "/.socket2.sock" : ""
-    onReceived: line => {
-      if (line.startsWith("openwindow>>") && line.split(",")[2] === "eco")
-        root.shareWindows()
     }
   }
 

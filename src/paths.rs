@@ -73,6 +73,17 @@ impl<V: Fn(&str) -> Option<OsString>> Layout<V> {
         self.runtime_dir().join("eco.token")
     }
 
+    fn hypr_events(&self) -> Option<PathBuf> {
+        let instance =
+            (self.var)("HYPRLAND_INSTANCE_SIGNATURE").filter(|value| !value.is_empty())?;
+        Some(
+            self.runtime_dir()
+                .join("hypr")
+                .join(instance)
+                .join(".socket2.sock"),
+        )
+    }
+
     fn omapass_plugin(&self) -> PathBuf {
         self.home()
             .join(".config/omarchy/plugins/io.github.this-is-npc.omapass/bin/omapass")
@@ -152,6 +163,11 @@ pub fn socket_path() -> PathBuf {
 /// Where a running daemon keeps the windows' token, for a window it did not start.
 pub fn token_path() -> PathBuf {
     layout().token_path()
+}
+
+/// The socket where the running Hyprland tells its events, when eco runs under one.
+pub fn hypr_events() -> Option<PathBuf> {
+    layout().hypr_events()
 }
 
 /// Where Omarchy installs the omapass plugin's CLI.
@@ -258,5 +274,21 @@ mod tests {
             PathBuf::from(".config/eco/config.toml")
         );
         assert_eq!(layout.expand("~/cv.md"), PathBuf::from("cv.md"));
+    }
+
+    #[test]
+    fn hyprland_events_are_in_its_instance_directory_and_only_under_it() {
+        let under = with(&[
+            ("XDG_RUNTIME_DIR", "/run/user/1000"),
+            ("HYPRLAND_INSTANCE_SIGNATURE", "abc"),
+        ]);
+        assert_eq!(
+            under.hypr_events(),
+            Some(PathBuf::from("/run/user/1000/hypr/abc/.socket2.sock"))
+        );
+        let without = with(&[("XDG_RUNTIME_DIR", "/run/user/1000")]);
+        assert_eq!(without.hypr_events(), None);
+        let empty = with(&[("HYPRLAND_INSTANCE_SIGNATURE", "")]);
+        assert_eq!(empty.hypr_events(), None);
     }
 }

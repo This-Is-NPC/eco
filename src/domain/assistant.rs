@@ -189,8 +189,6 @@ pub struct Setup {
     pub drop_echoes: bool,
     /// Interface language pack, or "auto" to follow the system.
     pub ui_language: String,
-    /// eco's windows are left out of screen sharing.
-    pub hide_from_share: bool,
     /// The transcription model of each session kind, by name, and of any other.
     pub transcription: HashMap<String, String>,
     pub default_transcription: String,
@@ -2916,7 +2914,6 @@ impl Assistant {
                 .map(|s| s.slots.iter().map(|slot| json!({"name": slot.name, "kinds": slot.kinds})).collect::<Vec<_>>())
                 .unwrap_or_default(),
             "ui_language": setup.map_or("auto", |s| &s.ui_language),
-            "hide_from_share": setup.is_some_and(|s| s.hide_from_share),
             "session": session_state(&state),
             "live": live_state(&state),
             "transcribers": transcribers_state(&state),
@@ -3205,7 +3202,6 @@ mod tests {
             kinds: vec!["meeting".into(), "idea".into()],
             drop_echoes: true,
             ui_language: "ja-JP".into(),
-            hide_from_share: true,
             slots,
             transcription: HashMap::new(),
             default_transcription: "whisper".into(),
@@ -4738,7 +4734,6 @@ mod tests {
             (json!("pt"), json!(["auto", "pt", "ja"]))
         );
         assert_eq!(session["ui_language"], "ja-JP");
-        assert_eq!(session["hide_from_share"], true);
         assert_eq!(
             (
                 session["session"]["title"].clone(),

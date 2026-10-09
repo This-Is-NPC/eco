@@ -244,3 +244,22 @@ pub trait DesktopIntegration {
     /// read or written, so the rules are not loaded.
     fn load_rules(&self) -> Result<String, String>;
 }
+
+#[derive(Debug, thiserror::Error)]
+#[error("{0}")]
+pub struct WindowError(pub String);
+
+/// The desktop's control of the windows of eco's window processes, each
+/// process named by its pid.
+pub trait WindowControl: Send + Sync {
+    /// Give the keyboard to the window of process `pid`, once it shows.
+    fn focus(&self, pid: u32) -> BoxFuture<'static, Result<(), WindowError>>;
+    /// Leave the windows of the processes `pids` out of screen sharing, or
+    /// show them in it again; while they are left out, so is every window
+    /// those processes open later.
+    fn hide_from_share(
+        &self,
+        pids: Vec<u32>,
+        hidden: bool,
+    ) -> BoxFuture<'static, Result<(), WindowError>>;
+}

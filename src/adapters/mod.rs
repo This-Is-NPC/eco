@@ -27,3 +27,4 @@ pub mod terminal;
 pub mod vad_silero;
 pub mod websocket;
 pub mod webvtt;
+pub mod window_hyprland;

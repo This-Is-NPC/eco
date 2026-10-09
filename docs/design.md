@@ -107,7 +107,7 @@ lives in it beyond the bridge it hands QML as the module `EcoHost`:
 
 | Type | What QML gets |
 |---|---|
-| `Host` (singleton) | `env(name)` (an environment variable, or `""`), `processId`, `copy(text)` (the clipboard, through `wl-copy` started detached, which keeps serving it after the window exits), `hideFromScreenShare(hidden)` (Hyprland's `no_screen_share` on every window of this process, through `hyprctl dispatch`; §13) |
+| `Host` (singleton) | `env(name)` (an environment variable, or `""`), `copy(text)` (the clipboard, through `wl-copy` started detached, which keeps serving it after the window exits) |
 | `LineSocket` | a Unix socket at `path`, one line per message each way: `send(line)`, `received(line)`, `connected`; it connects again every second while down, and an empty path closes it |
 | `TextFile` | the file or directory at `path`, watched: `text` (the file as last read), `changed()` (it changed on disk), `reload()` |
 
@@ -149,6 +149,7 @@ composition happens in `src/session.rs` from `config.toml`. The crate forbids
 | `LLM` | a single OpenAI-compatible adapter | Covers OpenRouter, OpenAI, Groq, Ollama, llama.cpp — switching = `base_url` + key + model. |
 | `EventSink` | Unix socket (overlay), text on stdout | stdout is written only when it is a terminal (`mise run start`); under the user service it is the journal, which never gets transcript, note or answer text. |
 | `TranscriptStore` | file in `~/.local/share/eco/`, null (`--no-save`) | |
+| `WindowControl` | Hyprland (`hyprctl dispatch`, its event socket) | A platform seam (§15): it focuses a window process's window and leaves its windows out of screen sharing, both by pid. Tests open windows with a fake. |
 
 Rule: only add a port when two real implementations exist or a test clearly
 benefits.
@@ -1502,11 +1503,13 @@ leaves sessions, config, models and the agent skill.
   also a child of the overlay, so it always opens above it. Without the rules,
   Hyprland tiles both.
 - **Screen sharing:** off by default, eco's windows show in captures.
-  `[ui] hide_from_share` (Settings › Interface) makes each overlay process set
-  Hyprland's `no_screen_share` on its own windows (the overlay and its config
-  window, found by pid) through the Lua dispatcher (`Host.hideFromScreenShare`,
-  which runs `hyprctl dispatch`), when the setting changes and, while it is on,
-  when Hyprland's event socket reports an `eco` window opening. Hyprland cannot tell a screen share from
+  `[ui] hide_from_share` (Settings › Interface) makes the daemon set
+  Hyprland's `no_screen_share` on the windows of every `eco-window` it started
+  (the overlay and its config window, found by pid) through the Lua dispatcher
+  (`hyprctl dispatch`, in `src/adapters/window_hyprland.rs`): when a window
+  process opens, when the saved setting changes and, while it is on, when
+  Hyprland's event socket reports an `eco` window opening. The window itself
+  never calls Hyprland. Hyprland cannot tell a screen share from
   a screenshot, so they show black in the user's screenshots and recordings too.
 
 ---
@@ -1688,9 +1691,9 @@ adapter lives today.
 
 | Seam | Linux adapter today | File(s) |
 |---|---|---|
-| Paths | the home and the XDG base directories (`HOME`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_RUNTIME_DIR`, else `/run/user/<uid>`) | `src/paths.rs` |
+| Paths | the home and the XDG base directories (`HOME`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_RUNTIME_DIR`, else `/run/user/<uid>`), and Hyprland's event socket under the runtime directory (`HYPRLAND_INSTANCE_SIGNATURE`) | `src/paths.rs` |
 | The daemon socket | a Unix domain socket at `$XDG_RUNTIME_DIR/eco.sock`, in `src/adapters/local_socket.rs`; the protocol (`src/adapters/control_socket.rs`), the CLI client (`src/cli.rs`) and the service commands (`src/lifecycle.rs`) reach it only through that module | `src/adapters/local_socket.rs` |
 | Audio devices and capture | the `AudioDevices` port, adapter `PipeWire`: devices from `pw-dump`, an `AudioSource` per device through `pw-record`, echo cancellation by `libpipewire-module-echo-cancel` loaded through `pw-cli`; composed in `src/session.rs` | `src/ports.rs`, `src/adapters/audio_pipewire.rs`, `src/adapters/pipewire_devices.rs`, `src/adapters/echo_cancel.rs` |
 | Service lifecycle and desktop setup | `ServiceManager`: the systemd user service (`systemctl --user`), chosen in `src/lifecycle.rs`; `DesktopIntegration`: the line loaded into the Hyprland Lua config (`~/.config/hypr/bindings.lua`), chosen in `src/setup.rs` | `src/adapters/service_systemd.rs`, `src/adapters/desktop_hyprland.rs` |
-| Window control | launching `eco-window` and giving its window the keyboard through `hyprctl dispatch`; the window rules in `packaging/hypr/eco.lua` centering the config window; `Host.hideFromScreenShare` setting `no_screen_share` through `hyprctl dispatch`, on Hyprland's `openwindow` events | `src/adapters/overlay.rs`, `window/host.h`, `overlay/Eco.qml`, `packaging/hypr/eco.lua` |
+| Window control | the `WindowControl` port, adapter `HyprlandWindows`: giving a window process's window the keyboard and setting `no_screen_share` on its windows through `hyprctl dispatch`, by pid, again on Hyprland's `openwindow` events while they are hidden; composed in `src/session.rs`, used by `src/adapters/overlay.rs`, which launches `eco-window`. The window rules in `packaging/hypr/eco.lua` centering the config window stay compositor config | `src/ports.rs`, `src/adapters/window_hyprland.rs`, `src/adapters/overlay.rs`, `packaging/hypr/eco.lua` |
 | Shortcuts | a global Hyprland bind that pipes a command to the socket through `socat`, `window.call` for those that open a view | `packaging/hypr/eco.lua` |

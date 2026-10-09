@@ -6,12 +6,14 @@ use std::io::{self, Write};
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{ExitStatus, Stdio};
+use std::sync::Arc;
 use std::time::Duration;
 
 use rustix::process::{Pid, Signal, kill_process};
 use tokio::process::{Child, Command};
 
 use crate::paths;
+use crate::ports::WindowControl;
 
 /// The window's QML: installed beside the binary
 /// (`<prefix>/share/eco/overlay/shell.qml` for `<prefix>/bin/eco`), or this
@@ -33,9 +35,14 @@ fn program() -> PathBuf {
 /// window is told, and the session it shows, which it tells back. Every window
 /// is handed the same token, which tells its commands apart from other clients';
 /// a window the daemon did not start reads it from `paths::token_path()`.
+/// `control` focuses each window as it opens and, while `hidden`, leaves them
+/// all out of screen sharing.
 pub struct Windows {
     token: String,
     _kept: TokenFile,
+    program: PathBuf,
+    control: Arc<dyn WindowControl>,
+    hidden: bool,
     last: u32,
     open: Vec<Window>,
 }
@@ -48,10 +55,13 @@ struct Window {
 }
 
 impl Windows {
-    pub fn new(token: String) -> io::Result<Self> {
+    pub fn new(token: String, control: Arc<dyn WindowControl>, hidden: bool) -> io::Result<Self> {
         Ok(Self {
             _kept: TokenFile::write(&paths::token_path(), &token)?,
             token,
+            program: program(),
+            control,
+            hidden,
             last: 0,
             open: Vec::new(),
         })
@@ -75,8 +85,7 @@ impl Windows {
     /// session and makes `call` (a `window_call`'s JSON) once it meets the daemon.
     pub async fn open(&mut self, show: Option<&str>, call: Option<&str>) -> io::Result<()> {
         let number = self.last + 1;
-        let program = program();
-        let mut child = Command::new(&program)
+        let mut child = Command::new(&self.program)
             .arg(shell())
             .env("ECO_WINDOW", number.to_string())
             .env("ECO_SHOW", show.unwrap_or_default())
@@ -86,19 +95,46 @@ impl Windows {
             .stderr(Stdio::inherit())
             .kill_on_drop(true)
             .spawn()
-            .map_err(|error| io::Error::other(format!("{}: {error}", program.display())))?;
+            .map_err(|error| io::Error::other(format!("{}: {error}", self.program.display())))?;
         tokio::time::sleep(Duration::from_millis(200)).await;
         if let Some(status) = child.try_wait()? {
             return Err(io::Error::other(format!("eco-window exited with {status}")));
         }
-        activate(&child).await?;
+        let pid = child
+            .id()
+            .ok_or_else(|| io::Error::other("the eco window has exited"))?;
+        self.control.focus(pid).await.map_err(io::Error::other)?;
         self.last = number;
         self.open.push(Window {
             number,
             child,
             shows: show.unwrap_or_default().to_string(),
         });
+        if self.hidden {
+            self.share().await;
+        }
         Ok(())
+    }
+
+    /// Leave every window out of screen sharing, or show them in it again,
+    /// when that changes.
+    pub async fn hide_from_share(&mut self, hidden: bool) {
+        if hidden != self.hidden {
+            self.hidden = hidden;
+            self.share().await;
+        }
+    }
+
+    /// Tell `control` which windows are left out of screen sharing.
+    async fn share(&self) {
+        let pids = self
+            .open
+            .iter()
+            .filter_map(|window| window.child.id())
+            .collect();
+        if let Err(error) = self.control.hide_from_share(pids, self.hidden).await {
+            eprintln!("eco: {error}");
+        }
     }
 
     /// Note the session the window `number` shows now, or none when empty.
@@ -118,6 +154,9 @@ impl Windows {
         let (status, at, _) = futures::future::select_all(waits).await;
         let status = status.ok();
         self.open.remove(at);
+        if self.hidden {
+            self.share().await;
+        }
         status
     }
 
@@ -159,39 +198,16 @@ impl Drop for TokenFile {
     }
 }
 
-/// Give the keyboard to the window of the eco-window process `child`.
-async fn activate(child: &Child) -> io::Result<()> {
-    let pid = child
-        .id()
-        .ok_or_else(|| io::Error::other("the eco window has exited"))?;
-    let focus = format!("hl.dsp.focus({{ window = \"pid:{pid}\" }})");
-    let mut last = String::new();
-    for _ in 0..50 {
-        let output = Command::new("hyprctl")
-            .args(["dispatch", &focus])
-            .output()
-            .await?;
-        if output.status.success() && String::from_utf8_lossy(&output.stdout).trim() == "ok" {
-            return Ok(());
-        }
-        last = format!(
-            "{}: {}{}",
-            output.status,
-            String::from_utf8_lossy(&output.stdout).trim(),
-            String::from_utf8_lossy(&output.stderr).trim()
-        );
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
-    Err(io::Error::other(format!(
-        "Hyprland could not focus the eco window ({last})"
-    )))
-}
-
 #[cfg(test)]
 mod tests {
     use std::os::unix::fs::PermissionsExt;
+    use std::sync::Mutex;
+
+    use futures::FutureExt;
+    use futures::future::BoxFuture;
 
     use super::*;
+    use crate::ports::WindowError;
 
     #[test]
     fn the_token_file_is_the_users_alone_and_goes_with_the_daemon() {
@@ -205,5 +221,108 @@ mod tests {
         assert_eq!(mode & 0o777, 0o600);
         drop(file);
         assert!(!path.exists());
+    }
+
+    /// A WindowControl that notes what it is asked.
+    #[derive(Default)]
+    struct Noted(Mutex<Vec<String>>);
+
+    impl Noted {
+        fn take(&self) -> Vec<String> {
+            std::mem::take(&mut self.0.lock().unwrap())
+        }
+    }
+
+    impl WindowControl for Noted {
+        fn focus(&self, pid: u32) -> BoxFuture<'static, Result<(), WindowError>> {
+            self.0.lock().unwrap().push(format!("focus {pid}"));
+            async { Ok(()) }.boxed()
+        }
+
+        fn hide_from_share(
+            &self,
+            pids: Vec<u32>,
+            hidden: bool,
+        ) -> BoxFuture<'static, Result<(), WindowError>> {
+            self.0
+                .lock()
+                .unwrap()
+                .push(format!("hide {pids:?} {hidden}"));
+            async { Ok(()) }.boxed()
+        }
+    }
+
+    /// Windows whose program only waits, with their token file in `dir`.
+    fn windows(dir: &Path, control: Arc<Noted>, hidden: bool) -> Windows {
+        let program = dir.join("eco-window");
+        fs::write(&program, "#!/bin/sh\nexec sleep 30\n").unwrap();
+        fs::set_permissions(&program, fs::Permissions::from_mode(0o755)).unwrap();
+        Windows {
+            token: "secret".into(),
+            _kept: TokenFile::write(&dir.join("eco.token"), "secret").unwrap(),
+            program,
+            control,
+            hidden,
+            last: 0,
+            open: Vec::new(),
+        }
+    }
+
+    fn pids(windows: &Windows) -> Vec<u32> {
+        windows.open.iter().filter_map(|w| w.child.id()).collect()
+    }
+
+    #[tokio::test]
+    async fn a_window_is_focused_once_it_opens() {
+        let dir = tempfile::tempdir().unwrap();
+        let control = Arc::new(Noted::default());
+        let mut windows = windows(dir.path(), Arc::clone(&control), false);
+        windows.open(None, None).await.unwrap();
+        let first = pids(&windows)[0];
+        assert_eq!(control.take(), [format!("focus {first}")]);
+        windows.close().await;
+    }
+
+    #[tokio::test]
+    async fn every_window_is_hidden_from_share_when_it_opens_while_the_setting_is_on() {
+        let dir = tempfile::tempdir().unwrap();
+        let control = Arc::new(Noted::default());
+        let mut windows = windows(dir.path(), Arc::clone(&control), true);
+        windows.open(None, None).await.unwrap();
+        windows.open(None, None).await.unwrap();
+        let [first, second] = pids(&windows)[..] else {
+            panic!("two windows")
+        };
+        assert_eq!(
+            control.take(),
+            [
+                format!("focus {first}"),
+                format!("hide [{first}] true"),
+                format!("focus {second}"),
+                format!("hide [{first}, {second}] true"),
+            ]
+        );
+        windows.close().await;
+    }
+
+    #[tokio::test]
+    async fn the_windows_follow_the_setting_when_it_changes() {
+        let dir = tempfile::tempdir().unwrap();
+        let control = Arc::new(Noted::default());
+        let mut windows = windows(dir.path(), Arc::clone(&control), false);
+        windows.open(None, None).await.unwrap();
+        let first = pids(&windows)[0];
+        control.take();
+        windows.hide_from_share(true).await;
+        windows.hide_from_share(true).await;
+        windows.hide_from_share(false).await;
+        assert_eq!(
+            control.take(),
+            [
+                format!("hide [{first}] true"),
+                format!("hide [{first}] false")
+            ]
+        );
+        windows.close().await;
     }
 }
