@@ -1,4 +1,5 @@
-//! Control the user service and verify the daemon over its socket.
+//! Start, stop and check the daemon over its socket; the service manager that
+//! starts it is chosen here.
 
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
@@ -7,11 +8,12 @@ use std::time::Duration;
 use anyhow::{Context, Result, bail};
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::Command;
 use tokio::time::{sleep, timeout};
 
 use crate::adapters::local_socket::{self, Stream};
+use crate::adapters::service_systemd::SystemdUser;
 use crate::paths;
+use crate::ports::ServiceManager;
 
 const READY_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -66,51 +68,10 @@ async fn connect_at(path: &Path) -> Result<Option<Daemon>> {
     }))
 }
 
-async fn service(action: &str) -> Result<()> {
-    let variables: Vec<_> = [
-        "WAYLAND_DISPLAY",
-        "HYPRLAND_INSTANCE_SIGNATURE",
-        "XDG_CURRENT_DESKTOP",
-    ]
-    .into_iter()
-    .filter_map(|name| std::env::var_os(name).map(|value| (name, value)))
-    .collect();
-    if !variables.is_empty() {
-        let mut import = Command::new("systemctl");
-        import.args(["--user", "set-environment"]);
-        for (name, value) in variables {
-            let mut assignment = std::ffi::OsString::from(name);
-            assignment.push("=");
-            assignment.push(value);
-            import.arg(assignment);
-        }
-        let output = import
-            .output()
-            .await
-            .context("cannot update the user service environment")?;
-        if !output.status.success() {
-            bail!(
-                "cannot update the user service environment: {}",
-                String::from_utf8_lossy(&output.stderr).trim()
-            );
-        }
-    }
-    let output = Command::new("systemctl")
-        .args(["--user", action, "eco.service"])
-        .output()
-        .await
-        .context("cannot run systemctl --user")?;
-    if !output.status.success() {
-        let reason = String::from_utf8_lossy(&output.stderr);
-        bail!("cannot {action} eco.service: {}", reason.trim());
-    }
-    Ok(())
-}
-
-async fn ready() -> Result<Daemon> {
+async fn ready(socket: &Path) -> Result<Daemon> {
     let until = tokio::time::Instant::now() + READY_TIMEOUT;
     loop {
-        if let Some(daemon) = connect().await? {
+        if let Some(daemon) = connect_at(socket).await? {
             return Ok(daemon);
         }
         if tokio::time::Instant::now() >= until {
@@ -146,11 +107,16 @@ async fn open(mut daemon: Daemon) -> Result<()> {
 }
 
 pub async fn start(show_window: bool) -> Result<()> {
-    let daemon = match connect().await? {
+    launch(&SystemdUser, &paths::socket_path(), show_window).await
+}
+
+/// Reach the daemon on `socket`, started through `service` when nothing answers.
+async fn launch(service: &dyn ServiceManager, socket: &Path, show_window: bool) -> Result<()> {
+    let daemon = match connect_at(socket).await? {
         Some(daemon) => daemon,
         None => {
-            service("start").await?;
-            ready().await?
+            service.start().await?;
+            ready(socket).await?
         }
     };
     if show_window {
@@ -258,6 +224,74 @@ mod tests {
         let daemon = connect_at(&path).await.unwrap().unwrap();
         open(daemon).await.unwrap();
         server.await.unwrap();
+    }
+
+    /// A service manager whose daemon greets once on `socket`.
+    struct FakeService {
+        socket: std::path::PathBuf,
+        starts: std::sync::atomic::AtomicUsize,
+    }
+
+    impl ServiceManager for FakeService {
+        fn start(&self) -> futures::future::BoxFuture<'_, Result<()>> {
+            Box::pin(async {
+                self.starts
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                let listener = local_socket::Listener::bind(&self.socket).await?;
+                tokio::spawn(async move {
+                    let mut stream = listener.accept().await.unwrap();
+                    stream
+                        .write_all(
+                            b"{\"type\":\"daemon\",\"pid\":1,\"version\":\"test\",\"overlay\":false}\n",
+                        )
+                        .await
+                        .unwrap();
+                });
+                Ok(())
+            })
+        }
+    }
+
+    fn fake_service(directory: &tempfile::TempDir) -> FakeService {
+        FakeService {
+            socket: directory.path().join("eco.sock"),
+            starts: 0.into(),
+        }
+    }
+
+    #[tokio::test]
+    async fn start_starts_the_service_when_nothing_answers() {
+        let directory = tempfile::tempdir().unwrap();
+        let service = fake_service(&directory);
+        launch(&service, &service.socket, false).await.unwrap();
+        assert_eq!(service.starts.into_inner(), 1);
+    }
+
+    #[tokio::test]
+    async fn start_leaves_the_service_alone_when_the_daemon_answers() {
+        let directory = tempfile::tempdir().unwrap();
+        let service = fake_service(&directory);
+        service.start().await.unwrap();
+        launch(&service, &service.socket, false).await.unwrap();
+        assert_eq!(service.starts.into_inner(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_service_that_fails_to_start_is_reported() {
+        struct Broken;
+        impl ServiceManager for Broken {
+            fn start(&self) -> futures::future::BoxFuture<'_, Result<()>> {
+                Box::pin(async { bail!("cannot start eco.service: no user manager") })
+            }
+        }
+        let directory = tempfile::tempdir().unwrap();
+        let error = launch(&Broken, &directory.path().join("eco.sock"), false)
+            .await
+            .unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "cannot start eco.service: no user manager"
+        );
     }
 
     #[tokio::test]

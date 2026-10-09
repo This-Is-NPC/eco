@@ -144,8 +144,8 @@ eco/
 ├── src/
 │   ├── main.rs              # the command line and its dispatch
 │   ├── cli.rs               # session commands over the socket (§11)
-│   ├── lifecycle.rs         # start, stop and status of the user service
-│   ├── setup.rs, skill.rs   # `eco setup`: models and the agent skill
+│   ├── lifecycle.rs         # start, stop and status of the daemon (§15)
+│   ├── setup.rs, skill.rs   # `eco setup`: models, desktop rules, agent skill
 │   ├── import.rs            # a file into a session (§7.7)
 │   ├── config.rs            # config.toml: schema, validation, atomic save (§9)
 │   ├── paths.rs             # every path eco reads or writes (§8, §15)
@@ -1440,10 +1440,11 @@ models stay. `mise run uninstall` removes what install put under the prefix and
 leaves sessions, config, models and the agent skill.
 
 - **User service:** `packaging/eco.service` runs `eco daemon --headless`
-  (`Restart=on-failure`). `eco start` starts it through `systemctl --user` when
-  nothing answers on the socket.
+  (`Restart=on-failure`). `eco start` starts it through `systemctl --user`
+  (`src/adapters/service_systemd.rs`) when nothing answers on the socket.
 - **Hyprland:** `packaging/hypr/eco.lua`, loaded from
-  `~/.config/hypr/bindings.lua` by one line `eco setup` adds (`src/setup.rs`):
+  `~/.config/hypr/bindings.lua` by one line `eco setup` adds
+  (`src/adapters/desktop_hyprland.rs`):
   the line ends in `-- eco setup`, names the `share/eco/hypr/eco.lua` beside the
   running binary, and runs `dofile` only when `io.open` finds that file, so a
   removed package leaves no error. Setup rewrites only its own line, adds none
@@ -1645,6 +1646,6 @@ adapter lives today.
 | Paths | the home and the XDG base directories (`HOME`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_RUNTIME_DIR`, else `/run/user/<uid>`) | `src/paths.rs` |
 | The daemon socket | a Unix domain socket at `$XDG_RUNTIME_DIR/eco.sock`, in `src/adapters/local_socket.rs`; the protocol (`src/adapters/control_socket.rs`), the CLI client (`src/cli.rs`) and the service commands (`src/lifecycle.rs`) reach it only through that module | `src/adapters/local_socket.rs` |
 | Audio devices and capture | PipeWire (`pw-dump`, `pw-record`, `libpipewire-module-echo-cancel` loaded through `pw-cli`) | `src/adapters/pipewire_devices.rs`, `src/adapters/audio_pipewire.rs`, `src/adapters/echo_cancel.rs` |
-| Service lifecycle and desktop setup | the systemd user service (`systemctl --user`) and the line loaded into the Hyprland Lua config (`~/.config/hypr/bindings.lua`) | `src/lifecycle.rs`, `src/setup.rs` |
+| Service lifecycle and desktop setup | `ServiceManager`: the systemd user service (`systemctl --user`), chosen in `src/lifecycle.rs`; `DesktopIntegration`: the line loaded into the Hyprland Lua config (`~/.config/hypr/bindings.lua`), chosen in `src/setup.rs` | `src/adapters/service_systemd.rs`, `src/adapters/desktop_hyprland.rs` |
 | Window control | launching Quickshell and giving its window the keyboard through `hyprctl dispatch`; the overlay centering its config window and setting `no_screen_share` through `Hyprland.dispatch` | `src/adapters/overlay.rs`, `overlay/ConfigWindow.qml`, `overlay/Eco.qml` |
 | Shortcuts | a global Hyprland bind that pipes a command to the socket through `socat`, or calls the overlay through `quickshell ipc` | `packaging/hypr/eco.lua` |

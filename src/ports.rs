@@ -196,3 +196,16 @@ pub trait Hooks: Send + Sync {
         title: String,
     ) -> BoxFuture<'static, Result<(), HookError>>;
 }
+
+/// Runs the daemon as a background service of the user's session.
+pub trait ServiceManager: Send + Sync {
+    /// Start the service, with the graphical session it has to reach.
+    fn start(&self) -> BoxFuture<'_, anyhow::Result<()>>;
+}
+
+/// Loads eco's window rules and shortcuts into the desktop's own config.
+pub trait DesktopIntegration {
+    /// What was done; `Err` is a warning: the desktop config could not be
+    /// read or written, so the rules are not loaded.
+    fn load_rules(&self) -> Result<String, String>;
+}
