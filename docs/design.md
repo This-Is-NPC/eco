@@ -793,6 +793,16 @@ Hyprland shortcut (which does not read `.bashrc`), set them in
 them. During development, mise loads them from `.env` at the project root
 (git-ignored).
 
+The `models` command (§10.2) lists a provider's models with a key, so it reads a
+key only where a saved provider would: the key source of a saved model, sent to
+that model's `base_url` (a trailing `/` aside), or one of the window's presets —
+`DEEPGRAM_API_KEY`, `ELEVEN_LABS_API_KEY`, `GROQ_API_KEY`, `OPENAI_API_KEY`,
+`OPENROUTER_API_KEY` — sent to that preset's own URL. The list is `PRESET_KEYS`
+in `src/session.rs`; a test holds the window's presets to it. Any other request
+is refused before a key is read, so whatever can write to the socket, an agent
+included, cannot send a secret to a server of its choosing. A draft model with a
+custom URL and a key, or an omapass key, lists once it is saved.
+
 ---
 
 ## 10. The socket
@@ -854,7 +864,10 @@ session it shows:
 `action <name>`, `ask <question>`,
 `config` (current config and devices), `config.set <json>`,
 `session.language <json>`, `models <json>`
-(`{"target","base_url","api_key_env","api_key_omapass"}`), `omapass` (its
+(`{"target","base_url","api_key_env","api_key_omapass"}`; the key is read only
+with no key source, a saved model's own source at that model's `base_url`, or a
+preset's variable at the preset's URL, as in §9.1; anything else answers `models`
+with `"code":"models.key_refused"` and `params` `{"base_url"}`), `omapass` (its
 passwords: `{"type":"omapass","installed","accounts":[{"account","folder"}],"error"?}`;
 not installed is `"installed":false`, not an error),
 `session.start <json>` (`{"title","kind","language","tags"}`; the kind defaults

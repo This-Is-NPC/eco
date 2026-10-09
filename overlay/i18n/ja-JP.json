@@ -424,6 +424,7 @@
   "error.config.invalid": "設定が不正です：{detail}",
   "error.command.unknown": "不明なコマンド：{command}",
   "error.command.failed": "{command} に失敗しました：{detail}",
+  "error.models.key_refused": "先にモデルを保存してください。キーは保存済みのモデルかプリセットにだけ使われます（{base_url}）",
   "attendees.short": "人物",
   "attendees.none": "まだいません",
   "attendees.manage": "このセッションの人物を追加・削除",

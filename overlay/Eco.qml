@@ -1008,7 +1008,9 @@ Singleton {
       const found = Object.assign({}, models)
       const errors = Object.assign({}, modelsError)
       found[event.target] = event.models
-      errors[event.target] = event.error || ""
+      // A coded failure reads in the interface language; others as the provider wrote them.
+      errors[event.target] = event.code && I18n.has("error." + event.code)
+        ? I18n.t("error." + event.code, event.params) : event.error || ""
       models = found
       modelsError = errors
       modelsLoading = Object.assign({}, modelsLoading, { [event.target]: false })

@@ -42,7 +42,8 @@ FloatingWindow {
   // Asks the fields that apply a change only once it is left to apply it now.
   signal committing()
 
-  // Provider presets by model type.
+  // Provider presets by model type; each base_url and api_key_env pair is one of
+  // PRESET_KEYS in src/session.rs, the keys LIST may read before a model is saved.
   readonly property var presets: ({ transcription: [
     { name: "DEEPGRAM", values: { base_url: "wss://api.deepgram.com/v1/listen", model: "nova-3", api_key_env: "DEEPGRAM_API_KEY" } },
     { name: "ELEVENLABS", values: { base_url: "wss://api.elevenlabs.io/v1/speech-to-text/realtime", model: "scribe_v2_realtime", api_key_env: "ELEVEN_LABS_API_KEY" } },

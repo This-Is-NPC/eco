@@ -424,6 +424,7 @@
   "error.config.invalid": "Invalid settings: {detail}",
   "error.command.unknown": "Unknown command: {command}",
   "error.command.failed": "{command} failed: {detail}",
+  "error.models.key_refused": "save the model first; its key is read only for a saved model or a preset ({base_url})",
   "attendees.short": "PEOPLE",
   "attendees.none": "No one yet",
   "attendees.manage": "Add or remove people in this session",

@@ -218,6 +218,14 @@ With omapass and no passwords in it, **PICK A PASSWORD** says
 **Both sources for one key.** Refused, by the window and by the daemon at start:
 `a provider's key comes from api_key_env or api_key_omapass, not both`.
 
+**LIST refuses a key before the model is saved.** **LIST** reads a key only for
+a saved model at its own base URL, or for a preset's variable at the preset's
+URL. A new model with **CUSTOM** and a key, or with a key from **OMAPASS**, says
+`no model list: save the model first; its key is read only for a saved model or
+a preset (<base URL>)`, where `<base URL>` is a placeholder for the one typed.
+Press **SAVE**, then **LIST** again. A custom base URL with no key lists at
+once.
+
 **A wrong model id, or a base URL without `/v1`.** The answer fails with the
 provider's own error, and a hint when the base URL has no path.
 

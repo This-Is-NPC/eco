@@ -1295,8 +1295,9 @@ impl Session {
             }
             ("models", Some(payload)) => {
                 let payload = payload.to_string();
+                let saved = self.current.models.clone();
                 self.background
-                    .spawn(async move { emit(models(&payload).await) });
+                    .spawn(async move { emit(models(&payload, &saved).await) });
             }
             ("omapass", None) => {
                 self.background.spawn(async move {
@@ -1332,12 +1333,51 @@ impl Session {
     }
 }
 
-/// The models a provider offers, for the config screen's picker.
-async fn models(payload: &str) -> Value {
+/// The official URL of each provider preset the settings window offers, and the
+/// variable its key comes from; `presets_match_the_window` keeps them in step.
+const PRESET_KEYS: [(&str, &str); 5] = [
+    ("wss://api.deepgram.com/v1/listen", "DEEPGRAM_API_KEY"),
+    (
+        "wss://api.elevenlabs.io/v1/speech-to-text/realtime",
+        "ELEVEN_LABS_API_KEY",
+    ),
+    ("https://api.groq.com/openai/v1", "GROQ_API_KEY"),
+    ("https://api.openai.com/v1", "OPENAI_API_KEY"),
+    ("https://openrouter.ai/api/v1", "OPENROUTER_API_KEY"),
+];
+
+/// Whether `key` may be read to list the models at `base_url`: no key, the key of
+/// a saved model at that URL, or a preset's variable at the preset's own URL.
+/// Any other pair would send any secret to any server.
+fn key_allowed(key: Key<'_>, base_url: &str, saved: &[ModelConfig]) -> bool {
+    let same = |url: &str| url.trim_end_matches('/') == base_url.trim_end_matches('/');
+    key == Key::None
+        || saved.iter().any(|m| same(&m.base_url) && m.key() == key)
+        || PRESET_KEYS
+            .iter()
+            .any(|&(url, variable)| same(url) && key == Key::Env(variable))
+}
+
+/// The models a provider offers, for the config screen's picker; a key
+/// `key_allowed` refuses is not read.
+async fn models(payload: &str, saved: &[ModelConfig]) -> Value {
     let request: Value = serde_json::from_str(payload).unwrap_or_default();
     let target = request.get("target").cloned().unwrap_or(json!(""));
+    let field = |key: &str| request.get(key).and_then(Value::as_str);
+    let key = Key::of(field("api_key_env"), field("api_key_omapass"));
+    let base_url = field("base_url").unwrap_or_default();
+    if !key_allowed(key, base_url, saved) {
+        let refused = error(
+            "models.key_refused",
+            format!("save the model before listing {base_url} with this key"),
+            json!({"base_url": base_url}),
+        );
+        return json!({
+            "type": "models", "target": target, "models": [],
+            "error": refused["message"], "code": refused["code"], "params": refused["params"],
+        });
+    }
     let found = async {
-        let field = |key: &str| request.get(key).and_then(Value::as_str);
         let base_url = field("base_url").ok_or("missing base_url")?;
         if request.get("target").is_none() {
             return Err("missing target".into());
@@ -1345,7 +1385,7 @@ async fn models(payload: &str) -> Value {
         if base_url.contains("elevenlabs.io") {
             return Ok(stt_elevenlabs::MODELS.map(String::from).to_vec());
         }
-        let key = api_key(Key::of(field("api_key_env"), field("api_key_omapass"))).await?;
+        let key = api_key(key).await?;
         if base_url.contains("deepgram.com") {
             return stt_deepgram::models(base_url, key).await;
         }
@@ -1506,6 +1546,84 @@ mod tests {
                 {"name": "Recrutador", "devices": ["@default-output", "alsa_output.usb-G522"]},
             ],
         })
+    }
+
+    fn saved_models() -> Vec<ModelConfig> {
+        serde_json::from_value(json!([
+            {"name": "lan", "type": "chat", "base_url": "http://10.0.0.5:8000/v1/", "model": "m",
+             "api_key_env": "LAN_KEY"},
+            {"name": "dg", "type": "transcription", "base_url": "wss://api.deepgram.com/v1/listen",
+             "model": "nova-3", "api_key_omapass": "Deepgram"},
+        ]))
+        .unwrap()
+    }
+
+    #[test]
+    fn lists_with_the_key_of_a_saved_model_or_a_preset() {
+        let saved = saved_models();
+        let allowed = |key, url| key_allowed(key, url, &saved);
+        assert!(allowed(Key::Env("LAN_KEY"), "http://10.0.0.5:8000/v1"));
+        assert!(allowed(
+            Key::Omapass("Deepgram"),
+            "wss://api.deepgram.com/v1/listen"
+        ));
+        assert!(allowed(
+            Key::Env("GROQ_API_KEY"),
+            "https://api.groq.com/openai/v1/"
+        ));
+        assert!(allowed(
+            Key::Env("OPENROUTER_API_KEY"),
+            "https://openrouter.ai/api/v1"
+        ));
+        assert!(allowed(Key::None, "http://anywhere"));
+    }
+
+    #[test]
+    fn refuses_a_key_away_from_its_saved_model_or_preset() {
+        let saved = saved_models();
+        let allowed = |key, url| key_allowed(key, url, &saved);
+        assert!(!allowed(Key::Env("GROQ_API_KEY"), "http://attacker"));
+        assert!(!allowed(
+            Key::Env("GROQ_API_KEY"),
+            "https://openrouter.ai/api/v1"
+        ));
+        assert!(!allowed(Key::Env("LAN_KEY"), "http://attacker"));
+        assert!(!allowed(Key::Env("HOME"), "http://10.0.0.5:8000/v1"));
+        assert!(!allowed(Key::Omapass("Deepgram"), "http://attacker"));
+        assert!(!allowed(
+            Key::Omapass("bank"),
+            "https://api.groq.com/openai/v1"
+        ));
+    }
+
+    #[tokio::test]
+    async fn a_refused_key_is_answered_with_a_code() {
+        let request =
+            json!({"target": "llm", "base_url": "http://attacker", "api_key_env": "PATH"});
+        let answer = models(&request.to_string(), &saved_models()).await;
+        assert_eq!(answer["type"], "models");
+        assert_eq!(answer["target"], "llm");
+        assert_eq!(answer["models"], json!([]));
+        assert_eq!(answer["code"], "models.key_refused");
+        assert_eq!(answer["params"], json!({"base_url": "http://attacker"}));
+    }
+
+    #[test]
+    fn presets_match_the_window() {
+        let window = include_str!("../overlay/ConfigWindow.qml");
+        let quoted = |line: &str, field: &str| {
+            let rest = &line[line.find(&format!("{field}: \""))? + field.len() + 3..];
+            Some(rest[..rest.find('"')?].to_string())
+        };
+        let offered: BTreeSet<(String, String)> = window
+            .lines()
+            .filter_map(|line| Some((quoted(line, "base_url")?, quoted(line, "api_key_env")?)))
+            .collect();
+        let known: BTreeSet<(String, String)> = PRESET_KEYS
+            .iter()
+            .map(|&(url, variable)| (url.into(), variable.into()))
+            .collect();
+        assert_eq!(offered, known);
     }
 
     fn recorder() -> (Emit, Arc<Mutex<Vec<Value>>>) {
@@ -1688,7 +1806,7 @@ mod tests {
 
     #[tokio::test]
     async fn models_report_a_bad_request_to_its_target() {
-        let event = models(r#"{"target": "llm"}"#).await;
+        let event = models(r#"{"target": "llm"}"#, &[]).await;
         assert_eq!(
             event,
             json!({"type": "models", "target": "llm", "models": [], "error": "missing base_url"})
