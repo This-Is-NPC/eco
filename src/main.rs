@@ -75,6 +75,9 @@ enum Command {
     /// Tell the speakers of the regions on stdin apart (run by the daemon on import).
     #[command(hide = true)]
     Diarize { model: PathBuf },
+    /// Print the usage spec (KDL) that docs/cli.md and the shell completions are generated from.
+    #[command(hide = true)]
+    Usage,
     /// Measure what docs/benchmarks.md reports.
     Bench {
         #[command(subcommand)]
@@ -354,6 +357,10 @@ async fn main() -> Result<()> {
             no_save,
         } => session::run(&paths::config_file(), replay, headless, !no_save).await,
         Command::Diarize { model } => adapters::diarizer_process::serve(&model),
+        Command::Usage => {
+            print!("{}", usage_spec());
+            Ok(())
+        }
         Command::Bench { target } => match target {
             Bench::Llm => bench::llm::run().await,
             Bench::Diarization {
@@ -577,6 +584,16 @@ async fn set_up(harnesses: Vec<String>) -> Result<()> {
     Ok(())
 }
 
+/// The usage spec of the visible `eco` command line, generated from its clap
+/// definition. It leaves out the version, which release-please moves, so that
+/// docs/cli.md only changes with the commands.
+fn usage_spec() -> String {
+    let mut spec = clap_usage::spec(&mut <Cli as clap::CommandFactory>::command(), "eco");
+    spec.version = None;
+    spec.cmd.subcommands.retain(|_, command| !command.hide);
+    spec.to_string()
+}
+
 /// Run a session command against the daemon; it prints its JSON and sets the exit code.
 async fn sessions(request: cli::Request) -> Result<()> {
     let code = cli::run(&paths::socket_path(), request).await;
@@ -595,6 +612,19 @@ mod tests {
     #[test]
     fn the_cli_is_well_formed() {
         Cli::command().debug_assert();
+    }
+
+    #[test]
+    fn the_usage_spec_names_every_visible_top_level_command() {
+        let spec = usage_spec();
+        for command in Cli::command().get_subcommands() {
+            let line = format!("\ncmd {} ", command.get_name());
+            assert_eq!(
+                spec.contains(&line),
+                !command.is_hide_set(),
+                "{line:?} in the spec"
+            );
+        }
     }
 
     #[test]
