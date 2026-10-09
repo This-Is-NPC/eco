@@ -756,22 +756,41 @@ pub fn private_dir(path: &Path) -> std::io::Result<()> {
 /// Replace `path` with `bytes` through a new private temporary file, so a crash
 /// never leaves half a file; its directory is created private when missing.
 pub fn write_atomically(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    use std::io::Write;
     if let Some(parent) = path.parent() {
         private_dir(parent)?;
     }
-    let temporary = path.with_extension("tmp");
+    replace_file(path, bytes, 0o600)
+}
+
+/// Replace `path` with `bytes` through `<name>.tmp` beside it, created with
+/// `mode` and synced before the rename, so a crash never leaves half a file.
+pub fn replace_file(path: &Path, bytes: &[u8], mode: u32) -> std::io::Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+    let mut name = path.file_name().unwrap_or_default().to_os_string();
+    name.push(".tmp");
+    let temporary = path.with_file_name(name);
     // A temporary left by a crash would keep its mode, so it goes first.
     match fs::remove_file(&temporary) {
         Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error),
         _ => {}
     }
-    private_file()
-        .write(true)
-        .create_new(true)
-        .open(&temporary)?
-        .write_all(bytes)?;
-    fs::rename(&temporary, path)
+    let written = (|| {
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(mode)
+            .open(&temporary)?;
+        // The umask may have cleared bits of `mode`.
+        file.set_permissions(fs::Permissions::from_mode(mode))?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        fs::rename(&temporary, path)
+    })();
+    if written.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+    written
 }
 
 /// Write the config atomically.
@@ -1011,7 +1030,7 @@ mod tests {
             written["participants"][1]["devices"][1].as_str(),
             Some("alsa_output.usb-G522")
         );
-        assert!(!path.with_extension("tmp").exists());
+        assert!(!path.with_file_name("config.toml.tmp").exists());
     }
 
     #[test]

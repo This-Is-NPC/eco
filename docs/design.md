@@ -1423,6 +1423,10 @@ leaves sessions, config, models and the agent skill.
   running binary, and runs `dofile` only when `io.open` finds that file, so a
   removed package leaves no error. Setup rewrites only its own line, adds none
   when another line already names an `eco.lua`, and creates no `bindings.lua`.
+  A change keeps `bindings.lua.bak.<unix seconds>` first, then replaces the
+  file (through a symlink, its target) atomically in its own mode, every other
+  byte kept; a file it cannot read or write is a warning and exit status 1
+  after the rest of setup ran.
   The file binds `SUPER+ALT+<n>` to the actions,
   `SUPER+ALT+N` to a new session, `SUPER+ALT+P` to pause/resume, `SUPER+ALT+H`
   to SESSIONS, `SUPER+ALT+C` to the config window and `SUPER+ALT+E` to bring eco

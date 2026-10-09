@@ -136,7 +136,11 @@ The line loads the file only while it exists, so Hyprland does not fail on it
 once the package is removed. Run `hyprctl reload` to load the rules now.
 
 `eco setup` writes nothing else in your Hyprland config, and it writes this line
-only once. It leaves the file alone in two cases, and says so:
+only once. Before it changes the file it keeps a copy beside it,
+`bindings.lua.bak.<seconds>` (the Unix time, a placeholder here), as Omarchy's
+own tools do. A `bindings.lua` it cannot read or write is a warning: the rest of
+setup still runs, and it exits with status 1. It leaves the file alone in two
+cases, and says so:
 
 - **A line already names an `eco.lua`** — your own `dofile`, say:
 
