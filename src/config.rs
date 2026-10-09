@@ -66,12 +66,20 @@ pub fn sessions_dir() -> PathBuf {
     data_dir().join("sessions")
 }
 
-pub fn socket_path() -> PathBuf {
+fn runtime_dir() -> PathBuf {
     env::var_os("XDG_RUNTIME_DIR")
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from(format!("/run/user/{}", users_uid())))
-        .join("eco.sock")
+}
+
+pub fn socket_path() -> PathBuf {
+    runtime_dir().join("eco.sock")
+}
+
+/// Where a running daemon keeps the windows' token, for a window it did not start.
+pub fn token_path() -> PathBuf {
+    runtime_dir().join("eco.token")
 }
 
 fn users_uid() -> u32 {

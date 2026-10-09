@@ -1745,7 +1745,7 @@ pub async fn run(
     let token = uuid::Uuid::new_v4().simple().to_string();
     let _control =
         ControlSocket::bind(&config::socket_path(), clients.clone(), greeting, commands).await?;
-    let mut windows = overlay::Windows::new(token.clone());
+    let mut windows = overlay::Windows::new(token.clone())?;
     if !headless {
         windows.open(None).await?;
         overlay_open.store(true, std::sync::atomic::Ordering::Relaxed);

@@ -640,6 +640,7 @@ Never audio. Everything below is text the user can read.
 | `~/.local/share/eco/people/voices/<session>.json` | the voices of a session's diarized speakers (§7.3) | the daemon |
 | `~/.local/share/eco/models/` | the Silero VAD and WeSpeaker CAM++ models | `eco setup` |
 | `$XDG_RUNTIME_DIR/eco.sock` | the socket (§10) | the daemon |
+| `$XDG_RUNTIME_DIR/eco.token` | the windows' token for this run (§9), `0600`, removed when the daemon exits | the daemon |
 
 The config, session logs, people and voices are the user's alone: eco creates
 their files `0600` and the directories it makes for them `0700`. A file eco
@@ -796,9 +797,22 @@ and while it waits only the window changes the config: any other client's
 `config.set`, risky or not, answers `config.busy` and is not saved, so the
 dialog never changes under the user's pointer. The window's own save drops the
 held change. Every other change from any client is saved at once, as before.
-The token keeps another client from
-approving its own change; a process of the same user that reads the window's
-environment or edits `config.toml` itself is not stopped by it.
+
+The daemon also writes the token to `$XDG_RUNTIME_DIR/eco.token`, mode `0600`,
+when it starts, and removes it when it exits; a file left by a killed daemon is
+replaced by the next one. A window the daemon did not start, `mise run overlay`
+beside `mise run start -- --headless`, reads it into `ECO_TOKEN`; started
+before the daemon, or kept across a restart, it has no token or an old one, and
+its saves of these fields are held like any other client's until it is started
+again.
+
+The token keeps a client that only talks to the socket, such as an agent
+driving it with a prompt it was handed, from saving or approving these changes
+itself. It does not stop a program running as the same user that wants to:
+such a program can read `eco.token`, exactly as it can read a window's
+environment in `/proc/<pid>/environ`, and it can edit `config.toml` directly.
+Neither the file nor the environment is a secret from the user's own
+processes.
 
 ### 9.1 Secrets
 
@@ -1507,7 +1521,7 @@ mise run start              # build and run this checkout with its window
 mise run start -- --replay session.wav   # a 16 kHz mono WAV instead of a call
 mise run start -- --headless             # no window; pair with `mise run overlay`
 mise run start -- --no-save              # keep sessions in memory only
-mise run overlay            # only the window, reloading QML on save
+mise run overlay            # only the window, reloading QML on save; start it after the daemon
 mise run check              # the gate: lint, test, cli:check, docs:check
 mise run lint               # cargo fmt and clippy, every warning fatal
 mise run test               # the domain tests, i18n, VAD and speaker parity
