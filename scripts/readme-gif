@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Render the README's animated GIF from the pixel-art source, with omapixel.
+set -euo pipefail
+
+source=packaging/eco.omapixel
+mkdir -p docs/img
+omapixel check "$source"
+omapixel render "$source" -o docs/img/eco.gif --format gif --clip idle --scale 6 --loop

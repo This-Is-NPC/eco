@@ -1,0 +1,44 @@
+title = "Tech lead: desktop modernization"
+language = "pt"
+interviewer = "Gertrudes (recrutadora da Guilda)"
+max_words = 220
+# The points the bad answer must fail, to check the judge.
+bad_fails = ["sasazuka", "37", "wrong-number", "wrong-case"]
+notes = []
+transcript = [
+  ["them", "Agora eu falo pela tech lead da Guilda. O balcão de missões é um app desktop em WPF, e tem muito legado desktop assim por aqui."],
+  ["them", "Você já modernizou alguma aplicação desktop? Como foi?"],
+]
+reference = """
+**Resposta:** Sim. No projeto Sasazuka, no Japão, separei um app WPF que era um único arquivo gigante no padrão MVVM: a tela só mostra os dados e a lógica fica em classes separadas, o que deixa cada parte testável.
+
+**Resultado:** a base de código encolheu 37%.
+
+**Se perguntarem por quê:** Com MVVM dá para mudar uma parte sem quebrar a outra, e o legado evolui aos poucos.
+"""
+bad = """
+**Resposta:** Sim. Na MagRonald's migrei um app WPF para MVVM com agentes de IA e reduzi o código em 40%.
+"""
+
+[[must]]
+id = "sasazuka"
+text = "cites the WPF app in the Sasazuka project in Japan"
+regex = "(Sasazuka|Jap[ãa]o)"
+
+[[must]]
+id = "mvvm"
+text = "explains splitting the app into the MVVM pattern"
+regex = "MVVM"
+
+[[must]]
+id = "37"
+text = "gives the result: the codebase shrank by 37%"
+regex = "37\\s*%"
+
+[[must_not]]
+id = "wrong-number"
+text = "gives a reduction other than 37%"
+
+[[must_not]]
+id = "wrong-case"
+text = "places the WPF work at MagRonald's, Santa Luz or Caronte"

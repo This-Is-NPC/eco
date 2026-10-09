@@ -1,0 +1,15 @@
+{"type": "session", "id": "9e2a4f71c8b3", "title": "Northwind backend interview", "kind": "interview", "source": "live", "language": "en", "started_at": 1741165200.0}
+{"type": "state", "state": "recording", "at": 1741165200.0}
+{"type": "context", "slots": ["resume"], "at": 1741165200.0}
+{"type": "transcriber", "model": "deepgram", "inputs": 2, "at": 1741165200.2}
+{"type": "tags", "tags": ["Hiring"], "at": 1741165201.0}
+{"type": "speaker", "label": "Speaker 1", "name": "Chen Wei", "at": 1741165201.0}
+{"type": "person", "label": "Speaker 1", "person": "0a7e3d5c1b69", "at": 1741165201.0}
+{"type": "speech", "who": "Speaker 1", "text": "Tell me about a system you moved from a monolith to services.", "at": 1741165208.0}
+{"type": "suggestion", "id": "1d6e8fa2", "action": "reply", "model": "google/gemini-2.5-flash", "prompt": "reply", "request": "Request: reply", "text": "**Answer:** I split the billing module out first, behind the same API, so nothing upstream changed.\n\n**An example:** the invoice service ran beside the monolith for two weeks with both writing, then we switched reads.", "at": 1741165215.0}
+{"type": "spent", "for": "answer", "model": "google/gemini-2.5-flash", "usd": null, "at": 1741165217.0, "answer": "1d6e8fa2"}
+{"type": "speech", "who": "Me", "text": "The first piece we moved was billing, because it had the clearest boundary.", "at": 1741165221.0}
+{"type": "speech", "who": "Speaker 1", "text": "How did you keep the two in sync while both were running?", "at": 1741165247.0}
+{"type": "billed", "request": "7b2a9c8e-3f4d-4e6a-9b0c-2d3e4f5a6b72", "model": "deepgram", "seconds": 2710.0, "share": 1.0, "at": 1741167910.0}
+{"type": "spent", "for": "transcription", "model": "deepgram", "request": "7b2a9c8e-3f4d-4e6a-9b0c-2d3e4f5a6b72", "usd": null, "unknown": "no_scope", "at": 1741167970.0}
+{"type": "state", "state": "ended", "at": 1741167910.0}

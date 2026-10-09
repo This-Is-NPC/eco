@@ -1,0 +1,10 @@
+{"type": "session", "id": "6e9f3a1b2c48", "title": "Rust meetup: async in practice", "kind": "other", "source": "import", "language": "en", "started_at": 1740679200.0}
+{"type": "state", "state": "importing", "at": 1740679200.0}
+{"type": "transcriber", "model": "deepgram", "inputs": 1, "at": 1740679200.2}
+{"type": "tags", "tags": ["Learning"], "at": 1740679201.0}
+{"type": "speech", "who": "Speaker 1", "text": "Tonight's talk is about async Rust in production, and what we wish we had known earlier.", "at": 1740679202.0}
+{"type": "speech", "who": "Speaker 1", "text": "The first lesson: keep the blocking work off the runtime threads.", "at": 1740679214.0}
+{"type": "speech", "who": "Speaker 2", "text": "Does that include logging?", "at": 1740679230.0}
+{"type": "billed", "request": "9d4c1e0a-5b6f-4a8c-9d2e-4f5a6b7c8d94", "model": "deepgram", "seconds": 3120.0, "share": 1.0, "at": 1740682320.0}
+{"type": "spent", "for": "transcription", "model": "deepgram", "request": "9d4c1e0a-5b6f-4a8c-9d2e-4f5a6b7c8d94", "usd": 0.4004, "at": 1740682380.0}
+{"type": "state", "state": "ended", "at": 1740682320.0}

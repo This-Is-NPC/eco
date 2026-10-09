@@ -1,0 +1,50 @@
+title = "Translation: deadlines and dates"
+skill = "translation"
+language = "pt"
+translate_to = "en"
+task = "Translate each line of the meeting into English."
+min_words = 40
+max_words = 140
+# The points the bad answer must fail, to check the graders.
+bad_fails = ["by-friday", "until"]
+names = { Bartolomeu = "Bartolomeu (HemoNoite)", Brasa = "Brasa (infraestrutura)" }
+transcript = [
+  ["me", "Eu reviso a proposta até sexta, dia 15/11."],
+  ["Bartolomeu", "E eu aprovo os painéis das unidades até segunda, dia 18/11."],
+  ["Brasa", "A migração fica pra semana que vem, lá pelo dia 20."],
+  ["me", "Fechado. Se atrasar, me avisa com antecedência."],
+]
+reference = """
+I'll review the proposal by Friday, the 15th (15/11).
+And I'll approve the branch dashboards by Monday, the 18th (18/11).
+The migration moves to next week, around the 20th.
+Deal. If it's late, give me a heads-up in advance.
+"""
+bad = """
+I review the proposal until Friday, day 15/11.
+And I approve the panels of the units until Monday, day 18/11.
+The migration stays for the week that comes, there by the day 20.
+Closed. If it delays, warn me with antecedence.
+"""
+
+[[must]]
+id = "by-friday"
+text = "says the review is done by Friday (a deadline), not that it lasts until Friday"
+regex = "by Friday"
+
+[[must]]
+id = "by-monday"
+text = "says the dashboards are approved by Monday"
+regex = "by Monday"
+
+[[must]]
+id = "next-week"
+text = "says the migration moves to next week, around the 20th"
+
+[[must]]
+id = "warn"
+text = "asks to be warned in advance if it is late"
+
+[[must_not]]
+id = "until"
+text = "says the review or the approval lasts until Friday or Monday, as a duration"

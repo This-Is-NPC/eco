@@ -1,0 +1,40 @@
+title = "HR: expected pay and start date"
+language = "pt"
+interviewer = "Gertrudes (recrutadora da Guilda)"
+max_words = 150
+# The points the bad answer must fail, to check the judge.
+bad_fails = ["pay", "start", "other-pay", "other-start"]
+notes = ["Quero pedir 19 mil PJ. Preciso de 30 dias para sair da MagRonald's Tecnologia."]
+transcript = [
+  ["them", "Oi, Sadao! Sou a Gertrudes, recrutadora da Guilda dos Aventureiros. É uma conversa rápida, uns 20 minutos: goblin não enrola."],
+  ["me", "Oi, Gertrudes, tudo bem? Obrigado pelo convite."],
+  ["them", "A vaga é de tech lead do sistema de masmorras, PJ, 40 horas, remota."],
+  ["me", "Perfeito, funciona pra mim."],
+  ["them", "A faixa é de 15 a 22 mil. Qual a sua pretensão e em quanto tempo você consegue começar?"],
+]
+reference = """
+**Resposta:** Minha pretensão é 19 mil, PJ. Consigo começar em 30 dias, que é o prazo para sair da MagRonald's Tecnologia sem deixar nada pela metade.
+
+**Se perguntarem por quê:** 19 mil fica dentro da faixa de 15 a 22 mil que você citou e combina com o escopo de tech lead em 40 horas.
+"""
+bad = """
+**Resposta:** Minha pretensão é 25 mil, CLT, e posso começar na semana que vem.
+"""
+
+[[must]]
+id = "pay"
+text = "states an expected pay of 19 thousand"
+regex = "19\\s*(mil|k|000)"
+
+[[must]]
+id = "start"
+text = "says he can start in 30 days"
+regex = "30 dias"
+
+[[must_not]]
+id = "other-pay"
+text = "asks for a pay other than 19 thousand, or outside the 15 to 22 thousand range"
+
+[[must_not]]
+id = "other-start"
+text = "promises a start date other than 30 days"

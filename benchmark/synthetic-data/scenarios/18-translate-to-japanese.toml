@@ -1,0 +1,38 @@
+title = "Translation: Portuguese into Japanese"
+skill = "translation"
+language = "pt"
+translate_to = "ja"
+task = "Translate each line of the meeting into Japanese."
+min_words = 4
+max_words = 120
+# The points the bad answer must fail, to check the graders.
+bad_fails = ["brasa", "date"]
+names = { Bartolomeu = "Bartolomeu (HemoNoite)" }
+transcript = [
+  ["Bartolomeu", "Bom dia. A entrega do relatório ficou para o dia 18/11."],
+  ["me", "Perfeito. O Brasa revisa e eu envio para a sua equipe de Tóquio."],
+  ["Bartolomeu", "Combinado, e a reunião de sexta continua às 22h."],
+]
+reference = """
+おはようございます。レポートの提出は18/11になりました。
+了解です。ブラザが確認して、私が東京のチームに送ります。
+わかりました。金曜日の会議は引き続き22時です。
+"""
+bad = """
+おはようございます。レポートの提出は来月になりました。
+了解です。私が確認して、東京のチームに送ります。
+"""
+
+[[must]]
+id = "brasa"
+text = "says Brasa reviews it and the speaker sends it to Bartolomeu's Tokyo team"
+
+[[must]]
+id = "date"
+text = "keeps the delivery date 18/11"
+regex = "18"
+
+[[must]]
+id = "friday"
+text = "says Friday's meeting stays at 22h (10 p.m.)"
+regex = "22"

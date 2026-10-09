@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+set -euo pipefail
+source scripts/lib/desktop-entry.sh
+
+# Install the release build of eco under a prefix (default ~/.local): the
+# binary, its own copy of the overlay, the Hyprland rules pointing at it, the
+# launcher, icon and user service, with models and the agent skill prepared first.
+# Idempotent: each install replaces the last. Sessions, config and models stay.
+: "${HOME:?HOME is not set}"
+prefix="${PREFIX:-$HOME/.local}"
+share="$prefix/share/eco"
+
+cargo build --release --locked --quiet
+"target/release/eco" setup --harnesses agents,claude-code
+was_running=0
+window_was_open=0
+if "target/release/eco" status >/dev/null; then
+  was_running=1
+else
+  status=$?
+  if [ "$status" -ne 3 ]; then
+    printf 'cannot determine whether the eco daemon is running\n' >&2
+    exit "$status"
+  fi
+fi
+if [ "$was_running" -eq 1 ]; then
+  if "target/release/eco" status --window-open >/dev/null; then
+    window_was_open=1
+  fi
+  "target/release/eco" stop
+fi
+install -Dm755 target/release/eco "$prefix/bin/eco"
+rm -rf "$share/overlay"
+mkdir -p "$share"
+cp -r overlay "$share/overlay"
+install -d "$share/hypr"
+sed "s|^local overlay = .*|local overlay = \"$share/overlay\"|" packaging/hypr/eco.lua > "$share/hypr/eco.lua"
+install -Dm644 packaging/eco.desktop "$prefix/share/applications/eco.desktop"
+install -Dm644 packaging/eco.svg "$prefix/share/icons/hicolor/scalable/apps/eco.svg"
+install -Dm644 LICENSE "$prefix/share/licenses/eco/LICENSE"
+unit_dir="$HOME/.config/systemd/user"
+install -d "$unit_dir"
+sed "s|@ECO_BINARY@|$prefix/bin/eco|" packaging/eco.service > "$unit_dir/eco.service"
+systemctl --user daemon-reload
+if [ "$was_running" -eq 1 ]; then
+  "$prefix/bin/eco" start --headless
+  "$prefix/bin/eco" status --expect-current-exe
+  if [ "$window_was_open" -eq 1 ]; then
+    "$prefix/bin/eco" start
+  fi
+fi
+refresh_desktop_entries "$prefix"
+printf 'installed eco in %s/bin\n' "$prefix"
+
+on_path="$(command -v eco 2>/dev/null || true)"
+if [ "$on_path" != "$prefix/bin/eco" ]; then
+  printf 'WARN: PATH resolves eco to %s, not %s; remove the stale copy or reorder PATH\n' "${on_path:-nothing}" "$prefix/bin/eco" >&2
+fi
+printf 'Hyprland: dofile("%s/hypr/eco.lua") from ~/.config/hypr/bindings.lua\n' "$share"

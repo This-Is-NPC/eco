@@ -1,0 +1,72 @@
+title = "Imported meeting: speakers without names"
+skill = "resumo"
+kind = "meeting"
+language = "pt"
+task = "Resumo de uma reunião importada, com os locutores sem nome."
+min_words = 30
+max_words = 220
+sections = ["decis", "tarefa", "aberto"]
+# The points the bad answer must fail, to check the judge.
+bad_fails = ["s1", "s2", "arrival", "names", "swap"]
+transcript = [
+  ["Speaker 1", "Pessoal, o contrato do terreno onde o castelo vai estacionar voltou do proprietário com dois comentários."],
+  ["Speaker 2", "Um deles é a cláusula de multa por atraso na chegada do castelo. Eles querem dobrar o valor."],
+  ["me", "Isso a gente não aceita sem falar com o jurídico."],
+  ["Speaker 2", "Eu falo com o jurídico sobre a cláusula de multa."],
+  ["Speaker 1", "O outro comentário é a data de chegada. Eles pedem que o castelo chegue dia 2 de dezembro em vez de 18 de novembro."],
+  ["me", "Pra nós funciona melhor até. Concordamos com 2 de dezembro."],
+  ["Speaker 1", "Então eu mando o contrato revisado com a data nova até quarta, dia 13/11."],
+  ["me", "Perfeito."],
+  ["Speaker 2", "Fica a dúvida se o proprietário aceita reajuste anual pelo IPCA. Ninguém perguntou ainda."],
+]
+reference = """
+**Decisões:**
+- A chegada do castelo ao terreno passa para 2 de dezembro, em vez de 18 de novembro.
+
+**Tarefas:**
+- Speaker 1 — enviar o contrato revisado com a nova data — 13/11
+- Speaker 2 — falar com o jurídico sobre a cláusula de multa por atraso — sem prazo
+
+**Em aberto:**
+- Se o proprietário aceita reajuste anual pelo IPCA.
+"""
+bad = """
+**Decisões:**
+- Aceitamos dobrar a multa por atraso.
+
+**Tarefas:**
+- Brasa — falar com o jurídico — 13/11
+- Speaker 2 — enviar o contrato revisado — sem prazo
+"""
+
+[[must]]
+id = "s1"
+text = "gives Speaker 1 sending the revised contract, due 13/11"
+regex = "Speaker 1[^\\n]{0,90}13/11"
+
+[[must]]
+id = "s2"
+text = "gives Speaker 2 talking to legal about the late-arrival penalty clause"
+regex = "Speaker 2[^\\n]{0,90}jur[íi]dico"
+
+[[must]]
+id = "arrival"
+text = "records the decision to move the castle's arrival to 2 December"
+regex = "2 de dezembro|02/12|2/12"
+
+[[must]]
+id = "ipca"
+text = "leaves the annual IPCA adjustment as an open question"
+regex = "IPCA"
+
+[[must_not]]
+id = "names"
+text = "gives an unnamed speaker a person's name"
+
+[[must_not]]
+id = "swap"
+text = "gives a task to the wrong speaker"
+
+[[must_not]]
+id = "penalty"
+text = "says the doubled penalty was accepted"

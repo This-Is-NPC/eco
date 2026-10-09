@@ -1,0 +1,67 @@
+title = "Minutes: commitments and maybes"
+skill = "resumo"
+kind = "meeting"
+language = "pt"
+task = "Ata da reunião semanal de infraestrutura."
+min_words = 30
+max_words = 220
+sections = ["decis", "tarefa", "aberto"]
+# The points the bad answer must fail, to check the judge.
+bad_fails = ["brasa", "lucio", "deploy-task", "azure-task"]
+names = { Brasa = "Brasa (infraestrutura)", "Lúcio" = "Lúcio (plataforma)" }
+transcript = [
+  ["me", "Vamos lá, pauta curta hoje. Primeiro: o alerta de disco cheio que disparou duas vezes."],
+  ["Brasa", "Esse eu pego. Ajusto o limite e a limpeza de logs até sexta, dia 22/11. Log demais vira fumaça na chaminé."],
+  ["me", "Ótimo, Brasa com o alerta de disco até 22/11."],
+  ["Lúcio", "Sobre o deploy: o alerta de deploy lento também anda chato. Talvez alguém pudesse olhar isso um dia. Eu não, que eu não levanto da cadeira."],
+  ["me", "É, talvez. Não tem urgência agora."],
+  ["Brasa", "Seria legal também alguém revisar os custos da Azure em algum momento, a fatura subiu."],
+  ["me", "Anotado como ideia, sem dono por enquanto."],
+  ["me", "Lúcio, você consegue atualizar a documentação da API de pagamentos? Dá pra fazer sentado."],
+  ["Lúcio", "Consigo. Até dia 25/11."],
+  ["me", "Fechado. Decidimos também manter a janela de manutenção às terças, 22h, que é quando o castelo para de andar."],
+  ["Brasa", "Concordo, terça 22h continua."],
+]
+reference = """
+**Decisões:**
+- A janela de manutenção continua às terças, 22h.
+
+**Tarefas:**
+- Brasa — ajustar o limite do alerta de disco e a limpeza de logs — 22/11
+- Lúcio — atualizar a documentação da API de pagamentos — 25/11
+
+**Em aberto:**
+- Olhar o alerta de deploy lento (sem dono).
+- Revisar os custos da Azure (sem dono).
+"""
+bad = """
+**Decisões:**
+- Manutenção às terças.
+
+**Tarefas:**
+- Lúcio — investigar o alerta de deploy lento — esta semana
+- Brasa — revisar os custos da Azure — 22/11
+"""
+
+[[must]]
+id = "brasa"
+text = "gives Brasa the disk alert and log cleanup, due 22/11"
+regex = "Brasa[^\\n]{0,60}disco[^\\n]{0,60}22/11"
+
+[[must]]
+id = "lucio"
+text = "gives Lúcio the payments API documentation, due 25/11"
+regex = "L[úu]cio[^\\n]{0,90}25/11"
+
+[[must]]
+id = "window"
+text = "records that the maintenance window stays on Tuesdays at 22h"
+regex = "ter[çc]a"
+
+[[must_not]]
+id = "deploy-task"
+text = "lists looking at the slow deploy alert as a task someone took"
+
+[[must_not]]
+id = "azure-task"
+text = "lists reviewing the Azure costs as a task someone took"

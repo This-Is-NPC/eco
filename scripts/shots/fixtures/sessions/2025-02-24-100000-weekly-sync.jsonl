@@ -1,0 +1,14 @@
+{"type": "session", "id": "7f0a4b2c3d59", "title": "Weekly sync", "kind": "meeting", "source": "live", "language": "en", "started_at": 1740391200.0}
+{"type": "state", "state": "recording", "at": 1740391200.0}
+{"type": "transcriber", "model": "deepgram", "inputs": 2, "at": 1740391200.2}
+{"type": "tags", "tags": ["Acme", "Weekly"], "at": 1740391201.0}
+{"type": "speaker", "label": "Speaker 1", "name": "Ana Ribeiro", "at": 1740391201.0}
+{"type": "person", "label": "Speaker 1", "person": "a1f3c9e20b71", "at": 1740391201.0}
+{"type": "speaker", "label": "Speaker 2", "name": "M. Lee", "at": 1740391201.0}
+{"type": "person", "label": "Speaker 2", "person": "c93e0f5b7d12", "at": 1740391201.0}
+{"type": "speech", "who": "Speaker 1", "text": "Quick round: anything blocking?", "at": 1740391205.0}
+{"type": "speech", "who": "Speaker 2", "text": "Only the staging database, it is still on the old version.", "at": 1740391212.0}
+{"type": "speech", "who": "Me", "text": "I'll upgrade it today after lunch.", "at": 1740391220.0}
+{"type": "billed", "request": "0e5d2f1b-6c7a-4b9d-8e3f-5a6b7c8d9e05", "model": "deepgram", "seconds": 900.0, "share": 1.0, "at": 1740392100.0}
+{"type": "spent", "for": "transcription", "model": "deepgram", "request": "0e5d2f1b-6c7a-4b9d-8e3f-5a6b7c8d9e05", "usd": 0.1155, "at": 1740392160.0}
+{"type": "state", "state": "ended", "at": 1740392100.0}

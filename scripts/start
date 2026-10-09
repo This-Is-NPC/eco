@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -euo pipefail
+source scripts/lib/wayland-env.sh
+headless=0
+for argument in "$@"; do
+  [[ $argument == --headless ]] && headless=1
+done
+if [[ $headless -eq 0 ]]; then
+  eco_wayland_env
+fi
+cargo build --release --locked --quiet
+target/release/eco stop
+exec target/release/eco daemon "$@"

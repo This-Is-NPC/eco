@@ -1,0 +1,15 @@
+[
+  {"type": "hook_started", "id": "b51c0e7a"},
+  {"type": "hook_sent", "id": "b51c0e7a"},
+  {"type": "transcript", "who": "Them", "name": "Them", "text": "Can the export run every night, or only on demand?", "at": 56},
+  {"type": "suggestion_start", "id": "d7e2a915", "action": "reply", "model": "google/gemini-2.5-flash", "prompt": "reply", "at": 58},
+  {"type": "suggestion_delta", "id": "d7e2a915", "text": "**Answer:** every night at two, and on demand from the admin page.\n\n**Why:** the import reads the nightly file; on demand covers a rerun."},
+  {"type": "suggestion_end", "id": "d7e2a915"},
+  {"type": "hook_started", "id": "d7e2a915"},
+  {"type": "error", "code": "hook.failed", "message": "hook: exit status 1", "params": {"id": "d7e2a915", "detail": "exit status 1"}},
+  {"type": "suggestion_start", "id": "e83f0b26", "action": "chat", "model": "google/gemini-2.5-flash", "prompt": "How big is the first export?", "at": 63},
+  {"type": "error", "code": "completion.failed", "message": "chat: HTTP 429: rate limited", "params": {"id": "e83f0b26", "action": "chat", "detail": "HTTP 429: rate limited"}},
+  {"type": "suggestion_removed", "id": "e83f0b26"},
+  {"type": "suggestion_start", "id": "f94a1c37", "action": "minutes", "model": "anthropic/claude-haiku-4.5", "prompt": "minutes", "at": 66},
+  {"type": "suggestion_thinking", "id": "f94a1c37", "text": "Decisions so far: the export tool comes first; Priya approves the VPN. Open: how big the first export is."}
+]

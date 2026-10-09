@@ -1,0 +1,103 @@
+# The config of the pictures: plausible models and no keys; nothing here is
+# called. The shots set placeholder keys and never ask for an answer, and the
+# default transcriber sits at a documentation address (RFC 5737) that the
+# replay's synthetic tones, never taken for speech, do not reach.
+kinds = ["meeting", "conversation", "other", "idea", "interview"]
+rules = """
+- Answer in the language of the transcript.
+- Be short: the user may be reading while the conversation goes on.
+- Use the user's context when it is relevant.
+- Never attribute to the user facts that are not in the transcript or the context."""
+
+[stt]
+model = "whisper-lan"
+language = "en"
+languages = ["auto", "en", "es", "pt"]
+
+[llm]
+model = "gemini-flash"
+max_context_chars = 60000
+concurrency = 8
+
+[reviewer]
+enabled = false
+model = "claude-haiku"
+prompt = "Review your answer above before the user sees it. Cut anything that is not in the transcript, the notes or the user's context. Keep the conversation's language and the requested format. Return only the final answer."
+verbose = false
+
+[translation]
+model = "gemini-flash"
+
+[[models]]
+name = "whisper-lan"
+type = "transcription"
+base_url = "http://192.0.2.10:8000/v1"
+model = "whisper-large-v3-turbo"
+
+[[models]]
+name = "deepgram"
+type = "transcription"
+base_url = "wss://api.deepgram.com/v1/listen"
+model = "nova-3"
+api_key_env = "DEEPGRAM_API_KEY"
+kinds = ["interview"]
+price_per_minute = 0.0077
+
+[[models]]
+name = "gemini-flash"
+type = "chat"
+base_url = "https://openrouter.ai/api/v1"
+model = "google/gemini-2.5-flash"
+api_key_env = "OPENROUTER_API_KEY"
+reasoning = "off"
+
+[[models]]
+name = "claude-haiku"
+type = "chat"
+base_url = "https://openrouter.ai/api/v1"
+model = "anthropic/claude-haiku-4.5"
+api_key_env = "OPENROUTER_API_KEY"
+reasoning = "off"
+
+[context]
+files = ["~/notes/about-me.md"]
+
+[[contexts]]
+name = "resume"
+files = ["~/notes/resume.md"]
+kinds = ["interview"]
+
+[[participants]]
+name = "Me"
+devices = ["@default-input"]
+user = true
+
+[[participants]]
+name = "Them"
+devices = ["@default-output"]
+user = false
+
+[[actions]]
+name = "reply"
+prompt = """
+Answer the last question the others asked, as I would, using the transcript and
+my context. When something is not there, answer from general knowledge without
+inventing facts about me."""
+format = """
+Markdown. A bold **Answer:** line with my position, then **Why:** with the
+reason, ready to say. Short unless they ask for detail."""
+hook = "~/bin/post-to-notes"
+
+[[actions]]
+name = "minutes"
+prompt = "Write the minutes of the session so far: decisions, open questions and who does what."
+format = "Markdown: three short lists, Decisions, Open questions and Next steps."
+model = "claude-haiku"
+
+[[actions]]
+name = "explain"
+prompt = "Explain the last technical term the others used, in plain words."
+format = "Two sentences at most."
+
+[ui]
+language = "en-US"

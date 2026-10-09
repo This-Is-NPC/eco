@@ -1,0 +1,79 @@
+title = "Client follow-up e-mail: only what was agreed"
+skill = "email-cliente"
+kind = "meeting"
+language = "pt"
+task = "E-mail de follow-up para o Bartolomeu, da HemoNoite."
+min_words = 50
+max_words = 230
+sections = ["assunto"]
+# The points the bad answer must fail, to check the judge.
+bad_fails = ["pilot", "five-units", "cfo-date", "discount"]
+names = { Bartolomeu = "Bartolomeu (HemoNoite)" }
+transcript = [
+  ["Bartolomeu", "Obrigado por virem depois do pôr do sol. Gostamos da demo do drive-thru de doação, mas quero começar pequeno."],
+  ["me", "Faz sentido. Quantas unidades no piloto?"],
+  ["Bartolomeu", "Duas unidades no piloto. Se der certo, a gente pensa nas outras cinco depois, mas isso não é agora. Tenho séculos, posso esperar."],
+  ["me", "Combinado, piloto em duas unidades. Eu te mando a proposta revisada para duas unidades até dia 20/11."],
+  ["Bartolomeu", "Ótimo. E eu libero o acesso ao ambiente de homologação de vocês até dia 18/11."],
+  ["me", "Perfeito. Sobre o orçamento, quem aprova?"],
+  ["Bartolomeu", "O CFO. Não sei quando ele consegue olhar, depende da agenda dele."],
+  ["Bartolomeu", "Ah, vocês dariam algum desconto?"],
+  ["me", "Isso eu preciso ver internamente, não consigo responder hoje."],
+]
+reference = """
+Assunto: Próximos passos do piloto — HemoNoite
+
+Olá, Bartolomeu,
+
+Obrigado pela reunião de hoje. Os próximos passos que combinamos:
+
+- Sadao envia a proposta revisada para o piloto em duas unidades até 20/11.
+- Bartolomeu libera o acesso ao ambiente de homologação até 18/11.
+
+Ficaram pendentes a aprovação do orçamento pelo CFO, ainda sem data, e a pergunta sobre desconto, que vou verificar internamente.
+
+Abraço,
+Sadao
+"""
+bad = """
+Assunto: Piloto confirmado
+
+Olá, Bartolomeu,
+
+Ótima reunião! Como combinado, o piloto vai rodar nas cinco unidades, com 10% de desconto. Envio a proposta até 20/11 e o CFO aprova até o fim do mês.
+
+Abraço,
+Sadao
+"""
+
+[[must]]
+id = "proposal"
+text = "says Sadao sends the revised proposal for two units by 20/11"
+regex = "20/11"
+
+[[must]]
+id = "access"
+text = "says Bartolomeu grants access to the staging environment by 18/11"
+regex = "18/11"
+
+[[must]]
+id = "pilot"
+text = "says the pilot runs in two units"
+regex = "duas unidades|2 unidades"
+
+[[must]]
+id = "cfo"
+text = "leaves the CFO's budget approval pending, with no date"
+regex = "CFO"
+
+[[must_not]]
+id = "five-units"
+text = "says the pilot or the deal covers five units"
+
+[[must_not]]
+id = "cfo-date"
+text = "gives a date for the CFO's approval"
+
+[[must_not]]
+id = "discount"
+text = "promises or confirms a discount"

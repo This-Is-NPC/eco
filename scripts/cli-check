@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Fail when docs/cli.md is not what the eco binary's help generates.
+set -euo pipefail
+
+if ! scripts/cli-doc | cmp -s docs/cli.md -; then
+  echo "cli-check: docs/cli.md is stale (run mise run cli:gen)" >&2
+  exit 1
+fi

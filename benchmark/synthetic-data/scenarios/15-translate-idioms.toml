@@ -1,0 +1,48 @@
+title = "Translation: idioms"
+skill = "translation"
+language = "pt"
+translate_to = "en"
+task = "Translate each line of the meeting into English."
+min_words = 30
+max_words = 120
+# The points the bad answer must fail, to check the graders.
+bad_fails = ["find-a-way", "tough", "toes", "literal"]
+names = { Bartolomeu = "Bartolomeu (HemoNoite)" }
+transcript = [
+  ["Bartolomeu", "O prazo tá apertado, mas a gente dá um jeito."],
+  ["me", "Tá osso essa semana, não vou mentir."],
+  ["Bartolomeu", "Os dois turnos da madrugada ficam pisando no pé um do outro."],
+  ["me", "E ontem deu ruim no deploy, tivemos que voltar a versão."],
+]
+reference = """
+The deadline is tight, but we'll find a way.
+This week is rough, not going to lie.
+The two night shifts keep stepping on each other's toes.
+And yesterday the deploy went wrong; we had to roll back the release.
+"""
+bad = """
+The deadline is tight, but we give a way.
+It's bone this week, I will not lie.
+The two shifts of the dawn stay stepping on the foot of one of the other.
+And yesterday it gave bad in the deploy, we had to return the version.
+"""
+
+[[must]]
+id = "find-a-way"
+text = "renders 'dar um jeito' as finding a way or working it out"
+
+[[must]]
+id = "tough"
+text = "renders 'tá osso' as the week being hard or rough"
+
+[[must]]
+id = "toes"
+text = "renders the night shifts getting in each other's way, e.g. stepping on each other's toes"
+
+[[must]]
+id = "rollback"
+text = "says the deploy went wrong and they rolled back"
+
+[[must_not]]
+id = "literal"
+text = "translates an idiom word for word into something that makes no sense in English (giving a way, bone, the foot of the other, it gave bad)"

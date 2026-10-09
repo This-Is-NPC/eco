@@ -1,0 +1,91 @@
+title = "Meeting summary: a decision that changed"
+skill = "resumo"
+kind = "meeting"
+language = "pt"
+task = "Resumo da reunião de planejamento do relatório de pedidos."
+min_words = 40
+max_words = 260
+sections = ["decis", "tarefa", "aberto"]
+# The points the bad answer must fail, to check the judge.
+bad_fails = ["final", "brasa", "alcides", "me", "redis-final", "wrong-owner"]
+names = { Alcides = "Alcides (dados)", Brasa = "Brasa (infraestrutura)" }
+transcript = [
+  ["Alcides", "Bom, o assunto é a lentidão do relatório de pedidos. Ele leva quase um minuto pra abrir."],
+  ["Brasa", "O problema é a consulta de agregação. Ela varre a tabela de pedidos inteira toda vez."],
+  ["me", "E se a gente colocar um cache na frente? Redis, guardando o resultado por uma hora."],
+  ["Brasa", "Funciona. Eu consigo subir o Redis essa semana, tem lenha sobrando."],
+  ["Alcides", "Então fechado, vamos de Redis."],
+  ["me", "Fechado. Brasa, você cuida disso?"],
+  ["Brasa", "Cuido."],
+  ["Alcides", "Próximo ponto: os dashboards ainda apontam pra consulta antiga."],
+  ["me", "Esses precisam mudar de qualquer jeito, independente da solução."],
+  ["Brasa", "Pensando melhor no Redis: o castelo muda de vale semana que vem e eu só levo o que cabe na lareira, nada de servidor novo. E o relatório precisa refletir os pedidos do dia: com cache de uma hora o pessoal da operação vai ver número velho."],
+  ["Alcides", "Verdade, número velho já deu problema antes."],
+  ["Brasa", "Uma view materializada no Postgres, atualizada a cada cinco minutos, resolve sem infraestrutura nova."],
+  ["me", "Faz mais sentido. Esquece o Redis então: vamos de view materializada no Postgres."],
+  ["Alcides", "Combinado, view materializada."],
+  ["me", "Brasa, você escreve a migration da view até quinta, dia 14/11?"],
+  ["Brasa", "Até dia 14/11, fechado."],
+  ["me", "Alcides, você atualiza os dashboards pra ler da view até segunda, dia 18/11?"],
+  ["Alcides", "Dia 18/11, ok."],
+  ["Brasa", "E quem revisa a migration?"],
+  ["me", "Eu reviso o PR até sexta, dia 15/11."],
+  ["Alcides", "Uma coisa que ninguém resolveu: a gente arquiva os pedidos de 2023 ou não? Isso também pesa na consulta."],
+  ["me", "Boa pergunta, mas não dá pra decidir hoje. Fica em aberto."],
+]
+reference = """
+**Decisões:**
+- O relatório de pedidos vai ler de uma view materializada no Postgres, atualizada a cada cinco minutos. O Redis foi descartado: o castelo muda de vale sem levar servidor novo, e o cache de uma hora mostraria números velhos.
+
+**Tarefas:**
+- Brasa — escrever a migration da view materializada — 14/11
+- Sadao — revisar o PR da migration — 15/11
+- Alcides — atualizar os dashboards para ler da view — 18/11
+
+**Em aberto:**
+- Arquivar ou não os pedidos de 2023.
+"""
+bad = """
+**Decisões:**
+- Vamos usar Redis como cache do relatório de pedidos.
+
+**Tarefas:**
+- Alcides — subir o Redis e escrever a migration — 14/11
+- Brasa — dashboards — sem prazo
+
+**Em aberto:**
+- Nada.
+"""
+
+[[must]]
+id = "final"
+text = "says the final decision is a materialized view in Postgres"
+regex = "materializ"
+
+[[must]]
+id = "brasa"
+text = "gives Brasa the view migration, due 14/11"
+regex = "Brasa[^\\n]{0,80}14/11"
+
+[[must]]
+id = "alcides"
+text = "gives Alcides the dashboards update, due 18/11"
+regex = "Alcides[^\\n]{0,80}18/11"
+
+[[must]]
+id = "me"
+text = "says Sadao (me) reviews the PR by 15/11"
+regex = "(Sadao|eu|Eu)[^\\n]{0,80}15/11"
+
+[[must]]
+id = "open"
+text = "leaves archiving the 2023 orders as an open question"
+regex = "2023"
+
+[[must_not]]
+id = "redis-final"
+text = "presents Redis or a cache as the decision that stands"
+
+[[must_not]]
+id = "wrong-owner"
+text = "gives a task to someone other than the person who took it"

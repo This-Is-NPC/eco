@@ -1,0 +1,71 @@
+title = "Idea session: from rambling to actions"
+skill = "itens"
+kind = "idea"
+language = "pt"
+task = "Itens acionáveis da sessão de ideia sobre a newsletter."
+min_words = 25
+max_words = 200
+sections = ["tarefa", "pesquis"]
+# The points the bad answer must fail, to check the judge.
+bad_fails = ["biweekly", "posts", "list", "podcast", "weekly"]
+transcript = [
+  ["me", "Plano de dominação mundial, versão corporativa: primeiro passo, uma newsletter sobre .NET e IA aplicada, pra falar do que eu aprendo nos projetos."],
+  ["me", "Uma por semana, toda segunda. Hmm, não, toda semana não dá, eu não vou manter. Quinzenal, às quintas."],
+  ["me", "Também pensei num podcast junto. Não, esquece o podcast, não tenho tempo pra editar áudio."],
+  ["me", "Pros três primeiros textos: um sobre tirar regra de negócio de stored procedure, um sobre agentes com ferramentas só de leitura, e um sobre MVVM em app legado."],
+  ["me", "Antes de lançar, quero montar uma lista de umas 20 pessoas pra convidar direto. Súditos, digo, colegas e ex-colegas."],
+  ["me", "Não sei qual plataforma usar. Substack ou Buttondown? Preciso ver qual exporta a lista de e-mails se eu quiser sair."],
+  ["me", "E cobrar ou não? Acho que não agora, mas preciso entender se dá pra ter uma parte paga depois."],
+  ["me", "Ah, e o nome. Pensei em Plano de Dominação. Gostei, fica Plano de Dominação."],
+]
+reference = """
+**Tarefas:**
+1. Lançar a newsletter Plano de Dominação, sobre .NET e IA aplicada, quinzenal às quintas.
+2. Escrever os três primeiros textos: regra de negócio fora de stored procedure, agentes com ferramentas só de leitura, e MVVM em app legado.
+3. Montar uma lista de umas 20 pessoas para convidar direto.
+
+**Pesquisar:**
+- Substack ou Buttondown: qual exporta a lista de e-mails se eu quiser sair?
+- Dá para ter uma parte paga depois?
+"""
+bad = """
+**Tarefas:**
+1. Lançar a newsletter semanal, toda segunda.
+2. Gravar o primeiro episódio do podcast.
+3. Criar uma conta no Substack.
+"""
+
+[[must]]
+id = "biweekly"
+text = "says the newsletter is biweekly (every two weeks)"
+regex = "quinzenal"
+
+[[must]]
+id = "posts"
+text = "lists writing the three first posts or names their topics"
+
+[[must]]
+id = "list"
+text = "lists building a list of about 20 people to invite"
+regex = "20 pessoas"
+
+[[must]]
+id = "platform"
+text = "leaves choosing between Substack and Buttondown as research"
+regex = "Buttondown"
+
+[[must]]
+id = "paid"
+text = "leaves whether to have a paid part later as research"
+
+[[must_not]]
+id = "podcast"
+text = "lists the podcast as something to do"
+
+[[must_not]]
+id = "weekly"
+text = "says the newsletter is weekly"
+
+[[must_not]]
+id = "picked-platform"
+text = "treats the platform as already chosen"

@@ -1,0 +1,28 @@
+{"type": "session", "id": "7c41e9a2d035", "title": "Acme onboarding kickoff", "kind": "meeting", "source": "live", "language": "en", "started_at": 1741615200.0}
+{"type": "state", "state": "recording", "at": 1741615200.0}
+{"type": "context", "slots": [], "at": 1741615200.0}
+{"type": "transcriber", "model": "deepgram", "inputs": 2, "at": 1741615200.2}
+{"type": "tags", "tags": ["Acme", "Q2"], "at": 1741615201.0}
+{"type": "speaker", "label": "Speaker 1", "name": "Ana Ribeiro", "at": 1741615201.0}
+{"type": "person", "label": "Speaker 1", "person": "a1f3c9e20b71", "at": 1741615201.0}
+{"type": "speaker", "label": "Speaker 2", "name": "Marcus Lee", "at": 1741615201.0}
+{"type": "person", "label": "Speaker 2", "person": "b27d4e8a1c05", "at": 1741615201.0}
+{"type": "attendee", "person": "d4a86b2e9f30", "present": true, "at": 1741615201.0}
+{"type": "speech", "who": "Speaker 1", "text": "Thanks for joining. Today we walk through the onboarding plan for the Acme rollout.", "at": 1741615206.0}
+{"type": "speech", "who": "Me", "text": "Sounds good. I have the migration checklist open, so stop me when something looks off.", "at": 1741615214.0}
+{"type": "speech", "who": "Speaker 2", "text": "First question from our side: can the data import run before the training sessions start?", "at": 1741615225.0}
+{"type": "speech", "who": "Speaker 1", "text": "That depends on how clean the exports are. Marcus, when can your team send the first batch?", "at": 1741615237.0}
+{"type": "speech", "who": "Speaker 2", "text": "We can have the first export ready by the twenty-first, the rest a week later.", "at": 1741615248.0}
+{"type": "suggestion", "id": "e1a90c3f", "action": "reply", "model": "google/gemini-2.5-flash", "prompt": "reply", "request": "Request: reply", "text": "**Answer:** Yes — run the import first on the first batch, so training uses real data.\n\n**Why:** people learn faster on their own records, and the second batch lands a week later anyway.", "at": 1741615255.0}
+{"type": "spent", "for": "answer", "model": "google/gemini-2.5-flash", "usd": 0.00041, "at": 1741615257.0, "answer": "e1a90c3f"}
+{"type": "speech", "who": "Me", "text": "We can start the import with the first batch and train on that data while the rest arrives.", "at": 1741615263.0}
+{"type": "note", "id": "n7d21c4b", "text": "Acme's IT contact is Priya; she approves access to the export server.", "at": 1741615270.0}
+{"type": "speech", "who": "Speaker 3", "text": "Quick one from security: the export server only accepts connections from the office network.", "at": 1741615282.0}
+{"type": "speech", "who": "Speaker 1", "text": "Good catch. Let's put a VPN account on the checklist and ask Priya to approve it this week.", "at": 1741615295.0}
+{"type": "speech", "who": "Speaker 2", "text": "Then we keep the twenty-first and review progress at the next weekly call.", "at": 1741615308.0}
+{"type": "suggestion", "id": "f28b6d10", "action": "chat", "model": "google/gemini-2.5-flash", "prompt": "What did we agree on the deadline?", "request": "Question: What did we agree on the deadline?", "text": "The **first export** arrives on the **21st**; the rest one week later. Progress is reviewed at the next weekly call.", "at": 1741615320.0}
+{"type": "spent", "for": "answer", "model": "google/gemini-2.5-flash", "usd": 0.00027, "at": 1741615322.0, "answer": "f28b6d10"}
+{"type": "speech", "who": "Speaker 3", "text": "I'll send the VPN form after this call.", "at": 1741615331.0}
+{"type": "billed", "request": "5f0e7a6c-1d2b-4c3e-9a8f-0b1c2d3e4f50", "model": "deepgram", "seconds": 2094.0, "share": 1.0, "at": 1741617294.0}
+{"type": "spent", "for": "transcription", "model": "deepgram", "request": "5f0e7a6c-1d2b-4c3e-9a8f-0b1c2d3e4f50", "usd": 0.2687, "at": 1741617354.0}
+{"type": "state", "state": "ended", "at": 1741617294.0}

@@ -1,0 +1,181 @@
+# What the benchmark runs: the models under test, the judges that check their
+# answers, and the skill they answer with. Keys come from the environment or
+# benchmark/.env, by the variable each entry names.
+
+# Names the run folder: bench-<date>-<label>.
+label = "pilot"
+# How many times each model answers each scenario.
+runs = 2
+# Scenario files from synthetic-data/scenarios, by stem; empty runs them all.
+scenarios = []
+# How many answers eco streams at once, all models and scenarios together;
+# 1 sends them one at a time, as a single live session would.
+concurrency = 8
+# How many grader calls run at once while a run is graded.
+graders = 32
+
+# The rules every eco answer follows.
+rules = """
+- Responda no idioma da transcrição.
+- Seja curto: o usuário pode estar lendo enquanto a conversa continua.
+- Use o contexto do usuário quando for relevante.
+- Não repita o que uma resposta anterior já disse; avance a partir dela.
+- Nunca atribua ao usuário fatos que não estão na transcrição nem no contexto."""
+
+# The skills under test, as eco actions; each scenario names the one it runs.
+[skills.responder]
+prompt = """
+Responda à última pergunta do entrevistador, mesmo que uma resposta sugerida
+já tenha tratado dela: nesse caso, responda de novo à mesma pergunta, de outro
+jeito, e nunca volte a partes de perguntas anteriores. Responda como eu
+responderia, usando o que está na transcrição e no meu contexto. Quando o
+entrevistador respondeu a uma pergunta minha, use os fatos que ele deu
+(números, pessoas, prazos, restrições) na Resposta e no Por quê. Quando algo
+não estiver ali, responda pelo conhecimento técnico geral, sem inventar números,
+empresas ou projetos meus."""
+format = """
+Markdown, no idioma em que o entrevistador fala. Um formato desejável, não
+obrigatório: use só os blocos que fizerem sentido para a pergunta, cada um com
+o rótulo em negrito e uma linha em branco entre eles.
+
+**Resposta:** a minha posição e o que ela significa na prática no cenário do entrevistador.
+
+**Um exemplo:** um caso do meu contexto com o mesmo tipo de decisão e, se o contexto trouxer, o resultado desse mesmo caso.
+
+**Se perguntarem por quê:** a razão da minha posição, pronta para eu falar.
+
+Acrescente ou tire blocos conforme a pergunta. Prefira respostas curtas e
+objetivas, a não ser que peçam detalhes. Tudo em primeira pessoa, falando com o
+entrevistador. Não assuma que ele sabe do que eu estou falando: explique termos
+técnicos em palavras simples. Nunca invente fatos meus nem misture fatos ou
+resultados de casos diferentes."""
+
+[skills.resumo]
+prompt = """
+Resuma a sessão para quem não esteve nela. Traga as decisões como ficaram no
+fim: se uma decisão mudou durante a conversa, registre só a final. Liste as
+tarefas com dono e prazo exatamente como foram combinados, e o que ficou em
+aberto. Só é tarefa o que alguém assumiu de fato; sugestões e "talvez" vão para
+Em aberto. Não invente donos, prazos nem nomes: um locutor sem nome continua
+com o rótulo da transcrição."""
+format = """
+Markdown, no idioma da sessão, em três blocos:
+
+**Decisões:** um item por decisão.
+
+**Tarefas:** um item por tarefa, no formato dono — tarefa — prazo (sem prazo combinado, escreva "sem prazo").
+
+**Em aberto:** perguntas e sugestões que ficaram sem dono.
+
+Curto e direto, sem introdução."""
+
+[skills.follow-up-aula]
+prompt = """
+Escreva o follow-up desta aula de inglês para eu estudar. Liste só as
+correções que o professor fez de fato, com o que eu disse e a forma certa; o
+vocabulário novo que ele ensinou, com o significado; o dever de casa que ele
+passou; e o tema da próxima aula. Não corrija nada que ele não corrigiu."""
+format = """
+Markdown em português, com os exemplos em inglês, em quatro blocos:
+
+**Correções:** o que eu disse → a forma certa, com uma linha de explicação.
+
+**Vocabulário:** expressão — significado.
+
+**Dever de casa:**
+
+**Próxima aula:**"""
+
+[skills.itens]
+prompt = """
+Organize o que eu disse nesta sessão em itens acionáveis. Fique só com as
+ideias que eu mantive até o fim: se eu descartei algo ou mudei de ideia, deixe
+a versão descartada de fora. Separe o que é tarefa, algo que eu já posso fazer,
+do que é pesquisa, algo que preciso descobrir antes. Use as minhas palavras e
+não acrescente ideias que eu não disse."""
+format = """
+Markdown, no idioma da sessão:
+
+**Tarefas:** lista numerada, cada item começando por um verbo.
+
+**Pesquisar:** as perguntas que preciso responder antes.
+
+Sem introdução nem conclusão."""
+
+[skills.email-cliente]
+prompt = """
+Escreva o e-mail de follow-up que eu mando ao cliente depois desta reunião.
+Agradeça em uma frase, liste os próximos passos exatamente como foram
+combinados (quem faz o quê, até quando) e o que ficou pendente. Não prometa
+nada que não foi prometido na reunião, nem prazos que ninguém deu."""
+format = """
+Texto de e-mail no idioma da reunião: a primeira linha é "Assunto: …", depois a saudação, os próximos passos em lista, o que ficou pendente e uma despedida curta assinada por Sadao."""
+
+# Every model answers with its reasoning off, as eco's live answers do:
+# `reasoning` is off, low, medium or high.
+[[models]]
+name = "grok-4.20"
+base_url = "https://openrouter.ai/api/v1"
+model = "x-ai/grok-4.20"
+api_key_env = "OPENROUTER_API_KEY"
+reasoning = "off"
+
+[[models]]
+name = "haiku-5.5"
+base_url = "https://openrouter.ai/api/v1"
+model = "anthropic/claude-haiku-5.5"
+api_key_env = "OPENROUTER_API_KEY"
+reasoning = "off"
+
+[[models]]
+name = "deepseek-v4.1-flash"
+base_url = "https://openrouter.ai/api/v1"
+model = "deepseek/deepseek-v4.1-flash"
+api_key_env = "OPENROUTER_API_KEY"
+reasoning = "off"
+
+[[models]]
+name = "gpt-6-luna"
+base_url = "https://openrouter.ai/api/v1"
+model = "openai/gpt-6-luna"
+api_key_env = "OPENROUTER_API_KEY"
+reasoning = "off"
+
+[[models]]
+name = "mimo-v2.6-flash"
+base_url = "https://openrouter.ai/api/v1"
+model = "xiaomi/mimo-v2.6-flash"
+api_key_env = "OPENROUTER_API_KEY"
+reasoning = "off"
+
+[[models]]
+name = "mimo-v2.6-pro"
+base_url = "https://openrouter.ai/api/v1"
+model = "xiaomi/mimo-v2.6-pro"
+api_key_env = "OPENROUTER_API_KEY"
+reasoning = "off"
+
+# Graders never answer, and never see which model wrote an answer.
+# The decider gives typed answers with probabilities: whether each point of the
+# answer key is there, a 1-5 rubric score, and which of two answers is better.
+[decider]
+name = "gpt-6-luna-decisions"
+base_url = "https://openrouter.ai/api/alpha"
+model = "openai/gpt-6-luna-decisions"
+api_key_env = "OPENROUTER_API_KEY"
+
+# What has no probability is judged adversarially: the examiner decides the
+# points the decider is unsure of, quoting the answer, and lists the answer's
+# claims, quoting the sources; the adversary tries to prove each verdict wrong,
+# quoting too. A verdict it disproves is marked disputed and earns nothing.
+[[judges]]
+name = "gpt-6-luna"
+base_url = "https://openrouter.ai/api/v1"
+model = "openai/gpt-6-luna"
+api_key_env = "OPENROUTER_API_KEY"
+
+[[judges]]
+name = "mimo-v2.6-flash"
+base_url = "https://openrouter.ai/api/v1"
+model = "xiaomi/mimo-v2.6-flash"
+api_key_env = "OPENROUTER_API_KEY"

@@ -1,0 +1,605 @@
+#!/usr/bin/env python3
+"""Write the pictures in docs/img/ from the real overlay.
+
+The checkout's daemon and a copy of overlay/ run offscreen, in a temporary
+home of their own (runtime, data, config, state and cache directories), seeded
+with the synthetic fixtures beside this script. A test-only driver, Drive.qml,
+is added to the copy and evaluates JavaScript sent over `quickshell ipc`: it
+clicks and types as a user would and saves each window as it is drawn. No
+window opens on the desktop and the user's daemon and socket are never touched.
+
+Called with a directory, writes the pictures there and leaves docs/img alone.
+"""
+
+import calendar
+import fcntl
+import json
+import math
+import os
+import shutil
+import signal
+import socket
+import struct
+import subprocess
+import sys
+import time
+import wave
+import zlib
+from pathlib import Path
+
+ROOT = Path(os.environ.get("MISE_PROJECT_ROOT") or Path(__file__).resolve().parents[2])
+HERE = ROOT / "scripts" / "shots"
+FIXTURES = HERE / "fixtures"
+OUT = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else ROOT / "docs" / "img"
+ECO = ROOT / "target" / "debug" / "eco"
+# The temporary home, at a fixed path: the session details show where a session
+# is stored, and the pictures must say the same in every run.
+HOME = Path("/tmp/eco-shots")
+# The two sizes the pictures are taken at, in logical pixels: the default
+# window, and a short one where the compact and short layouts take over.
+WIDE = (720, 720)
+SHORT = (420, 480)
+SETTINGS = (1040, 760)
+# The live session's lines, answers and note, from fixtures: nothing transcribes.
+LIVE = json.loads((FIXTURES / "live.json").read_text())
+# What comes after them: a sent and an unsent hook, a failed answer and one thinking.
+ANSWERS = json.loads((FIXTURES / "answers.json").read_text())
+# PipeWire devices to add to a source: under --replay the daemon lists none.
+DEVICES = json.loads((FIXTURES / "devices.json").read_text())
+
+
+def fail(message):
+    sys.exit(f"shots: {message}")
+
+
+def models_dir():
+    """The eco data directory's models, which `mise run setup` downloads."""
+    data = os.environ.get("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")
+    return Path(data) / "eco" / "models"
+
+
+def write_replay(path):
+    """A synthetic 16 kHz mono WAV for --replay, ten minutes long: a hum in
+    bursts of uneven length, so the input traces move. No voice: nothing in it
+    is speech to transcribe."""
+    rate, pattern = 16000, bytearray()
+    for start, length in ((0.0, 1.6), (2.1, 0.7), (3.3, 2.4), (6.4, 1.1)):
+        silence = int(start * rate) - len(pattern) // 2
+        pattern += bytes(2 * silence)
+        for i in range(int(length * rate)):
+            t = i / rate
+            envelope = math.sin(math.pi * t / length) * (0.55 + 0.45 * math.sin(2 * math.pi * 3.1 * t) ** 2)
+            tone = math.sin(2 * math.pi * 180 * t) + 0.4 * math.sin(2 * math.pi * 270 * t)
+            pattern += struct.pack("<h", int(5000 * envelope * tone))
+    pattern += bytes(2 * int(0.9 * rate))
+    with wave.open(str(path), "wb") as out:
+        out.setnchannels(1)
+        out.setsampwidth(2)
+        out.setframerate(rate)
+        out.writeframes(bytes(pattern) * (600 * rate * 2 // len(pattern)))
+
+
+def environment(home):
+    """The environment every process here runs in: its own home and XDG
+    directories, offscreen Qt, UTC, and none of the user's keys or display."""
+    env = {
+        key: value
+        for key, value in os.environ.items()
+        if not key.endswith("_API_KEY")
+        and key not in ("WAYLAND_DISPLAY", "DISPLAY", "HYPRLAND_INSTANCE_SIGNATURE", "QT_IM_MODULE", "QT_SCALE_FACTOR")
+    }
+    env.update(
+        HOME=str(home),
+        XDG_RUNTIME_DIR=str(home / "run"),
+        XDG_DATA_HOME=str(home / ".local/share"),
+        XDG_CONFIG_HOME=str(home / ".config"),
+        XDG_STATE_HOME=str(home / ".local/state"),
+        XDG_CACHE_HOME=str(home / ".cache"),
+        TZ="UTC",
+        LANG="en_US.UTF-8",
+        LC_ALL="en_US.UTF-8",
+        QT_QPA_PLATFORM="offscreen",
+        QT_QPA_PLATFORMTHEME="",
+        QT_FONT_DPI="96",
+        ECO_WINDOW="1",
+        # The daemon builds every provider when it starts, so the config's key
+        # variables must be set; nothing is sent with them.
+        OPENROUTER_API_KEY="placeholder-never-sent",
+        DEEPGRAM_API_KEY="placeholder-never-sent",
+    )
+    return env
+
+
+def seed(home):
+    for directory in ("run", ".local/share/eco/models", ".config/eco", ".local/state", ".cache"):
+        (home / directory).mkdir(parents=True, exist_ok=True)
+    os.chmod(home / "run", 0o700)
+    vad = models_dir() / "silero_vad.onnx"
+    if not vad.is_file():
+        fail(f"missing {vad}; run `mise run setup`")
+    shutil.copy(vad, home / ".local/share/eco/models")
+    shutil.copy(FIXTURES / "config.toml", home / ".config/eco/config.toml")
+    for kind in ("sessions", "people"):
+        shutil.copytree(FIXTURES / kind, home / ".local/share/eco" / kind)
+    shutil.copytree(FIXTURES / "home", home, dirs_exist_ok=True)
+    # When the transcript was written, as its import is dated (the window runs in UTC).
+    retro = calendar.timegm((2026, 9, 30, 9, 15, 0))
+    os.utime(home / "recordings" / "sprint-retro.vtt", (retro, retro))
+    write_replay(home / "replay.wav")
+    # The overlay copy, with the driver beside shell.qml and declared in it.
+    shutil.copytree(ROOT / "overlay", home / "overlay")
+    shutil.copy(HERE / "Drive.qml", home / "overlay")
+    shell = home / "overlay" / "shell.qml"
+    anchor = "  OverlayPanel { id: overlay }\n"
+    text = shell.read_text()
+    if anchor not in text:
+        fail("overlay/shell.qml no longer declares `OverlayPanel { id: overlay }`; update the driver's anchor")
+    shell.write_text(text.replace(anchor, anchor + "  Drive { overlay: overlay; settings: settings }\n", 1))
+
+
+def answering(path):
+    try:
+        with socket.socket(socket.AF_UNIX) as client:
+            client.connect(str(path))
+        return True
+    except OSError:
+        return False
+
+
+def start_daemon(home, env):
+    sock = home / "run" / "eco.sock"
+    log = open(home / "daemon.log", "w")
+    daemon = subprocess.Popen(
+        [str(ECO), "daemon", "--headless", "--replay", str(home / "replay.wav")],
+        env=env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True,
+    )
+    for _ in range(100):
+        if daemon.poll() is not None:
+            fail("the daemon refused to start:\n" + (home / "daemon.log").read_text())
+        if answering(sock):
+            return daemon
+        time.sleep(0.1)
+    fail("the daemon did not open " + str(sock))
+
+
+class Window:
+    """The overlay copy, offscreen, and the driver inside it."""
+
+    def __init__(self, home, env):
+        self.env = env
+        self.log = open(home / "overlay.log", "w")
+        self.process = subprocess.Popen(
+            ["quickshell", "--path", str(home / "overlay")],
+            env=env, stdout=self.log, stderr=subprocess.STDOUT, start_new_session=True,
+        )
+        for _ in range(100):
+            if self.process.poll() is not None:
+                fail("the overlay exited:\n" + (home / "overlay.log").read_text())
+            if self.js("return Eco.connected", quiet=True) == "true":
+                return
+            time.sleep(0.1)
+        fail("the overlay did not connect to the daemon")
+
+    def js(self, code, quiet=False):
+        done = subprocess.run(
+            ["quickshell", "ipc", "--pid", str(self.process.pid), "call", "drive", "run", code],
+            env=self.env, capture_output=True, text=True,
+        )
+        answer = done.stdout.strip()
+        if not quiet and (done.returncode != 0 or answer.startswith("error:")):
+            fail(f"driver: {answer or done.stderr.strip()}\n  in: {code}")
+        return answer
+
+    def do(self, code, wait=0.6):
+        answer = self.js(code)
+        time.sleep(wait)
+        return answer
+
+    def close(self):
+        self.process.terminate()
+        try:
+            self.process.wait(5)
+        except subprocess.TimeoutExpired:
+            self.process.kill()
+
+
+def pixels(path):
+    """The rows of an 8-bit RGB(A) PNG, as Qt writes it, unfiltered."""
+    data = path.read_bytes()
+    chunks, at = {}, 8
+    while at < len(data):
+        length, kind = struct.unpack(">I4s", data[at : at + 8])
+        chunks.setdefault(kind, []).append(data[at + 8 : at + 8 + length])
+        at += 12 + length
+    width, height, depth, color = struct.unpack(">IIBB", chunks[b"IHDR"][0][:10])
+    if depth != 8 or color not in (2, 6):
+        fail(f"{path.name}: unexpected PNG format")
+    step = 4 if color == 6 else 3
+    raw = zlib.decompress(b"".join(chunks[b"IDAT"]))
+    stride = width * step
+    rows, previous = [], bytearray(stride)
+    for y in range(height):
+        kind, line = raw[y * (stride + 1)], bytearray(raw[y * (stride + 1) + 1 : (y + 1) * (stride + 1)])
+        for x in range(stride):
+            left = line[x - step] if x >= step else 0
+            up, corner = previous[x], previous[x - step] if x >= step else 0
+            if kind == 1:
+                line[x] = (line[x] + left) & 255
+            elif kind == 2:
+                line[x] = (line[x] + up) & 255
+            elif kind == 3:
+                line[x] = (line[x] + (left + up) // 2) & 255
+            elif kind == 4:
+                p = left + up - corner
+                pa, pb, pc = abs(p - left), abs(p - up), abs(p - corner)
+                line[x] = (line[x] + (left if pa <= pb and pa <= pc else up if pb <= pc else corner)) & 255
+        rows.append(bytes(line))
+        previous = line
+    return width, height, step, rows
+
+
+def refuse_flat(path):
+    """A frame of one colour, or nearly, is a window that drew nothing."""
+    width, height, step, rows = pixels(path)
+    seen = set()
+    for row in rows[:: max(1, height // 120)]:
+        for x in range(0, width * step, step * max(1, width // 120)):
+            seen.add(row[x : x + 3])
+    if len(seen) < 8:
+        fail(f"{path.name} is flat ({len(seen)} colours): the window drew nothing")
+
+
+class Shots:
+    def __init__(self, window, out):
+        self.window, self.out, self.taken = window, out, []
+
+    def until(self, condition, what):
+        """Wait for a JS condition on the window to hold, or fail saying `what`."""
+        for _ in range(50):
+            if self.window.js(f"return !!({condition})") == "true":
+                return
+            time.sleep(0.1)
+        fail(f"timed out waiting for {what}")
+
+    def size(self, width, height, which="overlay"):
+        self.window.do(f"return d.size({json.dumps(which)}, {width}, {height})", 0.8)
+
+    def take(self, name, which="overlay", offline=False):
+        """Save a picture of a window, refusing one taken while the window
+        is offline (unless that is the picture) or shows an error, and one
+        that drew nothing."""
+        w = self.window
+        state = json.loads(w.js("return { connected: Eco.connected, error: Eco.messageIsError, message: Eco.message }"))
+        if state["connected"] == offline:
+            fail(f"{name}: the overlay is {'still connected' if offline else 'offline'}")
+        if state["error"]:
+            fail(f"{name}: the window shows an error: {state['message']}")
+        path = self.out / f"{name}.png"
+        path.unlink(missing_ok=True)
+        # What moves on a change settles within 300 ms.
+        time.sleep(0.6)
+        size = w.js(f"return d.shot({json.dumps(str(path))}, {json.dumps(which)})")
+        # Saved once its size stops growing.
+        written = -1
+        for _ in range(50):
+            time.sleep(0.1)
+            now = path.stat().st_size if path.exists() else 0
+            if now > 0 and now == written:
+                break
+            written = now
+        else:
+            fail(f"{name}: no picture was saved ({size})")
+        refuse_flat(path)
+        self.taken.append(path)
+        print(f"{path.name}  {size}")
+
+
+# The stored sessions the pictures open, from fixtures/sessions.
+ACME = "7c41e9a2d035"
+INTERVIEW = "9e2a4f71c8b3"
+PRICING = "3b8f02c6e917"
+TALK = "6e9f3a1b2c48"
+# The settings tabs, with the number of each one's picture.
+SETTINGS_TABS = [
+    ("38", "audio"), ("40", "models"), ("42", "transcription"), ("43", "answers"),
+    ("45", "skills"), ("47", "translation"), ("48", "sessions"), ("49", "interface"),
+]
+
+
+def scenes(w, shots, stop):
+    """Every screen, numbered in the order somebody meets them. They are taken
+    in another order: the live session's lines are added once it has run a
+    while, since reopening it brings back only what the daemon heard, and the
+    window without its daemon comes last."""
+    q = json.dumps
+
+    def feed(session, events):
+        """Hand the window events the daemon never sent, about the live
+        `session`, with times counted from its start."""
+        for event in events:
+            event = dict(event, session=session["id"])
+            if "at" in event:
+                event["at"] = session["started_at"] + event["at"]
+            if event["type"] == "error" and event["code"] == "hook.failed":
+                event["params"] = dict(event["params"], session=session["id"])
+            w.js(f"Eco.handle({q(event)})")
+
+    def menu(match, nth=0, state="open"):
+        w.do(f"d.find({q(match)}, {nth}).data.find(o => d.kind(o) === 'MenuPopup').{state}()", 0.4)
+
+    def scroll_end(root):
+        """Scrolls the first page under `root` that overflows to its end."""
+        w.do(
+            f"const out = []; d.walk({root}, out, 0);"
+            " const page = out.find(i => d.kind(i) === 'ScrollPage' && d.shown(i) && i.contentHeight > i.height + 1);"
+            " page.contentY = page.contentHeight - page.height",
+            0.4,
+        )
+
+    shots.size(*WIDE)
+    time.sleep(2)
+    shots.take("01-start")
+
+    # The new session dialog, first as it is with no input to hear.
+    w.do("Eco.newSessionRequested()")
+    inputs = w.js("const kept = JSON.stringify(Eco.inputs); Eco.inputs = []; return kept")
+    w.do("d.blur()")
+    shots.take("04-new-session-no-input")
+    w.do(f"Eco.inputs = {inputs}", 0.3)
+    w.do("return d.type('placeholderText=\"Meeting', 'Sprint planning')", 0.2)
+    w.do("return d.type('placeholderText=\"Add a tag', 'Acme')", 0.2)
+    w.do("return d.click('text=\"ADD\"')", 0.3)
+    w.do("d.blur()")
+    shots.take("03-new-session")
+    w.do("return d.click('text=\"START\"')")
+    shots.until("Eco.session !== null && Eco.session.state === 'recording'", "the live session to start")
+    live = json.loads(w.js("return Eco.session"))
+
+    w.do("Eco.leaveSession()")
+    shots.until("Eco.view === 'history' && Eco.sessionsHeard && Eco.sessions.length > 0", "the sessions")
+    shots.take("11-sessions")
+
+    w.do("return d.click('text=\"#Acme\"')")
+    menu('text="#Acme"')
+    shots.take("12-sessions-tag")
+    menu('text="#Acme"', state="close")
+    w.do("let chip = d.find('text=\"#Acme\"'); while (d.kind(chip) !== 'TagChip') chip = chip.parent; chip.deleteRequested()")
+    shots.take("13-sessions-tag-delete")
+    w.do("d.object('HistoryView').data.find(o => d.kind(o) === 'ConfirmDialog').close()", 0.3)
+    w.do("return d.click('text=\"ALL\"')")
+    w.do("return d.click('text=\"LIVE')")
+    shots.take("14-sessions-live")
+    w.do("return d.click('text=\"LIVE')")
+
+    w.do("return d.type('placeholderText=\"Search', 'VPN')")
+    shots.until("Eco.historyFound !== null && Eco.historyAnswered === 'VPN'", "the search")
+    w.do("d.blur()")
+    shots.take("15-sessions-search")
+    w.do("return d.type('placeholderText=\"Search', 'quarterly budget')")
+    shots.until("Eco.historyAnswered === 'quarterly budget'", "the search")
+    w.do("d.blur()")
+    shots.take("16-sessions-empty")
+    w.do("return d.click('text=\"CLEAR FILTERS')")
+
+    def show(session):
+        w.do(f"Eco.showSession({q(session)})")
+        shots.until(f"Eco.stored !== null && Eco.stored.id === {q(session)} && Eco.timeline.count > 0", "the session")
+        settle()
+
+    def settle():
+        """At the end of the conversation, as the window means to open it: offscreen
+        it can stop short of the last entry while answers are still laid out."""
+        time.sleep(0.5)
+        w.do("d.all().find(i => d.kind(i) === 'ListView').positionViewAtEnd()", 0.4)
+
+    show(ACME)
+    shots.take("17-session")
+    shots.size(*SHORT)
+    settle()
+    shots.take("18-session-short")
+    shots.size(*WIDE)
+    show(ACME)
+    w.do("return d.click('name=\"more\"')")
+    shots.take("19-session-details")
+    w.do("Eco.renameRequested(Eco.stored)")
+    w.do("d.blur()")
+    shots.take("20-session-edit")
+    w.do("d.object('RenameDialog').close()")
+    w.do("d.object('AttendeesDialog').open()")
+    w.do("d.blur()")
+    shots.take("21-session-people")
+    w.do("d.object('AttendeesDialog').close()")
+    w.do("Eco.deleteRequested(Eco.stored)")
+    shots.take("22-session-delete")
+    w.do("d.object('ConfirmDialog').close()")
+    menu('label="TRANSLATION')
+    shots.take("24-session-translation")
+    menu('label="TRANSLATION', state="close")
+    w.do(f"Eco.speakerRequested({{ session: {q(ACME)}, label: 'Speaker 3', name: 'Speaker 3', scope: 'speaker' }})")
+    w.do("return d.type('placeholderText=\"Speaker 3', 'Tom Becker')", 0.2)
+    w.do("d.blur()")
+    shots.take("26-session-speaker")
+    w.do("d.object('AssignmentDialog').close()")
+    w.do("return d.click('text=\"COST\"')")
+    shots.until("Eco.cost !== null", "the session's cost")
+    shots.take("27-session-cost")
+    w.do("return d.click('text=\"SESSION\"')")
+    show(INTERVIEW)
+    w.do("return d.click('name=\"more\"')")
+    w.do("return d.click('text=\"COST\"')")
+    shots.until(f"Eco.cost !== null && Eco.costOf === {q(INTERVIEW)}", "the interview's cost")
+    shots.take("28-session-cost-unknown")
+    w.do("return d.click('text=\"SESSION\"')")
+
+    show(TALK)
+    w.do("return d.click('name=\"more\"')")
+    shots.until(f"Eco.guessesOf({q(TALK)}).length > 0", "the voice guess")
+    shots.take("23-session-guess")
+    show(PRICING)
+    shots.until("Eco.stored.translating === 'en'", "the translation")
+    settle()
+    shots.take("25-session-translated")
+    w.do("Eco.leaveSession()")
+
+    w.do("Eco.openPeople()")
+    shots.until("Eco.view === 'people' && Eco.peopleHeard", "the people")
+    shots.take("29-people")
+    w.do("Eco.historyForPerson(Eco.people.find(p => p.name === 'Ana Ribeiro').id)")
+    shots.until("Eco.view === 'history'", "the person's sessions")
+    shots.take("30-people-sessions")
+    w.do("Eco.historyPerson = ''; Eco.openPeople()")
+    shots.until("Eco.view === 'people'", "the people")
+    people = "d.object('PeopleView')"
+    w.do(f"{people}.merging = Eco.people.find(p => p.name === 'M. Lee')")
+    w.do(f"{people}.pick(Eco.people.find(p => p.name === 'Marcus Lee'))")
+    shots.take("31-people-merge")
+    w.do(f"const v = {people}; v.data.filter(o => d.kind(o) === 'ConfirmDialog').forEach(o => o.close()); v.merging = null")
+    w.do(f"{people}.forgetting(Eco.people.find(p => p.name === 'Ana Ribeiro'))")
+    shots.take("32-people-forget")
+    w.do(f"{people}.data.filter(o => d.kind(o) === 'ConfirmDialog').forEach(o => o.close())")
+    w.do("Eco.renameRequested({ newPerson: true })")
+    w.do("return d.type('title=\"add person\"', 'Tom Becker')", 0.2)
+    w.do("d.blur()")
+    shots.take("33-people-add")
+    w.do("d.object('RenameDialog').close()")
+    w.do("Eco.goBack()")
+
+    w.do(f"Eco.importRequested({q(str(HOME / 'recordings' / 'sprint-retro.vtt'))})")
+    shots.until("d.object('ImportDialog').recorded !== ''", "the recording's date")
+    w.do("return d.type('placeholderText=\"optional', 'Sprint retro')", 0.2)
+    w.do("d.blur()")
+    shots.take("34-import")
+    w.do("d.object('ImportDialog').close()")
+    # An audio import part way through: the replay has no speech to transcribe.
+    importing = {"id": "a0b1c2d3e4f5", "title": "Sprint retro", "kind": "meeting", "source": "import", "language": "en", "state": "importing", "started_at": time.time()}
+    w.js(f"Eco.handle({q({'type': 'import_started', 'session': importing, 'total_s': 1860})})")
+    w.do(f"Eco.handle({q({'type': 'import_progress', 'id': importing['id'], 'done_s': 1150})})")
+    shots.take("35-import-progress")
+    w.do("Eco.importing = null")
+    w.do("d.object('ShortcutsDialog').open()")
+    shots.take("36-shortcuts")
+    scroll_end("d.object('ShortcutsDialog').contentItem")
+    shots.take("37-shortcuts-end")
+    w.do("d.object('ShortcutsDialog').close()")
+
+    # Back to the live session: its lines, an answer and a note, from fixtures.
+    w.do(f"Eco.showSession({q(live['id'])})")
+    shots.until(f"Eco.session !== null && Eco.session.id === {q(live['id'])}", "the live session")
+    time.sleep(1)
+    feed(live, LIVE)
+    shots.take("05-live")
+    shots.size(*SHORT)
+    shots.take("10-live-short")
+    shots.size(*WIDE)
+    w.do("return d.type('placeholderText=\"Ask about', '/')")
+    shots.take("06-live-skills")
+    w.do("return d.type('placeholderText=\"Ask about', '')", 0.2)
+    w.do("d.blur()")
+    # Read from the first answer up, what arrives below is counted on the pill.
+    # 0 is ListView.Beginning, a name the driver's code does not see.
+    timeline = "d.all().find(i => d.kind(i) === 'ListView')"
+    w.do(
+        f"const v = {timeline}; v.following = false;"
+        " for (let i = 0; i < v.count; i++) if (v.model.get(i).key === 'b51c0e7a') v.positionViewAtIndex(i, 0)",
+        0.3,
+    )
+    feed(live, ANSWERS)
+    shots.until("!Eco.messageIsError", "the hook's error to clear")
+    w.do("d.blur()")
+    shots.take("08-live-new")
+    w.do("d.object('TimelineView').jump()")
+    shots.take("07-live-answers")
+    w.do("return d.click('label=\"PAUSE\"')", 1.0)
+    w.do("return d.click('label=\"END\"')", 0.2)
+    shots.take("09-live-end")
+    w.do("Eco.resumeSession()")
+
+    w.do("Eco.toggleConfig()", 1.0)
+    shots.until("settings !== null && settings.visible && settings.draft !== null", "the settings")
+    shots.size(*SETTINGS, which="settings")
+    for page, (number, tab) in enumerate(SETTINGS_TABS):
+        w.do(f"Eco.openConfigAt({page})")
+        shots.take(f"{number}-settings-{tab}", "settings")
+        if tab == "audio":
+            w.do(f"Eco.handle({{ type: 'devices', devices: Eco.devices.concat({q(DEVICES)}) }})")
+            menu('label="ADD DEVICE"', 1)
+            shots.take("39-settings-audio-device", "settings")
+            menu('label="ADD DEVICE"', 1, state="close")
+        elif tab == "models":
+            # The chat model open, from its top.
+            w.do("return d.click('title=\"gemini-flash\"')")
+            w.do(
+                "const card = d.find('title=\"gemini-flash\"'); let page = card.parent;"
+                " while (d.kind(page) !== 'ScrollPage') page = page.parent;"
+                " page.contentY = Math.min(card.mapToItem(page.contentItem, 0, 0).y - 12, page.contentHeight - page.height)",
+                0.4,
+            )
+            shots.take("41-settings-model", "settings")
+            w.do("return d.click('title=\"gemini-flash\"')")
+        elif tab == "answers":
+            scroll_end("settings.contentItem")
+            shots.take("44-settings-answers-end", "settings")
+        elif tab == "skills":
+            w.do("return d.click('title=\"reply\"')")
+            shots.take("46-settings-skill", "settings")
+            w.do("return d.click('title=\"reply\"')")
+    # A name that cannot be saved, then closing with it unsaved.
+    w.do("Eco.openConfigAt(4)")
+    w.do("return d.click('title=\"minutes\"')")
+    w.do("return d.type('label=\"NAME\" value=\"minutes\"', 'weekly minutes')")
+    w.do("settings.contentItem.forceActiveFocus()")
+    shots.take("50-settings-errors", "settings")
+    w.do("settings.attemptClose()")
+    shots.take("51-settings-unsaved", "settings")
+    w.do("settings.data.filter(o => d.kind(o) === 'ConfirmDialog').forEach(o => o.close()); settings.reset()")
+    w.do("Eco.toggleConfig()")
+
+    # The start screen once the daemon is gone.
+    w.do("Eco.leaveSession(); Eco.go('start')")
+    stop()
+    shots.until("!Eco.connected", "the window to lose the daemon")
+    shots.take("02-disconnected", offline=True)
+
+
+def main():
+    if not shutil.which("quickshell"):
+        fail("quickshell is not installed")
+    subprocess.run(["cargo", "build", "--locked", "--quiet"], cwd=ROOT, check=True)
+    lock = open(f"{HOME}.lock", "w")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        fail(f"another run holds {HOME}")
+    home = HOME
+    shutil.rmtree(home, ignore_errors=True)
+    home.mkdir(mode=0o700)
+    env = environment(home)
+    user_socket = Path(os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}") / "eco.sock"
+    if Path(env["XDG_RUNTIME_DIR"]) / "eco.sock" == user_socket:
+        fail("refusing to run against the user's socket")
+    daemon = window = None
+    try:
+        seed(home)
+        daemon = start_daemon(home, env)
+        window = Window(home, env)
+        OUT.mkdir(parents=True, exist_ok=True)
+        shots = Shots(window, OUT)
+        scenes(window, shots, lambda: subprocess.run([str(ECO), "stop"], env=env, capture_output=True))
+        # A picture no scene takes any more is stale.
+        for old in OUT.glob("[0-9][0-9]-*.png"):
+            if old not in shots.taken:
+                old.unlink()
+    finally:
+        if window:
+            window.close()
+        if daemon:
+            subprocess.run([str(ECO), "stop"], env=env, capture_output=True)
+            try:
+                daemon.wait(5)
+            except subprocess.TimeoutExpired:
+                os.killpg(daemon.pid, signal.SIGKILL)
+        shutil.rmtree(home, ignore_errors=True)
+
+
+if __name__ == "__main__":
+    main()

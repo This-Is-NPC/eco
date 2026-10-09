@@ -1,0 +1,9 @@
+.env
+*.wav
+target/
+benchmark/.env
+benchmark/.cache/
+benchmark/runs.js
+.temp/
+__pycache__/
+.claude/worktrees/

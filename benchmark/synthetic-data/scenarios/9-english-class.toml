@@ -1,0 +1,102 @@
+title = "English class: the follow-up"
+skill = "follow-up-aula"
+kind = "class"
+language = "en"
+# The class is in English; the follow-up is written in Portuguese.
+answer_language = "pt"
+task = "Follow-up da aula de inglês com o Kevin."
+min_words = 50
+max_words = 300
+sections = ["corre", "vocab", "dever", "pr[óo]xima"]
+# The points the bad answer must fail, to check the judge.
+bad_fails = ["years", "agree", "went", "since-ok", "homework", "invented"]
+names = { Kevin = "Kevin (teacher)" }
+transcript = [
+  ["Kevin", "Greetings, Sadao. Let's start with small talk. Tell me a bit about yourself."],
+  ["me", "Hi Kevin. I have 300 years and I work as a tech lead."],
+  ["Kevin", "Small fix: in English we say I'm 300, or I'm 300 years old. We don't have years, we are an age."],
+  ["me", "Ah, right. I'm 300 years old. I've been working here since 2024."],
+  ["Kevin", "Wait, query: is since allowed there? Checking my rules. Affirmative, that sentence is completely correct. Since with the present perfect continuous, very good."],
+  ["me", "Yesterday I go to the office because we had a release."],
+  ["Kevin", "Careful with the past: yesterday I went to the office. Go becomes went."],
+  ["me", "Yesterday I went to the office. And my manager wanted to talk, so I am agree to stay late."],
+  ["Kevin", "Another one: agree is a verb, so just I agree, or here, I agreed to stay late. No am."],
+  ["me", "I agreed to stay late. Okay."],
+  ["Kevin", "New expression for you: to give someone a heads-up. It means to warn someone in advance."],
+  ["me", "Like, I gave my team a heads-up about the release?"],
+  ["Kevin", "Affirmative. And another one: to catch up, meaning to talk and get updated with someone you haven't seen in a while."],
+  ["me", "We should catch up next week."],
+  ["Kevin", "Great. Homework: write a short email of about 150 words telling a client that a project is delayed. Use heads-up and catch up."],
+  ["me", "Got it, 150 words, with both expressions."],
+  ["Kevin", "Next class we'll work on the past perfect. See you on Thursday, master!"],
+]
+reference = """
+**Correções:**
+- "I have 300 years" → "I'm 300" ou "I'm 300 years old": em inglês a idade vem com o verbo to be.
+- "Yesterday I go to the office" → "Yesterday I went to the office": no passado, go vira went.
+- "I am agree to stay late" → "I agreed to stay late": agree já é verbo, sem am.
+
+**Vocabulário:**
+- to give someone a heads-up — avisar alguém com antecedência.
+- to catch up — conversar para se atualizar com alguém que você não vê há um tempo.
+
+**Dever de casa:**
+- Escrever um e-mail de cerca de 150 palavras avisando um cliente que um projeto atrasou, usando heads-up e catch up.
+
+**Próxima aula:**
+- Past perfect, na quinta.
+"""
+bad = """
+**Correções:**
+- "I've been working here since 2024" → "I work here since 2024".
+- "We should catch up next week" → "We should meet next week".
+
+**Vocabulário:**
+- deadline — prazo.
+
+**Dever de casa:**
+- Ler um texto sobre negócios.
+"""
+
+[[must]]
+id = "years"
+text = "lists the correction from 'I have 300 years' to 'I'm 300 (years old)'"
+regex = "have 300 years"
+
+[[must]]
+id = "went"
+text = "lists the correction from 'go' to 'went' in the sentence about yesterday"
+regex = "\\bwent\\b"
+
+[[must]]
+id = "agree"
+text = "lists the correction from 'I am agree' to 'I agree' or 'I agreed'"
+regex = "am agree"
+
+[[must]]
+id = "heads-up"
+text = "teaches 'heads-up' as warning someone in advance"
+regex = "heads-up"
+
+[[must]]
+id = "catch-up"
+text = "teaches 'catch up' as talking to get updated with someone"
+regex = "catch up"
+
+[[must]]
+id = "homework"
+text = "gives the homework: a 150-word email about a delayed project using both expressions"
+regex = "150"
+
+[[must]]
+id = "next"
+text = "says the next class is about the past perfect"
+regex = "past perfect"
+
+[[must_not]]
+id = "since-ok"
+text = "marks 'I've been working here since 2024' as a mistake"
+
+[[must_not]]
+id = "invented"
+text = "lists a correction the teacher did not make"

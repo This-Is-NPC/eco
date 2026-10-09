@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Regenerate docs/cli.md from the eco binary's help. Idempotent.
+set -euo pipefail
+
+scripts/cli-doc >docs/cli.md.tmp
+mv docs/cli.md.tmp docs/cli.md

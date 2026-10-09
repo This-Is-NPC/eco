@@ -1,0 +1,26 @@
+//! Every external system, behind a port.
+
+pub mod audio_ffmpeg;
+pub mod audio_file;
+pub mod audio_pipewire;
+pub mod control_socket;
+pub mod diarizer_process;
+pub mod echo_cancel;
+pub mod fbank;
+pub mod hook_shell;
+pub mod http;
+pub mod llm_openai;
+pub mod omapass;
+pub mod overlay;
+pub mod people_files;
+pub mod pipe;
+pub mod pipewire_devices;
+pub mod session_files;
+pub mod speaker_tract;
+pub mod stt_deepgram;
+pub mod stt_elevenlabs;
+pub mod stt_openai;
+pub mod terminal;
+pub mod vad_silero;
+pub mod websocket;
+pub mod webvtt;

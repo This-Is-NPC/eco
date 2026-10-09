@@ -1,0 +1,94 @@
+#!/usr/bin/env python3
+"""Fail when a relative link or image in README.md or docs/*.md does not
+resolve: the file it names is missing, or the heading its #anchor names is not
+in that Markdown file. Links to other sites are not followed."""
+
+import os
+import re
+import sys
+from pathlib import Path
+
+ROOT = Path(os.environ.get("MISE_PROJECT_ROOT") or Path(__file__).resolve().parents[1])
+PAGES = [ROOT / "README.md", *sorted((ROOT / "docs").glob("*.md"))]
+
+FENCE = re.compile(r"^\s*(```|~~~)")
+CODE_SPAN = re.compile(r"(`+).*?\1")
+# [text](target) and ![alt](target), the target up to an optional "title".
+INLINE = re.compile(r"!?\[(?:[^\[\]]|\[[^\]]*\])*\]\(\s*<?([^)\s>]+)>?(?:\s+\"[^\"]*\")?\s*\)")
+REFERENCE = re.compile(r"^\s{0,3}\[[^\]]+\]:\s*<?(\S+?)>?(?:\s+\"[^\"]*\")?\s*$")
+HTML = re.compile(r"<(?:img|a)\b[^>]*?\b(?:src|href)=\"([^\"]+)\"")
+HEADING = re.compile(r"^\s{0,3}#{1,6}\s+(.*?)\s*#*\s*$")
+EXTERNAL = re.compile(r"^[a-z][a-z0-9+.-]*:", re.I)
+
+
+def prose(path):
+    """The lines of a Markdown file outside fenced code, numbered from 1."""
+    fenced = False
+    for number, line in enumerate(path.read_text().splitlines(), 1):
+        if FENCE.match(line):
+            fenced = not fenced
+            continue
+        if not fenced:
+            yield number, line
+
+
+def slug(heading):
+    """The anchor GitHub gives a heading: lowercase, its Markdown and
+    punctuation dropped, spaces as hyphens."""
+    text = re.sub(r"!?\[([^\]]*)\]\([^)]*\)", r"\1", heading)
+    text = re.sub(r"[`*_~]|<[^>]+>", "", text).strip().lower()
+    return re.sub(r"[^\w\- ]", "", text).replace(" ", "-")
+
+
+# The anchors of each Markdown file read so far.
+ANCHORS = {}
+
+
+def anchors(path):
+    """Every anchor a Markdown file's headings give, a repeated one numbered."""
+    if path not in ANCHORS:
+        found, seen = set(), {}
+        for _, line in prose(path):
+            heading = HEADING.match(line)
+            if heading:
+                base = slug(heading.group(1))
+                count = seen.get(base, 0)
+                seen[base] = count + 1
+                found.add(base if count == 0 else f"{base}-{count}")
+        ANCHORS[path] = found
+    return ANCHORS[path]
+
+
+def problem(page, target):
+    """Why `target`, linked from `page`, does not resolve, or None."""
+    if EXTERNAL.match(target):
+        return None
+    name, _, anchor = target.partition("#")
+    resolved = (page.parent / name).resolve() if name else page
+    if not resolved.exists():
+        return f"no file {resolved.relative_to(ROOT) if resolved.is_relative_to(ROOT) else resolved}"
+    if anchor and resolved.suffix == ".md" and anchor not in anchors(resolved):
+        return f"no heading #{anchor} in {resolved.relative_to(ROOT)}"
+    return None
+
+
+def main():
+    broken = 0
+    for page in PAGES:
+        for number, line in prose(page):
+            line = CODE_SPAN.sub("", line)
+            targets = [m.group(1) for pattern in (INLINE, HTML) for m in pattern.finditer(line)]
+            reference = REFERENCE.match(line)
+            if reference:
+                targets.append(reference.group(1))
+            for target in targets:
+                why = problem(page, target)
+                if why:
+                    broken += 1
+                    print(f"{page.relative_to(ROOT)}:{number}: {target}: {why}", file=sys.stderr)
+    if broken:
+        sys.exit(f"docs-check: links that do not resolve: {broken}")
+
+
+if __name__ == "__main__":
+    main()

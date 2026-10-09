@@ -1,0 +1,5 @@
+[
+  {"id": "alsa_input.usb-Logitech_H390_headset-00.mono-fallback", "label": "H390 headset microphone", "kind": "input"},
+  {"id": "alsa_output.usb-Logitech_H390_headset-00.analog-stereo", "label": "H390 headset", "kind": "output"},
+  {"id": "alsa_input.pci-0000_00_1f.3.analog-stereo", "label": "Built-in microphone", "kind": "input"}
+]

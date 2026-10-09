@@ -1,0 +1,13 @@
+[
+  {"type": "transcript", "who": "Them", "name": "Them", "text": "Morning! Let's plan the next two weeks. The export tool is the first thing on my list.", "at": 4},
+  {"type": "transcript", "who": "Me", "name": "Me", "text": "Agreed. The import needs it before the twenty-first, or training slips.", "at": 11},
+  {"type": "transcript", "who": "Them", "name": "Them", "text": "Who owns the VPN request for the export server?", "at": 19},
+  {"type": "suggestion_start", "id": "b51c0e7a", "action": "reply", "model": "google/gemini-2.5-flash", "prompt": "reply", "at": 21},
+  {"type": "suggestion_delta", "id": "b51c0e7a", "text": "**Answer:** Priya approves it; I send her the form today.\n\n**Why:** she is Acme's IT contact for the export server, so nothing moves until she signs."},
+  {"type": "suggestion_end", "id": "b51c0e7a"},
+  {"type": "note", "id": "c0d4e2f1", "text": "Ask Priya for the VPN account before Friday.", "at": 26},
+  {"type": "transcript", "who": "Me", "name": "Me", "text": "Priya approves it. I'll send her the form after this call.", "at": 30},
+  {"type": "transcript", "who": "Them", "name": "Them", "text": "Perfect. Then the export tool and the VPN are both on track.", "at": 37},
+  {"type": "transcript", "who": "Me", "name": "Me", "text": "Then the review is Thursday at ten, with the first export on the table.", "at": 44},
+  {"type": "transcript", "who": "Them", "name": "Them", "text": "Thursday at ten works. I'll book the room.", "at": 50}
+]

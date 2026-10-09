@@ -1,0 +1,49 @@
+title = "Translation: English meeting into Portuguese"
+skill = "translation"
+language = "en"
+translate_to = "pt"
+task = "Translate each line of the meeting into Brazilian Portuguese."
+min_words = 30
+max_words = 130
+# The points the bad answer must fail, to check the graders.
+bad_fails = ["circle-back", "heads-up", "language"]
+names = { Bartolomeu = "Bartolomeu (HemoNoite)" }
+transcript = [
+  ["Bartolomeu", "Let's circle back on the budget next week."],
+  ["me", "Sounds good. I'll give you a heads-up if anything changes."],
+  ["Bartolomeu", "We're on track for the Q3 launch, as long as legal signs off by the 30th."],
+  ["me", "Got it, I'll follow up with them tomorrow."],
+]
+reference = """
+Vamos retomar o orçamento na semana que vem.
+Combinado. Eu te aviso com antecedência se algo mudar.
+Estamos no prazo para o lançamento do Q3, desde que o jurídico aprove até o dia 30.
+Entendi, amanhã eu falo com eles.
+"""
+bad = """
+Let's circle back on the budget next week.
+Soa bom. Eu vou te dar uma cabeça para cima se algo mudar.
+Nós estamos no trilho para o lançamento do Q3, desde que o legal assine fora pelo 30.
+Peguei, eu vou seguir para cima com eles amanhã.
+"""
+
+[[must]]
+id = "circle-back"
+text = "renders 'circle back' as returning to the subject (retomar, voltar ao assunto)"
+
+[[must]]
+id = "heads-up"
+text = "renders 'give you a heads-up' as warning in advance (avisar)"
+
+[[must]]
+id = "legal"
+text = "says the launch depends on legal approving by the 30th"
+regex = "30"
+
+[[must_not]]
+id = "language"
+text = "leaves a line in English"
+
+[[must_not]]
+id = "literal-pt"
+text = "translates an idiom word for word (cabeça para cima, no trilho, assinar fora)"

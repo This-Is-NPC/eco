@@ -1,0 +1,37 @@
+title = "Guild round in English: regulated work"
+language = "en"
+interviewer = "Gertrudes (Guild recruiter)"
+max_words = 220
+# The points the bad answer must fail, to check the judge.
+bad_fails = ["santa-luz", "same-gate", "wrong-case", "wrong-number"]
+notes = ["A Santa Luz era saúde regulada; tudo passava por validação e duas auditorias externas sem achados."]
+transcript = [
+  ["them", "Hi Sadao, Gertrudes again. This round is in English, for the Guild's treasury platform."],
+  ["me", "Hi Gertrudes, good to see you."],
+  ["them", "The Royal Treasury audits us every year. Have you worked in a regulated environment? How would you keep AI-written code auditable?"],
+]
+reference = """
+**Answer:** Yes. At Santa Luz Saúde, a regulated healthcare company, every system went through formal validation before production, and the company passed 2 external audits with zero findings on my systems. AI-written code gets no shortcut: it goes through the same pipeline, with two required approvals and an audit trail of every change.
+
+**If asked why:** An auditor cares about what changed, why, and who approved it, not about who typed it.
+"""
+bad = """
+**Resposta:** Sim, na MagRonald's passamos por cinco auditorias com o regulador e usei agentes para gerar toda a documentação.
+"""
+
+[[must]]
+id = "santa-luz"
+text = "cites regulated work at Santa Luz"
+regex = "Santa Luz"
+
+[[must]]
+id = "same-gate"
+text = "says AI-written code goes through the same approvals or audit trail as any change"
+
+[[must_not]]
+id = "wrong-case"
+text = "places the audits or regulated work at MagRonald's, Caronte or Sasazuka"
+
+[[must_not]]
+id = "wrong-number"
+text = "gives a number of audits other than 2"

@@ -1,0 +1,35 @@
+{
+  "id": "bench-2026-10-08-2343-sadao",
+  "label": "sadao",
+  "date": "2026-10-08T23:43",
+  "runs": 2,
+  "model_order": [
+    "grok-4.20",
+    "haiku-5.5",
+    "deepseek-v4.1-flash",
+    "gpt-6-luna",
+    "mimo-v2.6-flash",
+    "mimo-v2.6-pro"
+  ],
+  "scenario_ids": [
+    "1-salary",
+    "10-idea-actions",
+    "11-unnamed-speakers",
+    "12-client-email",
+    "13-long-meeting",
+    "14-translate-deadlines",
+    "15-translate-idioms",
+    "16-translate-jargon",
+    "17-translate-to-portuguese",
+    "18-translate-to-japanese",
+    "19-translate-mixed",
+    "2-db2",
+    "3-wpf",
+    "4-kubernetes",
+    "5-english",
+    "6-adoption",
+    "7-summary-reversal",
+    "8-minutes-maybe",
+    "9-english-class"
+  ]
+}

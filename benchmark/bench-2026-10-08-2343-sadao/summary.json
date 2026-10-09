@@ -1,0 +1,1062 @@
+{
+  "models": {
+    "grok-4.20": {
+      "model": "x-ai/grok-4.20",
+      "answers": 38,
+      "failed": 0,
+      "pass_rate": 0.868421052631579,
+      "pass_ci": [
+        0.7368421052631579,
+        0.9736842105263158
+      ],
+      "coverage": 0.9508771929824561,
+      "coverage_ci": [
+        0.8578947368421053,
+        1.0
+      ],
+      "fidelity": 0.8137413279575751,
+      "fidelity_ci": [
+        0.7297500998873997,
+        0.8929588463913406
+      ],
+      "score": 3.286578947368421,
+      "score_ci": [
+        2.930789473684211,
+        3.6565789473684207
+      ],
+      "violations": 1,
+      "disputed": 23,
+      "language_fails": 0,
+      "length_fails": 1,
+      "section_fails": 0,
+      "invented_numbers": 1,
+      "dropped_numbers": 0,
+      "win_rate": 0.3026315789473684,
+      "win_ci": [
+        0.2026315789473684,
+        0.40789473684210525
+      ],
+      "wins": 38,
+      "ties": 39,
+      "losses": 113,
+      "ttft_p50": 2170,
+      "ttft_p95": 4574,
+      "total_p50": 4445,
+      "total_p95": 149979,
+      "cost_per_answer": 0.002168007894736842,
+      "cached_share": 0.34570898434852115
+    },
+    "haiku-5.5": {
+      "model": "anthropic/claude-haiku-5.5",
+      "answers": 38,
+      "failed": 0,
+      "pass_rate": 0.7894736842105263,
+      "pass_ci": [
+        0.5789473684210527,
+        0.9473684210526315
+      ],
+      "coverage": 0.9473684210526315,
+      "coverage_ci": [
+        0.868421052631579,
+        1.0
+      ],
+      "fidelity": 0.8728168761063497,
+      "fidelity_ci": [
+        0.8108179101600154,
+        0.929137967295862
+      ],
+      "score": 4.033947368421052,
+      "score_ci": [
+        3.650526315789474,
+        4.363157894736842
+      ],
+      "violations": 2,
+      "disputed": 20,
+      "language_fails": 2,
+      "length_fails": 2,
+      "section_fails": 0,
+      "invented_numbers": 0,
+      "dropped_numbers": 0,
+      "win_rate": 0.5552631578947368,
+      "win_ci": [
+        0.4342105263157895,
+        0.6763157894736842
+      ],
+      "wins": 74,
+      "ties": 63,
+      "losses": 53,
+      "ttft_p50": 1302,
+      "ttft_p95": 1463,
+      "total_p50": 3206,
+      "total_p95": 151743,
+      "cost_per_answer": 0.0003584644736842105,
+      "cached_share": 0.157300349834554
+    },
+    "deepseek-v4.1-flash": {
+      "model": "deepseek/deepseek-v4.1-flash",
+      "answers": 38,
+      "failed": 0,
+      "pass_rate": 0.7631578947368421,
+      "pass_ci": [
+        0.6052631578947368,
+        0.9210526315789473
+      ],
+      "coverage": 0.9561403508771931,
+      "coverage_ci": [
+        0.8771929824561404,
+        1.0
+      ],
+      "fidelity": 0.8740810359231411,
+      "fidelity_ci": [
+        0.7869047619047619,
+        0.9528508771929826
+      ],
+      "score": 3.798421052631579,
+      "score_ci": [
+        3.3513157894736842,
+        4.196578947368421
+      ],
+      "violations": 0,
+      "disputed": 14,
+      "language_fails": 0,
+      "length_fails": 6,
+      "section_fails": 0,
+      "invented_numbers": 0,
+      "dropped_numbers": 0,
+      "win_rate": 0.5473684210526316,
+      "win_ci": [
+        0.45,
+        0.6473684210526316
+      ],
+      "wins": 72,
+      "ties": 64,
+      "losses": 54,
+      "ttft_p50": 824,
+      "ttft_p95": 1510,
+      "total_p50": 2750,
+      "total_p95": 153570,
+      "cost_per_answer": 0.00021015495789473686,
+      "cached_share": 0.7516690342019069
+    },
+    "gpt-6-luna": {
+      "model": "openai/gpt-6-luna",
+      "answers": 38,
+      "failed": 0,
+      "pass_rate": 0.9473684210526315,
+      "pass_ci": [
+        0.8421052631578947,
+        1.0
+      ],
+      "coverage": 0.9649122807017543,
+      "coverage_ci": [
+        0.8947368421052632,
+        1.0
+      ],
+      "fidelity": 0.9365914786967418,
+      "fidelity_ci": [
+        0.8843984962406014,
+        0.9784461152882207
+      ],
+      "score": 4.338947368421053,
+      "score_ci": [
+        3.983947368421053,
+        4.608157894736842
+      ],
+      "violations": 0,
+      "disputed": 13,
+      "language_fails": 0,
+      "length_fails": 0,
+      "section_fails": 0,
+      "invented_numbers": 0,
+      "dropped_numbers": 0,
+      "win_rate": 0.7394736842105263,
+      "win_ci": [
+        0.6368421052631579,
+        0.8263157894736842
+      ],
+      "wins": 118,
+      "ties": 45,
+      "losses": 27,
+      "ttft_p50": 1096,
+      "ttft_p95": 1600,
+      "total_p50": 2329,
+      "total_p95": 154630,
+      "cost_per_answer": 0.00010285684210526316,
+      "cached_share": 0.5375633681445818
+    },
+    "mimo-v2.6-flash": {
+      "model": "xiaomi/mimo-v2.6-flash",
+      "answers": 38,
+      "failed": 0,
+      "pass_rate": 0.7631578947368421,
+      "pass_ci": [
+        0.5789473684210527,
+        0.9210526315789473
+      ],
+      "coverage": 0.9561403508771931,
+      "coverage_ci": [
+        0.8947368421052632,
+        1.0
+      ],
+      "fidelity": 0.8276223045959888,
+      "fidelity_ci": [
+        0.7378333654649444,
+        0.9101237943343207
+      ],
+      "score": 3.59,
+      "score_ci": [
+        3.178157894736842,
+        4.003684210526316
+      ],
+      "violations": 0,
+      "disputed": 14,
+      "language_fails": 0,
+      "length_fails": 5,
+      "section_fails": 0,
+      "invented_numbers": 0,
+      "dropped_numbers": 0,
+      "win_rate": 0.40789473684210525,
+      "win_ci": [
+        0.35000000000000003,
+        0.46578947368421053
+      ],
+      "wins": 46,
+      "ties": 63,
+      "losses": 81,
+      "ttft_p50": 2384,
+      "ttft_p95": 5253,
+      "total_p50": 10220,
+      "total_p95": 164261,
+      "cost_per_answer": 0.00022588241578947368,
+      "cached_share": 0.15088218038399803
+    },
+    "mimo-v2.6-pro": {
+      "model": "xiaomi/mimo-v2.6-pro",
+      "answers": 38,
+      "failed": 0,
+      "pass_rate": 0.6052631578947368,
+      "pass_ci": [
+        0.39473684210526316,
+        0.8157894736842105
+      ],
+      "coverage": 0.9583333333333333,
+      "coverage_ci": [
+        0.881578947368421,
+        1.0
+      ],
+      "fidelity": 0.8176402544823598,
+      "fidelity_ci": [
+        0.7495348949296318,
+        0.8844924812030076
+      ],
+      "score": 3.7350000000000003,
+      "score_ci": [
+        3.3242105263157895,
+        4.129736842105263
+      ],
+      "violations": 0,
+      "disputed": 21,
+      "language_fails": 0,
+      "length_fails": 13,
+      "section_fails": 0,
+      "invented_numbers": 2,
+      "dropped_numbers": 0,
+      "win_rate": 0.4473684210526316,
+      "win_ci": [
+        0.3526315789473684,
+        0.5473684210526316
+      ],
+      "wins": 58,
+      "ties": 54,
+      "losses": 78,
+      "ttft_p50": 1888,
+      "ttft_p95": 7505,
+      "total_p50": 13724,
+      "total_p95": 163701,
+      "cost_per_answer": 0.0005392457684210526,
+      "cached_share": 0.48578482326849765
+    }
+  },
+  "validation": {
+    "correct": 168,
+    "total": 171,
+    "accuracy": 0.9824561403508771,
+    "misses": [
+      {
+        "scenario": "15-translate-idioms",
+        "answer": "bad",
+        "point": "toes",
+        "expected": false,
+        "got": true,
+        "by": "decider"
+      },
+      {
+        "scenario": "19-translate-mixed",
+        "answer": "bad",
+        "point": "ship-it",
+        "expected": false,
+        "got": true,
+        "by": "decider"
+      },
+      {
+        "scenario": "19-translate-mixed",
+        "answer": "bad",
+        "point": "standup",
+        "expected": false,
+        "got": true,
+        "by": "decider"
+      }
+    ]
+  },
+  "review": {
+    "points": 1176,
+    "by_regex": 543,
+    "by_decider": 626,
+    "examined": 7,
+    "claims": 1536,
+    "reviewed": 1543,
+    "disputed": 105,
+    "agreement": 0.931950745301361,
+    "flipped_pairs": 206,
+    "pairs": 570
+  },
+  "judge_cost_usd": 0.696084456,
+  "id": "bench-2026-10-08-2343-sadao",
+  "label": "sadao",
+  "date": "2026-10-08T23:43",
+  "runs": 2,
+  "graded": "2026-10-09T00:27",
+  "decider": "gpt-6-luna-decisions",
+  "judges": [
+    "gpt-6-luna",
+    "mimo-v2.6-flash"
+  ],
+  "model_order": [
+    "grok-4.20",
+    "haiku-5.5",
+    "deepseek-v4.1-flash",
+    "gpt-6-luna",
+    "mimo-v2.6-flash",
+    "mimo-v2.6-pro"
+  ],
+  "scenarios": [
+    {
+      "id": "1-salary",
+      "title": "HR: expected pay and start date",
+      "language": "pt",
+      "skill": "responder",
+      "kind": "interview",
+      "lines": 5,
+      "question": "A faixa é de 15 a 22 mil. Qual a sua pretensão e em quanto tempo você consegue começar?",
+      "reference": "**Resposta:** Minha pretensão é 19 mil, PJ. Consigo começar em 30 dias, que é o prazo para sair da MagRonald's Tecnologia sem deixar nada pela metade.\n\n**Se perguntarem por quê:** 19 mil fica dentro da faixa de 15 a 22 mil que você citou e combina com o escopo de tech lead em 40 horas.",
+      "points": [
+        {
+          "id": "pay",
+          "kind": "must",
+          "text": "states an expected pay of 19 thousand"
+        },
+        {
+          "id": "start",
+          "kind": "must",
+          "text": "says he can start in 30 days"
+        },
+        {
+          "id": "other-pay",
+          "kind": "must_not",
+          "text": "asks for a pay other than 19 thousand, or outside the 15 to 22 thousand range"
+        },
+        {
+          "id": "other-start",
+          "kind": "must_not",
+          "text": "promises a start date other than 30 days"
+        }
+      ]
+    },
+    {
+      "id": "10-idea-actions",
+      "title": "Idea session: from rambling to actions",
+      "language": "pt",
+      "skill": "itens",
+      "kind": "idea",
+      "lines": 8,
+      "question": "Itens acionáveis da sessão de ideia sobre a newsletter.",
+      "reference": "**Tarefas:**\n1. Lançar a newsletter Plano de Dominação, sobre .NET e IA aplicada, quinzenal às quintas.\n2. Escrever os três primeiros textos: regra de negócio fora de stored procedure, agentes com ferramentas só de leitura, e MVVM em app legado.\n3. Montar uma lista de umas 20 pessoas para convidar direto.\n\n**Pesquisar:**\n- Substack ou Buttondown: qual exporta a lista de e-mails se eu quiser sair?\n- Dá para ter uma parte paga depois?",
+      "points": [
+        {
+          "id": "biweekly",
+          "kind": "must",
+          "text": "says the newsletter is biweekly (every two weeks)"
+        },
+        {
+          "id": "posts",
+          "kind": "must",
+          "text": "lists writing the three first posts or names their topics"
+        },
+        {
+          "id": "list",
+          "kind": "must",
+          "text": "lists building a list of about 20 people to invite"
+        },
+        {
+          "id": "platform",
+          "kind": "must",
+          "text": "leaves choosing between Substack and Buttondown as research"
+        },
+        {
+          "id": "paid",
+          "kind": "must",
+          "text": "leaves whether to have a paid part later as research"
+        },
+        {
+          "id": "podcast",
+          "kind": "must_not",
+          "text": "lists the podcast as something to do"
+        },
+        {
+          "id": "weekly",
+          "kind": "must_not",
+          "text": "says the newsletter is weekly"
+        },
+        {
+          "id": "picked-platform",
+          "kind": "must_not",
+          "text": "treats the platform as already chosen"
+        }
+      ]
+    },
+    {
+      "id": "11-unnamed-speakers",
+      "title": "Imported meeting: speakers without names",
+      "language": "pt",
+      "skill": "resumo",
+      "kind": "meeting",
+      "lines": 9,
+      "question": "Resumo de uma reunião importada, com os locutores sem nome.",
+      "reference": "**Decisões:**\n- A chegada do castelo ao terreno passa para 2 de dezembro, em vez de 18 de novembro.\n\n**Tarefas:**\n- Speaker 1 — enviar o contrato revisado com a nova data — 13/11\n- Speaker 2 — falar com o jurídico sobre a cláusula de multa por atraso — sem prazo\n\n**Em aberto:**\n- Se o proprietário aceita reajuste anual pelo IPCA.",
+      "points": [
+        {
+          "id": "s1",
+          "kind": "must",
+          "text": "gives Speaker 1 sending the revised contract, due 13/11"
+        },
+        {
+          "id": "s2",
+          "kind": "must",
+          "text": "gives Speaker 2 talking to legal about the late-arrival penalty clause"
+        },
+        {
+          "id": "arrival",
+          "kind": "must",
+          "text": "records the decision to move the castle's arrival to 2 December"
+        },
+        {
+          "id": "ipca",
+          "kind": "must",
+          "text": "leaves the annual IPCA adjustment as an open question"
+        },
+        {
+          "id": "names",
+          "kind": "must_not",
+          "text": "gives an unnamed speaker a person's name"
+        },
+        {
+          "id": "swap",
+          "kind": "must_not",
+          "text": "gives a task to the wrong speaker"
+        },
+        {
+          "id": "penalty",
+          "kind": "must_not",
+          "text": "says the doubled penalty was accepted"
+        }
+      ]
+    },
+    {
+      "id": "12-client-email",
+      "title": "Client follow-up e-mail: only what was agreed",
+      "language": "pt",
+      "skill": "email-cliente",
+      "kind": "meeting",
+      "lines": 9,
+      "question": "E-mail de follow-up para o Bartolomeu, da HemoNoite.",
+      "reference": "Assunto: Próximos passos do piloto — HemoNoite\n\nOlá, Bartolomeu,\n\nObrigado pela reunião de hoje. Os próximos passos que combinamos:\n\n- Sadao envia a proposta revisada para o piloto em duas unidades até 20/11.\n- Bartolomeu libera o acesso ao ambiente de homologação até 18/11.\n\nFicaram pendentes a aprovação do orçamento pelo CFO, ainda sem data, e a pergunta sobre desconto, que vou verificar internamente.\n\nAbraço,\nSadao",
+      "points": [
+        {
+          "id": "proposal",
+          "kind": "must",
+          "text": "says Sadao sends the revised proposal for two units by 20/11"
+        },
+        {
+          "id": "access",
+          "kind": "must",
+          "text": "says Bartolomeu grants access to the staging environment by 18/11"
+        },
+        {
+          "id": "pilot",
+          "kind": "must",
+          "text": "says the pilot runs in two units"
+        },
+        {
+          "id": "cfo",
+          "kind": "must",
+          "text": "leaves the CFO's budget approval pending, with no date"
+        },
+        {
+          "id": "five-units",
+          "kind": "must_not",
+          "text": "says the pilot or the deal covers five units"
+        },
+        {
+          "id": "cfo-date",
+          "kind": "must_not",
+          "text": "gives a date for the CFO's approval"
+        },
+        {
+          "id": "discount",
+          "kind": "must_not",
+          "text": "promises or confirms a discount"
+        }
+      ]
+    },
+    {
+      "id": "13-long-meeting",
+      "title": "Long meeting: a decision in the first minutes",
+      "language": "pt",
+      "skill": "resumo",
+      "kind": "meeting",
+      "lines": 1085,
+      "question": "Resumo de uma daily longa (1085 falas) cuja decisão principal foi tomada no começo.",
+      "reference": "**Decisões:**\n- As features da versão 3.2 congelam em 28/11; depois disso só entram correções.\n- Exceções ao congelamento só com a aprovação do Brasa.\n\n**Tarefas:**\n- Alcides — preparar as release notes da 3.2 — 27/11\n\n**Em aberto:**\n- Nada além do status de cada ticket, que segue no quadro.",
+      "points": [
+        {
+          "id": "freeze",
+          "kind": "must",
+          "text": "records the decision to freeze 3.2 features on 28/11"
+        },
+        {
+          "id": "exceptions",
+          "kind": "must",
+          "text": "records that Brasa approves exceptions to the freeze"
+        },
+        {
+          "id": "notes",
+          "kind": "must",
+          "text": "gives Alcides the 3.2 release notes, due 27/11"
+        },
+        {
+          "id": "freeze-date",
+          "kind": "must_not",
+          "text": "gives the freeze a date other than 28/11"
+        },
+        {
+          "id": "no-decision",
+          "kind": "must_not",
+          "text": "says the meeting made no decision"
+        }
+      ]
+    },
+    {
+      "id": "14-translate-deadlines",
+      "title": "Translation: deadlines and dates",
+      "language": "pt",
+      "skill": "translation",
+      "kind": "meeting",
+      "lines": 4,
+      "question": "Translate each line of the meeting into English.",
+      "reference": "I'll review the proposal by Friday, the 15th (15/11).\nAnd I'll approve the branch dashboards by Monday, the 18th (18/11).\nThe migration moves to next week, around the 20th.\nDeal. If it's late, give me a heads-up in advance.",
+      "points": [
+        {
+          "id": "by-friday",
+          "kind": "must",
+          "text": "says the review is done by Friday (a deadline), not that it lasts until Friday"
+        },
+        {
+          "id": "by-monday",
+          "kind": "must",
+          "text": "says the dashboards are approved by Monday"
+        },
+        {
+          "id": "next-week",
+          "kind": "must",
+          "text": "says the migration moves to next week, around the 20th"
+        },
+        {
+          "id": "warn",
+          "kind": "must",
+          "text": "asks to be warned in advance if it is late"
+        },
+        {
+          "id": "until",
+          "kind": "must_not",
+          "text": "says the review or the approval lasts until Friday or Monday, as a duration"
+        }
+      ]
+    },
+    {
+      "id": "15-translate-idioms",
+      "title": "Translation: idioms",
+      "language": "pt",
+      "skill": "translation",
+      "kind": "meeting",
+      "lines": 4,
+      "question": "Translate each line of the meeting into English.",
+      "reference": "The deadline is tight, but we'll find a way.\nThis week is rough, not going to lie.\nThe two night shifts keep stepping on each other's toes.\nAnd yesterday the deploy went wrong; we had to roll back the release.",
+      "points": [
+        {
+          "id": "find-a-way",
+          "kind": "must",
+          "text": "renders 'dar um jeito' as finding a way or working it out"
+        },
+        {
+          "id": "tough",
+          "kind": "must",
+          "text": "renders 'tá osso' as the week being hard or rough"
+        },
+        {
+          "id": "toes",
+          "kind": "must",
+          "text": "renders the night shifts getting in each other's way, e.g. stepping on each other's toes"
+        },
+        {
+          "id": "rollback",
+          "kind": "must",
+          "text": "says the deploy went wrong and they rolled back"
+        },
+        {
+          "id": "literal",
+          "kind": "must_not",
+          "text": "translates an idiom word for word into something that makes no sense in English (giving a way, bone, the foot of the other, it gave bad)"
+        }
+      ]
+    },
+    {
+      "id": "16-translate-jargon",
+      "title": "Translation: technical terms",
+      "language": "pt",
+      "skill": "translation",
+      "kind": "meeting",
+      "lines": 4,
+      "question": "Translate each line of the meeting into English.",
+      "reference": "I pushed a hotfix in PR 482 for the donation checkout bug.\nThe CI pipeline broke at the build stage again.\nIt's the runner cache; I'll clear it and run the job again.\nGreat, then merge it into main and tag release 3.2.1.",
+      "points": [
+        {
+          "id": "pr",
+          "kind": "must",
+          "text": "keeps 'PR 482' and 'hotfix' as they are"
+        },
+        {
+          "id": "stage",
+          "kind": "must",
+          "text": "keeps 'CI', 'pipeline' and 'build stage' as technical terms"
+        },
+        {
+          "id": "merge",
+          "kind": "must",
+          "text": "keeps 'merge', 'main' and 'release 3.2.1'"
+        },
+        {
+          "id": "renamed",
+          "kind": "must_not",
+          "text": "translates a technical term into a plain word (request for PR, construction for build, principal for main, launch for release)"
+        }
+      ]
+    },
+    {
+      "id": "17-translate-to-portuguese",
+      "title": "Translation: English meeting into Portuguese",
+      "language": "en",
+      "skill": "translation",
+      "kind": "meeting",
+      "lines": 4,
+      "question": "Translate each line of the meeting into Brazilian Portuguese.",
+      "reference": "Vamos retomar o orçamento na semana que vem.\nCombinado. Eu te aviso com antecedência se algo mudar.\nEstamos no prazo para o lançamento do Q3, desde que o jurídico aprove até o dia 30.\nEntendi, amanhã eu falo com eles.",
+      "points": [
+        {
+          "id": "circle-back",
+          "kind": "must",
+          "text": "renders 'circle back' as returning to the subject (retomar, voltar ao assunto)"
+        },
+        {
+          "id": "heads-up",
+          "kind": "must",
+          "text": "renders 'give you a heads-up' as warning in advance (avisar)"
+        },
+        {
+          "id": "legal",
+          "kind": "must",
+          "text": "says the launch depends on legal approving by the 30th"
+        },
+        {
+          "id": "language",
+          "kind": "must_not",
+          "text": "leaves a line in English"
+        },
+        {
+          "id": "literal-pt",
+          "kind": "must_not",
+          "text": "translates an idiom word for word (cabeça para cima, no trilho, assinar fora)"
+        }
+      ]
+    },
+    {
+      "id": "18-translate-to-japanese",
+      "title": "Translation: Portuguese into Japanese",
+      "language": "pt",
+      "skill": "translation",
+      "kind": "meeting",
+      "lines": 3,
+      "question": "Translate each line of the meeting into Japanese.",
+      "reference": "おはようございます。レポートの提出は18/11になりました。\n了解です。ブラザが確認して、私が東京のチームに送ります。\nわかりました。金曜日の会議は引き続き22時です。",
+      "points": [
+        {
+          "id": "brasa",
+          "kind": "must",
+          "text": "says Brasa reviews it and the speaker sends it to Bartolomeu's Tokyo team"
+        },
+        {
+          "id": "date",
+          "kind": "must",
+          "text": "keeps the delivery date 18/11"
+        },
+        {
+          "id": "friday",
+          "kind": "must",
+          "text": "says Friday's meeting stays at 22h (10 p.m.)"
+        }
+      ]
+    },
+    {
+      "id": "19-translate-mixed",
+      "title": "Translation: lines already in English",
+      "language": "pt",
+      "skill": "translation",
+      "kind": "meeting",
+      "lines": 4,
+      "question": "Translate each line of the meeting into English.",
+      "reference": "Let's ship it on Friday.\nAgreed, but first I'll run the load tests.\nOk, and we skip the standup tomorrow.\nDeal, we'll talk on Thursday night then.",
+      "points": [
+        {
+          "id": "ship-it",
+          "kind": "must",
+          "text": "keeps 'Let's ship it on Friday.' as it is"
+        },
+        {
+          "id": "load-tests",
+          "kind": "must",
+          "text": "says the speaker runs the load tests first"
+        },
+        {
+          "id": "standup",
+          "kind": "must",
+          "text": "keeps 'we skip the standup tomorrow' as it is"
+        }
+      ]
+    },
+    {
+      "id": "2-db2",
+      "title": "Skeptical architect: legacy DB2 procedures",
+      "language": "pt",
+      "skill": "responder",
+      "kind": "interview",
+      "lines": 3,
+      "question": "Como você mexeria nisso sem quebrar a operação? E você já trabalhou com DB2?",
+      "reference": "**Resposta:** Nunca trabalhei com DB2 nem com mainframe; uso SQL Server e PostgreSQL. A abordagem é a mesma: antes de mexer, escrevo testes que registram o que as procedures fazem hoje, e tiro a regra de negócio para o código uma procedure por vez, comparando o resultado antigo com o novo antes de trocar.\n\n**Um exemplo:** Na Caronte Logística, levei a regra de 23 stored procedures de SQL Server para C#, uma de cada vez, comparando os resultados antes de desligar a antiga. O batch noturno de frete caiu de 4 horas para 50 minutos.\n\n**Se perguntarem por quê:** Mudar regra sem teste é o maior risco. Passo a passo, cada troca pode ser verificada e desfeita.",
+      "points": [
+        {
+          "id": "no-db2",
+          "kind": "must",
+          "text": "admits never having worked with DB2, SQL PL or a mainframe"
+        },
+        {
+          "id": "tests-first",
+          "kind": "must",
+          "text": "proposes tests or a safety net before changing the procedures"
+        },
+        {
+          "id": "caronte",
+          "kind": "must",
+          "text": "cites moving stored procedure rules to C# at Caronte"
+        },
+        {
+          "id": "claims-db2",
+          "kind": "must_not",
+          "text": "claims experience with DB2, SQL PL or a mainframe"
+        },
+        {
+          "id": "wrong-case",
+          "kind": "must_not",
+          "text": "places the stored procedure migration at a company other than Caronte"
+        }
+      ]
+    },
+    {
+      "id": "3-wpf",
+      "title": "Tech lead: desktop modernization",
+      "language": "pt",
+      "skill": "responder",
+      "kind": "interview",
+      "lines": 2,
+      "question": "Você já modernizou alguma aplicação desktop? Como foi?",
+      "reference": "**Resposta:** Sim. No projeto Sasazuka, no Japão, separei um app WPF que era um único arquivo gigante no padrão MVVM: a tela só mostra os dados e a lógica fica em classes separadas, o que deixa cada parte testável.\n\n**Resultado:** a base de código encolheu 37%.\n\n**Se perguntarem por quê:** Com MVVM dá para mudar uma parte sem quebrar a outra, e o legado evolui aos poucos.",
+      "points": [
+        {
+          "id": "sasazuka",
+          "kind": "must",
+          "text": "cites the WPF app in the Sasazuka project in Japan"
+        },
+        {
+          "id": "mvvm",
+          "kind": "must",
+          "text": "explains splitting the app into the MVVM pattern"
+        },
+        {
+          "id": "37",
+          "kind": "must",
+          "text": "gives the result: the codebase shrank by 37%"
+        },
+        {
+          "id": "wrong-number",
+          "kind": "must_not",
+          "text": "gives a reduction other than 37%"
+        },
+        {
+          "id": "wrong-case",
+          "kind": "must_not",
+          "text": "places the WPF work at MagRonald's, Santa Luz or Caronte"
+        }
+      ]
+    },
+    {
+      "id": "4-kubernetes",
+      "title": "Trap: a technology he never ran",
+      "language": "pt",
+      "skill": "responder",
+      "kind": "interview",
+      "lines": 2,
+      "question": "Você já operou Kubernetes em produção? Conta um incidente que você resolveu.",
+      "reference": "**Resposta:** Em produção, não. Estudei Kubernetes num cluster local, mas nunca operei em produção, então não tenho incidente para contar. O que trago é deploy com aprovações e trilha de auditoria, da Santa Luz Saúde, e vontade de aprender a operação com vocês.",
+      "points": [
+        {
+          "id": "no-prod",
+          "kind": "must",
+          "text": "says he has never run Kubernetes in production"
+        },
+        {
+          "id": "invents-incident",
+          "kind": "must_not",
+          "text": "describes a Kubernetes incident he resolved"
+        },
+        {
+          "id": "claims-k8s",
+          "kind": "must_not",
+          "text": "claims to have run Kubernetes in production"
+        }
+      ]
+    },
+    {
+      "id": "5-english",
+      "title": "Guild round in English: regulated work",
+      "language": "en",
+      "skill": "responder",
+      "kind": "interview",
+      "lines": 3,
+      "question": "The Royal Treasury audits us every year. Have you worked in a regulated environment? How would you keep AI-written code auditable?",
+      "reference": "**Answer:** Yes. At Santa Luz Saúde, a regulated healthcare company, every system went through formal validation before production, and the company passed 2 external audits with zero findings on my systems. AI-written code gets no shortcut: it goes through the same pipeline, with two required approvals and an audit trail of every change.\n\n**If asked why:** An auditor cares about what changed, why, and who approved it, not about who typed it.",
+      "points": [
+        {
+          "id": "santa-luz",
+          "kind": "must",
+          "text": "cites regulated work at Santa Luz"
+        },
+        {
+          "id": "same-gate",
+          "kind": "must",
+          "text": "says AI-written code goes through the same approvals or audit trail as any change"
+        },
+        {
+          "id": "wrong-case",
+          "kind": "must_not",
+          "text": "places the audits or regulated work at MagRonald's, Caronte or Sasazuka"
+        },
+        {
+          "id": "wrong-number",
+          "kind": "must_not",
+          "text": "gives a number of audits other than 2"
+        }
+      ]
+    },
+    {
+      "id": "6-adoption",
+      "title": "Engineering manager: a team that resists AI",
+      "language": "pt",
+      "skill": "responder",
+      "kind": "interview",
+      "lines": 3,
+      "question": "Como você faria esse time adotar IA sem gerar resistência?",
+      "reference": "**Resposta:** Começo pela dor do time, não pela ferramenta. Faço pareamentos curtos usando a IA nas tarefas que eles menos gostam, como dados de teste e código repetitivo, e o código gerado passa pela mesma revisão de sempre.\n\n**Um exemplo:** No projeto Sasazuka, no Japão, o time resistia à IA. Eu fazia pareamentos de 20 minutos nas tarefas chatas, e a conversa deixou de ser sobre substituição.\n\n**Se perguntarem por quê:** Resistência cai com resultado visto de perto, não com discurso.",
+      "points": [
+        {
+          "id": "pairing",
+          "kind": "must",
+          "text": "proposes short pairing sessions on chores the team dislikes"
+        },
+        {
+          "id": "sasazuka",
+          "kind": "must",
+          "text": "cites the Sasazuka project in Japan as the example"
+        },
+        {
+          "id": "imposes",
+          "kind": "must_not",
+          "text": "proposes forcing or mandating AI use"
+        },
+        {
+          "id": "wrong-case",
+          "kind": "must_not",
+          "text": "places the AI-resistance case at Santa Luz, MagRonald's or Caronte"
+        }
+      ]
+    },
+    {
+      "id": "7-summary-reversal",
+      "title": "Meeting summary: a decision that changed",
+      "language": "pt",
+      "skill": "resumo",
+      "kind": "meeting",
+      "lines": 22,
+      "question": "Resumo da reunião de planejamento do relatório de pedidos.",
+      "reference": "**Decisões:**\n- O relatório de pedidos vai ler de uma view materializada no Postgres, atualizada a cada cinco minutos. O Redis foi descartado: o castelo muda de vale sem levar servidor novo, e o cache de uma hora mostraria números velhos.\n\n**Tarefas:**\n- Brasa — escrever a migration da view materializada — 14/11\n- Sadao — revisar o PR da migration — 15/11\n- Alcides — atualizar os dashboards para ler da view — 18/11\n\n**Em aberto:**\n- Arquivar ou não os pedidos de 2023.",
+      "points": [
+        {
+          "id": "final",
+          "kind": "must",
+          "text": "says the final decision is a materialized view in Postgres"
+        },
+        {
+          "id": "brasa",
+          "kind": "must",
+          "text": "gives Brasa the view migration, due 14/11"
+        },
+        {
+          "id": "alcides",
+          "kind": "must",
+          "text": "gives Alcides the dashboards update, due 18/11"
+        },
+        {
+          "id": "me",
+          "kind": "must",
+          "text": "says Sadao (me) reviews the PR by 15/11"
+        },
+        {
+          "id": "open",
+          "kind": "must",
+          "text": "leaves archiving the 2023 orders as an open question"
+        },
+        {
+          "id": "redis-final",
+          "kind": "must_not",
+          "text": "presents Redis or a cache as the decision that stands"
+        },
+        {
+          "id": "wrong-owner",
+          "kind": "must_not",
+          "text": "gives a task to someone other than the person who took it"
+        }
+      ]
+    },
+    {
+      "id": "8-minutes-maybe",
+      "title": "Minutes: commitments and maybes",
+      "language": "pt",
+      "skill": "resumo",
+      "kind": "meeting",
+      "lines": 11,
+      "question": "Ata da reunião semanal de infraestrutura.",
+      "reference": "**Decisões:**\n- A janela de manutenção continua às terças, 22h.\n\n**Tarefas:**\n- Brasa — ajustar o limite do alerta de disco e a limpeza de logs — 22/11\n- Lúcio — atualizar a documentação da API de pagamentos — 25/11\n\n**Em aberto:**\n- Olhar o alerta de deploy lento (sem dono).\n- Revisar os custos da Azure (sem dono).",
+      "points": [
+        {
+          "id": "brasa",
+          "kind": "must",
+          "text": "gives Brasa the disk alert and log cleanup, due 22/11"
+        },
+        {
+          "id": "lucio",
+          "kind": "must",
+          "text": "gives Lúcio the payments API documentation, due 25/11"
+        },
+        {
+          "id": "window",
+          "kind": "must",
+          "text": "records that the maintenance window stays on Tuesdays at 22h"
+        },
+        {
+          "id": "deploy-task",
+          "kind": "must_not",
+          "text": "lists looking at the slow deploy alert as a task someone took"
+        },
+        {
+          "id": "azure-task",
+          "kind": "must_not",
+          "text": "lists reviewing the Azure costs as a task someone took"
+        }
+      ]
+    },
+    {
+      "id": "9-english-class",
+      "title": "English class: the follow-up",
+      "language": "en",
+      "skill": "follow-up-aula",
+      "kind": "class",
+      "lines": 17,
+      "question": "Follow-up da aula de inglês com o Kevin.",
+      "reference": "**Correções:**\n- \"I have 300 years\" → \"I'm 300\" ou \"I'm 300 years old\": em inglês a idade vem com o verbo to be.\n- \"Yesterday I go to the office\" → \"Yesterday I went to the office\": no passado, go vira went.\n- \"I am agree to stay late\" → \"I agreed to stay late\": agree já é verbo, sem am.\n\n**Vocabulário:**\n- to give someone a heads-up — avisar alguém com antecedência.\n- to catch up — conversar para se atualizar com alguém que você não vê há um tempo.\n\n**Dever de casa:**\n- Escrever um e-mail de cerca de 150 palavras avisando um cliente que um projeto atrasou, usando heads-up e catch up.\n\n**Próxima aula:**\n- Past perfect, na quinta.",
+      "points": [
+        {
+          "id": "years",
+          "kind": "must",
+          "text": "lists the correction from 'I have 300 years' to 'I'm 300 (years old)'"
+        },
+        {
+          "id": "went",
+          "kind": "must",
+          "text": "lists the correction from 'go' to 'went' in the sentence about yesterday"
+        },
+        {
+          "id": "agree",
+          "kind": "must",
+          "text": "lists the correction from 'I am agree' to 'I agree' or 'I agreed'"
+        },
+        {
+          "id": "heads-up",
+          "kind": "must",
+          "text": "teaches 'heads-up' as warning someone in advance"
+        },
+        {
+          "id": "catch-up",
+          "kind": "must",
+          "text": "teaches 'catch up' as talking to get updated with someone"
+        },
+        {
+          "id": "homework",
+          "kind": "must",
+          "text": "gives the homework: a 150-word email about a delayed project using both expressions"
+        },
+        {
+          "id": "next",
+          "kind": "must",
+          "text": "says the next class is about the past perfect"
+        },
+        {
+          "id": "since-ok",
+          "kind": "must_not",
+          "text": "marks 'I've been working here since 2024' as a mistake"
+        },
+        {
+          "id": "invented",
+          "kind": "must_not",
+          "text": "lists a correction the teacher did not make"
+        }
+      ]
+    }
+  ]
+}

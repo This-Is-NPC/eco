@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+source scripts/lib/desktop-entry.sh
+
+# Remove what scripts/install put under the prefix; sessions, config, models and
+# the agent skill stay.
+: "${HOME:?HOME is not set}"
+prefix="${PREFIX:-$HOME/.local}"
+if [ -x "$prefix/bin/eco" ]; then
+  "$prefix/bin/eco" stop
+fi
+rm -f "$HOME/.config/systemd/user/eco.service"
+systemctl --user daemon-reload
+rm -f "$prefix/bin/eco" \
+  "$prefix/share/applications/eco.desktop" \
+  "$prefix/share/icons/hicolor/scalable/apps/eco.svg"
+rm -rf "$prefix/share/eco/overlay" "$prefix/share/eco/hypr" "$prefix/share/licenses/eco"
+refresh_desktop_entries "$prefix"
+printf 'removed eco from %s\n' "$prefix"

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=eco
+GenericName=Voice sessions
+Comment=Voice sessions with an AI beside them: meetings, conversations, ideas
+Exec=eco start
+Icon=eco
+Terminal=false
+Categories=Office;
+Keywords=sessions;meeting;transcription;voice;ai;
+StartupWMClass=org.quickshell

@@ -1,0 +1,42 @@
+title = "Translation: lines already in English"
+skill = "translation"
+language = "pt"
+translate_to = "en"
+task = "Translate each line of the meeting into English."
+min_words = 25
+max_words = 110
+# The points the bad answer must fail, to check the graders.
+bad_fails = ["ship-it", "standup"]
+names = { Bartolomeu = "Bartolomeu (HemoNoite)" }
+transcript = [
+  ["Bartolomeu", "Let's ship it on Friday."],
+  ["me", "Concordo, mas antes eu rodo os testes de carga."],
+  ["Bartolomeu", "Ok, and we skip the standup tomorrow."],
+  ["me", "Fechado, a gente se fala na quinta à noite então."],
+]
+reference = """
+Let's ship it on Friday.
+Agreed, but first I'll run the load tests.
+Ok, and we skip the standup tomorrow.
+Deal, we'll talk on Thursday night then.
+"""
+bad = """
+Let's send it on Friday, they said.
+Agreed, but first I'll run the load tests.
+Ok, and we cancel the daily meeting tomorrow.
+Deal, we'll talk on Thursday night then.
+"""
+
+[[must]]
+id = "ship-it"
+text = "keeps 'Let's ship it on Friday.' as it is"
+regex = "ship it on Friday"
+
+[[must]]
+id = "load-tests"
+text = "says the speaker runs the load tests first"
+
+[[must]]
+id = "standup"
+text = "keeps 'we skip the standup tomorrow' as it is"
+regex = "skip the standup"

@@ -1,0 +1,47 @@
+title = "Translation: technical terms"
+skill = "translation"
+language = "pt"
+translate_to = "en"
+task = "Translate each line of the meeting into English."
+min_words = 30
+max_words = 120
+# The points the bad answer must fail, to check the graders.
+bad_fails = ["pr", "stage", "renamed"]
+names = { Bartolomeu = "Bartolomeu (HemoNoite)" }
+transcript = [
+  ["Bartolomeu", "Subi um hotfix no PR 482 pro bug do checkout de doação."],
+  ["me", "O pipeline do CI quebrou no stage de build de novo."],
+  ["Bartolomeu", "É o cache do runner, eu limpo e rodo o job de novo."],
+  ["me", "Beleza, depois faz o merge na main e marca o release 3.2.1."],
+]
+reference = """
+I pushed a hotfix in PR 482 for the donation checkout bug.
+The CI pipeline broke at the build stage again.
+It's the runner cache; I'll clear it and run the job again.
+Great, then merge it into main and tag release 3.2.1.
+"""
+bad = """
+I raised a quick fix in the request 482 for the error of the donation cashier.
+The pipe of the integration broke in the construction phase again.
+It is the runner's memory, I clean and run the work again.
+OK, then join with the principal and mark the launch 3.2.1.
+"""
+
+[[must]]
+id = "pr"
+text = "keeps 'PR 482' and 'hotfix' as they are"
+regex = "PR 482"
+
+[[must]]
+id = "stage"
+text = "keeps 'CI', 'pipeline' and 'build stage' as technical terms"
+regex = "build stage"
+
+[[must]]
+id = "merge"
+text = "keeps 'merge', 'main' and 'release 3.2.1'"
+regex = "3\\.2\\.1"
+
+[[must_not]]
+id = "renamed"
+text = "translates a technical term into a plain word (request for PR, construction for build, principal for main, launch for release)"

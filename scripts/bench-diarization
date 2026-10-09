@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Diarization error rate over a directory of WAV + RTTM (+ UEM) recordings.
+set -euo pipefail
+args=(bench diarization "$usage_dir")
+[[ -n "${usage_list:-}" ]] && args+=(--list "$usage_list")
+[[ -n "${usage_model:-}" ]] && args+=(--model "$usage_model")
+[[ -n "${usage_threshold:-}" ]] && args+=(--threshold "$usage_threshold")
+[[ -n "${usage_collar:-}" ]] && args+=(--collar "$usage_collar")
+[[ -n "${usage_output:-}" ]] && args+=(--output "$usage_output")
+exec cargo run --release --locked --quiet -- "${args[@]}"

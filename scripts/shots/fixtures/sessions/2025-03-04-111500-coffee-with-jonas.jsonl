@@ -1,0 +1,10 @@
+{"type": "session", "id": "4c7d1e9f0a26", "title": "Coffee with Jonas", "kind": "conversation", "source": "live", "language": "en", "started_at": 1741086900.0}
+{"type": "state", "state": "recording", "at": 1741086900.0}
+{"type": "transcriber", "model": "deepgram", "inputs": 2, "at": 1741086900.2}
+{"type": "speaker", "label": "Speaker 1", "name": "Jonas Weber", "at": 1741086901.0}
+{"type": "person", "label": "Speaker 1", "person": "e5b1c7d03a48", "at": 1741086901.0}
+{"type": "speech", "who": "Speaker 1", "text": "Did you try the new release of the editor?", "at": 1741086904.0}
+{"type": "speech", "who": "Me", "text": "Only the beta. The startup time is much better.", "at": 1741086911.0}
+{"type": "billed", "request": "8c3b0d9f-4a5e-4f7b-8c1d-3e4f5a6b7c83", "model": "deepgram", "seconds": 640.0, "share": 1.0, "at": 1741087540.0}
+{"type": "spent", "for": "transcription", "model": "deepgram", "request": "8c3b0d9f-4a5e-4f7b-8c1d-3e4f5a6b7c83", "usd": 0.0821, "at": 1741087600.0}
+{"type": "state", "state": "ended", "at": 1741087540.0}

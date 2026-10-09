@@ -1,0 +1,25 @@
+{"type": "session", "id": "3b8f02c6e917", "title": "Revisión de precios", "kind": "meeting", "source": "live", "language": "es", "started_at": 1741365000.0}
+{"type": "state", "state": "recording", "at": 1741365000.0}
+{"type": "transcriber", "model": "deepgram", "inputs": 2, "at": 1741365000.2}
+{"type": "tags", "tags": ["Acme"], "at": 1741365001.0}
+{"type": "speaker", "label": "Speaker 1", "name": "Sofia Alvarez", "at": 1741365001.0}
+{"type": "person", "label": "Speaker 1", "person": "f60c2a9e4b57", "at": 1741365001.0}
+{"type": "translation", "language": "en", "at": 1741365002.0}
+{"type": "speech", "who": "Speaker 1", "text": "Revisemos la propuesta de precios antes de enviarla a Acme.", "at": 1741365005.0}
+{"type": "translated", "language": "en", "text": "Let's review the pricing proposal before we send it to Acme.", "at": 1741365005.0}
+{"type": "spent", "for": "translation", "model": "google/gemini-2.5-flash", "usd": 2e-05, "at": 1741365006.0}
+{"type": "speech", "who": "Me", "text": "El plan anual tiene un descuento del quince por ciento.", "at": 1741365016.0}
+{"type": "translated", "language": "en", "text": "The yearly plan has a fifteen percent discount.", "at": 1741365016.0}
+{"type": "spent", "for": "translation", "model": "google/gemini-2.5-flash", "usd": 2e-05, "at": 1741365017.0}
+{"type": "speech", "who": "Speaker 1", "text": "¿Y el soporte prioritario está incluido o es aparte?", "at": 1741365029.0}
+{"type": "translated", "language": "en", "text": "And is priority support included or extra?", "at": 1741365029.0}
+{"type": "spent", "for": "translation", "model": "google/gemini-2.5-flash", "usd": 2e-05, "at": 1741365030.0}
+{"type": "speech", "who": "Me", "text": "Está incluido en el plan anual, aparte en el mensual.", "at": 1741365041.0}
+{"type": "translated", "language": "en", "text": "It is included in the yearly plan, extra in the monthly one.", "at": 1741365041.0}
+{"type": "spent", "for": "translation", "model": "google/gemini-2.5-flash", "usd": 2e-05, "at": 1741365042.0}
+{"type": "suggestion", "id": "0c5d7e91", "action": "chat", "model": "google/gemini-2.5-flash", "prompt": "¿Qué falta decidir?", "request": "Question: ¿Qué falta decidir?", "text": "Falta confirmar si el **soporte prioritario** se ofrece también en el plan mensual.", "at": 1741365052.0}
+{"type": "spent", "for": "answer", "model": "google/gemini-2.5-flash", "usd": 0.00019, "at": 1741365054.0, "answer": "0c5d7e91"}
+{"type": "translated", "language": "en", "text": "What is left is to confirm whether **priority support** is offered on the monthly plan too.", "id": "0c5d7e91"}
+{"type": "billed", "request": "6a1f8b7d-2e3c-4d5f-8a9b-1c2d3e4f5a61", "model": "deepgram", "seconds": 1460.0, "share": 1.0, "at": 1741366460.0}
+{"type": "spent", "for": "transcription", "model": "deepgram", "request": "6a1f8b7d-2e3c-4d5f-8a9b-1c2d3e4f5a61", "usd": 0.1874, "at": 1741366520.0}
+{"type": "state", "state": "ended", "at": 1741366460.0}

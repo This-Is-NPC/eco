@@ -1,0 +1,8 @@
+{"type": "session", "id": "5d8e2f0a1b37", "title": "Offline mode for the field app", "kind": "idea", "source": "live", "language": "en", "started_at": 1741030800.0}
+{"type": "state", "state": "recording", "at": 1741030800.0}
+{"type": "transcriber", "model": "whisper-lan", "inputs": 1, "at": 1741030800.2}
+{"type": "tags", "tags": ["Product"], "at": 1741030801.0}
+{"type": "speech", "who": "Me", "text": "Field teams lose signal in basements. The app could queue every change and sync when it is back.", "at": 1741030803.0}
+{"type": "speech", "who": "Me", "text": "Conflicts are rare because each technician owns their own work orders.", "at": 1741030815.0}
+{"type": "note", "id": "a3c9e1f5", "text": "Check how big the queue gets after a full day offline.", "at": 1741030822.0}
+{"type": "state", "state": "ended", "at": 1741030895.0}

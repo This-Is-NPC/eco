@@ -1,0 +1,8 @@
+[Unit]
+Description=eco voice sessions daemon
+
+[Service]
+Type=exec
+ExecStart=@ECO_BINARY@ daemon --headless
+Restart=on-failure
+RestartSec=2

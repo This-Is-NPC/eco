@@ -1,0 +1,116 @@
+## Task index for eco.
+##
+## Every task is a one-line reference to a script under scripts/, except
+## bench, which runs the self-contained benchmark/ tool.
+
+[tools]
+rust = { version = "1.97.1", components = "rustfmt,clippy" }
+python = "3.14.8"
+
+[env]
+_.file = ".env"
+
+[tasks.setup]
+description = "Download the Silero VAD and WeSpeaker CAM++ models into the eco data directory"
+run = "scripts/setup"
+
+[tasks.install]
+description = "Build eco for release and install it under ~/.local (PREFIX overrides): binary, overlay, Hyprland rules, launcher, icon, agent skill"
+run = "scripts/install"
+
+[tasks."readme:gif"]
+description = "Render the README's animated GIF from packaging/eco.omapixel (needs omapixel)"
+run = "scripts/readme-gif"
+sources = ["packaging/eco.omapixel"]
+outputs = ["docs/img/eco.gif"]
+
+[tasks.shots]
+description = "Regenerate the pictures in docs/img from the real overlay, offscreen, against an isolated daemon seeded with synthetic fixtures"
+depends = ["setup"]
+run = "scripts/shots/shoot"
+sources = ["src/**/*.rs", "Cargo.toml", "Cargo.lock", "overlay/**/*", "scripts/shots/**/*"]
+outputs = ["docs/img/[0-9][0-9]-*.png"]
+
+[tasks.uninstall]
+description = "Remove the installed eco without touching notes, config, models or the agent skill"
+confirm = "Remove the installed eco?"
+run = "scripts/uninstall"
+
+[tasks.start]
+description = "Build and run the checkout daemon and overlay in the foreground; pass development flags after --"
+run = "scripts/start"
+
+[tasks.lint]
+description = "Check formatting and clippy warnings"
+run = "scripts/lint"
+
+[tasks.format]
+description = "Format the Rust sources"
+run = "scripts/format"
+
+[tasks.test]
+description = "Run the test suite (the VAD and speaker parity tests need the models)"
+depends = ["setup"]
+run = "scripts/test"
+
+[tasks."cli:gen"]
+description = "Regenerate docs/cli.md from the eco binary's help"
+run = "scripts/cli-gen"
+sources = ["src/**/*.rs", "Cargo.toml", "Cargo.lock", "scripts/cli-doc"]
+outputs = ["docs/cli.md"]
+
+[tasks."cli:check"]
+description = "Fail when docs/cli.md is not what the eco binary's help generates"
+run = "scripts/cli-check"
+
+[tasks."docs:check"]
+description = "Fail when a relative link or image in README.md or docs/*.md does not resolve"
+run = "scripts/docs-check"
+
+[tasks.check]
+description = "Run lint, tests, the docs/cli.md check and the docs link check"
+depends = ["lint", "test", "cli:check", "docs:check"]
+
+[tasks."bench:llm"]
+description = "Measure time to first token of candidate models on OpenRouter (needs OPENROUTER_API_KEY)"
+run = "scripts/bench-llm"
+
+[tasks."bench:diarization"]
+description = "Diarization error rate of eco on recordings with reference RTTMs (AMI, annotated notes)"
+usage = '''
+arg "<dir>" help="Directory of <name>.wav (16 kHz mono) with <name>.rttm and optional <name>.uem"
+flag "--list <file>" help="File naming the recordings to run, one per line"
+flag "--model <file>" help="Speaker embedding model (ONNX); the one setup downloads by default"
+flag "--threshold <values>" help="Clustering thresholds to compare, e.g. 0.55,0.65,0.75"
+flag "--collar <seconds>" help="Seconds forgiven around reference boundaries, half on each side"
+flag "--output <dir>" help="Write eco's turns there as <name>.rttm (first threshold)"
+'''
+run = "scripts/bench-diarization"
+
+[tasks.overlay]
+description = "Run only the overlay, reloading QML on save; pair with `mise run start -- --headless`"
+run = "scripts/overlay"
+
+[tasks."preview:controls"]
+description = "Open the interactive control lab without changing session data"
+run = "scripts/preview-controls"
+
+[tasks.bench]
+description = "Benchmark the models in benchmark/bench.toml on synthetic conversations; open benchmark/bench.html to read the runs"
+run = "benchmark/bench.py run"
+usage = '''
+flag "--label <label>" help="Names the run folder (bench.toml's label by default)"
+flag "--models <models>" help="Only these models of bench.toml, by name, comma-separated"
+'''
+
+[tasks."bench:grade"]
+description = "Grade a benchmark run's answers again with today's answer keys and graders, without asking the models again"
+run = "benchmark/bench.py grade"
+usage = '''
+arg "<folder>" help="The run folder, e.g. benchmark/bench-2026-10-08-2343-sadao"
+'''
+
+[tasks."bench:index"]
+description = "Rebuild benchmark/runs.js from the run folders, without calling any model"
+run = "benchmark/bench.py index"
+

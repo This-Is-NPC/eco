@@ -1,0 +1,414 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>eco · answer benchmark</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --bg: #05182e; --panel: #0a2540; --fg: #f6dcac; --dim: #8cbfb8; --line: #1d3f5c;
+    --accent: #faa968; --good: #2bb3a3; --bad: #f85525; --warn: #e97b3c;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 13px/1.5 ui-monospace, "JetBrains Mono", monospace; }
+  header { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; padding: 18px 28px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--bg); z-index: 2; }
+  header h1 { font-size: 15px; letter-spacing: 4px; margin: 0 12px 0 0; }
+  header h1 span { color: var(--accent); }
+  label { color: var(--dim); font-size: 11px; letter-spacing: 2px; text-transform: uppercase; }
+  select { background: var(--panel); color: var(--fg); border: 1px solid var(--line); padding: 5px 8px; font: inherit; }
+  select:focus, button:focus, summary:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  main { padding: 20px 28px 60px; display: grid; gap: 20px; max-width: 1400px; }
+  /* A wide table scrolls inside its section instead of widening the page. */
+  main > *, .grid > * { min-width: 0; }
+  section { border: 1px solid var(--line); background: rgba(10, 37, 64, 0.5); padding: 16px 18px; }
+  h2 { font-size: 11px; letter-spacing: 3px; text-transform: uppercase; color: var(--accent); margin: 0 0 12px; }
+  h2 small { color: var(--dim); letter-spacing: 1px; text-transform: none; margin-left: 8px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 20px; }
+  .meta { display: flex; flex-wrap: wrap; gap: 8px 28px; color: var(--dim); }
+  .meta b { color: var(--fg); font-weight: normal; }
+  .badge { padding: 1px 6px; border: 1px solid; font-size: 11px; }
+  .ok { color: var(--good); } .no { color: var(--bad); } .warn { color: var(--warn); }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { padding: 6px 10px; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { color: var(--dim); font-weight: normal; font-size: 11px; letter-spacing: 1px; text-transform: uppercase; }
+  th:first-child, td:first-child { text-align: left; }
+  td small { color: var(--dim); }
+  .delta { font-size: 11px; margin-left: 4px; }
+  svg { width: 100%; height: auto; display: block; }
+  svg text { fill: var(--dim); font: 11px ui-monospace, monospace; }
+  .legend { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 8px; color: var(--dim); font-size: 11px; }
+  .legend i { display: inline-block; width: 10px; height: 10px; margin-right: 6px; vertical-align: -1px; }
+  .scenario { border-top: 1px solid var(--line); padding-top: 14px; margin-top: 14px; }
+  .scenario:first-of-type { border-top: 0; margin-top: 0; padding-top: 0; }
+  .question { color: var(--fg); margin: 4px 0 10px; }
+  details summary { cursor: pointer; color: var(--dim); }
+  .answers { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 12px; margin-top: 10px; }
+  .answer { border: 1px solid var(--line); padding: 10px 12px; background: var(--panel); }
+  .answer h3 { margin: 0 0 6px; font-size: 12px; color: var(--accent); display: flex; justify-content: space-between; gap: 8px; }
+  .answer .text { white-space: pre-wrap; margin: 8px 0; }
+  .answer .text mark { background: transparent; color: var(--bad); border-bottom: 2px solid var(--bad); }
+  .checks { list-style: none; padding: 0; margin: 6px 0; font-size: 12px; }
+  .checks li { margin: 2px 0; }
+  .claims { font-size: 12px; margin: 6px 0 0; padding-left: 18px; }
+  .tag { font-size: 10px; letter-spacing: 1px; text-transform: uppercase; padding: 0 4px; border: 1px solid currentColor; margin-right: 6px; }
+  .runs { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+  button { background: transparent; color: var(--dim); border: 1px solid var(--line); font: inherit; padding: 2px 10px; cursor: pointer; white-space: nowrap; }
+  button[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
+  .empty { color: var(--dim); padding: 40px; text-align: center; }
+  section { position: relative; }
+  h2:has(.expand) { padding-right: 40px; }
+  h2 .expand { position: absolute; top: 12px; right: 12px; font-size: 14px; padding: 0 8px; }
+  dialog#zoom { width: 96vw; max-width: 1400px; height: 94vh; background: var(--bg); color: var(--fg); border: 1px solid var(--accent); padding: 18px 24px; }
+  dialog#zoom::backdrop { background: rgba(2, 12, 23, 0.8); }
+  dialog#zoom .head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+  dialog#zoom .head h2 { margin: 0; }
+  dialog#zoom svg text { font-size: 13px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>ECO <span>/</span> BENCHMARK</h1>
+  <label for="run">Run</label><select id="run"></select>
+  <label for="against">Compare with</label><select id="against"></select>
+</header>
+<main id="page"></main>
+<dialog id="zoom" aria-labelledby="zoom-title">
+  <div class="head"><h2 id="zoom-title"></h2><button id="zoom-close">close · esc</button></div>
+  <div id="zoom-body"></div>
+</dialog>
+<script src="runs.js"></script>
+<script>
+"use strict";
+const RUNS = (window.BENCH_RUNS || []).slice().reverse();
+const COLORS = ["#faa968", "#8cbfb8", "#c9a0ff", "#f6dcac", "#2bb3a3", "#e97b3c"];
+const page = document.getElementById("page");
+const runSelect = document.getElementById("run");
+const againstSelect = document.getElementById("against");
+let shownRun = 1;
+
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const pct = v => v == null ? "—" : `${Math.round(v * 100)}%`;
+const ms = v => v == null ? "—" : v >= 1000 ? `${(v / 1000).toFixed(1)} s` : `${v} ms`;
+const usd = v => v == null ? "—" : `$${v < 0.01 ? v.toFixed(5) : v.toFixed(3)}`;
+const ci = c => c && c[0] != null ? `<small>${pct(c[0])}–${pct(c[1])}</small>` : "";
+const colorOf = (run, name) => COLORS[run.model_order.indexOf(name) % COLORS.length];
+
+function svg(width, height, body) { return `<svg viewBox="0 0 ${width} ${height}" role="img">${body}</svg>`; }
+function legend(run) {
+  return `<div class="legend">${run.model_order.map(n => `<span><i style="background:${colorOf(run, n)}"></i>${esc(n)}</span>`).join("")}</div>`;
+}
+
+function fillSelects() {
+  if (!RUNS.length) {
+    page.innerHTML = `<div class="empty">No runs yet: <code>mise run bench</code> writes one.</div>`;
+    return false;
+  }
+  runSelect.innerHTML = RUNS.map((r, i) => `<option value="${i}">${esc(r.id)}</option>`).join("");
+  againstSelect.innerHTML = `<option value="">—</option>` + RUNS.map((r, i) => `<option value="${i}">${esc(r.id)}</option>`).join("");
+  return true;
+}
+
+function delta(now, before, better, format) {
+  if (now == null || before == null) return "";
+  const d = now - before;
+  if (Math.abs(d) < 1e-9) return `<span class="delta">=</span>`;
+  const good = better === "up" ? d > 0 : d < 0;
+  return `<span class="delta ${good ? "ok" : "no"}">${d > 0 ? "+" : "−"}${format(Math.abs(d))}</span>`;
+}
+
+function summaryTable(run, base) {
+  const rows = run.model_order.map(name => {
+    const m = run.models[name], b = base && base.models[name];
+    const cell = (key, fmt, better, extra = "") => `<td>${fmt(m[key])}${extra}${b ? delta(m[key], b[key], better, fmt) : ""}</td>`;
+    return `<tr><td><i style="display:inline-block;width:8px;height:8px;background:${colorOf(run, name)};margin-right:8px"></i>${esc(name)}<br><small>${esc(m.model)}</small></td>
+      ${cell("pass_rate", pct, "up", " " + ci(m.pass_ci))}
+      ${cell("coverage", pct, "up", " " + ci(m.coverage_ci))}
+      ${cell("fidelity", pct, "up", " " + ci(m.fidelity_ci))}
+      ${cell("win_rate", pct, "up", ` <small>${m.wins}/${m.ties}/${m.losses}</small>`)}
+      ${cell("score", v => v == null ? "—" : v.toFixed(1), "up", m.score_ci && m.score_ci[0] != null ? ` <small>${m.score_ci[0].toFixed(1)}–${m.score_ci[1].toFixed(1)}</small>` : "")}
+      ${cell("disputed", v => v, "down")}
+      ${cell("violations", v => v, "down")}
+      ${cell("language_fails", v => v, "down")}
+      ${cell("length_fails", v => v, "down")}
+      ${cell("section_fails", v => v ?? 0, "down")}
+      ${cell("invented_numbers", v => v, "down")}
+      ${cell("dropped_numbers", v => v ?? 0, "down")}
+      ${cell("ttft_p50", ms, "down", ` <small>p95 ${ms(m.ttft_p95)}</small>`)}
+      ${cell("total_p50", ms, "down", ` <small>p95 ${ms(m.total_p95)}</small>`)}
+      ${cell("cost_per_answer", usd, "down")}
+      ${cell("cached_share", pct, "up")}</tr>`;
+  }).join("");
+  return `<section><h2>Models<small>pass, coverage, fidelity and wins with 95% intervals over scenarios${base ? " · deltas against " + esc(base.id) : ""}</small></h2>
+    <div style="overflow-x:auto"><table><thead><tr><th>Model</th><th>Pass</th><th>Coverage</th><th>Fidelity</th><th>Wins <small>w/t/l</small></th><th>Score <small>1–5</small></th><th>Disputed</th>
+    <th>Forbidden</th><th>Language</th><th>Length</th><th>Sections</th><th>Invented nº</th><th>Dropped nº</th><th>First word</th><th>Total</th><th>Cost</th><th>Cached</th></tr></thead>
+    <tbody>${rows}</tbody></table></div></section>`;
+}
+
+function runMeta(run) {
+  const answers = run.answers.filter(a => a.ok);
+  const spent = answers.reduce((s, a) => s + (a.cost_usd || 0), 0);
+  const v = run.validation, r = run.review;
+  const trusted = v.accuracy >= 0.9;
+  return `<section><h2>${esc(run.label)}<small>${esc(run.date)}${run.graded ? " · graded " + esc(run.graded) : ""}</small></h2><div class="meta">
+    <span>scenarios <b>${run.scenarios.length}</b></span><span>runs <b>${run.runs}</b></span><span>answers <b>${run.answers.length}</b></span>
+    <span>answers cost <b>${usd(spent)}</b></span><span>graders cost <b>${usd(run.judge_cost_usd)}</b></span></div>
+    <div class="meta" style="margin-top:8px">
+      <span>graders: <b>${esc(run.decider)}</b> decides · <b>${esc(run.judges[0])}</b> examines · <b>${esc(run.judges[1])}</b> challenges</span>
+      <span>on the answer keys: <b class="${trusted ? "ok" : "no"}">${pct(v.accuracy)}</b> <small>(${v.correct}/${v.total})</small>${trusted ? "" : ' <span class="badge no">not trusted</span>'}</span></div>
+    <div class="meta" style="margin-top:8px">
+      <span>points: <b>${r.by_regex}</b> by regex · <b>${r.by_decider}</b> by the decider · <b>${r.examined}</b> examined</span>
+      <span>challenger agreed with <b>${pct(r.agreement)}</b> of ${r.reviewed} verdicts · <b class="${r.disputed ? "warn" : "ok"}">${r.disputed}</b> disputed</span>
+      <span>pairs whose pick followed the order: <b>${r.flipped_pairs}</b>/${r.pairs} <small>(evened out by averaging both orders)</small></span></div></section>`;
+}
+
+// A chart's panel: its title, an expand button and the chart. `big` draws it for
+// the full-screen view: twice as wide, every label whole, values written on it,
+// and a table of the exact numbers below.
+function panel(id, title, note, content) {
+  return `<section><h2>${title}<small>${note}</small><button class="expand" data-zoom="${id}" title="Open full screen" aria-label="Open ${esc(title)} full screen">⤢</button></h2>${content}</section>`;
+}
+function table(head, rows) {
+  return `<div style="overflow-x:auto;margin-top:16px"><table><thead><tr>${head.map(h => `<th>${h}</th>`).join("")}</tr></thead>
+    <tbody>${rows.map(r => `<tr>${r.map(c => `<td>${c}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+}
+const swatch = (run, n) => `<i style="display:inline-block;width:8px;height:8px;background:${colorOf(run, n)};margin-right:8px"></i>${esc(n)}`;
+const range = (c, f) => c && c[0] != null ? ` <small>${f(c[0])}–${f(c[1])}</small>` : "";
+const one = v => v == null ? "—" : v.toFixed(1);
+
+function latencyChart(run, big = false) {
+  const names = run.model_order, models = run.models;
+  const max = Math.max(...names.map(n => models[n].total_p95 || 0), 1);
+  const W = big ? 1200 : 640, row = big ? 70 : 46, left = big ? 220 : 150, H = names.length * row + 30;
+  const x = v => left + (W - left - (big ? 160 : 20)) * (v / max);
+  let body = "";
+  names.forEach((n, i) => {
+    const m = models[n], y = 10 + i * row, c = colorOf(run, n), h = big ? 20 : 14;
+    body += `<text x="0" y="${y + 18}">${esc(n)}</text>
+      <rect x="${left}" y="${y + 4}" width="${x(m.total_p50 || 0) - left}" height="${h}" fill="${c}" opacity="0.35"><title>total p50 ${ms(m.total_p50)}</title></rect>
+      <line x1="${x(m.total_p95 || 0)}" x2="${x(m.total_p95 || 0)}" y1="${y + 2}" y2="${y + h + 6}" stroke="${c}" opacity="0.6"/>
+      <rect x="${left}" y="${y + h + 8}" width="${x(m.ttft_p50 || 0) - left}" height="${h - 4}" fill="${c}"><title>first word p50 ${ms(m.ttft_p50)}</title></rect>
+      <line x1="${x(m.ttft_p95 || 0)}" x2="${x(m.ttft_p95 || 0)}" y1="${y + h + 6}" y2="${y + 2 * h + 8}" stroke="${c}"/>
+      <text x="${x(m.total_p50 || 0) + 6}" y="${y + h}">${ms(m.total_p50)}${big ? ` · p95 ${ms(m.total_p95)}` : ""}</text>
+      <text x="${x(m.ttft_p50 || 0) + 6}" y="${y + 2 * h + 4}">${ms(m.ttft_p50)}${big ? ` · p95 ${ms(m.ttft_p95)}` : ""}</text>`;
+  });
+  const chart = svg(W, H, body);
+  if (!big) return panel("latency", "Latency", "first word (solid) and whole answer (faint): p50 bars, p95 ticks", chart);
+  return chart + table(["Model", "First word p50", "First word p95", "Whole answer p50", "Whole answer p95"],
+    names.map(n => { const m = models[n]; return [swatch(run, n), ms(m.ttft_p50), ms(m.ttft_p95), ms(m.total_p50), ms(m.total_p95)]; }));
+}
+
+function qualityChart(run, big = false) {
+  const names = run.model_order, models = run.models;
+  // The 1-5 score is drawn on the same 0-100% axis: 1 at the bottom, 5 at the top.
+  const unit = v => v == null ? null : (v - 1) / 4;
+  const scaled = Object.fromEntries(names.map(n => [n, Object.assign({}, models[n], { score_unit: unit(models[n].score), score_unit_ci: (models[n].score_ci || []).map(unit) })]));
+  const metrics = [["pass_rate", "pass_ci", "pass"], ["coverage", "coverage_ci", "coverage"], ["fidelity", "fidelity_ci", "fidelity"], ["score_unit", "score_unit_ci", "score"], ["win_rate", "win_ci", "wins"]];
+  const W = big ? 1200 : 640, H = big ? 460 : 230, top = big ? 26 : 10, bottom = 30, left = big ? 50 : 34;
+  const group = (W - left) / metrics.length, bar = Math.min(big ? 56 : 26, (group - 20) / names.length);
+  const y = v => top + (H - top - bottom) * (1 - v);
+  let body = [0, 0.5, 1].map(t => `<line x1="${left}" x2="${W}" y1="${y(t)}" y2="${y(t)}" stroke="#1d3f5c"/><text x="0" y="${y(t) + 4}">${pct(t)}</text>`).join("");
+  metrics.forEach(([key, ciKey, title], g) => {
+    const gx = left + g * group + 10;
+    names.forEach((n, i) => {
+      const m = scaled[n], v = m[key], c = colorOf(run, n), bx = gx + i * bar;
+      if (v == null) return;
+      const shown = key === "score_unit" ? one(models[n].score) : pct(v);
+      body += `<rect x="${bx}" y="${y(v)}" width="${bar - 4}" height="${y(0) - y(v)}" fill="${c}"><title>${esc(n)} ${title} ${shown}</title></rect>`;
+      const k = m[ciKey];
+      if (k && k[0] != null) body += `<line x1="${bx + (bar - 4) / 2}" x2="${bx + (bar - 4) / 2}" y1="${y(k[0])}" y2="${y(k[1])}" stroke="#f6dcac" opacity="0.7"/>`;
+      if (big) body += `<text x="${bx + (bar - 4) / 2}" y="${y(Math.max(v, (k && k[1]) || 0)) - 6}" text-anchor="middle" style="fill:#f6dcac">${shown}</text>`;
+    });
+    body += `<text x="${gx}" y="${H - 8}">${title}</text>`;
+  });
+  const chart = svg(W, H, body) + legend(run);
+  if (!big) return panel("quality", "Quality", "bars with 95% intervals over scenarios; the 1–5 score spans the same axis", chart);
+  return chart + table(["Model", "Pass", "Coverage", "Fidelity", "Score 1–5", "Wins (w/t/l)"],
+    names.map(n => { const m = models[n]; return [swatch(run, n), pct(m.pass_rate) + range(m.pass_ci, pct), pct(m.coverage) + range(m.coverage_ci, pct),
+      pct(m.fidelity) + range(m.fidelity_ci, pct), one(m.score) + range(m.score_ci, one), `${pct(m.win_rate)}${range(m.win_ci, pct)} <small>${m.wins}/${m.ties}/${m.losses}</small>`]; }));
+}
+
+function costChart(run, big = false) {
+  const names = run.model_order, models = run.models;
+  const maxCost = Math.max(...names.map(n => models[n].cost_per_answer || 0), 1e-6) * 1.15;
+  const W = big ? 1200 : 640, H = big ? 520 : 260, left = big ? 60 : 44, bottom = 34, top = 20;
+  const x = v => left + (W - left - 20) * (v / maxCost);
+  const y = v => top + (H - top - bottom) * (1 - v);
+  let body = [0, 0.5, 1].map(t => `<line x1="${left}" x2="${W}" y1="${y(t)}" y2="${y(t)}" stroke="#1d3f5c"/><text x="0" y="${y(t) + 4}">${pct(t)}</text>`).join("");
+  body += `<text x="${left}" y="${H - 6}">cost per answer →</text><text x="${W - 10}" y="${H - 6}" text-anchor="end">${usd(maxCost)}</text>`;
+  names.forEach(n => {
+    const m = models[n];
+    if (m.fidelity == null) return;
+    const cx = x(m.cost_per_answer || 0), cy = y(m.fidelity);
+    const label = big ? `${esc(n)} · ${usd(m.cost_per_answer)} · fidelity ${pct(m.fidelity)}` : esc(n);
+    // Labels near the right edge go to the left of their point, so they stay in view.
+    const right = cx > W - (big ? 420 : 170);
+    body += `<circle cx="${cx}" cy="${cy}" r="${big ? 9 : 7}" fill="${colorOf(run, n)}"><title>${esc(n)}: ${usd(m.cost_per_answer)} · fidelity ${pct(m.fidelity)}</title></circle>
+      <text x="${right ? cx - 14 : cx + 14}" y="${cy + 4}" text-anchor="${right ? "end" : "start"}">${label}</text>`;
+  });
+  const chart = svg(W, H, body);
+  if (!big) return panel("cost", "Cost × fidelity", "top left is cheap and faithful", chart);
+  return chart + table(["Model", "Cost per answer", "Fidelity", "Score 1–5", "Prompt from cache"],
+    names.map(n => { const m = models[n]; return [swatch(run, n), usd(m.cost_per_answer), pct(m.fidelity) + range(m.fidelity_ci, pct), one(m.score), pct(m.cached_share)]; }));
+}
+
+// Why the answers of one model in one scenario failed, by reason.
+function issuesOf(answers) {
+  return [...new Set(answers.flatMap(a => [...a.violations.map(v => "forbidden: " + v), ...(a.gates.language_ok ? [] : ["language"]),
+    ...(a.gates.length_ok ? [] : [`length ${a.gates.words}`]), ...((a.gates.missing_sections || []).length ? ["sections"] : []),
+    ...(a.gates.invented_numbers.length ? ["numbers " + a.gates.invented_numbers.join(",")] : []),
+    ...((a.gates.dropped_numbers || []).length ? ["dropped " + a.gates.dropped_numbers.join(",")] : [])]))];
+}
+
+function heatmap(run, big = false) {
+  const names = run.model_order;
+  const W = big ? 1200 : 640, left = big ? 430 : 210, top = 26, row = big ? 40 : 30;
+  const cell = Math.min(big ? 250 : 130, (W - left) / names.length), H = top + run.scenarios.length * row + 8;
+  const clip = (t, n) => t.length > n ? t.slice(0, n - 1) + "…" : t;
+  let body = names.map((n, i) => `<text x="${left + i * cell + 6}" y="16">${esc(n)}</text>`).join("");
+  const rows = [];
+  run.scenarios.forEach((s, r) => {
+    const y = top + r * row;
+    body += `<text x="0" y="${y + row / 2 + 4}">${esc(big ? s.title : clip(s.title, 30))}</text>`;
+    const why = [];
+    names.forEach((n, i) => {
+      const got = run.answers.filter(a => a.ok && a.model === n && a.scenario === s.id);
+      if (!got.length) return why.push("—");
+      const score = got.reduce((t, a) => t + a.passed, 0) / got.length;
+      const cov = got.reduce((t, a) => t + a.coverage, 0) / got.length;
+      const missing = [...new Set(got.flatMap(a => s.points.filter(p => p.kind === "must" && !a.points[p.id].present).map(p => "missing " + p.id)))];
+      const issues = [...new Set([...issuesOf(got), ...missing])];
+      const fill = score >= 0.99 ? "#2bb3a3" : score > 0 ? "#e97b3c" : "#f85525";
+      body += `<rect x="${left + i * cell + 2}" y="${y + 2}" width="${cell - 4}" height="${row - 4}" fill="${fill}" opacity="${0.25 + 0.6 * cov}"><title>${esc(n)} · ${esc(s.title)}
+passed ${pct(score)} · coverage ${pct(cov)}${issues.length ? "\nfailed: " + issues.join(", ") : ""}</title></rect>
+        <text x="${left + i * cell + 8}" y="${y + row / 2 + 4}" style="fill:#05182e">${pct(score)}${big ? ` passed · ${pct(cov)} covered` : ""}</text>`;
+      why.push(issues.length ? `<span class="no">${esc(issues.join(" · "))}</span>` : `<span class="ok">—</span>`);
+    });
+    rows.push([esc(s.title), ...why]);
+  });
+  const chart = svg(W, H, body);
+  if (!big) return panel("heatmap", "Scenarios × models", "share of answers that passed; brighter means more required points covered", chart);
+  return chart + table(["Scenario · what failed", ...names.map(n => swatch(run, n))], rows);
+}
+
+const HISTORY = [["pass_rate", "pass", pct], ["coverage", "coverage", pct], ["fidelity", "fidelity", pct], ["score", "score", one], ["win_rate", "wins", pct], ["ttft_p50", "first word p50", ms], ["cost_per_answer", "cost per answer", usd]];
+let historyMetric = 0;
+function history(run, big = false) {
+  const runs = RUNS.slice().reverse();
+  const [key, , fmt] = HISTORY[historyMetric];
+  const names = [...new Set(runs.flatMap(r => r.model_order))];
+  const values = runs.flatMap(r => names.map(n => r.models[n] ? r.models[n][key] : null)).filter(v => v != null);
+  const max = key === "score" ? 5 : key.endsWith("rate") || key === "coverage" || key === "fidelity" ? 1 : Math.max(...values, 1e-9);
+  const W = big ? 1200 : 640, H = big ? 460 : 230, left = big ? 80 : 60, top = 20, bottom = 40;
+  const x = i => left + (runs.length === 1 ? (W - left) / 2 : (W - left - 120) * i / (runs.length - 1));
+  const y = v => top + (H - top - bottom) * (1 - v / max);
+  let body = [0, 0.5, 1].map(t => `<line x1="${left}" x2="${W}" y1="${y(t * max)}" y2="${y(t * max)}" stroke="#1d3f5c"/><text x="0" y="${y(t * max) + 4}">${fmt(t * max)}</text>`).join("");
+  runs.forEach((r, i) => body += `<text x="${x(i)}" y="${H - 8}" text-anchor="middle">${esc(big ? r.label + " · " + r.date.slice(5, 16).replace("T", " ") : r.date.slice(5, 16).replace("T", " "))}</text>`);
+  names.forEach((n, k) => {
+    const pts = runs.map((r, i) => r.models[n] && r.models[n][key] != null ? [x(i), y(r.models[n][key]), r.models[n][key]] : null).filter(Boolean);
+    const c = COLORS[k % COLORS.length];
+    if (pts.length > 1) body += `<polyline points="${pts.map(p => p[0] + "," + p[1]).join(" ")}" fill="none" stroke="${c}" stroke-width="2"/>`;
+    pts.forEach(p => body += `<circle cx="${p[0]}" cy="${p[1]}" r="${big ? 5 : 4}" fill="${c}"><title>${esc(n)} ${fmt(p[2])}</title></circle>` +
+      (big ? `<text x="${p[0] + 8}" y="${p[1] - 8}" style="fill:${c}">${fmt(p[2])}</text>` : ""));
+  });
+  const buttons = HISTORY.map((h, i) => `<button aria-pressed="${i === historyMetric}" data-history="${i}">${h[1]}</button>`).join("");
+  const chart = `<div class="runs">${buttons}</div>${svg(W, H, body)}
+    <div class="legend">${names.map((n, k) => `<span><i style="background:${COLORS[k % COLORS.length]}"></i>${esc(n)}</span>`).join("")}</div>`;
+  if (!big) return panel("history", "History", "every run, oldest first", chart);
+  return chart + table(["Run", ...names.map(esc)], runs.map(r => [esc(r.id), ...names.map(n => r.models[n] ? fmt(r.models[n][key]) : "—")]));
+}
+
+const CHARTS = { quality: ["Quality", qualityChart], latency: ["Latency", latencyChart], cost: ["Cost × fidelity", costChart], heatmap: ["Scenarios × models", heatmap], history: ["History", history] };
+
+// The answer as it reads: bold Markdown shown bold, invented numbers underlined.
+function markNumbers(text, invented) {
+  let html = esc(text).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
+  for (const n of invented) html = html.split(esc(n)).join(`<mark title="not in the sources">${esc(n)}</mark>`);
+  return html;
+}
+
+function answerCard(run, scenario, a) {
+  if (!a.ok) return `<div class="answer"><h3>${esc(a.model)}<span class="no">failed</span></h3><div>${esc(a.error)}</div></div>`;
+  // How each point was decided, and what backs it: the regex match, the decider's
+  // probability, the examiner's quote, or the challenge that disputed it.
+  const how = v => !v ? "" : v.by === "regex" ? `regex: ${v.quote}`
+    : v.by === "decider" ? `decider: p=${v.probability.toFixed(2)}`
+    : v.by === "examined" ? `examined (decider p=${v.probability == null ? "—" : v.probability.toFixed(2)}), challenger agreed${v.quote ? ": " + v.quote : ""}`
+    : `disputed: ${v.challenge ? v.challenge.reason + (v.challenge.quote ? " — " + v.challenge.quote : "") : ""}`;
+  const checks = scenario.points.map(p => {
+    const v = a.points[p.id], hit = v && v.present;
+    const good = p.kind === "must" ? hit : !hit;
+    const mark = v && v.by === "disputed" ? "?" : good ? "✓" : "✗";
+    return `<li class="${v && v.by === "disputed" ? "warn" : good ? "ok" : "no"}" title="${esc(how(v))}">${mark} <span class="tag">${p.kind === "must" ? "must" : "must not"}</span>${esc(p.text)}</li>`;
+  }).join("");
+  const g = a.gates;
+  const gates = [`<span class="${g.language_ok ? "ok" : "no"}">language ${esc(g.language)}</span>`, `<span class="${g.length_ok ? "ok" : "no"}">${g.words} words</span>`,
+    `<span class="${g.invented_numbers.length ? "no" : "ok"}">${g.invented_numbers.length ? "invented: " + esc(g.invented_numbers.join(", ")) : "numbers ok"}</span>`,
+    ...((g.missing_sections || []).length ? [`<span class="no">missing: ${esc(g.missing_sections.join(", "))}</span>`] : []),
+    ...((g.dropped_numbers || []).length ? [`<span class="no">dropped: ${esc(g.dropped_numbers.join(", "))}</span>`] : [])].join(" · ");
+  const labelClass = { supported: "ok", mixed: "no", contradicted: "no", unsupported: "warn", unverified: "warn", disputed: "warn" };
+  const claims = a.claims.map(c => `<li title="${esc(c.challenge ? "challenged: " + c.challenge.reason + (c.challenge.quote ? " — " + c.challenge.quote : "") : c.source)}"><span class="tag ${labelClass[c.label] || "warn"}">${esc(c.label)}</span>${esc(c.claim)}</li>`).join("");
+  return `<div class="answer"><h3>${esc(a.model)}<span class="${a.passed ? "ok" : "no"}">${a.passed ? "passed" : "failed"} · score ${a.score == null ? "—" : a.score.toFixed(1)} · ${ms(a.ttft_ms)} · ${usd(a.cost_usd)}</span></h3>
+    <div class="meta" style="font-size:11px">${gates}</div>
+    <div class="text">${markNumbers(a.text, g.invented_numbers)}</div>
+    <ul class="checks">${checks}</ul>
+    ${claims ? `<details><summary>claims · fidelity ${pct(a.fidelity)}</summary><ul class="claims">${claims}</ul></details>` : ""}</div>`;
+}
+
+function answers(run) {
+  const runButtons = Array.from({ length: run.runs }, (_, i) => `<button aria-pressed="${i + 1 === shownRun}" data-shown="${i + 1}">run ${i + 1}</button>`).join("");
+  const scenes = run.scenarios.map(s => {
+    const cards = run.model_order.map(n => run.answers.find(a => a.model === n && a.scenario === s.id && a.run === shownRun)).filter(Boolean).map(a => answerCard(run, s, a)).join("");
+    return `<div class="scenario"><h2>${esc(s.title)}<small>${esc(s.skill || "responder")} · ${esc(s.kind || "interview")} · ${esc(s.language)}${s.lines ? " · " + s.lines + " lines" : ""}</small></h2><div class="question">“${esc(s.question)}”</div>
+      <details><summary>reference answer</summary><div class="text" style="white-space:pre-wrap">${markNumbers(s.reference, [])}</div></details>
+      <div class="answers">${cards}</div></div>`;
+  }).join("");
+  return `<section><h2>Answers<small>hover a check to see how it was decided (✓ ✗, or ? when disputed); invented numbers are underlined</small></h2><div class="runs">${runButtons}</div>${scenes}</section>`;
+}
+
+function render() {
+  const run = RUNS[Number(runSelect.value)];
+  const base = againstSelect.value === "" ? null : RUNS[Number(againstSelect.value)];
+  if (shownRun > run.runs) shownRun = 1;
+  page.innerHTML = runMeta(run) + summaryTable(run, base) +
+    `<div class="grid">${qualityChart(run)}${latencyChart(run)}${costChart(run)}${heatmap(run)}${history(run)}</div>` +
+    answers(run);
+  if (zoom.open) showZoom();
+}
+
+// The chart open full screen, drawn big for the run shown.
+const zoom = document.getElementById("zoom");
+let zoomed = null;
+function showZoom() {
+  const [title, draw] = CHARTS[zoomed];
+  const run = RUNS[Number(runSelect.value)];
+  document.getElementById("zoom-title").textContent = `${title} · ${run.id}`;
+  document.getElementById("zoom-body").innerHTML = draw(run, true);
+}
+document.getElementById("zoom-close").addEventListener("click", () => zoom.close());
+zoom.addEventListener("click", event => {
+  const target = event.target.closest("button[data-history]");
+  if (target) {
+    historyMetric = Number(target.dataset.history);
+    render();
+  }
+});
+
+page.addEventListener("click", event => {
+  const target = event.target.closest("button");
+  if (!target) return;
+  if (target.dataset.zoom) {
+    zoomed = target.dataset.zoom;
+    showZoom();
+    zoom.showModal();
+    return;
+  }
+  if (target.dataset.history) historyMetric = Number(target.dataset.history);
+  if (target.dataset.shown) shownRun = Number(target.dataset.shown);
+  render();
+});
+runSelect.addEventListener("change", render);
+againstSelect.addEventListener("change", render);
+if (fillSelects()) render();
+</script>
+</body>
+</html>
