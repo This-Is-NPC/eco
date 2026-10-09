@@ -180,7 +180,8 @@ wrote to stderr.
   changes a hook, adds a context file, or adds a model or changes its address or
   key source, saves nothing: the change waits in the
   eco window until you approve or reject it, and the program gets
-  `config.pending` ([screens §12](screens.md#12-settings)).
+  `config.pending` ([screens §12](screens.md#12-settings)). Until you choose,
+  any other `config.set` it sends gets `config.busy` and is not saved.
 - **No access without the daemon.** The logs in `~/.local/share/eco/sessions/`
   are plain JSON Lines and readable, but the skill sends agents through the CLI,
   which reads them as they read now — corrections, removals and names applied.

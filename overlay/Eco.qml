@@ -185,7 +185,7 @@ Singleton {
   // The token the daemon gave this window: its config.set is the user's own.
   readonly property string token: Quickshell.env("ECO_TOKEN") || ""
   // A change another client asked for, held until the user approves or rejects
-  // it ({hooks: [{action, command}], files, models: [{name, base_url,
+  // it ({id, hooks: [{action, command}], files, models: [{name, base_url,
   // api_key_env, api_key_omapass}]}), or null. The daemon says it again on
   // connecting.
   property var pendingConfig: null
@@ -195,8 +195,9 @@ Singleton {
     .concat(pendingConfig.models.map(model => I18n.t(model.api_key_env ? "pending.model_env" : model.api_key_omapass ? "pending.model_omapass" : "pending.model_keyless", model)))
     .join("\n")
   onConnectedChanged: if (!connected) pendingConfig = null
-  function approveConfig() { send("config.approve " + token) }
-  function rejectConfig() { send("config.reject " + token) }
+  // Approve or reject the held change `id`, the one the window shows.
+  function approveConfig(id) { send("config.approve " + token + " " + id) }
+  function rejectConfig(id) { send("config.reject " + token + " " + id) }
   property var devices: []
   signal configSaveSucceeded()
   signal configSaveFailed(string detail)

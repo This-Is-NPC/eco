@@ -783,14 +783,20 @@ every window with one random token per run in `ECO_TOKEN`, and the window's
 or changes an action's `hook`, adds a file to `[context]` or a `[[contexts]]`
 slot, or adds a model or changes a model's `base_url`, `api_key_env` or
 `api_key_omapass`, is not saved: the daemon holds it, announces
-`config_pending` with each hook command, file path, and model's address and key
-source (a variable's or an omapass account's name, never a key), and answers
-the error `config.pending`. The window shows them in a dialog; APPROVE sends
-`config.approve <token>` and saves it, REJECT sends `config.reject <token>`,
-which drops it with the error `config.rejected`. Approving or rejecting without
-the token answers `config.not_window`. One change is held at a time: a newer
-one replaces it, and any saved config drops it. Every other change from any
-client is saved at once, as before. The token keeps another client from
+`config_pending` with its `id` and each hook command, file path, and model's
+address and key source (a variable's or an omapass account's name, never a
+key), and answers the error `config.pending`. The window shows them in a
+dialog; APPROVE sends `config.approve <token> <id>` and saves it, REJECT sends
+`config.reject <token> <id>`, which drops it with the error `config.rejected`.
+Approving or rejecting without the token answers `config.not_window`; naming
+another id than the held change's answers `config.stale` and saves and drops
+nothing. The id is a counter that starts at 1 for each run of the daemon, so a
+held change never has the id of an earlier one. One change is held at a time,
+and while it waits only the window changes the config: any other client's
+`config.set`, risky or not, answers `config.busy` and is not saved, so the
+dialog never changes under the user's pointer. The window's own save drops the
+held change. Every other change from any client is saved at once, as before.
+The token keeps another client from
 approving its own change; a process of the same user that reads the window's
 environment or edits `config.toml` itself is not stopped by it.
 
@@ -883,7 +889,7 @@ session it shows:
 {"type":"import_done","id":"…","complete":true}
 {"type":"config","config":{...},"devices":[{"id":"@default-input","label":"...","kind":"input"}],"omapass":{"installed":false,"page":"https://plugins.omarchy.org/..."},"presets":{"transcription":[{"name":"DEEPGRAM","values":{"base_url":"wss://api.deepgram.com/v1/listen","model":"nova-3","api_key_env":"DEEPGRAM_API_KEY"}},…],"chat":[{"name":"OPENROUTER","values":{"base_url":"https://openrouter.ai/api/v1","model":"…","api_key_env":"OPENROUTER_API_KEY","extra":{}}},…]}}
 {"type":"config_saved"}
-{"type":"config_pending","hooks":[{"action":"minutes","command":"~/bin/crm-push"}],"files":["~/notes/cv.md"],"models":[{"name":"fast","base_url":"http://192.0.2.10:8000/v1","api_key_env":null,"api_key_omapass":"openrouter"}]}
+{"type":"config_pending","id":"1","hooks":[{"action":"minutes","command":"~/bin/crm-push"}],"files":["~/notes/cv.md"],"models":[{"name":"fast","base_url":"http://192.0.2.10:8000/v1","api_key_env":null,"api_key_omapass":"openrouter"}]}
 {"type":"models","target":"llm","models":["..."],"error":"..."}
 {"type":"error","code":"session.none","params":{},"message":"start a session first"}
 ```
@@ -893,9 +899,12 @@ session it shows:
 `action <name>`, `ask <question>`,
 `config` (current config and devices), `config.set <json>` (the config whole;
 a window adds `"token"`; one from another client that adds a hook, a context
-file or a model, or moves a model's key, is held, §9), `config.approve <token>`
-and `config.reject <token>` (the held change; once nothing is held, `config_pending` with empty lists; a client
-that connects while a change is held is greeted with its `config_pending`),
+file or a model, or moves a model's key, is held, §9; while one is held, any
+other client's answers `config.busy`), `config.approve <token> <id>` and
+`config.reject <token> <id>` (the held change `id`; another id answers
+`config.stale`; once nothing is held, `config_pending` with a null `id` and
+empty lists; a client that connects while a change is held is greeted with its
+`config_pending`),
 `session.language <json>`, `models <json>`
 (`{"target","base_url","api_key_env","api_key_omapass"}`; the key is read only
 with no key source, a saved model's own source at that model's `base_url`, or a

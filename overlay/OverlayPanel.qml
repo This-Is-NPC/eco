@@ -300,8 +300,8 @@ FloatingWindow {
       confirmIcon: "check"
       confirmText: I18n.t("pending.approve")
       onChangeChanged: change === null ? close() : open()
-      onConfirmed: Eco.approveConfig()
-      onCancelled: Eco.rejectConfig()
+      onConfirmed: Eco.approveConfig(change.id)
+      onCancelled: Eco.rejectConfig(change.id)
     }
     ImportDialog { id: importer }
     ShortcutsDialog { id: shortcuts }

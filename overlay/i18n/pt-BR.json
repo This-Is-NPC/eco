@@ -425,6 +425,8 @@
   "error.config.pending": "Outro programa pediu para mudar hooks, arquivos de contexto ou modelos; aprove ou rejeite na janela do eco",
   "error.config.rejected": "A mudança de hooks, arquivos de contexto ou modelos foi rejeitada",
   "error.config.not_window": "Só a janela do eco aprova ou rejeita uma mudança em espera",
+  "error.config.busy": "Outra mudança espera aprovação na janela do eco; nada foi salvo",
+  "error.config.stale": "Essa mudança não é mais a que espera aprovação; nada foi salvo",
   "pending.title": "aprovar esta mudança",
   "pending.question": "Um programa que não é esta janela pediu para mudar a configuração. Aprovar salva a mudança: um hook roda como comando de shell depois das respostas, um arquivo de contexto é enviado ao modelo, e a chave de um modelo é enviada ao endereço dele.",
   "pending.hook": "hook de {action}: {command}",

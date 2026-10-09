@@ -425,6 +425,8 @@
   "error.config.pending": "Another program asked to change hooks, context files or models; approve or reject it in the eco window",
   "error.config.rejected": "The change to hooks, context files or models was rejected",
   "error.config.not_window": "Only the eco window can approve or reject a held change",
+  "error.config.busy": "Another change waits for approval in the eco window; nothing was saved",
+  "error.config.stale": "That change is no longer the one waiting for approval; nothing was saved",
   "pending.title": "approve this change",
   "pending.question": "A program other than this window asked to change the settings. Approving saves it: a hook runs as a shell command after answers, a context file is sent to the model, and a model's key is sent to its address.",
   "pending.hook": "hook of {action}: {command}",

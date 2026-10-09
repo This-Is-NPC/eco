@@ -593,8 +593,10 @@ where its key comes from (never the key):
 
 **APPROVE** saves the change; **REJECT** drops it, and the status line says it
 was rejected. Esc and a press outside do not close it. The keyboard starts on
-REJECT. The daemon keeps one held change at a time, and drops it when a config
-is saved. In these pictures the driver hands the window the daemon's
+REJECT. The daemon keeps one held change at a time; while the dialog is open,
+no other program can change the settings, so what it lists does not change
+under your pointer, and your choice applies only to the change it shows. This
+window's own SAVE drops the held change. In these pictures the driver hands the window the daemon's
 `config_pending` event (`docs/design.md §9`); nothing was sent to the socket.
 
 # 13. What has no screen
