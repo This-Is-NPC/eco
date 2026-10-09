@@ -6,6 +6,8 @@
 [tools]
 rust = { version = "1.97.1", components = "rustfmt,clippy" }
 python = "3.14.8"
+cmake = "4.4.4"
+ninja = "1.13.2"
 
 [env]
 _.file = ".env"
@@ -13,6 +15,12 @@ _.file = ".env"
 [tasks.setup]
 description = "Download the Silero VAD and WeSpeaker CAM++ models into the eco data directory"
 run = "scripts/setup"
+
+[tasks."window:build"]
+description = "Build eco-window, the Qt 6 program that runs the overlay, into target/window"
+run = "scripts/window-build"
+sources = ["window/**/*"]
+outputs = ["target/window/eco-window"]
 
 [tasks.install]
 description = "Build eco for release and install it under ~/.local (PREFIX overrides): binary, overlay, Hyprland rules, launcher, icon, agent skill"
@@ -49,8 +57,8 @@ description = "Format the Rust sources"
 run = "scripts/format"
 
 [tasks.test]
-description = "Run the test suite (the VAD and speaker parity tests need the models)"
-depends = ["setup"]
+description = "Run the test suite (the VAD and speaker parity tests need the models; the window's, eco-window)"
+depends = ["setup", "window:build"]
 run = "scripts/test"
 
 [tasks."cli:gen"]
