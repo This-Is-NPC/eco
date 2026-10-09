@@ -270,7 +270,7 @@ No telemetry.
 
 The Hyprland config on the target machine is Lua (`o.bind`,
 `o.window`); do not ship legacy `hyprland.conf` syntax. Global
-shortcuts reach the daemon through `socat`, not by starting a second daemon.
+shortcuts run `eco window` commands, which reach the running daemon; they never start a second one.
 
 The answer benchmark is the one exception to the scripts and docs rules: it
 is a self-contained tool in `benchmark/` — one Python script on the standard
