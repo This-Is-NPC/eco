@@ -121,7 +121,7 @@ output.
 | `daemon.offline` | tell you; run `eco start --headless` only if you agree. Never start a second daemon. |
 | `daemon.access_denied` | explain it cannot reach the socket from where it runs, and ask for a less restricted environment |
 | `daemon.unavailable` | report the connection error, without claiming eco stopped |
-| `argument.invalid` | an argument held a control character, such as a line break; nothing was sent |
+| `argument.invalid` | an argument held a line break (a line feed or a carriage return); nothing was sent |
 | `action.unknown` | the skill name is not one of your `[[actions]]` |
 | `suggestion.removed` | a newer request on the same session replaced this one while it waited |
 

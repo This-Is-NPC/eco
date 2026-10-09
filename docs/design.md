@@ -980,8 +980,8 @@ How the commands are built:
   with `eco start --headless` when the overlay is not wanted) and print one
   JSON object, as `okt` does: `{"ok":true,"data":…}`, or
   `{"ok":false,"code":"…","message":"…"}` with a non-zero exit —
-  `argument.invalid` (an argument holds a control character, such as a line
-  break, that could end the command line early; nothing is sent),
+  `argument.invalid` (an argument holds a line feed or a carriage return,
+  which could end the command line early; nothing is sent),
   `daemon.offline`, `daemon.access_denied`, `daemon.unavailable`,
   `session.not_found`, `action.unknown`, `completion.failed`,
   `suggestion.removed` (replaced by a newer request), `import.busy`,

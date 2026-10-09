@@ -30,8 +30,8 @@ user; run `eco start --headless` only if they agree. On
 `daemon.access_denied`, explain that this agent cannot access the socket and
 ask for a less restricted environment. Do not start another daemon. On
 `daemon.unavailable`, report the connection error without claiming eco stopped.
-On `argument.invalid`, an argument held a control character such as a line
-break and nothing was sent; pass ids and names on one line.
+On `argument.invalid`, an argument held a line break (a line feed or a
+carriage return) and nothing was sent; pass ids and names on one line.
 `eco status` checks whether the daemon is running. `eco stop` and `eco restart`
 control it; use them only when the user asks.
 

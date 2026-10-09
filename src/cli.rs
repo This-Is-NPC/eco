@@ -261,14 +261,14 @@ impl Client {
         }
     }
 
-    /// Write `command` as one line. A raw argument with a control character
-    /// could end the line early and smuggle a second command, so such a command
-    /// is refused and nothing is written.
+    /// Write `command` as one line. A raw argument with a line feed or a
+    /// carriage return could end the line early and smuggle a second command,
+    /// so such a command is refused and nothing is written.
     async fn send(&mut self, command: &str) -> Result<(), Failure> {
-        if command.contains(char::is_control) {
+        if command.contains(['\n', '\r']) {
             return Err(Failure::new(
                 "argument.invalid",
-                "an argument contains a control character such as a line break",
+                "an argument contains a line break",
             ));
         }
         let line = format!("{command}\n");
@@ -1382,8 +1382,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn an_argument_with_a_control_character_is_never_sent() {
-        for id in ["x\nconfig.set {}", "x\rstop", "x\0"] {
+    async fn an_argument_with_a_line_break_is_never_sent() {
+        for id in ["x\nconfig.set {}", "x\rstop"] {
             let (ours, mut theirs) = UnixStream::pair().unwrap();
             let mut client = Client::over(ours);
             let failure = client.show(id).await.err().unwrap();
@@ -1393,6 +1393,14 @@ mod tests {
             theirs.read_to_end(&mut received).await.unwrap();
             assert!(received.is_empty(), "sent {received:?}");
         }
+    }
+
+    #[tokio::test]
+    async fn other_control_characters_are_sent() {
+        let detail = json!({"type": "session_detail", "session": {"id": "a\u{7f}\u{85}\0b"}});
+        let mut client = talking_to("session.show a\u{7f}\u{85}\0b", vec![detail]);
+        let shown = client.show("a\u{7f}\u{85}\0b").await.unwrap();
+        assert_eq!(shown["session"]["id"], "a\u{7f}\u{85}\0b");
     }
 
     #[tokio::test]
