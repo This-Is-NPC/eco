@@ -14,7 +14,7 @@ mod session;
 mod setup;
 mod skill;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -340,102 +340,140 @@ enum Bench {
     },
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
-    let ran = match Cli::parse().command {
-        Command::Setup { harnesses } => set_up(harnesses).await,
-        Command::Start { headless } => lifecycle::start(!headless).await,
-        Command::Stop => lifecycle::stop().await,
-        Command::Restart => lifecycle::restart().await,
-        Command::Status {
-            expect_current_exe,
-            window_open,
-        } => lifecycle::status(expect_current_exe, window_open).await,
-        Command::Daemon {
-            replay,
-            headless,
-            no_save,
-        } => session::run(&paths::config_file(), replay, headless, !no_save).await,
-        Command::Diarize { model } => adapters::diarizer_process::serve(&model),
-        Command::Usage => {
-            print!("{}", usage_spec());
-            Ok(())
-        }
-        Command::Bench { target } => match target {
-            Bench::Llm => bench::llm::run().await,
-            Bench::Diarization {
-                dir,
-                list,
-                model,
-                threshold,
-                min_share,
-                collar,
-                output,
-            } => {
-                let options = bench::diarization::Options {
-                    dir,
-                    list,
-                    model,
-                    thresholds: threshold,
-                    min_share,
-                    collar,
-                    output,
+/// What `eco` runs for the command it was given.
+enum Run {
+    SetUp {
+        harnesses: Vec<String>,
+    },
+    Start {
+        show_window: bool,
+    },
+    Stop,
+    Restart,
+    Status {
+        expect_current_exe: bool,
+        window_open: bool,
+    },
+    Daemon {
+        replay: Option<PathBuf>,
+        headless: bool,
+        save_sessions: bool,
+    },
+    Diarize {
+        model: PathBuf,
+    },
+    Usage,
+    BenchLlm,
+    BenchDiarization(bench::diarization::Options),
+    BenchPeople {
+        dir: PathBuf,
+        series: Vec<String>,
+    },
+    /// A request to the running daemon.
+    Client(cli::Request),
+}
+
+impl From<Command> for Run {
+    fn from(command: Command) -> Self {
+        let request = match command {
+            Command::Setup { harnesses } => return Run::SetUp { harnesses },
+            Command::Start { headless } => {
+                return Run::Start {
+                    show_window: !headless,
                 };
-                bench::diarization::run(options).await
             }
-            Bench::People { dir, series } => bench::people::run(dir, series).await,
-        },
-        Command::Sessions {
-            kind,
-            person,
-            tag,
-            search,
-        } => {
-            sessions(cli::Request::Sessions {
+            Command::Stop => return Run::Stop,
+            Command::Restart => return Run::Restart,
+            Command::Status {
+                expect_current_exe,
+                window_open,
+            } => {
+                return Run::Status {
+                    expect_current_exe,
+                    window_open,
+                };
+            }
+            Command::Daemon {
+                replay,
+                headless,
+                no_save,
+            } => {
+                return Run::Daemon {
+                    replay,
+                    headless,
+                    save_sessions: !no_save,
+                };
+            }
+            Command::Diarize { model } => return Run::Diarize { model },
+            Command::Usage => return Run::Usage,
+            Command::Bench { target } => {
+                return match target {
+                    Bench::Llm => Run::BenchLlm,
+                    Bench::Diarization {
+                        dir,
+                        list,
+                        model,
+                        threshold,
+                        min_share,
+                        collar,
+                        output,
+                    } => Run::BenchDiarization(bench::diarization::Options {
+                        dir,
+                        list,
+                        model,
+                        thresholds: threshold,
+                        min_share,
+                        collar,
+                        output,
+                    }),
+                    Bench::People { dir, series } => Run::BenchPeople { dir, series },
+                };
+            }
+            Command::Sessions {
+                kind,
+                person,
+                tag,
+                search,
+            } => cli::Request::Sessions {
                 kind,
                 person,
                 // A tag given blank matches no session.
                 tag: tag.map(|tag| domain::session::tag_name(&tag).unwrap_or_default()),
                 search,
-            })
-            .await
-        }
-        Command::Show { id } => sessions(cli::Request::Show { id }).await,
-        Command::Delete { id } => sessions(cli::Request::Delete { id }).await,
-        Command::Rename { id, title, kind } => {
-            sessions(cli::Request::Rename { id, title, kind }).await
-        }
-        Command::Ask { id, question } => {
-            let question = question.join(" ");
-            sessions(cli::Request::Ask { id, question }).await
-        }
-        Command::Action { id, name } => sessions(cli::Request::Action { id, name }).await,
-        Command::Send { id, answer } => sessions(cli::Request::Send { id, answer }).await,
-        Command::Translate { id, lang, off: _ } => {
-            let language = lang.unwrap_or_default().trim().to_lowercase();
-            sessions(cli::Request::Translate { id, language }).await
-        }
-        Command::Note { id, text } => {
-            let text = text.join(" ");
-            sessions(cli::Request::Note { id, text }).await
-        }
-        Command::Export { id } => sessions(cli::Request::Export { id }).await,
-        Command::Speaker {
-            id,
-            label,
-            name,
-            person,
-            clear: _,
-        } => {
-            let who = match (name, person) {
-                (Some(name), _) => cli::Who::Name(name),
-                (_, Some(person)) => cli::Who::Person(person),
-                _ => cli::Who::Nobody,
-            };
-            sessions(cli::Request::Speaker { id, label, who }).await
-        }
-        Command::Assign { id, target } => {
-            let request = match target {
+            },
+            Command::Show { id } => cli::Request::Show { id },
+            Command::Delete { id } => cli::Request::Delete { id },
+            Command::Rename { id, title, kind } => cli::Request::Rename { id, title, kind },
+            Command::Ask { id, question } => cli::Request::Ask {
+                id,
+                question: question.join(" "),
+            },
+            Command::Action { id, name } => cli::Request::Action { id, name },
+            Command::Send { id, answer } => cli::Request::Send { id, answer },
+            Command::Translate { id, lang, off: _ } => cli::Request::Translate {
+                id,
+                language: lang.unwrap_or_default().trim().to_lowercase(),
+            },
+            Command::Note { id, text } => cli::Request::Note {
+                id,
+                text: text.join(" "),
+            },
+            Command::Export { id } => cli::Request::Export { id },
+            Command::Speaker {
+                id,
+                label,
+                name,
+                person,
+                clear: _,
+            } => {
+                let who = match (name, person) {
+                    (Some(name), _) => cli::Who::Name(name),
+                    (_, Some(person)) => cli::Who::Person(person),
+                    _ => cli::Who::Nobody,
+                };
+                cli::Request::Speaker { id, label, who }
+            }
+            Command::Assign { id, target } => match target {
                 AssignTarget::Line {
                     who,
                     at,
@@ -449,90 +487,70 @@ async fn main() -> Result<()> {
                     name,
                 },
                 AssignTarget::All { person, name } => cli::Request::AssignAll { id, person, name },
-            };
-            sessions(request).await
-        }
-        Command::Context { id, add, remove } => {
-            sessions(cli::Request::Context { id, add, remove }).await
-        }
-        Command::Participant {
-            id,
-            name,
-            person,
-            remove,
-        } => {
-            let removing = remove.is_some();
-            sessions(cli::Request::Participant {
+            },
+            Command::Context { id, add, remove } => cli::Request::Context { id, add, remove },
+            Command::Participant {
                 id,
+                name,
+                person,
+                remove,
+            } => cli::Request::Participant {
+                id,
+                remove: remove.is_some(),
                 person: remove.or(person),
                 name,
-                remove: removing,
-            })
-            .await
-        }
-        Command::Line {
-            id,
-            who,
-            at,
-            remove: _,
-            text,
-        } => {
-            let change = text.map_or(cli::LineChange::Remove, cli::LineChange::Edit);
-            sessions(cli::Request::Line {
+            },
+            Command::Line {
                 id,
                 who,
                 at,
-                change,
-            })
-            .await
-        }
-        Command::People { action } => {
-            let people = match action {
+                remove: _,
+                text,
+            } => cli::Request::Line {
+                id,
+                who,
+                at,
+                change: text.map_or(cli::LineChange::Remove, cli::LineChange::Edit),
+            },
+            Command::People { action } => cli::Request::People(match action {
                 None => cli::People::List,
                 Some(PeopleCommand::Adopt) => cli::People::Adopt,
                 Some(PeopleCommand::Add { name }) => cli::People::Add { name },
                 Some(PeopleCommand::Rename { id, name }) => cli::People::Rename { id, name },
                 Some(PeopleCommand::Merge { into, from }) => cli::People::Merge { into, from },
                 Some(PeopleCommand::Forget { id }) => cli::People::Forget { id },
-            };
-            sessions(cli::Request::People(people)).await
-        }
-        Command::Tag { action } => {
-            let tag = match action {
+            }),
+            Command::Tag { action } => cli::Request::Tag(match action {
                 TagCommand::List => cli::Tag::List,
                 TagCommand::Add { id, tag } => cli::Tag::Add { id, tag },
                 TagCommand::Remove { id, tag } => cli::Tag::Remove { id, tag },
                 TagCommand::Rename { from, to } => cli::Tag::Rename { from, to },
                 TagCommand::Delete { tag } => cli::Tag::Delete { tag },
-            };
-            sessions(cli::Request::Tag(tag)).await
-        }
-        Command::Window { action } => {
-            let call = |call| cli::Window::Call { call, path: None };
-            let window = match action {
-                WindowCommand::Focus => call("focus"),
-                WindowCommand::Config => call("config"),
-                WindowCommand::New => call("new_session"),
-                WindowCommand::Sessions => call("sessions"),
-                WindowCommand::Import { path } => cli::Window::Call {
-                    call: "import",
-                    path,
-                },
-                WindowCommand::Action { name } => cli::Window::Action { name },
-                WindowCommand::Toggle => cli::Window::Toggle,
-            };
-            sessions(cli::Request::Window(window)).await
-        }
-        Command::Import {
-            path,
-            title,
-            kind,
-            language,
-            participant,
-            date,
-            no_wait,
-        } => {
-            let request = cli::Request::Import {
+            }),
+            Command::Window { action } => {
+                let call = |call| cli::Window::Call { call, path: None };
+                cli::Request::Window(match action {
+                    WindowCommand::Focus => call("focus"),
+                    WindowCommand::Config => call("config"),
+                    WindowCommand::New => call("new_session"),
+                    WindowCommand::Sessions => call("sessions"),
+                    WindowCommand::Import { path } => cli::Window::Call {
+                        call: "import",
+                        path,
+                    },
+                    WindowCommand::Action { name } => cli::Window::Action { name },
+                    WindowCommand::Toggle => cli::Window::Toggle,
+                })
+            }
+            Command::Import {
+                path,
+                title,
+                kind,
+                language,
+                participant,
+                date,
+                no_wait,
+            } => cli::Request::Import {
                 path,
                 title,
                 kind,
@@ -540,9 +558,41 @@ async fn main() -> Result<()> {
                 participant,
                 started_at: date,
                 wait: !no_wait,
-            };
-            sessions(request).await
+            },
+        };
+        Run::Client(request)
+    }
+}
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    let ran = match Run::from(Cli::parse().command) {
+        Run::SetUp { harnesses } => set_up(harnesses).await,
+        Run::Start { show_window } => lifecycle::start(show_window).await,
+        Run::Stop => lifecycle::stop().await,
+        Run::Restart => lifecycle::restart().await,
+        Run::Status {
+            expect_current_exe,
+            window_open,
+        } => lifecycle::status(expect_current_exe, window_open).await,
+        Run::Daemon {
+            replay,
+            headless,
+            save_sessions,
+        } => session::run(&paths::config_file(), replay, headless, save_sessions).await,
+        Run::Diarize { model } => adapters::diarizer_process::serve(&model),
+        Run::Usage => {
+            print!("{}", usage_spec());
+            Ok(())
         }
+        Run::BenchLlm => bench::llm::run().await,
+        Run::BenchDiarization(options) => bench::diarization::run(options).await,
+        Run::BenchPeople { dir, series } => bench::people::run(dir, series).await,
+        // The client prints its JSON; its code is the exit status.
+        Run::Client(request) => match cli::run(&paths::socket_path(), request).await {
+            0 => Ok(()),
+            code => std::process::exit(code),
+        },
     };
     // A bad config is the user's to fix: say what is wrong, without a trace.
     if let Err(failure) = &ran
@@ -568,13 +618,7 @@ async fn set_up(harnesses: Vec<String>) -> Result<()> {
         Err(warning) => eprintln!("eco: warning: {warning}"),
     }
     let home = paths::home();
-    let mut targets = harnesses;
-    for harness in skill::installed(&home) {
-        if !targets.iter().any(|target| target == harness) {
-            targets.push(harness.into());
-        }
-    }
-    for harness in targets {
+    for harness in skill_targets(&home, harnesses) {
         println!("eco: {}", skill::install(&home, &harness)?);
     }
     // The rest of setup ran; the exit status still says the rules are not loaded.
@@ -582,6 +626,18 @@ async fn set_up(harnesses: Vec<String>) -> Result<()> {
         std::process::exit(1);
     }
     Ok(())
+}
+
+/// The harnesses to publish the skill to: `asked`, then each harness under
+/// `home` that already holds eco's skill and was not asked.
+fn skill_targets(home: &Path, asked: Vec<String>) -> Vec<String> {
+    let mut targets = asked;
+    for harness in skill::installed(home) {
+        if !targets.iter().any(|target| target == harness) {
+            targets.push(harness.into());
+        }
+    }
+    targets
 }
 
 /// The usage spec of the visible `eco` command line, generated from its clap
@@ -592,15 +648,6 @@ fn usage_spec() -> String {
     spec.version = None;
     spec.cmd.subcommands.retain(|_, command| !command.hide);
     spec.to_string()
-}
-
-/// Run a session command against the daemon; it prints its JSON and sets the exit code.
-async fn sessions(request: cli::Request) -> Result<()> {
-    let code = cli::run(&paths::socket_path(), request).await;
-    if code != 0 {
-        std::process::exit(code);
-    }
-    Ok(())
 }
 
 #[cfg(test)]
