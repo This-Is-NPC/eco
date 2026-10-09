@@ -156,8 +156,9 @@ where they work:
 
 ![the keyboard shortcuts dialog over the sessions list](docs/img/36-shortcuts.png)
 
-The Hyprland keys send one line to the daemon's socket through `socat`; none of
-them starts a second daemon. Every screen the window draws is in
+The Hyprland keys run `eco window …` (listed in [the commands](docs/cli.md)),
+which hands one line to the running daemon; none of them starts a second
+daemon. Every screen the window draws is in
 [the walk through it](docs/screens.md), in the order somebody meets them.
 
 ## What it does not do
@@ -204,7 +205,6 @@ has the commands.
 - Omarchy, or Arch with Hyprland, PipeWire (`pw-record`, `pw-dump`) and a
   systemd user session
 - Qt 6 (`qt6-base`, `qt6-declarative`), which draws the window
-- `socat`, for the global keys
 - `wl-copy`, to copy an answer or a transcript
 - `ffmpeg` and `ffprobe`, only to import audio or video
 - a key for each paid provider you use, or a model server of your own

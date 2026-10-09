@@ -473,9 +473,9 @@ The dialog scrolls (arrows, `PgUp`, `PgDn`). Its end:
 ![The keyboard shortcuts dialog scrolled to its end: the rest of PEOPLE SCREEN (F2 rename, M merge), STORED SESSION (R resume or reopen, E edit title and kind), CONVERSATION (↑ · ↓ · PgUp · PgDn, Home · End, N, Tab), QUESTION BOX (Enter, Shift+Enter, / with ↑ · ↓, Tab and Enter, Alt+1…9), MENUS AND OPTION LISTS (↑ · ↓ · Home · End, Enter · Space, Esc) and SETTINGS (Ctrl+1…8, Ctrl+S, Alt+↑ · Alt+↓, Esc).](img/37-shortcuts-end.png)
 
 The GLOBAL keys are not the window's: `packaging/hypr/eco.lua` binds them in
-Hyprland and sends them to the daemon through `socat`; those that open a view
-ask the daemon to hand them to the newest window (`window.call`), so they work
-with eco in the background.
+Hyprland to `eco window` commands; those that open a view ask the daemon to
+hand them to the newest window and give it the keyboard (`window.call`), so
+they work with eco in the background.
 
 Everything the pointer does, the keyboard does: `Tab` reaches every control,
 with a focus ring apart from its hover, and a control's hint shows on focus as

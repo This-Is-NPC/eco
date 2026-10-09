@@ -187,8 +187,7 @@ when none is open. The path is absolute; `/home/you` is a placeholder for your
 home:
 
 ```bash
-echo 'window.call {"call":"import","path":"/home/you/recordings/rust-talk.mp4"}' |
-  socat - UNIX-CONNECT:$XDG_RUNTIME_DIR/eco.sock
+eco window import /home/you/recordings/rust-talk.mp4
 ```
 
 ---

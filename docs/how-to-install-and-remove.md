@@ -17,7 +17,6 @@ on the machine.
 - **PipeWire's tools**: `pw-record` captures, `pw-dump` lists the devices.
 - **Qt 6** (`qt6-base`, `qt6-declarative`), which draws the window. Omarchy
   already has it, and the package depends on it.
-- **`socat`**, for the global shortcuts: they talk to the daemon's socket.
 - **`ffmpeg` and `ffprobe`**, only to import audio or video files.
 - **`wl-copy`**, to copy an answer or a transcript to the clipboard.
 - **A key for each paid provider you use** — OpenRouter for answers, Deepgram or
@@ -175,8 +174,9 @@ window opens centred above it. It also binds the global keys:
 | `SUPER+ALT+E` | bring eco to the front |
 | `SUPER+ALT+1`, `SUPER+ALT+2` | run the skills named `ask` and `probe` |
 
-The keys send one line to the socket through `socat`; none of them starts a
-second daemon. The last row only works if you have skills by those names —
+Each key runs an `eco window` command, which hands one line to the running
+daemon; none of them starts a second daemon. Those that open a view give eco
+the keyboard. The last row only works if you have skills by those names —
 [how to write skills](how-to-write-skills.md) binds your own.
 
 ## 5. Start it

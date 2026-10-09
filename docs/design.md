@@ -131,8 +131,8 @@ window opens faster from its second start (measured in
   by external services, not by the language.
 - Two processes (daemon ↔ overlay over a socket) let either side be rewritten
   without touching the other.
-- The global shortcut does not start the daemon: it talks to the socket through
-  `socat`.
+- The global shortcut does not start the daemon: it runs `eco window …`, which
+  talks to the socket.
 
 ### 3.1 Ports and adapters (light hexagonal)
 
@@ -419,12 +419,13 @@ matters.
 
 ### 6.1 Triggers
 
-The trigger is manual: a global Hyprland shortcut per action sends the command
-straight to the socket, and the overlay shows one button per action.
+The trigger is manual: a global Hyprland shortcut per action sends `action
+<name>` to the socket through `eco window action`, and the overlay shows one
+button per action.
 
 ```lua
-o.bind("SUPER + ALT + 1", "eco ask", "echo 'action ask' | socat - UNIX-CONNECT:$XDG_RUNTIME_DIR/eco.sock")
-o.bind("SUPER + ALT + 2", "eco probe", "echo 'action probe' | socat - UNIX-CONNECT:$XDG_RUNTIME_DIR/eco.sock")
+o.bind("SUPER + ALT + 1", "eco: ask", "eco window action ask")
+o.bind("SUPER + ALT + 2", "eco: probe", "eco window action probe")
 ```
 
 An automatic trigger and a running recap are not built; see Open questions.
@@ -1501,9 +1502,9 @@ leaves sessions, config, models and the agent skill.
   The file binds `SUPER+ALT+<n>` to the actions,
   `SUPER+ALT+N` to a new session, `SUPER+ALT+P` to pause/resume, `SUPER+ALT+H`
   to SESSIONS, `SUPER+ALT+C` to the config window and `SUPER+ALT+E` to bring eco
-  to the front; those that open a view also give eco the keyboard. The shortcuts
-  reach the daemon through `socat`, never by starting a second daemon: those
-  that open a view send `window.call` (§10.2). It holds the window rules,
+  to the front; those that open a view also give eco the keyboard. Each runs an
+  `eco window` command (§11), never a second daemon: those that open a view
+  send `window.call` (§10.2), and the daemon focuses the window. It holds the window rules,
   matching the class `eco`: the overlay (`float`, `pin`, `persistent_size`,
   opaque) and the config window (`float`, `pin`, centered, opaque). The config window is
   also a child of the overlay, so it always opens above it. Without the rules,
@@ -1702,4 +1703,4 @@ adapter lives today.
 | Audio devices and capture | the `AudioDevices` port, adapter `PipeWire`: devices from `pw-dump`, an `AudioSource` per device through `pw-record`, echo cancellation by `libpipewire-module-echo-cancel` loaded through `pw-cli`; composed in `src/session.rs` | `src/ports.rs`, `src/adapters/audio_pipewire.rs`, `src/adapters/pipewire_devices.rs`, `src/adapters/echo_cancel.rs` |
 | Service lifecycle and desktop setup | `ServiceManager`: the systemd user service (`systemctl --user`), chosen in `src/lifecycle.rs`; `DesktopIntegration`: the line loaded into the Hyprland Lua config (`~/.config/hypr/bindings.lua`), chosen in `src/setup.rs` | `src/adapters/service_systemd.rs`, `src/adapters/desktop_hyprland.rs` |
 | Window control | the `WindowControl` port, adapter `HyprlandWindows`: giving a window process's window the keyboard and setting `no_screen_share` on its windows through `hyprctl dispatch`, by pid, again on Hyprland's `openwindow` events while they are hidden; composed in `src/session.rs`, used by `src/adapters/overlay.rs`, which launches `eco-window`. The window rules in `packaging/hypr/eco.lua` centering the config window stay compositor config | `src/ports.rs`, `src/adapters/window_hyprland.rs`, `src/adapters/overlay.rs`, `packaging/hypr/eco.lua` |
-| Shortcuts | a global Hyprland bind that pipes a command to the socket through `socat`, `window.call` for those that open a view | `packaging/hypr/eco.lua` |
+| Shortcuts | a global Hyprland bind that runs an `eco window` command, which sends one line to the socket: `window.call` for those that open a view, the daemon giving that window the keyboard | `packaging/hypr/eco.lua`, `src/cli.rs` |

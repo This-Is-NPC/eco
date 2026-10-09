@@ -77,11 +77,11 @@ still ask about what was said. **RESUME** picks it up.
 
 ![The capsule of a paused session: an amber dot, the stopped time "00:01:25", PAUSED, the input trace, RESUME, and END filled red reading "END?" after one click.](img/09-live-end.png)
 
-`SUPER+ALT+P` is one line sent to the daemon's socket. The same works from a
-terminal or a script of your own:
+`SUPER+ALT+P` runs `eco window toggle`. The same works from a terminal or a
+script of your own:
 
 ```bash
-echo session.toggle | socat - UNIX-CONNECT:$XDG_RUNTIME_DIR/eco.sock
+eco window toggle
 ```
 
 It pauses or resumes the session the window showed last.
