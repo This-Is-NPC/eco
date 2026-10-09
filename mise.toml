@@ -10,6 +10,7 @@ cmake = "4.4.4"
 ninja = "1.13.2"
 watchexec = "2.8.0"
 "cargo:cargo-llvm-cov" = "0.9.1"
+usage = "5.1.0"
 
 [env]
 _.file = ".env"
@@ -71,13 +72,13 @@ depends = ["setup", "window:build"]
 run = "scripts/coverage"
 
 [tasks."cli:gen"]
-description = "Regenerate docs/cli.md from the eco binary's help"
+description = "Regenerate docs/cli.md from the eco binary's usage spec"
 run = "scripts/cli-gen"
-sources = ["src/**/*.rs", "Cargo.toml", "Cargo.lock", "scripts/cli-doc"]
+sources = ["src/**/*.rs", "Cargo.toml", "Cargo.lock", "scripts/cli-gen"]
 outputs = ["docs/cli.md"]
 
 [tasks."cli:check"]
-description = "Fail when docs/cli.md is not what the eco binary's help generates"
+description = "Fail when docs/cli.md is not what the eco binary's usage spec generates"
 run = "scripts/cli-check"
 
 [tasks."docs:check"]
