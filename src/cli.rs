@@ -102,6 +102,7 @@ pub enum Request {
     },
     People(People),
     Tag(Tag),
+    Window(Window),
     /// Change one line of a session, named by who said it and when (`at`).
     Line {
         id: String,
@@ -136,6 +137,20 @@ pub enum People {
     Rename { id: String, name: String },
     Merge { into: String, from: String },
     Forget { id: String },
+}
+
+/// What a shortcut asks: of the newest eco window, or of the session shown.
+pub enum Window {
+    /// A `window.call`: "focus", "config", "new_session", "sessions", or
+    /// "import" with the file's path.
+    Call {
+        call: &'static str,
+        path: Option<PathBuf>,
+    },
+    /// Run a configured action on the session shown.
+    Action { name: String },
+    /// Pause the session shown if it records, else resume it.
+    Toggle,
 }
 
 /// The tags that group sessions.
@@ -373,6 +388,7 @@ impl Client {
                 self.people(&command).await
             }
             Request::Tag(tag) => self.tag(tag).await,
+            Request::Window(window) => self.window(window).await,
             Request::Import {
                 path,
                 title,
@@ -443,6 +459,24 @@ impl Client {
                 })
                 .collect(),
         ))
+    }
+
+    /// Send what a shortcut asks and return: what follows shows in the window.
+    async fn window(&mut self, window: Window) -> Result<Value, Failure> {
+        let command = match window {
+            Window::Call { call, path } => {
+                let mut fields = json!({"call": call});
+                if let Some(path) = path {
+                    // The daemon resolves paths from its own directory, not ours.
+                    fields["path"] = json!(std::path::absolute(&path).unwrap_or(path));
+                }
+                format!("window.call {fields}")
+            }
+            Window::Action { name } => format!("action {name}"),
+            Window::Toggle => "session.toggle".into(),
+        };
+        self.send(&command).await?;
+        Ok(Value::Null)
     }
 
     /// List the tags, tag or untag a session, or rename or delete a tag everywhere.
@@ -1407,6 +1441,37 @@ mod tests {
         let mut client = talking_to(r#"session.note {"id":"n1","text":"a\nb"}"#, vec![note]);
         let kept = client.note("n1", "a\nb").await.unwrap();
         assert_eq!(kept["text"], "a\nb");
+    }
+
+    #[tokio::test]
+    async fn window_commands_send_what_a_shortcut_asks() {
+        let asks = [
+            (
+                Window::Call {
+                    call: "config",
+                    path: None,
+                },
+                r#"window.call {"call":"config"}"#,
+            ),
+            (
+                Window::Call {
+                    call: "import",
+                    path: Some("/tmp/retro.vtt".into()),
+                },
+                r#"window.call {"call":"import","path":"/tmp/retro.vtt"}"#,
+            ),
+            (Window::Action { name: "ask".into() }, "action ask"),
+            (Window::Toggle, "session.toggle"),
+        ];
+        for (window, expected) in asks {
+            let (ours, mut theirs) = Stream::pair().unwrap();
+            let mut client = Client::over(ours);
+            assert_eq!(client.window(window).await, Ok(Value::Null));
+            drop(client);
+            let mut received = String::new();
+            theirs.read_to_string(&mut received).await.unwrap();
+            assert_eq!(received, format!("{expected}\n"));
+        }
     }
 
     #[tokio::test]

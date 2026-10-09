@@ -201,6 +201,11 @@ enum Command {
         #[command(subcommand)]
         action: Option<PeopleCommand>,
     },
+    /// Do what a shortcut does, on the newest eco window or the session shown; returns once sent.
+    Window {
+        #[command(subcommand)]
+        action: WindowCommand,
+    },
     /// Import an audio or video file into a new session.
     Import {
         path: PathBuf,
@@ -271,6 +276,24 @@ enum TagCommand {
     Rename { from: String, to: String },
     /// Take a tag off every session.
     Delete { tag: String },
+}
+
+#[derive(Debug, Subcommand)]
+enum WindowCommand {
+    /// Give the keyboard to the newest eco window, opening one when none is open.
+    Focus,
+    /// Open or close the settings, and give the window the keyboard.
+    Config,
+    /// Open the dialog that starts a session, and give the window the keyboard.
+    New,
+    /// List the sessions when no session is on screen, and give the window the keyboard.
+    Sessions,
+    /// Open the import dialog, with this file filled in, and give the window the keyboard.
+    Import { path: Option<PathBuf> },
+    /// Run a configured action on the session shown; its answer shows in the window.
+    Action { name: String },
+    /// Pause the session shown if it records, else resume it.
+    Toggle,
 }
 
 #[derive(Debug, Subcommand)]
@@ -476,6 +499,22 @@ async fn main() -> Result<()> {
                 TagCommand::Delete { tag } => cli::Tag::Delete { tag },
             };
             sessions(cli::Request::Tag(tag)).await
+        }
+        Command::Window { action } => {
+            let call = |call| cli::Window::Call { call, path: None };
+            let window = match action {
+                WindowCommand::Focus => call("focus"),
+                WindowCommand::Config => call("config"),
+                WindowCommand::New => call("new_session"),
+                WindowCommand::Sessions => call("sessions"),
+                WindowCommand::Import { path } => cli::Window::Call {
+                    call: "import",
+                    path,
+                },
+                WindowCommand::Action { name } => cli::Window::Action { name },
+                WindowCommand::Toggle => cli::Window::Toggle,
+            };
+            sessions(cli::Request::Window(window)).await
         }
         Command::Import {
             path,

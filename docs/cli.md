@@ -59,6 +59,7 @@ Commands:
   line         Change one line of a session, named by who said it and its `at` (see `eco show`)
   tag          The tags that group sessions, several per session
   people       The people linked to sessions; without a subcommand, list them
+  window       Do what a shortcut does, on the newest eco window or the session shown; returns once sent
   import       Import an audio or video file into a new session
   help         Print this message or the help of the given subcommand(s)
 
@@ -703,6 +704,126 @@ Delete a person and the voices kept for them; sessions keep the name
 Arguments:
   <ID>  
 
+Options:
+  -h, --help  Print help
+```
+
+---
+
+## `eco window`
+
+Do what a shortcut does, on the newest eco window or the session shown; returns once sent
+
+- **Usage:** `eco window <COMMAND>`
+
+```text
+Commands:
+  focus     Give the keyboard to the newest eco window, opening one when none is open
+  config    Open or close the settings, and give the window the keyboard
+  new       Open the dialog that starts a session, and give the window the keyboard
+  sessions  List the sessions when no session is on screen, and give the window the keyboard
+  import    Open the import dialog, with this file filled in, and give the window the keyboard
+  action    Run a configured action on the session shown; its answer shows in the window
+  toggle    Pause the session shown if it records, else resume it
+  help      Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help  Print help
+```
+
+---
+
+## `eco window focus`
+
+Give the keyboard to the newest eco window, opening one when none is open
+
+- **Usage:** `eco window focus`
+
+```text
+Options:
+  -h, --help  Print help
+```
+
+---
+
+## `eco window config`
+
+Open or close the settings, and give the window the keyboard
+
+- **Usage:** `eco window config`
+
+```text
+Options:
+  -h, --help  Print help
+```
+
+---
+
+## `eco window new`
+
+Open the dialog that starts a session, and give the window the keyboard
+
+- **Usage:** `eco window new`
+
+```text
+Options:
+  -h, --help  Print help
+```
+
+---
+
+## `eco window sessions`
+
+List the sessions when no session is on screen, and give the window the keyboard
+
+- **Usage:** `eco window sessions`
+
+```text
+Options:
+  -h, --help  Print help
+```
+
+---
+
+## `eco window import`
+
+Open the import dialog, with this file filled in, and give the window the keyboard
+
+- **Usage:** `eco window import [PATH]`
+
+```text
+Arguments:
+  [PATH]  
+
+Options:
+  -h, --help  Print help
+```
+
+---
+
+## `eco window action`
+
+Run a configured action on the session shown; its answer shows in the window
+
+- **Usage:** `eco window action <NAME>`
+
+```text
+Arguments:
+  <NAME>  
+
+Options:
+  -h, --help  Print help
+```
+
+---
+
+## `eco window toggle`
+
+Pause the session shown if it records, else resume it
+
+- **Usage:** `eco window toggle`
+
+```text
 Options:
   -h, --help  Print help
 ```

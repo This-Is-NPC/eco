@@ -1048,6 +1048,11 @@ How the commands are built:
   `people.failed`, `line.not_found`, `tag.invalid`, `tag.not_found`. They read
   the broadcast for their own reply, so they work beside the overlay. `export`
   prints the document itself, to pipe or redirect.
+- `window` sends what a global shortcut asks — `window.call` (`focus`,
+  `config`, `new` as `new_session`, `sessions`, `import [<path>]`),
+  `action <name>` or `session.toggle` (§10.2) — and prints
+  `{"ok":true,"data":null}` once it is sent, without waiting for the window.
+  None of these needs the windows' token.
 - `show` carries the session's speakers and storage path/byte count; `speaker`
   names one speaker, while `assign` can identify one line or every line.
 
