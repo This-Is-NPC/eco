@@ -8,9 +8,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result, bail};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use tokio::task::{JoinHandle, JoinSet};
 
 use crate::domain::events::Event;
@@ -41,21 +41,37 @@ pub async fn connect(path: &Path) -> std::result::Result<Option<UnixStream>, Con
     }
 }
 
-/// Every connected client, as the queue of lines still to write to it.
+/// The longest command line a client may send, in bytes; a longer one ends
+/// its connection. A `config.set` with a full config is a few kilobytes.
+const MAX_LINE: usize = 1 << 20;
+
+/// How many lines may wait to be written to one client; a client that falls
+/// this far behind is dropped.
+const MAX_QUEUED: usize = 4096;
+
+/// A connected client: the queue of lines still to write to it, and a guard
+/// whose drop ends its connection.
+struct Client {
+    lines: mpsc::Sender<String>,
+    _kept: oneshot::Sender<()>,
+}
+
+/// Every connected client.
 #[derive(Clone, Default)]
-pub struct Clients(Arc<Mutex<Vec<mpsc::UnboundedSender<String>>>>);
+pub struct Clients(Arc<Mutex<Vec<Client>>>);
 
 impl Clients {
-    /// Send an event to every client; clients that left are dropped.
+    /// Send an event to every client; clients that left or whose queue is
+    /// full are dropped.
     pub fn emit(&self, event: &Event) {
         let line = format!("{event}\n");
         self.0
             .lock()
             .expect("not poisoned")
-            .retain(|client| client.send(line.clone()).is_ok());
+            .retain(|client| client.lines.try_send(line.clone()).is_ok());
     }
 
-    fn add(&self, client: mpsc::UnboundedSender<String>) {
+    fn add(&self, client: Client) {
         self.0.lock().expect("not poisoned").push(client);
     }
 }
@@ -113,11 +129,15 @@ async fn serve(
     commands: mpsc::UnboundedSender<String>,
 ) {
     let (reader, mut writer) = stream.into_split();
-    let (outgoing, mut queue) = mpsc::unbounded_channel::<String>();
+    let (outgoing, mut queue) = mpsc::channel::<String>(MAX_QUEUED);
     for event in greeting() {
-        let _ = outgoing.send(format!("{event}\n"));
+        let _ = outgoing.try_send(format!("{event}\n"));
     }
-    clients.add(outgoing);
+    let (kept, dropped) = oneshot::channel();
+    clients.add(Client {
+        lines: outgoing,
+        _kept: kept,
+    });
     let write = async move {
         while let Some(line) = queue.recv().await {
             if writer.write_all(line.as_bytes()).await.is_err() {
@@ -126,16 +146,30 @@ async fn serve(
         }
     };
     let read = async move {
-        let mut lines = BufReader::new(reader).lines();
-        while let Ok(Some(line)) = lines.next_line().await {
+        let mut reader = BufReader::new(reader);
+        let mut line = Vec::new();
+        loop {
+            line.clear();
+            // One byte past the cap tells a line that is too long from one that fits.
+            let mut limited = (&mut reader).take(MAX_LINE as u64 + 1);
+            if !matches!(limited.read_until(b'\n', &mut line).await, Ok(1..)) {
+                break;
+            }
+            if line.len() > MAX_LINE && line.last() != Some(&b'\n') {
+                break;
+            }
+            let Ok(line) = std::str::from_utf8(&line) else {
+                break;
+            };
             let command = line.trim();
             if !command.is_empty() && commands.send(command.to_string()).is_err() {
                 break;
             }
         }
     };
-    // The client is done when it stops reading or stops writing.
-    tokio::select! { () = write => {}, () = read => {} }
+    // The client is done when it stops reading, stops writing, sends a line
+    // past the cap, or falls behind and its queue is dropped.
+    tokio::select! { () = write => {}, () = read => {}, _ = dropped => {} }
 }
 
 /// Refuse to start beside a live session; clear the socket a crashed one left.
@@ -193,6 +227,67 @@ mod tests {
         assert_eq!(event, json!({"type": "suggestion_delta", "text": "olá"}));
         drop(socket);
         assert!(!path.exists());
+    }
+
+    #[tokio::test]
+    async fn a_line_past_the_cap_ends_the_connection() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("eco.sock");
+        let (_socket, _, mut commands) = bound(&path, Vec::new()).await;
+        let mut fits = UnixStream::connect(&path).await.unwrap();
+        let mut largest = vec![b'a'; MAX_LINE];
+        largest.push(b'\n');
+        fits.write_all(&largest).await.unwrap();
+        assert_eq!(commands.recv().await.unwrap().len(), MAX_LINE);
+        let mut huge = UnixStream::connect(&path).await.unwrap();
+        // The daemon may close before every byte is written.
+        let _ = huge.write_all(&vec![b'a'; MAX_LINE + 1]).await;
+        let mut rest = Vec::new();
+        let closed = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            huge.read_to_end(&mut rest),
+        )
+        .await;
+        assert!(closed.is_ok(), "the daemon closes the connection");
+        assert!(
+            commands.try_recv().is_err(),
+            "the long line is not a command"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_client_that_does_not_read_is_dropped() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("eco.sock");
+        let (_socket, clients, _commands) = bound(&path, Vec::new()).await;
+        let mut stalled = UnixStream::connect(&path).await.unwrap();
+        let reading = UnixStream::connect(&path).await.unwrap();
+        while clients.0.lock().unwrap().len() < 2 {
+            tokio::task::yield_now().await;
+        }
+        let total = MAX_QUEUED * 2;
+        let reader = tokio::spawn(async move {
+            let mut lines = BufReader::new(reading).lines();
+            let mut count = 0;
+            while count < total && lines.next_line().await.unwrap().is_some() {
+                count += 1;
+            }
+            count
+        });
+        let text = "x".repeat(1024);
+        for _ in 0..total {
+            clients.emit(&json!({"type": "suggestion_delta", "text": text}));
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(clients.0.lock().unwrap().len(), 1);
+        assert_eq!(reader.await.unwrap(), total);
+        let mut received = Vec::new();
+        let closed = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            stalled.read_to_end(&mut received),
+        )
+        .await;
+        assert!(closed.is_ok(), "the daemon closes the stalled connection");
     }
 
     #[tokio::test]

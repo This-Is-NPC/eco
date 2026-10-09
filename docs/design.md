@@ -813,6 +813,14 @@ events as JSON lines and may send commands, one per line. The first event on
 every connection is `daemon` with `pid`, `version`, and `overlay` fields. A
 daemon error carries a `code`, which the overlay translates as `error.<code>`.
 
+Two limits keep one client from growing the daemon's memory. A command line
+longer than 1 MiB (`MAX_LINE` in `src/adapters/control_socket.rs`; a
+`config.set` with a full config is a few kilobytes) closes that connection
+without running it. Each client has a queue of at most 4096 lines
+(`MAX_QUEUED`) still to write; a client that falls that far behind, or stops
+reading, is dropped and its connection closed, while the daemon and the other
+clients go on.
+
 ### 10.1 Events
 
 A new client first receives `snapshot`; a window asks for the timeline of the
