@@ -1623,3 +1623,26 @@ regenerates `docs/img` from the real overlay against an isolated daemon.
   you"), followed by end of speech (VAD), with debounce. Not built.
 - A running recap: when a segment leaves the window, the default model updates a
   recap asynchronously, off the action's critical path. Not built.
+
+---
+
+## 15. Platform seams
+
+A *platform seam* is a port in `src/ports.rs`, or the window host's
+bridge, with one Linux adapter. AGENTS.md's rule — add a port only
+when two real adapters exist or a test needs the seam — makes an
+explicit exception for these seams, so each exists with a single
+adapter. Each seam's adapter is chosen in one place: the composition
+in `src/session.rs`, or the module that owns the seam.
+
+This section names the seams. The table says where each one's Linux
+adapter lives today.
+
+| Seam | Linux adapter today | File(s) |
+|---|---|---|
+| Paths | XDG base directories (`XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_RUNTIME_DIR`) | `src/config.rs` |
+| The daemon socket | a Unix domain socket at `$XDG_RUNTIME_DIR/eco.sock` | `src/adapters/control_socket.rs`, `src/cli.rs` |
+| Audio devices and capture | PipeWire (`pw-dump`, `pw-record`, `libpipewire-module-echo-cancel` loaded through `pw-cli`) | `src/adapters/pipewire_devices.rs`, `src/adapters/audio_pipewire.rs`, `src/adapters/echo_cancel.rs` |
+| Service lifecycle and desktop setup | the systemd user service (`systemctl --user`) and the line loaded into the Hyprland Lua config (`~/.config/hypr/bindings.lua`) | `src/lifecycle.rs`, `src/setup.rs` |
+| Window control | launching Quickshell and giving its window the keyboard through `hyprctl dispatch`; the overlay centering its config window and setting `no_screen_share` through `Hyprland.dispatch` | `src/adapters/overlay.rs`, `overlay/ConfigWindow.qml`, `overlay/Eco.qml` |
+| Shortcuts | a global Hyprland bind that pipes a command to the socket through `socat`, or calls the overlay through `quickshell ipc` | `packaging/hypr/eco.lua` |

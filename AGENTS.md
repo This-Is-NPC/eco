@@ -248,7 +248,12 @@ no provider, audio, or network library; it depends only on the
 traits in `src/ports.rs`. Every external system
 is an adapter under `src/adapters/`, composed from the config in
 `src/session.rs`. No `unsafe`: the crate forbids it. Add a port only when two real adapters exist or
-a test needs the seam. The LLM has one adapter: the OpenAI-compatible
+a test needs the seam. The stated exception is a *platform seam*: a
+port in `src/ports.rs` (or the window host's bridge) with one Linux
+adapter, for paths, the daemon socket, audio devices and capture,
+service lifecycle and desktop setup, window control, and shortcuts.
+Its adapter is chosen in one place — the composition in
+`src/session.rs` or the module that owns the seam. The LLM has one adapter: the OpenAI-compatible
 API, selected by `base_url`. Agents reach eco only through the `eco` CLI
 and the `skills/eco/SKILL.md` skill (no MCP); a change to the CLI updates the
 skill in the same commit.
