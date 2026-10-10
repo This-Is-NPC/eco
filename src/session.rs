@@ -1642,8 +1642,8 @@ impl Session {
             ("session.speakers", Some(id)) => self.assistant.announce_speakers(id.trim()),
             ("session.cost", Some(id)) => self.assistant.announce_cost(id.trim()),
             ("session.line.edit", Some(payload)) => {
-                if let (Some((id, who, at)), Some([text])) =
-                    (self.line(payload), self.fields(payload, ["text"]))
+                if let Some((id, who, at)) = self.line(payload)
+                    && let Some([text]) = self.fields(payload, ["text"])
                 {
                     self.assistant.edit_line(&id, &who, at, &text);
                 }
@@ -1702,8 +1702,8 @@ impl Session {
                 }
             }
             ("person.assign_line", Some(payload)) => {
-                if let (Some((id, who, at)), Some([person, name])) =
-                    (self.line(payload), self.fields(payload, ["person", "name"]))
+                if let Some((id, who, at)) = self.line(payload)
+                    && let Some([person, name]) = self.fields(payload, ["person", "name"])
                 {
                     let person = Some(person.as_str()).filter(|p| !p.is_empty());
                     self.assistant.assign_line(&id, &who, at, person, &name);
@@ -4239,5 +4239,18 @@ mod tests {
         assert!(ran.is_ok());
         let unavailable = events.lock().unwrap()[0]["code"].clone();
         assert_eq!(unavailable, "stt.unavailable");
+    }
+
+    #[tokio::test]
+    async fn a_line_command_missing_several_fields_is_refused_once() {
+        let mut d = daemon(raw());
+        for line in [
+            r#"session.line.edit {"id": "x"}"#,
+            r#"person.assign_line {"id": "x"}"#,
+        ] {
+            let events = d.line(line).await;
+            assert_eq!(said(&events), ["session.invalid"], "{line}");
+            assert_eq!(events[0]["params"]["detail"], "missing who", "{line}");
+        }
     }
 }
