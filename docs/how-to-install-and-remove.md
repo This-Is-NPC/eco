@@ -300,6 +300,53 @@ Qt into the checkout the first time;
 Without the window, `eco start` starts the daemon, then fails to open the
 window with `Error: eco window failed:` and the path it looked for.
 
+**To install from a checkout,** in place of steps 1 to 3, run
+`mise run install:windows`. It builds eco and its window, puts the same `eco`
+folder the zip holds in `%LOCALAPPDATA%\Programs\eco`, adds its `bin` to your
+`PATH` (your account's, not the machine's) and runs `eco setup`:
+
+```
+> mise run install:windows
+[qt:install] $ python scripts/qt-install
+[window:build] sources up-to-date, skipping
+[install:windows] $ python scripts/install-windows
+installed eco in C:\Users\you\AppData\Local\Programs\eco
+added C:\Users\you\AppData\Local\Programs\eco\bin to your PATH; a new terminal finds eco
+eco: C:\Users\you\AppData\Local\eco\models\silero_vad.onnx is up to date
+eco: C:\Users\you\AppData\Local\eco\models\wespeaker_campplus.onnx is up to date
+eco: login start added in C:\Users\you\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\eco.cmd; eco starts with your next login
+```
+
+Open a new terminal for the new `PATH`. Running it again is the upgrade: it
+says `…\eco\bin is on your PATH already` and adds no second entry. A daemon
+that was running is stopped before the files are replaced and started again
+after, `eco: daemon stopped` then `eco: daemon running`. Sessions, config and
+models stay. On Linux the task refuses and names `mise run install`.
+
+**To take it off again,** run `mise run uninstall:windows`. It asks:
+
+```
+> mise run uninstall:windows
+[uninstall:windows] $ python scripts/uninstall-windows
+1) uninstall eco, keep sessions, config and models
+2) uninstall and delete everything
+Choose 1 or 2: 1
+removed C:\Users\you\AppData\Local\Programs\eco
+removed C:\Users\you\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\eco.cmd
+removed C:\Users\you\AppData\Local\Programs\eco\bin from your PATH
+kept C:\Users\you\AppData\Local\eco
+```
+
+It stops the daemon and its window first. `2` asks again, `Type delete to
+delete your sessions, config and models:`, and only the word `delete` goes
+on; then it also removes `%APPDATA%\eco` and `%LOCALAPPDATA%\eco`: the config,
+the sessions, the people, the models, the token and the log. Any other answer
+says `nothing removed` and removes nothing. `mise run uninstall:windows
+--keep-data` and `mise run uninstall:windows --delete-everything` answer
+without asking. These outputs are from the machine eco was built on; the
+delete was run with `APPDATA` and `LOCALAPPDATA` pointing at folders of its
+own.
+
 **The window may open behind the others.** Windows brings a window to the
 front only for a program that has the foreground or was given it, and the
 daemon runs in the background, so a window it opens or focuses may stay behind
@@ -381,8 +428,10 @@ script it cannot write is a warning, and `eco setup` exits with status 1.
 Remove-Item "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\eco.cmd"
 ```
 
-**To take eco off Windows,** stop it, delete the login script, the folder you
-unzipped (or the checkout), and its `bin` folder from your `PATH`:
+**To take eco off Windows** with a checkout at hand, `mise run
+uninstall:windows` above does it all. Without one, stop it, delete the login
+script, the folder you unzipped (or the checkout), and its `bin` folder from
+your `PATH`:
 
 ```powershell
 eco stop

@@ -1750,6 +1750,8 @@ mise run package            # the Arch package of HEAD, into target/arch/pkg; on
 mise run hooks:install      # run the gate on every push, and post local-check
 mise run local-check        # gate HEAD and post local-check by hand
 mise run uninstall          # asks first, then takes that install back off
+mise run install:windows    # Windows only: the release build, in %LOCALAPPDATA%\Programs\eco, on your PATH
+mise run uninstall:windows  # Windows only: takes it off; asks whether to delete your data too
 ```
 
 **A checkout is enough to try eco.** `mise run start` runs the daemon and its
@@ -1808,7 +1810,15 @@ qt:install`, which installs Qt 6.11.2 for MSVC 2022 (`qtbase` and
 `qtdeclarative`, which hold every module the overlay imports) under `.qt` in
 the checkout: about 2 GB with Qt's debug libraries, in a minute on the
 machine it was measured on. It survives `cargo clean`; deleting `.qt` takes it
-back. `mise run package` builds the zip of §13. The other tasks run bash
+back. `mise run package` builds the zip of §13; `mise run install:windows`
+installs that same folder, staged by the same code (`scripts/lib/windows.py`),
+in `%LOCALAPPDATA%\Programs\eco` and puts its `bin` on the user's `PATH`,
+and `mise run uninstall:windows` takes it off
+([how](how-to-install-and-remove.md#on-windows)). The `PATH` is edited in the
+registry through Python's `winreg`, which keeps the value's type
+(`REG_EXPAND_SZ`) and its `%…%` entries; PowerShell's
+`[Environment]::SetEnvironmentVariable` writes it back expanded, as `REG_SZ`.
+The other tasks run bash
 scripts, which Windows does not; run the tests
 and lints there with `mise exec -- cargo test` and `mise exec -- cargo clippy
 --all-targets -- -D warnings`. Recorded audio replays with
