@@ -61,7 +61,8 @@ pub struct Probe {
 /// Why ffprobe read no media in a file.
 #[derive(Debug, PartialEq)]
 pub enum Unprobed {
-    /// ffprobe is not installed, so neither is ffmpeg.
+    /// ffprobe is not installed, or does not run (a shim with no version
+    /// behind it), so neither does ffmpeg.
     Missing,
     /// It is not audio or video.
     NotMedia,
@@ -85,7 +86,21 @@ async fn probe_with(ffprobe: &Path, path: &Path) -> Result<Probe, Unprobed> {
             std::io::ErrorKind::NotFound => Unprobed::Missing,
             _ => Unprobed::NotMedia,
         })?;
-    read_probe(&output.stdout).ok_or(Unprobed::NotMedia)
+    if let Some(probe) = read_probe(&output.stdout) {
+        return Ok(probe);
+    }
+    // A file it cannot read and a program that cannot run both fail: only a
+    // working ffprobe answers -version.
+    let runs = Command::new(ffprobe)
+        .arg("-version")
+        .output()
+        .await
+        .is_ok_and(|version| version.status.success());
+    Err(if runs {
+        Unprobed::NotMedia
+    } else {
+        Unprobed::Missing
+    })
 }
 
 /// The probe in ffprobe's JSON; none without a duration.
@@ -214,6 +229,25 @@ mod tests {
             "{frames:?}"
         );
         assert!(matches!(probe(&broken).await, Err(Unprobed::NotMedia)));
+    }
+
+    /// A program on PATH named ffprobe that does not run, like a mise shim with
+    /// no version set, is no ffprobe.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn an_ffprobe_that_does_not_run_is_missing() {
+        let directory = tempfile::tempdir().unwrap();
+        let clip = directory.path().join("clip.mp4");
+        std::fs::write(&clip, b"a video").unwrap();
+        let ffprobe = crate::adapters::fake_program::fake_program(
+            directory.path(),
+            "ffprobe",
+            "echo 'No version is set for shim: ffprobe' >&2; exit 1",
+        );
+        assert!(matches!(
+            probe_with(&ffprobe, &clip).await,
+            Err(Unprobed::Missing)
+        ));
     }
 
     #[tokio::test]
