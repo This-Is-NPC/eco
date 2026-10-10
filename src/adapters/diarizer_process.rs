@@ -4,7 +4,7 @@
 //! its input it prints JSON `{"turns": [[start, end, speaker], …], "voices": [[…], …]}`.
 
 use std::io::{BufReader, BufWriter, Read, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
@@ -82,15 +82,31 @@ pub fn spawn(
     model: &Path,
     found: impl FnOnce(Result<Diarization, String>) + Send + 'static,
 ) -> Sender<Segment> {
+    spawn_program(std::env::current_exe(), model, found)
+}
+
+/// `spawn`, with `program` as the child, or the error that it is unknown.
+fn spawn_program(
+    program: std::io::Result<PathBuf>,
+    model: &Path,
+    found: impl FnOnce(Result<Diarization, String>) + Send + 'static,
+) -> Sender<Segment> {
     let (regions, received) = mpsc::channel();
     let model = model.to_path_buf();
-    thread::spawn(move || found(diarize(&model, received)));
+    thread::spawn(move || {
+        let program = program.map_err(|e| e.to_string());
+        found(program.and_then(|program| diarize(&program, &model, received)))
+    });
     regions
 }
 
-/// Send each region `regions` yields to a child diarizer, then return what it found.
-fn diarize(model: &Path, regions: Receiver<Segment>) -> Result<Diarization, String> {
-    let program = std::env::current_exe().map_err(|e| e.to_string())?;
+/// Send each region `regions` yields to the child diarizer `program`, then
+/// return what it found.
+fn diarize(
+    program: &Path,
+    model: &Path,
+    regions: Receiver<Segment>,
+) -> Result<Diarization, String> {
     let mut child = Command::new(program)
         .arg("diarize")
         .arg(model)
@@ -120,21 +136,28 @@ fn diarize(model: &Path, regions: Receiver<Segment>) -> Result<Diarization, Stri
 
 /// `eco diarize <model>`: the child side.
 pub fn serve(model: &Path) -> anyhow::Result<()> {
+    serve_on(model, std::io::stdin().lock(), std::io::stdout().lock())
+}
+
+/// `serve`, reading regions from `input` and writing the reply to `out`.
+fn serve_on(model: &Path, input: impl Read, mut out: impl Write) -> anyhow::Result<()> {
     let embedder = TractEmbedder::load(model).map_err(|e| anyhow::anyhow!(e.0))?;
     let mut diarizer = Diarizer::new(&embedder);
-    let mut input = BufReader::new(std::io::stdin().lock());
+    let mut input = BufReader::new(input);
     while let Some(region) = read_region(&mut input)? {
         let start = region.start as f64 / f64::from(SAMPLE_RATE);
         diarizer
             .add(start, &region.pcm)
             .map_err(|e| anyhow::anyhow!(e.0))?;
     }
-    println!("{}", to_json(&diarizer.finish(Clustering::default())));
+    writeln!(out, "{}", to_json(&diarizer.finish(Clustering::default())))?;
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use super::*;
 
     #[test]
@@ -168,5 +191,138 @@ mod tests {
         };
         assert_eq!(parse(&to_json(&diarization).to_string()), Some(diarization));
         assert_eq!(parse("oops"), None);
+    }
+
+    /// A child that keeps its arguments, environment and input in `dir`, then
+    /// runs `reply`.
+    fn child(dir: &Path, reply: &str) -> PathBuf {
+        crate::adapters::fake_program::fake_program(
+            dir,
+            "eco",
+            &format!(
+                r#"cd '{}'
+echo "$1 $2 $MALLOC_TRIM_THRESHOLD_" > args
+cat > input
+{reply}"#,
+                dir.display()
+            ),
+        )
+    }
+
+    /// What the child `program` found for `regions`, through `spawn`.
+    fn found(
+        program: std::io::Result<PathBuf>,
+        regions: &[Segment],
+    ) -> Result<Diarization, String> {
+        let (tell, told) = mpsc::channel();
+        let sender = spawn_program(program, Path::new("/m.onnx"), move |found| {
+            tell.send(found).unwrap();
+        });
+        for region in regions {
+            sender.send(region.clone()).unwrap();
+        }
+        drop(sender);
+        told.recv().unwrap()
+    }
+
+    #[test]
+    fn the_child_gets_the_regions_and_its_reply_is_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let program = child(
+            dir.path(),
+            r#"echo '{"turns": [[0.5, 2.0, 0]], "voices": [[1.0]]}'"#,
+        );
+        let region = Segment {
+            pcm: vec![3, -3],
+            start: 16_000,
+        };
+        let diarization = found(Ok(program), std::slice::from_ref(&region)).unwrap();
+        assert_eq!(
+            diarization,
+            Diarization {
+                turns: vec![Turn {
+                    start: 0.5,
+                    end: 2.0,
+                    speaker: 0,
+                }],
+                voices: vec![vec![1.0]],
+            }
+        );
+        let mut sent = Vec::new();
+        write_region(&mut sent, &region).unwrap();
+        assert_eq!(fs::read(dir.path().join("input")).unwrap(), sent);
+        assert_eq!(
+            fs::read_to_string(dir.path().join("args")).unwrap(),
+            "diarize /m.onnx 1048576\n"
+        );
+    }
+
+    #[test]
+    fn a_child_that_fails_or_says_nonsense_is_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let failing = child(dir.path(), "echo '  no model at /m.onnx  ' >&2; exit 1");
+        assert_eq!(found(Ok(failing), &[]), Err("no model at /m.onnx".into()));
+
+        let dir = tempfile::tempdir().unwrap();
+        let confused = child(dir.path(), "echo oops");
+        assert_eq!(
+            found(Ok(confused), &[]),
+            Err("the diarizer's reply is not turns and voices".into())
+        );
+    }
+
+    #[test]
+    fn a_child_that_stops_reading_ends_the_diarization() {
+        let dir = tempfile::tempdir().unwrap();
+        let program = crate::adapters::fake_program::fake_program(
+            dir.path(),
+            "eco",
+            "echo 'out of memory' >&2; exit 1",
+        );
+        let long = Segment {
+            pcm: vec![0; 200_000],
+            start: 0,
+        };
+        assert!(found(Ok(program), &[long.clone(), long]).is_err());
+    }
+
+    #[test]
+    fn a_child_that_cannot_start_is_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing = found(Ok(dir.path().join("eco")), &[]).unwrap_err();
+        assert!(missing.starts_with("No such file"), "{missing}");
+        let unknown = found(Err(std::io::Error::other("no exe")), &[]);
+        assert_eq!(unknown, Err("no exe".into()));
+    }
+
+    /// The child side over the speaker model and three AMI clips (see
+    /// `speaker_tract`): one turn per clip, a voice per speaker; a model that
+    /// is not there is an error.
+    #[test]
+    fn the_child_side_diarizes_its_input() {
+        let model = crate::paths::speaker_model();
+        assert!(model.exists(), "run `mise run setup` first");
+        let bytes = include_bytes!("../../tests/fixtures/speaker-clips.s16");
+        let mut input = Vec::new();
+        for (index, clip) in bytes.chunks(bytes.len() / 3).enumerate() {
+            let region = Segment {
+                pcm: clip
+                    .chunks_exact(2)
+                    .map(|p| i16::from_le_bytes([p[0], p[1]]))
+                    .collect(),
+                start: index * 40_000,
+            };
+            write_region(&mut input, &region).unwrap();
+        }
+        let mut out = Vec::new();
+        serve_on(&model, input.as_slice(), &mut out).unwrap();
+        let diarization = parse(&String::from_utf8(out).unwrap()).unwrap();
+        let speakers: Vec<usize> = diarization.turns.iter().map(|t| t.speaker).collect();
+        assert_eq!(speakers, [0, 1, 2]);
+        assert_eq!(diarization.voices.len(), 3);
+
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("model.onnx");
+        assert!(serve_on(&missing, &[][..], Vec::new()).is_err());
     }
 }
