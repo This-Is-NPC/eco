@@ -295,3 +295,34 @@ went back to their old wording before the kept run. The graders' check found
 168 of 171 points (169 before). A run costs about $0.84: $0.14 of answers
 and $0.70 of grading ($0.76 before).
 
+
+## CLI test coverage (2026-10-09)
+
+Measured with `mise run coverage` (cargo-llvm-cov 0.9.1, every unit and
+integration test) on the files behind the `eco` command line. Before is the
+tree that introduced the task; after is the same tree with the CLI tests.
+
+| File | What it holds | Lines before | Lines after |
+|---|---|---|---|
+| `src/cli.rs` | the client: each command's socket line, the event that settles it, its failure | 74.74% | 99.83% (3 of 1754 missed) |
+| `src/lifecycle.rs` | `eco start`, `stop`, `restart`, `status` and their exit codes | 69.35% | 99.80% (1 of 500) |
+| `src/main.rs` | parsing every subcommand and option, and what it runs | 16.67% | 89.22% (69 of 640) |
+| `src/setup.rs` | `eco setup`: model downloads and their checksums | 27.50% | 90.62% (12 of 128) |
+
+No test was written for these lines, read in the code and left on purpose:
+
+- `main()` in `src/main.rs`: the tokio runtime, the call each command makes
+  and the `process::exit` of its code. Each branch only calls a function
+  that has its own tests; a test here would restate the match.
+- `set_up` in `src/main.rs` and `run()` and `desktop()` in `src/setup.rs`:
+  the production model URLs, the user's real paths and the Hyprland
+  adapter put together. A test would reach the network or the user's
+  files; what they call (`fetch`, `skill_targets`, the adapter) is tested.
+- `local_date` in `src/cli.rs`, a local time skipped by a clock change: it
+  needs the process time zone set, which needs `unsafe`, and the crate
+  forbids it.
+- `window` in `src/cli.rs`, the error from closing the write half of a
+  socket that was just written: only an operating-system failure reaches it.
+- The rest are lines of the tests themselves: `panic!` arms that run only
+  when a test fails, and the end of fake daemons that serve until the test
+  drops them.
