@@ -501,7 +501,7 @@ on hover.
 # 12. Settings
 
 The settings button in any masthead, `SUPER+ALT+C`, opens the config window: a
-second window, `eco · configuração` to Hyprland, 1040×760 or its screen less a
+second window, `eco · settings` to Hyprland, 1040×760 or its screen less a
 96-pixel margin when that is smaller, centred on the screen (the pictures are
 1040×760). It
 edits a draft. **SAVE** (`Ctrl+S`) sends the whole draft to the daemon, which

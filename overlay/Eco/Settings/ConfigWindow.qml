@@ -42,7 +42,7 @@ Window {
   signal committing()
 
   // Fixed, untranslated: packaging/hypr/eco.lua matches the window by this title.
-  title: "eco · configuração"
+  title: "eco · settings"
   // Fits the screen it opens on, with a margin.
   width: Math.min(1040, screen ? screen.width - 96 : 1040)
   height: Math.min(760, screen ? screen.height - 96 : 760)

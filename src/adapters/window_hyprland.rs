@@ -212,10 +212,16 @@ mod tests {
     use crate::adapters::fake_program::fake_program;
 
     #[test]
+    fn eco_lua_matches_the_settings_window_by_its_english_title() {
+        let window = include_str!("../../overlay/Eco/Settings/ConfigWindow.qml");
+        let rules = include_str!("../../packaging/hypr/eco.lua");
+        assert!(window.contains("\n  title: \"eco · settings\"\n"));
+        assert!(rules.contains(r#"title = "^eco · settings$""#));
+    }
+
+    #[test]
     fn only_an_eco_window_opening_counts() {
-        assert!(opens_eco_window(
-            "openwindow>>55d1,1,eco,eco · configuração"
-        ));
+        assert!(opens_eco_window("openwindow>>55d1,1,eco,eco · settings"));
         assert!(!opens_eco_window("openwindow>>55d1,1,firefox,eco"));
         assert!(!opens_eco_window("closewindow>>55d1"));
     }

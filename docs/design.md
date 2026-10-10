@@ -1488,7 +1488,7 @@ layouts are pinned to their natural height so the timeline gets the space.
 
 ### 12.6 The config window
 
-A QtQuick `Window` ("eco · configuração"), opened
+A QtQuick `Window` ("eco · settings", fixed and untranslated, as `packaging/hypr/eco.lua` matches it), opened
 from the overlay or with `window.call {"call":"config"}` (§10.2).
 It is created the first time it opens and then only shown and hidden: Qt writes
 its pipeline cache to disk when a window is destroyed, and the interface would

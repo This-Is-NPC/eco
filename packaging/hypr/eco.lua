@@ -28,7 +28,7 @@ o.window({ class = "^eco$", title = "^eco$" }, {
 -- The config window floats; pinned like the overlay, so it opens above it. It
 -- keeps the size it asks for, which fits its screen, and centres on the screen
 -- rather than on the overlay.
-o.window({ class = "^eco$", title = "^eco · configuração$" }, {
+o.window({ class = "^eco$", title = "^eco · settings$" }, {
   tag = "-default-opacity",
   opacity = "1 1",
   float = true,
