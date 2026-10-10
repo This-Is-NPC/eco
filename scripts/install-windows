@@ -2,7 +2,7 @@
 """Install the release build of eco from this checkout on Windows, for the
 user who runs it: the eco folder the zip holds (scripts/lib/windows.py stages
 both), in %LOCALAPPDATA%\\Programs\\eco, its bin on the user's PATH, then `eco
-setup` (models, start at login). A daemon that was running is stopped first
+setup` (models, the Start-menu entry, an old login script removed). A daemon that was running is stopped first
 and started again. Idempotent: each install replaces the last; sessions,
 config and models stay."""
 

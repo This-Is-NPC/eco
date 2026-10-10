@@ -648,7 +648,8 @@ async fn set_up(harnesses: Vec<String>) -> Result<()> {
     let mut tied = true;
     for desktop in setup::desktop() {
         match desktop.integrate() {
-            Ok(done) => println!("eco: {done}"),
+            Ok(Some(done)) => println!("eco: {done}"),
+            Ok(None) => {}
             Err(warning) => {
                 eprintln!("eco: warning: {warning}");
                 tied = false;

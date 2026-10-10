@@ -256,9 +256,9 @@ pub trait ServiceManager: Send + Sync {
 
 /// Ties eco into the user's desktop: what `eco setup` sets up there.
 pub trait DesktopIntegration {
-    /// What was done; `Err` is a warning: the desktop config could not be
-    /// read or written, so eco is not tied in.
-    fn integrate(&self) -> Result<String, String>;
+    /// What was done, if anything is worth saying; `Err` is a warning: the
+    /// desktop config could not be read or written, so eco is not tied in.
+    fn integrate(&self) -> Result<Option<String>, String>;
 }
 
 #[derive(Debug, thiserror::Error)]

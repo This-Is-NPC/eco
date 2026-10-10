@@ -224,16 +224,15 @@ machine with a checkout writes `dist\eco-<version>-windows-x86_64.zip`
 
    Only `eco.exe` is in `bin`; the window and its Qt stay in `lib\eco`.
    To upgrade, `eco stop`, delete the `eco` folder and unzip the new one in
-   its place; `PATH` and the login script still point at it.
+   its place; `PATH` and the Start menu entry still point at it.
 
-3. **Download the models,** start eco at login and add it to the Start menu,
-   as step 2 does on Linux:
+3. **Download the models** and add eco to the Start menu, as step 2 does on
+   Linux:
 
    ```
    > eco setup
    eco: C:\Users\you\AppData\Local\eco\models\silero_vad.onnx is up to date
    eco: C:\Users\you\AppData\Local\eco\models\wespeaker_campplus.onnx is up to date
-   eco: login start added in C:\Users\you\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\eco.cmd; eco starts with your next login
    eco: Start menu entry added in C:\Users\you\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\eco.lnk
    ```
 
@@ -303,7 +302,6 @@ installed eco in C:\Users\you\AppData\Local\Programs\eco
 added C:\Users\you\AppData\Local\Programs\eco\bin to your PATH; a new terminal finds eco
 eco: C:\Users\you\AppData\Local\eco\models\silero_vad.onnx is up to date
 eco: C:\Users\you\AppData\Local\eco\models\wespeaker_campplus.onnx is up to date
-eco: login start added in C:\Users\you\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\eco.cmd; eco starts with your next login
 eco: Start menu entry added in C:\Users\you\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\eco.lnk
 ```
 
@@ -322,7 +320,6 @@ models stay. On Linux the task refuses and names `mise run install`.
 2) uninstall and delete everything
 Choose 1 or 2: 1
 removed C:\Users\you\AppData\Local\Programs\eco
-removed C:\Users\you\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\eco.cmd
 removed C:\Users\you\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\eco.lnk
 removed C:\Users\you\AppData\Local\Programs\eco\bin from your PATH
 kept C:\Users\you\AppData\Local\eco
@@ -403,26 +400,19 @@ of the log stays in the file.
 
 (`C:\Users\you` stands for your profile directory.)
 
-**Starting at login.** On Windows `eco setup` writes a script into your Startup
-folder, which Windows runs as you log in, in place of the Hyprland line of
-step 4:
+**eco does not start at login** on Windows: it runs once you open it, from
+the Start menu entry below or with `eco start`, and keeps running when the
+terminal that ran `eco start` is closed. An earlier eco wrote a
+login script, `eco.cmd`, into your Startup folder; `eco setup` (and so
+`mise run install:windows`) and `mise run uninstall:windows` remove it and
+say so:
 
 ```
-eco: login start added in C:\Users\you\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\eco.cmd; eco starts with your next login
+eco: removed C:\Users\you\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\eco.cmd; eco no longer starts at login
 ```
 
-Run again, it says `login start in … is up to date`; run from an eco that has
-moved, it rewrites the script to start the new one (`login start updated in
-…`). The script runs `eco start --headless` for the eco that wrote it; Windows
-runs a script in a console window, which stays while `eco start` waits for the
-daemon. A
-script it cannot write is a warning, and `eco setup` exits with status 1.
-
-**To stop starting at login,** delete the script:
-
-```powershell
-Remove-Item "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\eco.cmd"
-```
+With no script there, they say nothing about it. A script it cannot remove is
+a warning, and `eco setup` exits with status 1.
 
 **The Start menu.** `eco setup` also adds the shortcut **eco** to your Start
 menu, with eco's icon:
@@ -441,13 +431,12 @@ stopped the daemon; a click in the Start menu was not seen, as the machine
 eco was built on has no desktop at hand.
 
 **To take eco off Windows** with a checkout at hand, `mise run
-uninstall:windows` above does it all. Without one, stop it, delete the login
-script, the folder you unzipped (or the checkout), and its `bin` folder from
-your `PATH`:
+uninstall:windows` above does it all. Without one, stop it, delete the Start
+menu entry, the folder you unzipped (or the checkout), and its `bin` folder
+from your `PATH`:
 
 ```powershell
 eco stop
-Remove-Item "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\eco.cmd"
 Remove-Item "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\eco.lnk"
 Remove-Item -Recurse "$env:LOCALAPPDATA\Programs\eco"
 ```

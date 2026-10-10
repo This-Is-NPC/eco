@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Take eco off Windows: stop it, then remove what scripts/install-windows put
-there, the eco folder in %LOCALAPPDATA%\\Programs, its PATH entry, the login
-script and the Start-menu shortcut. --delete-everything also deletes
+there, the eco folder in %LOCALAPPDATA%\\Programs, its PATH entry, the
+Start-menu shortcut and the login script an older eco wrote. --delete-everything also deletes
 %APPDATA%\\eco and %LOCALAPPDATA%\\eco (config, sessions, people, models,
 log); --keep-data keeps them. With neither, it asks."""
 

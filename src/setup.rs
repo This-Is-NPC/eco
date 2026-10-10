@@ -11,7 +11,7 @@ use sha2::{Digest, Sha256};
 #[cfg(unix)]
 use crate::adapters::desktop_hyprland::Hyprland;
 #[cfg(windows)]
-use crate::adapters::desktop_windows::{StartMenu, StartupFolder};
+use crate::adapters::desktop_windows::{OldLoginScript, StartMenu};
 use crate::adapters::http;
 use crate::config;
 use crate::paths;
@@ -99,12 +99,12 @@ pub fn desktop() -> Vec<Box<dyn DesktopIntegration>> {
     ))]
 }
 
-/// What `eco setup` ties eco into: Windows, which starts it at login and lists
-/// it in the Start menu.
+/// What `eco setup` ties eco into: Windows, which lists it in the Start menu
+/// and no longer starts it at login.
 #[cfg(windows)]
 pub fn desktop() -> Vec<Box<dyn DesktopIntegration>> {
     vec![
-        Box::new(StartupFolder::new(paths::startup_dir())),
+        Box::new(OldLoginScript::new(paths::startup_dir())),
         Box::new(StartMenu::new(paths::start_menu_dir())),
     ]
 }
