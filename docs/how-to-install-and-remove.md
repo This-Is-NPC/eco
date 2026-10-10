@@ -222,22 +222,83 @@ starts it. A crash restarts it (`Restart=on-failure`).
 
 ## On Windows
 
-eco builds and runs on Windows from a checkout; there is no package. The
-daemon's verbs are the same, with one difference: it runs as a process of
-your own in the background rather than a service. Its window is
+eco runs on Windows 10 or later, 64-bit, from a zip with the program, its
+window and the Qt it draws with. It needs the Microsoft Visual C++
+Redistributable (x64), which most machines already have. There is no
+installer and no release download yet: `mise run package` on a Windows
+machine with a checkout writes `dist\eco-<version>-windows-x86_64.zip`
+(`<version>` is a placeholder for the version in `Cargo.toml`, `0.2.0` here;
+[how it is built](design.md#13-packaging)).
+
+1. **Unzip it** where programs of your own go. The zip holds one folder,
+   `eco`; keep it whole, the program finds its window and overlay inside it:
+
+   ```powershell
+   Expand-Archive eco-0.2.0-windows-x86_64.zip -DestinationPath "$env:LOCALAPPDATA\Programs"
+   ```
+
+2. **Put its `bin` folder on your `PATH`,** for your account only, then open a
+   new terminal:
+
+   ```powershell
+   $bin = "$env:LOCALAPPDATA\Programs\eco\bin"
+   [Environment]::SetEnvironmentVariable("Path", [Environment]::GetEnvironmentVariable("Path", "User") + ";$bin", "User")
+   eco --version          # "eco 0.2.0"
+   ```
+
+   Only `eco.exe` is in `bin`; the window and its Qt stay in `lib\eco`.
+   To upgrade, `eco stop`, delete the `eco` folder and unzip the new one in
+   its place; `PATH` and the login script still point at it.
+
+3. **Download the models** and start eco at login, as step 2 does on Linux:
+
+   ```
+   > eco setup
+   eco: C:\Users\you\AppData\Local\eco\models\silero_vad.onnx is up to date
+   eco: C:\Users\you\AppData\Local\eco\models\wespeaker_campplus.onnx is up to date
+   eco: login start added in C:\Users\you\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\eco.cmd; eco starts with your next login
+   ```
+
+   (`C:\Users\you` stands for your profile directory.) A first run says
+   `saved` and the path for each model instead of `is up to date`.
+
+4. **Write the config** of step 3 to `%APPDATA%\eco\config.toml`.
+
+5. **Give it the keys** as environment variables of your account. `setx`
+   keeps them for programs started after it, so open a new terminal, and
+   `eco restart` a daemon that was running:
+
+   ```powershell
+   setx OPENROUTER_API_KEY "<your key>"
+   setx DEEPGRAM_API_KEY "<your key>"
+   ```
+
+   `<your key>` is a placeholder. omapass keeps its secrets in a keyring
+   Windows does not have, so a model with `api_key_omapass` says `omapass is
+   not available on Windows`.
+
+6. **Start it:**
+
+   ```powershell
+   eco start              # "eco: window opened"
+   eco start --headless   # "eco: daemon running", without a window
+   eco status             # "eco: daemon running (pid 7840, version 0.2.0)"
+   eco stop               # "eco: daemon stopped"
+   ```
+
+The daemon's verbs are the same as on Linux, with one difference: it runs as
+a process of your own in the background rather than a service. These outputs
+are from the zip, unpacked and run with data folders of its own on the machine
+eco was built on, which is reached over ssh: the models were copied in first,
+so `eco setup` found them up to date, and the window opened offscreen
+(`QT_QPA_PLATFORM=offscreen`), not on a desktop.
+
+**From a checkout** eco runs as well: its window is then
 `target\window\eco-window.exe`, which `mise run window:build` builds, putting
 Qt into the checkout the first time;
 [how it is built](design.md#working-on-eco) says what Windows needs for that.
-
-```powershell
-eco start              # "eco: window opened"
-eco start --headless   # "eco: daemon running", without a window
-eco status             # "eco: daemon running (pid 10900, version 0.2.0)"
-eco stop               # "eco: daemon stopped"
-```
-
-Without the window built, `eco start` starts the daemon, then fails to open
-the window with `Error: eco window failed:` and the path it looked for.
+Without the window, `eco start` starts the daemon, then fails to open the
+window with `Error: eco window failed:` and the path it looked for.
 
 **The window may open behind the others.** Windows brings a window to the
 front only for a program that has the foreground or was given it, and the
@@ -319,10 +380,24 @@ script it cannot write is a warning, and `eco setup` exits with status 1.
 Remove-Item "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\eco.cmd"
 ```
 
-Removing eco from Windows is `eco stop`, deleting that script, and deleting
-the checkout. Your config is in `%APPDATA%\eco` and the sessions, people,
-models and log in `%LOCALAPPDATA%\eco`; delete those folders to remove them
-too.
+**To take eco off Windows,** stop it, delete the login script, the folder you
+unzipped (or the checkout), and its `bin` folder from your `PATH`:
+
+```powershell
+eco stop
+Remove-Item "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\eco.cmd"
+Remove-Item -Recurse "$env:LOCALAPPDATA\Programs\eco"
+```
+
+Remove the `PATH` entry in **Settings › System › About › Advanced system
+settings › Environment Variables**. Your config is in `%APPDATA%\eco` and the
+sessions, people, models and log in `%LOCALAPPDATA%\eco`; delete those
+folders to remove them too. A key you gave with `setx` stays until you remove
+it, one command each:
+
+```powershell
+[Environment]::SetEnvironmentVariable("OPENROUTER_API_KEY", $null, "User")
+```
 
 ---
 

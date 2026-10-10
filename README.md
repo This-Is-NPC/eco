@@ -38,6 +38,10 @@ loads the Hyprland rules, and publishes the `eco` skill for agents. **Removing t
 config, the sessions, the people, the models and the agent skill** — removing
 the program is not a reason to lose a year of meetings.
 
+On Windows, eco comes as a zip to unpack, built by `mise run package` on a
+Windows machine; there is no release download for it yet ([on
+Windows](docs/how-to-install-and-remove.md#on-windows)).
+
 Released under the MIT license. [How to install it, and how to take it off
 again](docs/how-to-install-and-remove.md) is the whole of it.
 
@@ -201,6 +205,8 @@ again on the page where you meet it.
   CANCELLATION on, a session says so and records the raw microphone
   ([how to set up audio sources](docs/how-to-set-up-audio-sources.md)). DROP
   ECHOES and headphones still work.
+- **No omapass on Windows.** Its keyring does not exist there; give keys as
+  environment variables ([on Windows](docs/how-to-install-and-remove.md#on-windows)).
 - **Sessions recorded before eco kept costs stay unknown.** Their logs hold no
   cost records, and nothing brings those costs back.
 
@@ -217,3 +223,5 @@ has the commands.
 - `wl-copy`, to copy an answer or a transcript
 - `ffmpeg` and `ffprobe`, only to import audio or video
 - a key for each paid provider you use, or a model server of your own
+- on Windows instead: Windows 10 or later, 64-bit, and the Microsoft Visual
+  C++ Redistributable (x64); the zip carries its own Qt

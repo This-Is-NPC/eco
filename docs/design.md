@@ -1586,6 +1586,30 @@ and Qt 6 (`qt6-base`, `qt6-declarative`); running needs the two Qt packages.
 `SHA256SUMS` beside the package; `install.sh` downloads both from a GitHub
 release, checks one against the other and runs `pacman -U`.
 
+**The Windows package.** On Windows, `mise run package` builds `eco-window`
+first (`window:build`), then `scripts/package` builds the release binary from
+the working tree and writes `dist/eco-<version>-windows-x86_64.zip`, the
+version read from `Cargo.toml`. The zip holds one folder, `eco`, laid out as
+the prefix of the Arch package, so the daemon finds what it ships the same way
+on both (`paths::shipped`, `paths::shipped_program`: `share/eco` and `lib/eco`
+under the folder above the binary's):
+
+```
+eco/bin/eco.exe              the only program on PATH
+eco/lib/eco/eco-window.exe   the window, with its Qt runtime beside it
+eco/share/eco/overlay/       the QML it runs
+eco/eco.svg  eco/LICENSE  eco/README.txt
+```
+
+The Qt runtime is what `windeployqt` copied into `target/window` as
+`scripts/window-build` built it there (the build itself goes to
+`target/window-msvc`), taken as it is. It leaves out the compiler runtime, so
+the machine needs the Microsoft Visual C++ Redistributable (x64), as `eco.exe`
+does. The script is Python, as `scripts/window-build` is, because it runs on
+both systems under mise and its `zipfile` needs nothing more; the `bash` on a
+Windows `PATH` may be WSL's. There is no installer and no release job for
+Windows: the zip is built by hand on a Windows machine.
+
 **Releases.** Commits follow Conventional Commits, and release-please reads
 them (`release-please-config.json`, `.release-please-manifest.json`). Every
 pull request merged into `master` runs `.github/workflows/release.yml`, which
@@ -1722,7 +1746,7 @@ mise run bench:llm          # model latency on OpenRouter
 mise run bench:diarization <dir>   # diarization error rate on WAV + RTTM
 mise run readme:gif         # the README icon, from packaging/eco.omapixel
 mise run install            # the release build, under ~/.local (PREFIX moves it)
-mise run package            # the Arch package of HEAD, into target/arch/pkg
+mise run package            # the Arch package of HEAD, into target/arch/pkg; on Windows the zip, into dist
 mise run hooks:install      # run the gate on every push, and post local-check
 mise run local-check        # gate HEAD and post local-check by hand
 mise run uninstall          # asks first, then takes that install back off
@@ -1784,7 +1808,8 @@ qt:install`, which installs Qt 6.11.2 for MSVC 2022 (`qtbase` and
 `qtdeclarative`, which hold every module the overlay imports) under `.qt` in
 the checkout: about 2 GB with Qt's debug libraries, in a minute on the
 machine it was measured on. It survives `cargo clean`; deleting `.qt` takes it
-back. The other tasks run bash scripts, which Windows does not; run the tests
+back. `mise run package` builds the zip of §13. The other tasks run bash
+scripts, which Windows does not; run the tests
 and lints there with `mise exec -- cargo test` and `mise exec -- cargo clippy
 --all-targets -- -D warnings`. Recorded audio replays with
 `--replay <file.wav>` instead of joining a call.
