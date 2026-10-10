@@ -118,7 +118,7 @@ impl Endpoint {
 
 #[cfg(test)]
 pub(crate) mod testing {
-    //! A one-request HTTP server, so adapters are tested over real HTTP.
+    //! A scripted HTTP server, so adapters are tested over real HTTP.
 
     use std::sync::{Arc, Mutex};
 
@@ -142,47 +142,133 @@ pub(crate) mod testing {
         kind: Option<&'static str>,
         body: Vec<u8>,
     ) -> (String, Arc<Mutex<Seen>>) {
+        serve(vec![(status, kind, body)]).await
+    }
+
+    /// Serve one request per reply `(status, kind, body)`, in order, each on
+    /// its own connection; returns the base URL and the last request sent.
+    pub async fn serve(
+        replies: Vec<(u16, Option<&'static str>, Vec<u8>)>,
+    ) -> (String, Arc<Mutex<Seen>>) {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let seen = Arc::new(Mutex::new(Seen::default()));
         let record = Arc::clone(&seen);
         tokio::spawn(async move {
-            let (mut socket, _) = listener.accept().await.unwrap();
-            let mut request = Vec::new();
-            let mut buffer = [0u8; 8192];
-            let head_end = loop {
-                let read = socket.read(&mut buffer).await.unwrap();
-                request.extend_from_slice(&buffer[..read]);
-                if let Some(end) = request.windows(4).position(|w| w == b"\r\n\r\n") {
-                    break end + 4;
+            for (status, kind, body) in replies {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut request = Vec::new();
+                let mut buffer = [0u8; 8192];
+                let ended = |request: &[u8]| request.windows(4).position(|w| w == b"\r\n\r\n");
+                while ended(&request).is_none() {
+                    let read = socket.read(&mut buffer).await.unwrap();
+                    request.extend_from_slice(&buffer[..read]);
                 }
-            };
-            let head = String::from_utf8_lossy(&request[..head_end]).to_string();
-            let length = head
-                .lines()
-                .find_map(|line| {
-                    line.to_ascii_lowercase()
-                        .strip_prefix("content-length:")
-                        .map(|v| v.trim().to_string())
-                })
-                .and_then(|v| v.parse::<usize>().ok())
-                .unwrap_or(0);
-            while request.len() < head_end + length {
-                let read = socket.read(&mut buffer).await.unwrap();
-                request.extend_from_slice(&buffer[..read]);
+                let head_end = ended(&request).unwrap() + 4;
+                let head = String::from_utf8_lossy(&request[..head_end]).to_string();
+                let length = head
+                    .lines()
+                    .find_map(|line| {
+                        line.to_ascii_lowercase()
+                            .strip_prefix("content-length:")
+                            .map(|v| v.trim().to_string())
+                    })
+                    .and_then(|v| v.parse::<usize>().ok())
+                    .unwrap_or(0);
+                while request.len() < head_end + length {
+                    let read = socket.read(&mut buffer).await.unwrap();
+                    request.extend_from_slice(&buffer[..read]);
+                }
+                *record.lock().unwrap() = Seen {
+                    head,
+                    body: request[head_end..].to_vec(),
+                };
+                let kind =
+                    kind.map_or_else(String::new, |kind| format!("content-type: {kind}\r\n"));
+                let reply = format!(
+                    "HTTP/1.1 {status} X\r\n{kind}content-length: {}\r\nconnection: close\r\n\r\n",
+                    body.len()
+                );
+                socket.write_all(reply.as_bytes()).await.unwrap();
+                socket.write_all(&body).await.unwrap();
             }
-            *record.lock().unwrap() = Seen {
-                head,
-                body: request[head_end..].to_vec(),
-            };
-            let kind = kind.map_or_else(String::new, |kind| format!("content-type: {kind}\r\n"));
-            let reply = format!(
-                "HTTP/1.1 {status} X\r\n{kind}content-length: {}\r\nconnection: close\r\n\r\n",
-                body.len()
-            );
-            socket.write_all(reply.as_bytes()).await.unwrap();
-            socket.write_all(&body).await.unwrap();
         });
         (format!("http://{address}/v1"), seen)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    use super::testing::serve_once;
+    use super::*;
+
+    const SILENCE: Duration = Duration::from_secs(5);
+
+    /// A server that answers `reply`, raw, to one request and closes.
+    async fn raw(reply: &'static [u8]) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut buffer = [0u8; 4096];
+            let _ = socket.read(&mut buffer).await;
+            socket.write_all(reply).await.unwrap();
+        });
+        format!("http://{address}/v1")
+    }
+
+    #[tokio::test]
+    async fn requests_carry_the_key_when_there_is_one() {
+        let (base, seen) = serve_once(200, Vec::new()).await;
+        let endpoint = Endpoint::new(&format!("{base}/"), Some("sk-1".into()), SILENCE).unwrap();
+        endpoint.post("chat/completions").send().await.unwrap();
+        let head = seen.lock().unwrap().head.clone();
+        assert!(head.starts_with("POST /v1/chat/completions "), "{head}");
+        assert!(head.contains("authorization: Bearer sk-1"), "{head}");
+    }
+
+    #[tokio::test]
+    async fn a_server_that_is_not_there_cannot_be_reached() {
+        let closed = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}/v1", closed.local_addr().unwrap());
+        drop(closed);
+        let endpoint = Endpoint::new(&base, None, SILENCE).unwrap();
+        let error = endpoint.get("models").send().await.unwrap_err();
+        assert_eq!(
+            endpoint.failure(&error, Duration::ZERO),
+            format!("cannot reach {base}/")
+        );
+    }
+
+    #[tokio::test]
+    async fn a_reply_cut_short_says_why_and_how_long_it_was_quiet() {
+        let base = raw(b"HTTP/1.1 200 OK\r\ncontent-length: 100\r\n\r\nshort").await;
+        let endpoint = Endpoint::new(&base, None, SILENCE).unwrap();
+        let reply = endpoint.get("models").send().await.unwrap();
+        let error = reply.text().await.unwrap_err();
+        let said = endpoint.failure(&error, Duration::from_secs(2));
+        assert!(said.starts_with("error decoding response body"), "{said}");
+        // The causes follow, down to the connection's own.
+        assert!(
+            said.ends_with(": end of file before message length reached (quiet for 2 s)"),
+            "{said}"
+        );
+    }
+
+    #[test]
+    fn a_refusal_says_the_servers_error_or_its_first_words() {
+        let endpoint = Endpoint::new("http://lan:8080/v1", None, SILENCE).unwrap();
+        let nested = r#"{"error":{"message":"model not found"}}"#;
+        assert_eq!(endpoint.refusal(404, nested), "404: model not found");
+        let long = "x".repeat(300);
+        assert_eq!(
+            endpoint.refusal(500, &long),
+            format!("500: {}", "x".repeat(200))
+        );
+        let odd = r#"{"error":{"code":7}}"#;
+        assert_eq!(endpoint.refusal(400, odd), format!("400: {odd}"));
     }
 }
