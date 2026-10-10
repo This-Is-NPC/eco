@@ -2,6 +2,7 @@
 //! their secrets) for the config window, and one account's secret as a
 //! provider's key.
 
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
@@ -19,12 +20,14 @@ pub struct Account {
 
 /// The omapass CLI: on PATH, or where Omarchy installs the plugin.
 fn program() -> Option<PathBuf> {
-    let on_path = std::env::var_os("PATH")
-        .into_iter()
+    find(std::env::var_os("PATH"), paths::omapass_plugin())
+}
+
+/// `omapass` in the first directory of `path` that has it, else `plugin` if it is a file.
+fn find(path: Option<OsString>, plugin: PathBuf) -> Option<PathBuf> {
+    path.into_iter()
         .flat_map(|path| std::env::split_paths(&path).collect::<Vec<_>>())
-        .map(|dir| dir.join("omapass"));
-    let plugin = paths::omapass_plugin();
-    on_path
+        .map(|dir| dir.join("omapass"))
         .chain([plugin])
         .find(|candidate| candidate.is_file())
 }
@@ -59,11 +62,11 @@ async fn run(program: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
 
 /// The passwords omapass keeps (not its Nostr keys), by account.
 pub async fn accounts() -> Result<Vec<Account>, String> {
-    accounts_of(&program().ok_or_else(missing)?).await
+    accounts_of(program()).await
 }
 
-async fn accounts_of(program: &Path) -> Result<Vec<Account>, String> {
-    let listed = run(program, &["list", "--json"]).await?;
+async fn accounts_of(program: Option<PathBuf>) -> Result<Vec<Account>, String> {
+    let listed = run(&program.ok_or_else(missing)?, &["list", "--json"]).await?;
     let items: Vec<Value> = serde_json::from_slice(&listed).map_err(|e| format!("omapass: {e}"))?;
     let mut accounts: Vec<Account> = items
         .iter()
@@ -81,12 +84,12 @@ async fn accounts_of(program: &Path) -> Result<Vec<Account>, String> {
 
 /// The secret omapass keeps for `account`.
 pub async fn secret(account: &str) -> Result<String, String> {
-    secret_of(&program().ok_or_else(missing)?, account).await
+    secret_of(program(), account).await
 }
 
-async fn secret_of(program: &Path, account: &str) -> Result<String, String> {
+async fn secret_of(program: Option<PathBuf>, account: &str) -> Result<String, String> {
     // Piped, so omapass prints the secret; it is never logged.
-    let secret = run(program, &["get", "--", account]).await?;
+    let secret = run(&program.ok_or_else(missing)?, &["get", "--", account]).await?;
     let secret =
         String::from_utf8(secret).map_err(|_| format!("omapass: {account} is not text"))?;
     let secret = secret.trim();
@@ -120,12 +123,15 @@ esac
     async fn accounts_are_its_passwords_and_secrets_come_piped() {
         let directory = tempfile::tempdir().unwrap();
         let omapass = fake(directory.path());
-        let accounts = accounts_of(&omapass).await.unwrap();
+        let accounts = accounts_of(Some(omapass.clone())).await.unwrap();
         let names: Vec<&str> = accounts.iter().map(|a| a.account.as_str()).collect();
         assert_eq!(names, ["deepgram", "openrouter"]);
         assert_eq!(accounts[0].folder, "AI");
-        assert_eq!(secret_of(&omapass, "deepgram").await.unwrap(), "dg-secret");
-        let failure = secret_of(&omapass, "nope").await.unwrap_err();
+        assert_eq!(
+            secret_of(Some(omapass.clone()), "deepgram").await.unwrap(),
+            "dg-secret"
+        );
+        let failure = secret_of(Some(omapass), "nope").await.unwrap_err();
         assert_eq!(failure, "omapass: omapass: no such account: nope");
         assert!(!failure.contains("dg-secret"));
     }
