@@ -12,6 +12,8 @@ pub mod audio_wasapi;
 pub mod control_socket;
 #[cfg(unix)]
 pub mod desktop_hyprland;
+#[cfg(windows)]
+pub mod desktop_windows;
 pub mod devices;
 pub mod diarizer_process;
 #[cfg(unix)]
@@ -31,6 +33,8 @@ pub mod pipe;
 pub mod pipewire_devices;
 #[cfg(unix)]
 pub mod service_systemd;
+#[cfg(windows)]
+pub mod service_windows;
 pub mod session_files;
 pub mod speaker_tract;
 pub mod stt_deepgram;

@@ -1,5 +1,5 @@
-//! `eco setup`: download the pinned models and pick the desktop that loads
-//! eco's rules.
+//! `eco setup`: download the pinned models and pick the desktop eco is tied
+//! into.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -10,6 +10,8 @@ use sha2::{Digest, Sha256};
 
 #[cfg(unix)]
 use crate::adapters::desktop_hyprland::Hyprland;
+#[cfg(windows)]
+use crate::adapters::desktop_windows::StartupFolder;
 use crate::adapters::http;
 use crate::config;
 use crate::paths;
@@ -88,16 +90,16 @@ async fn fetch(
     Ok(format!("saved {}", target.display()))
 }
 
-/// The desktop `eco setup` loads eco's rules into: Hyprland.
+/// The desktop `eco setup` ties eco into: Hyprland, which loads eco's rules.
 #[cfg(unix)]
 pub fn desktop() -> impl DesktopIntegration {
     Hyprland::new(paths::hypr_bindings(), paths::shipped("hypr/eco.lua"))
 }
 
-/// The desktop `eco setup` loads eco's rules into: none yet on Windows.
+/// The desktop `eco setup` ties eco into: Windows, which starts it at login.
 #[cfg(windows)]
 pub fn desktop() -> impl DesktopIntegration {
-    crate::adapters::unsupported::Unsupported
+    StartupFolder::new(paths::startup_dir())
 }
 
 #[cfg(test)]

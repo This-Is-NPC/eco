@@ -20,7 +20,7 @@ impl Hyprland {
 }
 
 impl DesktopIntegration for Hyprland {
-    fn load_rules(&self) -> Result<String, String> {
+    fn integrate(&self) -> Result<String, String> {
         load(&self.bindings, self.rules.as_deref())
     }
 }
@@ -319,7 +319,7 @@ mod tests {
     #[test]
     fn without_shipped_rules_the_config_is_left_alone() {
         let (_dir, path) = bindings(Some("-- mine\n"));
-        let said = Hyprland::new(path.clone(), None).load_rules().unwrap();
+        let said = Hyprland::new(path.clone(), None).integrate().unwrap();
         assert_eq!(
             said,
             "no Hyprland rules installed beside this eco; Hyprland config left as is"

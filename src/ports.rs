@@ -249,11 +249,11 @@ pub trait ServiceManager: Send + Sync {
     fn start(&self) -> BoxFuture<'_, anyhow::Result<()>>;
 }
 
-/// Loads eco's window rules and shortcuts into the desktop's own config.
+/// Ties eco into the user's desktop: what `eco setup` sets up there.
 pub trait DesktopIntegration {
     /// What was done; `Err` is a warning: the desktop config could not be
-    /// read or written, so the rules are not loaded.
-    fn load_rules(&self) -> Result<String, String>;
+    /// read or written, so eco is not tied in.
+    fn integrate(&self) -> Result<String, String>;
 }
 
 #[derive(Debug, thiserror::Error)]

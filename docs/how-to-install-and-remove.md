@@ -220,6 +220,67 @@ starts it. A crash restarts it (`Restart=on-failure`).
 
 ---
 
+## On Windows
+
+eco builds and runs on Windows from a checkout; there is no package. The
+daemon's verbs are the same, with two differences: it runs as a process of
+your own in the background rather than a service, and its window is not built
+on Windows, so start it without one:
+
+```powershell
+eco start --headless   # "eco: daemon running"
+eco status             # "eco: daemon running (pid 10900, version 0.2.0)"
+eco stop               # "eco: daemon stopped"
+```
+
+A plain `eco start` starts the daemon too, then fails to open the window:
+
+```
+Error: eco window failed: C:\projects\eco/target/window/eco-window: The system cannot find the path specified. (os error 3)
+```
+
+**The daemon's output** goes to `%LOCALAPPDATA%\eco\daemon.log`, emptied each
+time `eco start` starts it. A daemon that will not start says why there; `eco
+start` itself only says:
+
+```
+Error: the daemon was started, but did not open the socket
+```
+
+```
+eco: no config at C:\Users\you\AppData\Roaming\eco\config.toml; see docs/design.md §9
+```
+
+(`C:\Users\you` stands for your profile directory.)
+
+**Starting at login.** On Windows `eco setup` writes a script into your Startup
+folder, which Windows runs as you log in, in place of the Hyprland line of
+step 4:
+
+```
+eco: login start added in C:\Users\you\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\eco.cmd; eco starts with your next login
+```
+
+Run again, it says `login start in … is up to date`; run from an eco that has
+moved, it rewrites the script to start the new one (`login start updated in
+…`). The script runs `eco start --headless` for the eco that wrote it; Windows
+runs a script in a console window, which stays while `eco start` waits for the
+daemon. A
+script it cannot write is a warning, and `eco setup` exits with status 1.
+
+**To stop starting at login,** delete the script:
+
+```powershell
+Remove-Item "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\eco.cmd"
+```
+
+Removing eco from Windows is `eco stop`, deleting that script, and deleting
+the checkout. Your config is in `%APPDATA%\eco` and the sessions, people,
+models and log in `%LOCALAPPDATA%\eco`; delete those folders to remove them
+too.
+
+---
+
 ## What the install puts on the machine
 
 The package owns these; `pacman -Ql eco` lists every file and where it is:

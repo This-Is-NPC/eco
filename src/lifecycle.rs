@@ -71,7 +71,7 @@ async fn ready(address: &Address) -> Result<Daemon> {
             return Ok(daemon);
         }
         if tokio::time::Instant::now() >= until {
-            bail!("eco.service started, but its daemon did not open the socket");
+            bail!("the daemon was started, but did not open the socket");
         }
         sleep(Duration::from_millis(100)).await;
     }
@@ -461,7 +461,7 @@ mod tests {
             .unwrap_err();
         assert_eq!(
             error.to_string(),
-            "eco.service started, but its daemon did not open the socket"
+            "the daemon was started, but did not open the socket"
         );
     }
 

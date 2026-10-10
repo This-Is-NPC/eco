@@ -21,11 +21,11 @@ use clap::{Parser, Subcommand};
 
 use crate::adapters::control_socket::Address;
 // What runs the daemon in the background: the systemd user service, or on
-// Windows nothing yet (docs/design.md §15).
+// Windows a process of the user's own (docs/design.md §15).
 #[cfg(unix)]
 use crate::adapters::service_systemd::SystemdUser as PlatformService;
 #[cfg(windows)]
-use crate::adapters::unsupported::Unsupported as PlatformService;
+use crate::adapters::service_windows::BackgroundProcess as PlatformService;
 use crate::ports::DesktopIntegration;
 
 #[derive(Debug, Parser)]
@@ -624,8 +624,8 @@ async fn set_up(harnesses: Vec<String>) -> Result<()> {
     for done in setup::run().await? {
         println!("eco: {done}");
     }
-    let rules = setup::desktop().load_rules();
-    match &rules {
+    let desktop = setup::desktop().integrate();
+    match &desktop {
         Ok(done) => println!("eco: {done}"),
         Err(warning) => eprintln!("eco: warning: {warning}"),
     }
@@ -633,8 +633,8 @@ async fn set_up(harnesses: Vec<String>) -> Result<()> {
     for harness in skill_targets(&home, harnesses) {
         println!("eco: {}", skill::install(&home, &harness)?);
     }
-    // The rest of setup ran; the exit status still says the rules are not loaded.
-    if rules.is_err() {
+    // The rest of setup ran; the exit status still says eco is not tied in.
+    if desktop.is_err() {
         std::process::exit(1);
     }
     Ok(())

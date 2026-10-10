@@ -133,6 +133,15 @@ impl<V: Fn(&str) -> Option<OsString>> Layout<V> {
     fn token_path(&self) -> PathBuf {
         self.data_dir().join("eco.token")
     }
+
+    fn daemon_log(&self) -> PathBuf {
+        self.data_dir().join("daemon.log")
+    }
+
+    fn startup_dir(&self) -> PathBuf {
+        self.base("APPDATA", r"AppData\Roaming")
+            .join(r"Microsoft\Windows\Start Menu\Programs\Startup")
+    }
 }
 
 fn layout() -> Layout<impl Fn(&str) -> Option<OsString>> {
@@ -203,6 +212,18 @@ pub fn socket_path() -> PathBuf {
 /// Where a running daemon keeps the windows' token, for a window it did not start.
 pub fn token_path() -> PathBuf {
     layout().token_path()
+}
+
+/// Where the daemon started in the background writes its output.
+#[cfg(windows)]
+pub fn daemon_log() -> PathBuf {
+    layout().daemon_log()
+}
+
+/// The folder whose programs Windows runs at the user's login.
+#[cfg(windows)]
+pub fn startup_dir() -> PathBuf {
+    layout().startup_dir()
 }
 
 /// The socket where the running Hyprland tells its events, when eco runs under one.
@@ -375,6 +396,8 @@ mod tests {
             layout.sessions_dir(),
             layout.socket_path(),
             layout.token_path(),
+            layout.daemon_log(),
+            layout.startup_dir(),
             layout.expand("~/cv.md"),
         ];
         let expected = [
@@ -385,6 +408,8 @@ mod tests {
             r"C:\Users\you\AppData\Local\eco\sessions",
             r"\\.\pipe\eco-you",
             r"C:\Users\you\AppData\Local\eco\eco.token",
+            r"C:\Users\you\AppData\Local\eco\daemon.log",
+            r"C:\Users\you\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup",
             r"C:\Users\you\cv.md",
         ];
         assert_eq!(found, expected.map(PathBuf::from));
