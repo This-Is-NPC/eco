@@ -417,10 +417,10 @@ exec sleep 30"#,
         windows.close().await;
     }
 
-    /// A WindowControl that cannot focus.
-    struct Unfocusable;
+    /// A WindowControl that can neither focus nor hide from share.
+    struct Refusing;
 
-    impl WindowControl for Unfocusable {
+    impl WindowControl for Refusing {
         fn focus(&self, _: u32) -> BoxFuture<'static, Result<(), WindowError>> {
             async { Err(WindowError("no compositor".into())) }.boxed()
         }
@@ -430,14 +430,14 @@ exec sleep 30"#,
             _: Vec<u32>,
             _: bool,
         ) -> BoxFuture<'static, Result<(), WindowError>> {
-            async { Ok(()) }.boxed()
+            async { Err(WindowError("no compositor".into())) }.boxed()
         }
     }
 
     #[tokio::test]
-    async fn a_window_that_cannot_be_focused_stays_open() {
+    async fn a_window_the_compositor_refuses_stays_open() {
         let dir = tempfile::tempdir().unwrap();
-        let mut windows = windows(dir.path(), Arc::new(Unfocusable), false);
+        let mut windows = windows(dir.path(), Arc::new(Refusing), true);
         windows.open(None, None).await.unwrap();
         assert_eq!(pids(&windows).len(), 1);
         assert_eq!(windows.newest(), Some(1));
@@ -451,9 +451,7 @@ exec sleep 30"#,
         let mut windows = windows(dir.path(), control.clone(), true);
         windows.open(None, None).await.unwrap();
         windows.open(None, None).await.unwrap();
-        let [first, second] = pids(&windows)[..] else {
-            panic!("two windows")
-        };
+        let [first, second]: [u32; 2] = pids(&windows).try_into().unwrap();
         assert_eq!(
             control.take(),
             [

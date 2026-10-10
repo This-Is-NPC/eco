@@ -360,30 +360,33 @@ echo ok"#,
     #[tokio::test]
     async fn each_eco_window_that_opens_is_left_out_while_hidden() {
         let dir = tempfile::tempdir().unwrap();
-        let program = hyprctl(dir.path(), "exit 1");
+        // Hyprland refuses the second call only.
+        let program = hyprctl(dir.path(), r#"[ "$n" = 1 ] && exit 1; exit 0"#);
         let socket = dir.path().join(".socket2.sock");
         let events = UnixListener::bind(&socket).unwrap();
         let windows = HyprlandWindows::new(program, Some(socket));
         let shared = format!("dispatch\n{}", share_script(&[7], true));
 
-        assert!(windows.hide_from_share(vec![7], true).await.is_err());
+        windows.hide_from_share(vec![7], true).await.unwrap();
         let (first, _) = events.accept().await.unwrap();
         drop(first);
         let (mut stream, _) = events.accept().await.unwrap();
         stream
-            .write_all(b"openwindow>>55d1,1,firefox,x\nopenwindow>>55d2,1,eco,eco\n")
+            .write_all(
+                b"openwindow>>55d1,1,firefox,x\nopenwindow>>55d2,1,eco,eco\nopenwindow>>55d3,1,eco,eco\n",
+            )
             .await
             .unwrap();
         assert_eq!(
-            calls_once(dir.path(), 2).await,
-            [shared.clone(), shared.clone()]
+            calls_once(dir.path(), 3).await,
+            [&shared; 3].map(String::from)
         );
 
-        assert!(windows.hide_from_share(vec![7], true).await.is_err());
-        windows.hide_from_share(vec![7], false).await.unwrap_err();
+        windows.hide_from_share(vec![7], true).await.unwrap();
+        windows.hide_from_share(vec![7], false).await.unwrap();
         assert_eq!(stream.read(&mut [0; 1]).await.unwrap(), 0, "unfollowed");
 
-        assert!(windows.hide_from_share(vec![7], true).await.is_err());
+        windows.hide_from_share(vec![7], true).await.unwrap();
         let (mut stream, _) = events.accept().await.unwrap();
         drop(windows);
         assert_eq!(stream.read(&mut [0; 1]).await.unwrap(), 0, "dropped");
