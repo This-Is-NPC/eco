@@ -194,13 +194,13 @@ Singleton {
   readonly property string token: Host.env("ECO_TOKEN") || ""
   // A change another client asked for, held until the user approves or rejects
   // it ({id, hooks: [{action, command}], files, models: [{name, base_url,
-  // api_key_env, api_key_omapass}]}), or null. The daemon says it again on
+  // api_key_env, api_key_omapass, api_key_credential}]}), or null. The daemon says it again on
   // connecting.
   property var pendingConfig: null
   // What the held change runs, sends and where, one line each.
   readonly property string pendingText: pendingConfig === null ? "" : pendingConfig.hooks.map(hook => I18n.t("pending.hook", hook))
     .concat(pendingConfig.files.map(file => I18n.t("pending.file", { path: file })))
-    .concat(pendingConfig.models.map(model => I18n.t(model.api_key_env ? "pending.model_env" : model.api_key_omapass ? "pending.model_omapass" : "pending.model_keyless", model)))
+    .concat(pendingConfig.models.map(model => I18n.t(model.api_key_env ? "pending.model_env" : model.api_key_omapass ? "pending.model_omapass" : model.api_key_credential ? "pending.model_credential" : "pending.model_keyless", model)))
     .join("\n")
   onConnectedChanged: if (!connected) pendingConfig = null
   // Approve or reject the held change `id`, the one the window shows.
@@ -218,6 +218,8 @@ Singleton {
   property string omapassError: ""
   // Whether omapass is on this machine, and the page that tells how to install it.
   property bool omapassInstalled: true
+  // Whether keys can come from the Windows Credential Manager: on Windows, in place of omapass.
+  property bool credentialManager: false
   // The error code that says why echo cancellation cannot run here, or "".
   property string echoCancelError: ""
   property string omapassPage: ""
@@ -496,7 +498,8 @@ Singleton {
     modelsAsked = Object.assign({}, modelsAsked, { [target]: true })
     send("models " + JSON.stringify({
       target: target, base_url: section.base_url || "",
-      api_key_env: section.api_key_env || "", api_key_omapass: section.api_key_omapass || ""
+      api_key_env: section.api_key_env || "", api_key_omapass: section.api_key_omapass || "",
+      api_key_credential: section.api_key_credential || ""
     }))
   }
   function requestOmapass() { send("omapass") }
@@ -1095,6 +1098,7 @@ Singleton {
       devices = event.devices
       omapassInstalled = event.omapass.installed
       omapassPage = event.omapass.page
+      credentialManager = event.credential_manager
       echoCancelError = event.echo_cancel || ""
       break
     case "devices":

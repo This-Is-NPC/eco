@@ -37,4 +37,17 @@ TestCase {
     compare(paths(draft(registered, "m", "w")), ["stt.model", "llm.model"])
     compare(paths(draft([], "gone", "gone")), ["stt.model", "llm.model"])
   }
+
+  readonly property var presets: ({
+    chat: [{ name: "OPENROUTER", values: { base_url: "https://openrouter.ai/api/v1", api_key_env: "OPENROUTER_API_KEY" } }],
+    transcription: [{ name: "DEEPGRAM", values: { base_url: "wss://api.deepgram.com/v1/listen", api_key_env: "DEEPGRAM_API_KEY" } }]
+  })
+
+  function test_a_new_model_keeps_the_key_source_of_the_last_one() {
+    const keyed = [{ name: "c", type: "chat", base_url: "http://llm", model: "m", api_key_credential: "llm" }]
+    compare(Draft.provider(draft(keyed, "", ""), "chat", presets), { base_url: "http://llm", api_key_credential: "llm" })
+    const d = draft(keyed, "", "")
+    Draft.retype(d, 0, "transcription", presets)
+    compare(d.models[0].api_key_credential, "llm")
+  }
 }

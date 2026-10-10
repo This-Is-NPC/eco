@@ -16,7 +16,7 @@ about.
    — the installer; the first config, the Hyprland line, what the package puts
    on the machine, and what `sudo pacman -R eco` leaves.
 2. [**How to register models**](how-to-register-models.md) — the keys, from the
-   environment or omapass, one chat model and one transcription model, and which
+   environment, omapass or the Windows Credential Manager, one chat model and one transcription model, and which
    one does what.
 3. [**How to set up audio sources**](how-to-set-up-audio-sources.md) — you on
    the microphone, everybody else on what the laptop plays, and what to do about

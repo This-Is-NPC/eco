@@ -17,6 +17,7 @@ use tokio::task::{JoinHandle, JoinSet};
 
 use crate::adapters::audio_file::WavFileSource;
 use crate::adapters::control_socket::{Address, Clients, ControlSocket, Greeting};
+use crate::adapters::credentials::{self, CredentialError};
 use crate::adapters::diarizer_process;
 use crate::adapters::hook_shell::ShellHooks;
 use crate::adapters::http::Endpoint;
@@ -209,19 +210,107 @@ pub enum Stt {
     Stream(Box<dyn StreamingSpeechToText>),
 }
 
-/// A provider's key from where its section says: a variable, or omapass.
-async fn api_key(key: Key<'_>) -> Result<Option<String>, String> {
+/// Why a provider could not be built: what to say, and, when its key is a
+/// credential the Windows Credential Manager does not hold, that credential's
+/// name, so the window says how to add it.
+#[derive(Debug, Clone, PartialEq)]
+struct Unbuilt {
+    detail: String,
+    credential: Option<String>,
+}
+
+impl From<String> for Unbuilt {
+    fn from(detail: String) -> Self {
+        Self {
+            detail,
+            credential: None,
+        }
+    }
+}
+
+impl From<&str> for Unbuilt {
+    fn from(detail: &str) -> Self {
+        detail.to_string().into()
+    }
+}
+
+impl std::fmt::Display for Unbuilt {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.detail)
+    }
+}
+
+impl Unbuilt {
+    /// The error the transcription model `name` that could not be built is
+    /// told by; a missing credential is named, so the window says how to add it.
+    fn stt_unavailable(&self, name: &str) -> Value {
+        let message = format!("transcription: {self}");
+        match &self.credential {
+            Some(credential) => error(
+                "stt.credential_missing",
+                message,
+                json!({"name": name, "credential": credential}),
+            ),
+            None => error(
+                "stt.unavailable",
+                message,
+                json!({"name": name, "detail": self.detail}),
+            ),
+        }
+    }
+
+    /// The `models` event for `target` when the models could not be listed.
+    fn unlisted(self, target: Value) -> Value {
+        let mut event =
+            json!({"type": "models", "target": target, "models": [], "error": self.detail});
+        if let Some(credential) = self.credential {
+            let missing = error(
+                "models.credential_missing",
+                self.detail,
+                json!({"credential": credential}),
+            );
+            event["code"] = missing["code"].clone();
+            event["params"] = missing["params"].clone();
+        }
+        event
+    }
+
+    /// The error the chat model `name` that could not be built is told by.
+    fn model_unavailable(&self, name: &str) -> Value {
+        let message = format!("model {name}: {self}");
+        match &self.credential {
+            Some(credential) => error(
+                "model.credential_missing",
+                message,
+                json!({"name": name, "credential": credential}),
+            ),
+            None => error(
+                "model.unavailable",
+                message,
+                json!({"name": name, "detail": self.detail}),
+            ),
+        }
+    }
+}
+
+/// A provider's key from where its section says: a variable, omapass, or the
+/// Windows Credential Manager.
+async fn api_key(key: Key<'_>) -> Result<Option<String>, Unbuilt> {
     match key {
         Key::None => Ok(None),
-        Key::Env(name) => config::env_key(name).map(Some).map_err(|e| e.0),
-        Key::Omapass(account) => omapass::secret(account).await.map(Some),
+        Key::Env(name) => Ok(config::env_key(name).map(Some).map_err(|e| e.0)?),
+        Key::Omapass(account) => Ok(omapass::secret(account).await.map(Some)?),
+        Key::Credential(name) => credentials::read(name).map(Some).map_err(|e| Unbuilt {
+            detail: e.to_string(),
+            credential: matches!(e, CredentialError::Missing(_)).then(|| name.to_string()),
+        }),
     }
 }
 
 impl Stt {
     /// The transcriber for live audio, or for a `file` — Deepgram streams only
     /// as fast as the audio plays, so a file goes to it segment by segment.
-    async fn build(stt: &ModelConfig, language: &str, file: bool) -> Result<Self, String> {
+    async fn build(stt: &ModelConfig, language: &str, file: bool) -> Result<Self, Unbuilt> {
         let key = api_key(stt.key()).await?;
         let base = stt.base_url.trim_end_matches('/');
         if !(base.starts_with("ws://") || base.starts_with("wss://")) {
@@ -242,7 +331,7 @@ impl Stt {
             let scribe = ElevenLabsTranscriber::new(base, &stt.model, language, key);
             return Ok(Self::Stream(Box::new(scribe)));
         }
-        Err(format!("no streaming transcription known at {base}"))
+        Err(format!("no streaming transcription known at {base}").into())
     }
 
     fn transcriber(&self) -> Transcriber<'_> {
@@ -266,7 +355,7 @@ async fn billing(stt: &ModelConfig) -> Option<Arc<dyn TranscriptionBilling>> {
 
 /// A transcription model in one language, built the first time it is needed —
 /// or why it could not be had.
-type Ready = Arc<OnceCell<Result<Stt, String>>>;
+type Ready = Arc<OnceCell<Result<Stt, Unbuilt>>>;
 
 /// Every transcription model in every language asked for so far: each built
 /// once, for the pipeline's life.
@@ -288,7 +377,7 @@ const NO_TRANSCRIPTION_MODEL: &str = "no transcription model is chosen";
 const NO_CHAT_MODEL: &str = "no chat model is chosen";
 
 /// The model `listening` names, built in its language.
-async fn build(models: &Models, listening: &Listening) -> Result<Stt, String> {
+async fn build(models: &Models, listening: &Listening) -> Result<Stt, Unbuilt> {
     let name = &listening.model;
     if name.is_empty() {
         return Err(NO_TRANSCRIPTION_MODEL.into());
@@ -297,7 +386,10 @@ async fn build(models: &Models, listening: &Listening) -> Result<Stt, String> {
         Some(model) => Stt::build(model, &listening.language, false).await,
         None => Err("not a registered transcription model".into()),
     };
-    stt.map_err(|reason| format!("{name}: {reason}"))
+    stt.map_err(|why| Unbuilt {
+        detail: format!("{name}: {}", why.detail),
+        ..why
+    })
 }
 
 /// Tells the sessions an input is heard again when dropped: its capture stopped.
@@ -339,12 +431,8 @@ fn transcriber(
         let _stopped = outages.until_stopped(&who);
         let built = cell.get_or_init(|| async {
             let built = build(&models, &from).await;
-            if let Err(reason) = &built {
-                emit(error(
-                    "stt.unavailable",
-                    format!("transcription: {reason}"),
-                    json!({"detail": reason}),
-                ));
+            if let Err(why) = &built {
+                emit(why.stt_unavailable(&from.model));
             }
             built
         });
@@ -726,8 +814,8 @@ async fn pipeline(config: Config, assistant: Assistant, emit: Emit, rig: Rig) {
         };
         let cell = built.cell(&listening);
         let ready = cell.get_or_init(|| build(&transcription_models, &listening));
-        if let Err(reason) = ready.await {
-            problems.push(unavailable("stt.unavailable", "transcription", reason));
+        if let Err(why) = ready.await {
+            problems.push(why.stt_unavailable(name));
         }
     }
     let mut transcription_billing = HashMap::new();
@@ -758,14 +846,9 @@ async fn pipeline(config: Config, assistant: Assistant, emit: Emit, rig: Rig) {
         };
         let llm: Arc<dyn LanguageModel> = match chat_model(registered).await {
             Ok(chat) => Arc::new(chat),
-            Err(reason) => {
-                let message = format!("model {name}: {reason}");
-                problems.push(error(
-                    "model.unavailable",
-                    message,
-                    json!({"name": name, "detail": reason}),
-                ));
-                Arc::new(Unavailable(reason))
+            Err(why) => {
+                problems.push(why.model_unavailable(name));
+                Arc::new(Unavailable(why.detail))
             }
         };
         let id = registered.model.clone();
@@ -775,6 +858,7 @@ async fn pipeline(config: Config, assistant: Assistant, emit: Emit, rig: Rig) {
             registered.model,
             registered.api_key_env,
             registered.api_key_omapass,
+            registered.api_key_credential,
             registered.request_fields()
         ]);
         let settings = settings.to_string();
@@ -918,7 +1002,7 @@ async fn pipeline(config: Config, assistant: Assistant, emit: Emit, rig: Rig) {
 
 /// A registered chat model, with its key; why not, when it cannot be had. A
 /// local one may read a long context for minutes before its first word.
-async fn chat_model(model: &ModelConfig) -> Result<OpenAIChat, String> {
+async fn chat_model(model: &ModelConfig) -> Result<OpenAIChat, Unbuilt> {
     let key = api_key(model.key()).await?;
     let endpoint = Endpoint::new(&model.base_url, key, LLM_SILENCE).map_err(|e| e.0)?;
     Ok(OpenAIChat::new(endpoint, model.request_fields()))
@@ -1138,16 +1222,18 @@ fn config_change(current: &Config, token: &str, payload: &str) -> ConfigChange {
             })
         })
         .map(|model| {
-            let (env, omapass) = match model.key() {
-                Key::None => (None, None),
-                Key::Env(name) => (Some(name), None),
-                Key::Omapass(account) => (None, Some(account)),
+            let (env, omapass, credential) = match model.key() {
+                Key::None => (None, None, None),
+                Key::Env(name) => (Some(name), None, None),
+                Key::Omapass(account) => (None, Some(account), None),
+                Key::Credential(name) => (None, None, Some(name)),
             };
             json!({
                 "name": model.name,
                 "base_url": model.base_url,
                 "api_key_env": env,
                 "api_key_omapass": omapass,
+                "api_key_credential": credential,
             })
         })
         .collect();
@@ -1592,7 +1678,7 @@ impl Session {
                     // The requests the file was transcribed under are priced once it is in.
                     assistant.price_unpaid();
                 }
-                Err(e) => emit(failed(e)),
+                Err(e) => emit(failed(e.detail)),
             }
         }));
     }
@@ -1613,7 +1699,7 @@ impl Session {
                 self.background.spawn(async move {
                     let devices = serde_json::to_value(listed.await).unwrap_or_default();
                     let omapass = json!({"installed": omapass::installed(), "page": omapass::PAGE});
-                    emit(json!({"type": "config", "config": config, "devices": devices, "omapass": omapass, "presets": presets(), "echo_cancel": echo_cancel}));
+                    emit(json!({"type": "config", "config": config, "devices": devices, "omapass": omapass, "credential_manager": credentials::AVAILABLE, "presets": presets(), "echo_cancel": echo_cancel}));
                 });
             }
             ("devices", None) => {
@@ -2053,7 +2139,11 @@ async fn models(payload: &str, saved: &[ModelConfig]) -> Value {
     let request: Value = serde_json::from_str(payload).unwrap_or_default();
     let target = request.get("target").cloned().unwrap_or(json!(""));
     let field = |key: &str| request.get(key).and_then(Value::as_str);
-    let key = Key::of(field("api_key_env"), field("api_key_omapass"));
+    let key = Key::of(
+        field("api_key_env"),
+        field("api_key_omapass"),
+        field("api_key_credential"),
+    );
     let base_url = field("base_url").unwrap_or_default();
     if !key_allowed(key, base_url, saved) {
         let refused = error(
@@ -2076,16 +2166,14 @@ async fn models(payload: &str, saved: &[ModelConfig]) -> Value {
         }
         let key = api_key(key).await?;
         if base_url.contains("deepgram.com") {
-            return stt_deepgram::models(base_url, key).await;
+            return Ok(stt_deepgram::models(base_url, key).await?);
         }
         let endpoint = Endpoint::new(base_url, key, Duration::from_secs(10)).map_err(|e| e.0)?;
-        list_models(&endpoint).await
+        Ok::<_, Unbuilt>(list_models(&endpoint).await?)
     };
     match found.await {
         Ok(models) => json!({"type": "models", "target": target, "models": models}),
-        Err(failure) => {
-            json!({"type": "models", "target": target, "models": [], "error": failure})
-        }
+        Err(why) => why.unlisted(target),
     }
 }
 
@@ -2773,7 +2861,7 @@ mod tests {
             "api_key_env": "OPENROUTER_API_KEY",
         }));
         let event = held(config_change(&current, "secret", &added.to_string()));
-        let x = json!({"name": "x", "base_url": "http://attacker", "api_key_env": "OPENROUTER_API_KEY", "api_key_omapass": null});
+        let x = json!({"name": "x", "base_url": "http://attacker", "api_key_env": "OPENROUTER_API_KEY", "api_key_omapass": null, "api_key_credential": null});
         assert_eq!(event["models"], json!([x]));
         let mut moved = raw();
         moved["models"][1]["base_url"] = json!("http://attacker");
@@ -2783,6 +2871,11 @@ mod tests {
         keyed["models"][1]["api_key_omapass"] = json!("openrouter");
         let event = held(config_change(&current, "secret", &keyed.to_string()));
         assert_eq!(event["models"][0]["api_key_omapass"], "openrouter");
+        let mut credential = raw();
+        credential["models"][1]["api_key_env"] = Value::Null;
+        credential["models"][1]["api_key_credential"] = json!("openrouter");
+        let event = held(config_change(&current, "secret", &credential.to_string()));
+        assert_eq!(event["models"][0]["api_key_credential"], "openrouter");
         // The provider's id for a known model is the user's to change from anywhere.
         let mut renamed = raw();
         renamed["models"][1]["model"] = json!("other");
@@ -3591,6 +3684,7 @@ mod tests {
         assert_eq!(config["devices"][2]["id"], "usb-mic");
         assert_eq!(config["presets"], presets());
         assert_eq!(config["omapass"]["page"], omapass::PAGE);
+        assert_eq!(config["credential_manager"], cfg!(windows));
         assert_eq!(config["echo_cancel"], Value::Null);
         d.line("devices").await;
         let devices = d.until(|event| event["type"] == "devices").await;
@@ -4070,10 +4164,10 @@ mod tests {
                 "base_url": base_url, "model": "x", "api_key_env": key}))
             .unwrap()
         };
-        let built = |stt: Result<Stt, String>| match stt {
+        let built = |stt: Result<Stt, Unbuilt>| match stt {
             Ok(Stt::Segments(_)) => "segments".to_string(),
             Ok(Stt::Stream(_)) => "stream".to_string(),
-            Err(reason) => reason,
+            Err(why) => why.detail,
         };
         let deepgram = model("wss://api.deepgram.com/v1/listen", None);
         let cases = [
@@ -4567,9 +4661,100 @@ mod tests {
             [error(
                 "stt.unavailable",
                 format!("transcription: {reason}"),
-                json!({"detail": reason})
+                json!({"name": "gone", "detail": reason})
             )]
         );
+    }
+
+    #[test]
+    fn a_missing_credential_is_told_with_its_name_and_other_failures_with_their_detail() {
+        let missing = Unbuilt {
+            detail: "deepgram: no key".into(),
+            credential: Some("dg".into()),
+        };
+        assert_eq!(
+            missing.stt_unavailable("deepgram"),
+            error(
+                "stt.credential_missing",
+                "transcription: deepgram: no key",
+                json!({"name": "deepgram", "credential": "dg"})
+            )
+        );
+        assert_eq!(
+            missing.model_unavailable("m"),
+            error(
+                "model.credential_missing",
+                "model m: deepgram: no key",
+                json!({"name": "m", "credential": "dg"})
+            )
+        );
+        assert_eq!(
+            missing.clone().unlisted(json!("llm")),
+            json!({"type": "models", "target": "llm", "models": [], "error": "deepgram: no key",
+                "code": "models.credential_missing", "params": {"credential": "dg"}})
+        );
+        let other = Unbuilt::from("GROQ_API_KEY is not set");
+        assert_eq!(
+            other.model_unavailable("m"),
+            error(
+                "model.unavailable",
+                "model m: GROQ_API_KEY is not set",
+                json!({"name": "m", "detail": "GROQ_API_KEY is not set"})
+            )
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn on_linux_a_credential_key_says_to_use_omapass() {
+        let why = api_key(Key::Credential("deepgram")).await.unwrap_err();
+        assert_eq!(why.detail, CredentialError::Unavailable.to_string());
+        assert_eq!(why.credential, None);
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn listing_with_a_missing_credential_names_it() {
+        if credentials::testing::no_store() {
+            return;
+        }
+        let name = format!("test-list-{}", uuid::Uuid::new_v4().simple());
+        let saved: ModelConfig = serde_json::from_value(json!({"name": "t", "type": "chat",
+            "base_url": "http://lan:9000/v1", "model": "x", "api_key_credential": name}))
+        .unwrap();
+        let payload =
+            json!({"target": "llm", "base_url": "http://lan:9000/v1", "api_key_credential": name});
+        let answer = models(&payload.to_string(), &[saved]).await;
+        assert_eq!(answer["code"], "models.credential_missing");
+        assert_eq!(answer["params"], json!({"credential": name}));
+        assert_eq!(answer["models"], json!([]));
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn a_credential_key_is_read_when_its_provider_is_built() {
+        if credentials::testing::no_store() {
+            return;
+        }
+        use keyring_core::api::CredentialStoreApi;
+        let name = format!("test-build-{}", uuid::Uuid::new_v4().simple());
+        let model: ModelConfig =
+            serde_json::from_value(json!({"name": "t", "type": "transcription",
+            "base_url": "http://lan:9000/v1", "model": "x", "api_key_credential": name}))
+            .unwrap();
+        let missing = Stt::build(&model, "pt", false).await.err().unwrap();
+        assert_eq!(missing.credential.as_deref(), Some(name.as_str()));
+        let target = format!("eco:{name}");
+        let modifiers = std::collections::HashMap::from([("target", target.as_str())]);
+        let entry = windows_native_keyring_store::Store::new()
+            .and_then(|store| store.build("eco", &name, Some(&modifiers)))
+            .unwrap();
+        entry.set_password("sk-build").unwrap();
+        let key = api_key(model.key()).await;
+        let built = Stt::build(&model, "pt", false).await;
+        entry.delete_credential().unwrap();
+        assert_eq!(key, Ok(Some("sk-build".into())));
+        assert!(matches!(built, Ok(Stt::Segments(_))));
     }
 
     /// A source that never ends.

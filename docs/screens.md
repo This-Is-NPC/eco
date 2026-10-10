@@ -542,7 +542,10 @@ A closed card is its type, the provider's id and what uses it. Open, it edits
 the provider, the model, where the key comes from (an environment variable or
 an omapass password), reasoning and extra JSON for chat. Without omapass on the
 machine, as in these pictures, **OMAPASS** is off and an info button beside it
-opens omapass's install page:
+opens omapass's install page. On Windows **CREDENTIAL MANAGER** stands in its
+place: a field for the key's name and, once one is typed, how to store that key
+with `eco key set <name>` or as the generic credential `eco:<name>`. The
+pictures are made on Linux, so none shows it:
 
 ![The gemini-flash card open: "used by ASSISTANT, TRANSLATION, MEETING, MEETING TRANSLATION, …" in full; NAME "gemini-flash"; REASONING with PROVIDER'S, OFF (lit), LOW, MEDIUM, HIGH; PROVIDER with OPENROUTER (lit), GROQ, CUSTOM; MODEL "google/gemini-2.5-flash" with LIST; KEY FROM with ENV (lit) and OMAPASS, and "OPENROUTER_API_KEY"; ADVANCED; the closed claude-haiku card below.](img/42-settings-model.png)
 

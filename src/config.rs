@@ -7,6 +7,7 @@ use std::{env, fs};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
+use crate::adapters::credentials;
 use crate::domain::action::Action;
 use crate::domain::prompts::{self, DEFAULT_REVIEW, DEFAULT_RULES};
 use crate::paths;
@@ -67,16 +68,20 @@ pub enum Key<'a> {
     None,
     Env(&'a str),
     Omapass(&'a str),
+    /// The Windows Credential Manager's generic credential `eco:<name>`.
+    Credential(&'a str),
 }
 
 impl<'a> Key<'a> {
-    /// The source `env` and `omapass` name; both set is the caller's to refuse.
-    pub fn of(env: Option<&'a str>, omapass: Option<&'a str>) -> Self {
+    /// The source `env`, `omapass` and `credential` name; more than one set is
+    /// the caller's to refuse.
+    pub fn of(env: Option<&'a str>, omapass: Option<&'a str>, credential: Option<&'a str>) -> Self {
         let given = |name: Option<&'a str>| name.filter(|n| !n.trim().is_empty());
-        match (given(env), given(omapass)) {
-            (_, Some(account)) => Self::Omapass(account),
-            (Some(variable), None) => Self::Env(variable),
-            (None, None) => Self::None,
+        match (given(env), given(omapass), given(credential)) {
+            (_, _, Some(name)) => Self::Credential(name),
+            (_, Some(account), None) => Self::Omapass(account),
+            (Some(variable), None, None) => Self::Env(variable),
+            (None, None, None) => Self::None,
         }
     }
 }
@@ -123,6 +128,10 @@ pub struct ModelConfig {
     /// The omapass account holding the key, instead of a variable.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_key_omapass: Option<String>,
+    /// The name of the Windows Credential Manager's credential `eco:<name>`
+    /// holding the key, instead of a variable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_key_credential: Option<String>,
     /// Provider-specific request fields, sent as-is; chat models only.
     #[serde(default, skip_serializing_if = "Map::is_empty")]
     pub extra: Map<String, Value>,
@@ -144,7 +153,11 @@ pub struct ModelConfig {
 
 impl ModelConfig {
     pub fn key(&self) -> Key<'_> {
-        Key::of(self.api_key_env.as_deref(), self.api_key_omapass.as_deref())
+        Key::of(
+            self.api_key_env.as_deref(),
+            self.api_key_omapass.as_deref(),
+            self.api_key_credential.as_deref(),
+        )
     }
 
     /// The fields sent with every request: `extra`, with the reasoning chosen in
@@ -501,16 +514,26 @@ impl Config {
         if !distinct(&slots) || slots.iter().any(|n| n.trim() != n || n.is_empty()) {
             return fail("context names must be unique, trimmed and not empty");
         }
-        let both = |env: &Option<String>, omapass: &Option<String>| {
-            let set = |value: &Option<String>| value.as_ref().is_some_and(|v| !v.trim().is_empty());
-            set(env) && set(omapass)
+        let set = |value: &Option<String>| value.as_ref().is_some_and(|v| !v.trim().is_empty());
+        let sources = |m: &ModelConfig| {
+            [&m.api_key_env, &m.api_key_omapass, &m.api_key_credential]
+                .into_iter()
+                .filter(|source| set(source))
+                .count()
         };
-        if self
-            .models
-            .iter()
-            .any(|m| both(&m.api_key_env, &m.api_key_omapass))
-        {
-            return fail("a provider's key comes from api_key_env or api_key_omapass, not both");
+        if self.models.iter().any(|m| sources(m) > 1) {
+            return fail(
+                "a provider's key comes from one of api_key_env, api_key_omapass or api_key_credential",
+            );
+        }
+        if self.models.iter().any(|m| {
+            set(&m.api_key_credential)
+                && !m
+                    .api_key_credential
+                    .as_deref()
+                    .is_some_and(credentials::valid_name)
+        }) {
+            return fail("api_key_credential is a word with no spaces, like deepgram");
         }
         let models: Vec<&String> = self.models.iter().map(|m| &m.name).collect();
         if !distinct(&models) || models.iter().any(|n| n.trim() != *n || n.is_empty()) {
@@ -1354,8 +1377,29 @@ mod tests {
         assert_eq!(config.models[2].key(), Key::Omapass("openrouter"));
         assert_eq!(config.models[0].key(), Key::None);
         value["models"][2]["api_key_env"] = json!("OPENROUTER_API_KEY");
-        assert!(Config::from_value(value).is_err());
-        assert_eq!(Key::of(Some("X"), Some(" ")), Key::Env("X"));
+        assert!(error_of(value.clone()).contains("one of api_key_env, api_key_omapass"));
+        assert_eq!(Key::of(Some("X"), Some(" "), None), Key::Env("X"));
+        assert_eq!(Key::of(None, None, Some(" ")), Key::None);
+    }
+
+    #[test]
+    fn a_key_may_come_from_the_windows_credential_manager() {
+        let mut value = raw();
+        value["models"][2]["api_key_omapass"] = Value::Null;
+        value["models"][2]["api_key_credential"] = json!("openrouter");
+        let config = Config::from_value(value.clone()).unwrap();
+        assert_eq!(config.models[2].key(), Key::Credential("openrouter"));
+        assert_eq!(Config::from_value(config.to_value()).unwrap(), config);
+        let written = toml::to_string(&config.to_raw()).unwrap();
+        assert!(
+            written.contains("api_key_credential = \"openrouter\""),
+            "{written}"
+        );
+        value["models"][2]["api_key_omapass"] = json!("openrouter");
+        assert!(error_of(value.clone()).contains("one of api_key_env"));
+        value["models"][2]["api_key_omapass"] = Value::Null;
+        value["models"][2]["api_key_credential"] = json!("open router");
+        assert!(error_of(value).contains("api_key_credential is a word"));
     }
 
     #[test]

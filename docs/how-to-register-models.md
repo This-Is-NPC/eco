@@ -38,7 +38,9 @@ server of your own.
 ## 1. Put the key where the daemon can read it
 
 Only the daemon reads keys. The window never holds one, and no key is ever
-written to a log. There are two places it can come from.
+written to a log. There are two places it can come from on Linux, and two on
+Windows: the environment, and omapass on Linux or the Windows Credential
+Manager on Windows.
 
 **From the environment.** The daemon is usually started from the launcher or a
 Hyprland key, which do not read `.bashrc`, so put the keys in
@@ -59,6 +61,32 @@ such as `openrouter`. eco runs `omapass get -- openrouter` each time it builds
 that provider — on start, and on every save of the settings — reading the secret
 through a pipe. Nothing to restart, and nothing in a file. eco finds omapass on
 `PATH` or where Omarchy installs the plugin.
+
+**From the Windows Credential Manager** (Windows only). Keep the key as the
+generic credential `eco:<name>`, where `<name>` is a name of yours such as
+`deepgram`, and the model names it. eco reads it each time it builds that
+provider. Store it from a terminal; it asks for the key without showing it,
+or reads it from stdin when piped:
+
+```
+> eco key set deepgram
+Key for eco:deepgram (hidden):
+eco: the key is in the Windows Credential Manager as eco:deepgram
+```
+
+Or add it by hand. Open the Credential Manager — search the Start menu for
+**Credential Manager** (**Gerenciador de Credenciais** in Portuguese), or
+**Control Panel › User Accounts › Credential Manager**, or run
+`control /name Microsoft.CredentialManager` — then **Windows Credentials ›
+Add a generic credential**: **Internet or network address** `eco:deepgram`,
+any **User name**, the key as the **Password**. `eco key remove deepgram`
+deletes it. A daemon that was running reads a new credential after
+`eco restart`. Those outputs are read in the code, not seen: an ssh login by
+key, the only way into the machine eco was built on, has no Credential
+Manager ([on Windows](how-to-install-and-remove.md#on-windows)). On Linux,
+`eco key` says `the Windows Credential Manager is only on Windows; on Linux
+keep the key in omapass (api_key_omapass) or an environment variable
+(api_key_env)`.
 
 ## 2. Add a chat model
 
@@ -87,7 +115,9 @@ last model of its type. Fill it top to bottom:
   **OMAPASS**, with **PICK A PASSWORD** listing omapass's accounts. Only their
   names are listed, never a secret. Without omapass on the machine, **OMAPASS**
   cannot be pressed and an info button beside it opens omapass's install page in
-  the browser.
+  the browser. On Windows **CREDENTIAL MANAGER** takes the place of
+  **OMAPASS**: a field for the key's name (`deepgram` for `eco:deepgram`),
+  and below it how to store that key with `eco key set` or by hand.
 - **ADVANCED** — extra fields sent with every request, as a JSON object, such as
   `{"temperature": 0.2}`. A reasoning chosen above wins over one written here.
 
@@ -175,7 +205,7 @@ name = "gemini"
 type = "chat"
 base_url = "https://openrouter.ai/api/v1"
 model = "google/gemini-3.5-flash-lite"
-api_key_env = "OPENROUTER_API_KEY"     # or api_key_omapass = "openrouter", not both
+api_key_env = "OPENROUTER_API_KEY"     # or api_key_omapass = "openrouter", or api_key_credential = "openrouter"; one
 reasoning = "off"
 
 [[models]]
@@ -215,12 +245,20 @@ fails with
 With omapass and no passwords in it, **PICK A PASSWORD** says
 `No passwords in omapass yet; add one there first.`
 
-**Both sources for one key.** Refused, by the window and by the daemon at start:
-`a provider's key comes from api_key_env or api_key_omapass, not both`.
+**Two sources for one key.** Refused, by the window and by the daemon at start:
+`a provider's key comes from one of api_key_env, api_key_omapass or api_key_credential`.
+
+**No credential `eco:<name>` in the Credential Manager.** The window says
+`Model gemini unavailable: no key in the Windows Credential Manager. Run eco
+key set gemini, or add the generic credential eco:gemini with the key as its
+password, then eco restart.` (for a transcription model, `Transcription
+unavailable: …`), and **LIST** says the same in short. Add it, then
+`eco restart`. Over an ssh login by key, the Credential Manager cannot be
+reached at all; run eco from the desktop.
 
 **LIST refuses a key before the model is saved.** **LIST** reads a key only for
 a saved model at its own base URL, or for a preset's variable at the preset's
-URL. A new model with **CUSTOM** and a key, or with a key from **OMAPASS**, says
+URL. A new model with **CUSTOM** and a key, or with a key from **OMAPASS** or **CREDENTIAL MANAGER**, says
 `no model list: save the model first; its key is read only for a saved model or
 a preset (<base URL>)`, where `<base URL>` is a placeholder for the one typed.
 Press **SAVE**, then **LIST** again. A custom base URL with no key lists at

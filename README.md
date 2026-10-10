@@ -207,8 +207,12 @@ again on the page where you meet it.
   CANCELLATION on, a session says so and records the raw microphone
   ([how to set up audio sources](docs/how-to-set-up-audio-sources.md)). DROP
   ECHOES and headphones still work.
-- **No omapass on Windows.** Its keyring does not exist there; give keys as
-  environment variables ([on Windows](docs/how-to-install-and-remove.md#on-windows)).
+- **No omapass on Windows.** Its keyring does not exist there; keep keys in
+  the Windows Credential Manager or give them as environment variables
+  ([on Windows](docs/how-to-install-and-remove.md#on-windows)).
+- **No Credential Manager over ssh.** An ssh login by key has no Windows
+  Credential Manager: `eco key` fails there, and a daemon started there cannot
+  read keys kept in it; run eco from the desktop.
 - **Sessions recorded before eco kept costs stay unknown.** Their logs hold no
   cost records, and nothing brings those costs back.
 

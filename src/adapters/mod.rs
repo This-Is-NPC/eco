@@ -10,6 +10,7 @@ pub mod audio_pipewire;
 #[cfg(windows)]
 pub mod audio_wasapi;
 pub mod control_socket;
+pub mod credentials;
 #[cfg(unix)]
 pub mod desktop_hyprland;
 #[cfg(windows)]

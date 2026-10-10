@@ -21,6 +21,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 
 use crate::adapters::control_socket::Address;
+use crate::adapters::credentials;
 // What runs the daemon in the background: the systemd user service, or on
 // Windows a process of the user's own (docs/design.md §15).
 #[cfg(unix)]
@@ -89,6 +90,11 @@ enum Command {
     /// Print the usage spec (KDL) that docs/cli.md and the shell completions are generated from.
     #[command(hide = true)]
     Usage,
+    /// Keep a provider's key in the Windows Credential Manager (Windows only).
+    Key {
+        #[command(subcommand)]
+        action: KeyCommand,
+    },
     /// Measure what docs/benchmarks.md reports.
     Bench {
         #[command(subcommand)]
@@ -265,6 +271,15 @@ enum AssignTarget {
 }
 
 #[derive(Debug, Subcommand)]
+enum KeyCommand {
+    /// Store a key as the credential eco:<name>, which a model names with
+    /// api_key_credential; typed hidden, or read from stdin when it is not a terminal.
+    Set { name: String },
+    /// Delete the credential eco:<name>.
+    Remove { name: String },
+}
+
+#[derive(Debug, Subcommand)]
 enum PeopleCommand {
     /// Link named live speakers from older sessions to people.
     Adopt,
@@ -376,6 +391,7 @@ enum Run {
         model: PathBuf,
     },
     Usage,
+    Key(KeyCommand),
     BenchLlm,
     BenchDiarization(bench::diarization::Options),
     BenchPeople {
@@ -421,6 +437,7 @@ impl From<Command> for Run {
             Command::Detach => return Run::Detach,
             Command::Diarize { model } => return Run::Diarize { model },
             Command::Usage => return Run::Usage,
+            Command::Key { action } => return Run::Key(action),
             Command::Bench { target } => {
                 return match target {
                     Bench::Llm => Run::BenchLlm,
@@ -607,6 +624,7 @@ async fn main() -> Result<()> {
             print!("{}", usage_spec());
             Ok(())
         }
+        Run::Key(command) => key(command).map(|done| println!("eco: {done}")),
         Run::BenchLlm => bench::llm::run().await,
         Run::BenchDiarization(options) => bench::diarization::run(options).await,
         Run::BenchPeople { dir, series } => bench::people::run(dir, series).await,
@@ -624,6 +642,16 @@ async fn main() -> Result<()> {
         std::process::exit(1);
     }
     ran
+}
+
+/// `eco key`: store or remove a key in the Windows Credential Manager; what
+/// was done. A failure is the user's to fix, said as a bad config is.
+fn key(command: KeyCommand) -> Result<String> {
+    let done = match command {
+        KeyCommand::Set { name } => credentials::set(&name),
+        KeyCommand::Remove { name } => credentials::remove(&name),
+    };
+    Ok(done.map_err(|failure| config::ConfigError(failure.to_string()))?)
 }
 
 /// What `eco window <words>` asks, as a global shortcut's command runs it.
@@ -648,8 +676,7 @@ async fn set_up(harnesses: Vec<String>) -> Result<()> {
     let mut tied = true;
     for desktop in setup::desktop() {
         match desktop.integrate() {
-            Ok(Some(done)) => println!("eco: {done}"),
-            Ok(None) => {}
+            Ok(done) => done.iter().for_each(|done| println!("eco: {done}")),
             Err(warning) => {
                 eprintln!("eco: warning: {warning}");
                 tied = false;
@@ -781,6 +808,42 @@ mod tests {
             run(&["start", "--headless"]),
             Run::Start { show_window: false }
         ));
+    }
+
+    #[test]
+    fn key_sets_and_removes_one_named_key() {
+        assert!(matches!(
+            run(&["key", "set", "deepgram"]),
+            Run::Key(KeyCommand::Set { name }) if name == "deepgram"
+        ));
+        assert!(matches!(
+            run(&["key", "remove", "groq"]),
+            Run::Key(KeyCommand::Remove { name }) if name == "groq"
+        ));
+        assert_eq!(
+            rejected(&["key", "set"]),
+            ErrorKind::MissingRequiredArgument
+        );
+        assert_eq!(
+            rejected(&["key", "set", "a", "b"]),
+            ErrorKind::UnknownArgument
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn on_linux_key_says_to_keep_keys_in_omapass_as_a_config_error_does() {
+        for command in [
+            KeyCommand::Set { name: "dg".into() },
+            KeyCommand::Remove { name: "dg".into() },
+        ] {
+            let failure = key(command).unwrap_err();
+            let said = failure.downcast_ref::<config::ConfigError>().unwrap();
+            assert_eq!(
+                said.0,
+                credentials::CredentialError::Unavailable.to_string()
+            );
+        }
     }
 
     #[test]

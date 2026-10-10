@@ -243,9 +243,10 @@ machine with a checkout writes `dist\eco-<version>-windows-x86_64.zip`
    with an empty config, and the settings write `%APPDATA%\eco\config.toml`
    at the first save.
 
-5. **Give it the keys** as environment variables of your account. `setx`
-   keeps them for programs started after it, so open a new terminal, and
-   `eco restart` a daemon that was running:
+5. **Give it the keys,** in the Windows Credential Manager (below) or as
+   environment variables of your account. `setx` keeps a variable for
+   programs started after it, so open a new terminal, and `eco restart` a
+   daemon that was running:
 
    ```powershell
    setx OPENROUTER_API_KEY "<your key>"
@@ -258,6 +259,39 @@ machine with a checkout writes `dist\eco-<version>-windows-x86_64.zip`
    the code). omapass keeps its secrets in a keyring
    Windows does not have, so a model with `api_key_omapass` says `omapass is
    not available on Windows`.
+
+   **Keys in the Windows Credential Manager.** A model whose key source is
+   **CREDENTIAL MANAGER** in Settings › Models names a key, say `deepgram`;
+   the daemon reads the generic credential `eco:deepgram` each time it builds
+   that model. The window never sees the key. Store it from a terminal, typed
+   without showing:
+
+   ```
+   > eco key set deepgram
+   Key for eco:deepgram (hidden):
+   eco: the key is in the Windows Credential Manager as eco:deepgram
+   ```
+
+   Piped, it reads the key from stdin instead (`Get-Content key.txt | eco key
+   set deepgram`). `eco key remove deepgram` deletes it. Or add it by hand:
+
+   1. Open the Credential Manager: search the Start menu for
+      **Credential Manager** (**Gerenciador de Credenciais** in Portuguese),
+      or **Control Panel › User Accounts › Credential Manager**, or run
+      `control /name Microsoft.CredentialManager`.
+   2. **Windows Credentials › Add a generic credential.**
+   3. **Internet or network address:** `eco:deepgram`. **User name:**
+      anything. **Password:** the key. **OK.**
+
+   Then `eco restart`. A model whose credential is not there says, in the
+   window, `Transcription unavailable: deepgram has no key in the Windows
+   Credential Manager. Run eco key set deepgram, …`. These outputs are read
+   in the code: the machine eco was built on is reached over ssh, and an ssh
+   login by key has no Credential Manager, where `eco key` says `the Windows
+   Credential Manager cannot be reached from this logon session (Windows
+   ERROR_NO_SUCH_LOGON_SESSION); an ssh login by key has none, so run eco
+   from the desktop` (seen). A daemon `eco start` started over such a login
+   cannot read the keys either; start it from the desktop.
 
 6. **To import audio or video,** put `ffmpeg` and `ffprobe` on your `PATH`
    (the zip does not carry them; [ffmpeg.org](https://ffmpeg.org/download.html)
@@ -541,7 +575,7 @@ Error: the daemon was started, but did not open the socket; it said:
 and does not start:
 
 ```
-eco: a provider's key comes from api_key_env or api_key_omapass, not both
+eco: a provider's key comes from one of api_key_env, api_key_omapass or api_key_credential
 ```
 
 **The window says OFFLINE.** Its start screen adds `Daemon disconnected · eco

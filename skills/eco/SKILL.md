@@ -229,6 +229,10 @@ does not change WebVTT or audio import names, and can be run again safely.
 - `ask`, `action`, `rename`, `tag` (except `tag list`), `import`, `speaker`, `assign`, `delete`, `participant` and `people` change the
   user's sessions and people: run them when the user asked for that, not to
   explore. `delete` and `people forget` cannot be undone.
+- `eco key set <name>` and `eco key remove <name>` (Windows only) store and
+  delete a provider's key in the Windows Credential Manager. They print plain
+  `eco: …` lines, not JSON. Never run them: a key is the user's to type, and
+  an agent must not read, pass or remove one.
 - Live recording is the user's: the CLI cannot start, pause or end it. Several
   sessions may be `recording` at once (a call and a class, say); each holds only
   what was said while it recorded.

@@ -67,7 +67,9 @@ function provider(draft, type, presets) {
   const last = (draft.models || []).filter(model => model.type === type).pop()
   const from = last || presets[type][0].values
   const fields = { base_url: from.base_url }
-  if (from.api_key_omapass !== undefined)
+  if (from.api_key_credential !== undefined)
+    fields.api_key_credential = from.api_key_credential
+  else if (from.api_key_omapass !== undefined)
     fields.api_key_omapass = from.api_key_omapass
   else if (from.api_key_env !== undefined)
     fields.api_key_env = from.api_key_env
@@ -87,7 +89,7 @@ function retype(d, index, type, presets) {
     && !(type === "chat" && url.startsWith("wss://")))
   const kept = { name: entry.name, type: type, model: entry.model || "" }
   if (fits)
-    ["base_url", "api_key_env", "api_key_omapass"].forEach(key => { if (entry[key] !== undefined) kept[key] = entry[key] })
+    ["base_url", "api_key_env", "api_key_omapass", "api_key_credential"].forEach(key => { if (entry[key] !== undefined) kept[key] = entry[key] })
   d.models[index] = Object.assign(kept, fits ? {} : provider(d, type, presets))
 }
 
