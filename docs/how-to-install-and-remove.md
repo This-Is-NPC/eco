@@ -73,53 +73,23 @@ eco: skill /home/you/.claude/skills/eco/SKILL.md is up to date
 
 `/home/you` throughout this page stands for your home directory.
 
-## 3. Write a first config
+## 3. Register the models in the window
 
-The daemon refuses to start without `~/.config/eco/config.toml`:
+There is no config to write by hand. Without `~/.config/eco/config.toml` the
+daemon starts with an empty one: no model, no audio source, the defaults for
+the rest. Start eco (step 5) and its window opens; `SUPER+ALT+C` opens the
+settings. **Models** registers a transcription model and a chat model, each
+with where its key comes from ([how to register models](how-to-register-models.md)),
+and **Audio** says who is heard
+([how to set up audio sources](how-to-set-up-audio-sources.md)). The settings
+ask for a default transcription model and the assistant's model before they
+save, and the first save writes the file; from then on the settings window
+edits it. Every field is in [`design.md` §9](design.md#9-configuration).
 
-```
-eco: no config at /home/you/.config/eco/config.toml; see docs/design.md §9
-```
-
-The smallest config that starts names one transcription model, one chat model,
-and who is heard:
-
-```toml
-[stt]
-model = "deepgram"
-language = "en"
-
-[llm]
-model = "gemini"
-
-[[models]]
-name = "deepgram"
-type = "transcription"
-base_url = "wss://api.deepgram.com/v1/listen"
-model = "nova-3"
-api_key_env = "DEEPGRAM_API_KEY"
-
-[[models]]
-name = "gemini"
-type = "chat"
-base_url = "https://openrouter.ai/api/v1"
-model = "google/gemini-3.5-flash-lite"
-api_key_env = "OPENROUTER_API_KEY"
-
-[[participants]]
-name = "Me"
-user = true
-devices = ["@default-input"]
-
-[[participants]]
-name = "Them"
-devices = ["@default-output"]
-```
-
-From then on the settings window edits it for you, so this is the only time the
-file has to be written by hand. Every field is in
-[`design.md` §9](design.md#9-configuration). A model whose key is missing does
-not stop the daemon: everything else works, and what uses that model says why.
+Until then, what needs a model says so: a session started transcribes nothing
+and says `no transcription model is chosen`, and an answer fails with `no chat
+model is chosen`. A model whose key is missing does not stop the daemon
+either: everything else works, and what uses that model says why.
 
 ## 4. Load the Hyprland rules
 
@@ -264,7 +234,9 @@ machine with a checkout writes `dist\eco-<version>-windows-x86_64.zip`
    (`C:\Users\you` stands for your profile directory.) A first run says
    `saved` and the path for each model instead of `is up to date`.
 
-4. **Write the config** of step 3 to `%APPDATA%\eco\config.toml`.
+4. **There is no config to write.** As step 3 says for Linux, eco starts
+   with an empty config, and the settings write `%APPDATA%\eco\config.toml`
+   at the first save.
 
 5. **Give it the keys** as environment variables of your account. `setx`
    keeps them for programs started after it, so open a new terminal, and
@@ -406,7 +378,7 @@ time `eco start` starts it. A daemon that will not start says why there, and
 
 ```
 Error: the daemon was started, but did not open the socket; it said:
-  eco: no config at C:\Users\you\AppData\Roaming\eco\config.toml; see docs/design.md §9
+  eco: missing C:\Users\you\AppData\Local\eco\models\silero_vad.onnx; run `eco setup`
 ```
 
 Only a line the daemon starts with `eco: ` or `Error: ` is repeated; the rest
@@ -551,16 +523,13 @@ which:
 eco: missing /home/you/.local/share/eco/models/silero_vad.onnx; run `eco setup`
 ```
 
-**There is no config.** The same refusal as in step 3. `eco start` waits 10
-seconds for the daemon, then repeats the line it left in the journal of
-`eco.service`:
+`eco start` waits 10 seconds for the daemon, then repeats the line it left in
+the journal of `eco.service`:
 
 ```
 Error: the daemon was started, but did not open the socket; it said:
-  eco: no config at /home/you/.config/eco/config.toml; see docs/design.md §9
+  eco: missing /home/you/.local/share/eco/models/silero_vad.onnx; run `eco setup`
 ```
-
-Write the file, then `eco start`.
 
 **The config does not validate.** The daemon names the rule it broke, one line,
 and does not start:

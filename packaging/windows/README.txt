@@ -11,8 +11,9 @@ This folder is the whole program. Keep it where it is, for example
     eco status            say whether eco runs
     eco stop              stop it
 
-eco reads its config from %APPDATA%\eco\config.toml. API keys come from
-environment variables, for example:
+eco reads its config from %APPDATA%\eco\config.toml, which its settings
+window writes at the first save; until then eco runs with no model. API keys
+come from environment variables, for example:
 
     setx OPENROUTER_API_KEY "<your key>"
 

@@ -268,9 +268,16 @@ impl Built {
 /// The registered transcription models, by name.
 type Models = Arc<HashMap<String, ModelConfig>>;
 
+/// What a session that needs a model is told while the config names none.
+const NO_TRANSCRIPTION_MODEL: &str = "no transcription model is chosen";
+const NO_CHAT_MODEL: &str = "no chat model is chosen";
+
 /// The model `listening` names, built in its language.
 async fn build(models: &Models, listening: &Listening) -> Result<Stt, String> {
     let name = &listening.model;
+    if name.is_empty() {
+        return Err(NO_TRANSCRIPTION_MODEL.into());
+    }
     let stt = match models.get(name) {
         Some(model) => Stt::build(model, &listening.language, false).await,
         None => Err("not a registered transcription model".into()),
@@ -647,11 +654,18 @@ async fn pipeline(config: Config, assistant: Assistant, emit: Emit, rig: Rig) {
         error(code, format!("{part}: {reason}"), json!({"detail": reason}))
     };
     // Each kind transcribes with its own model or the default, built in the
-    // configured language now, so a missing key is told with the setup.
+    // configured language now, so a missing key is told with the setup; a
+    // kind with neither has an empty name, and its sessions are told.
     let kind_transcribers: HashMap<String, String> = config
         .kinds
         .iter()
-        .map(|kind| (kind.clone(), config.transcriber(kind).name.clone()))
+        .map(|kind| {
+            let model = config.transcriber(kind);
+            (
+                kind.clone(),
+                model.map_or_else(String::new, |m| m.name.clone()),
+            )
+        })
         .collect();
     let transcription_models: HashMap<String, ModelConfig> = config
         .models
@@ -664,6 +678,7 @@ async fn pipeline(config: Config, assistant: Assistant, emit: Emit, rig: Rig) {
     let defaults: BTreeSet<&String> = kind_transcribers
         .values()
         .chain([&config.stt.model])
+        .filter(|name| !name.is_empty())
         .collect();
     for name in defaults {
         let listening = Listening {
@@ -693,9 +708,10 @@ async fn pipeline(config: Config, assistant: Assistant, emit: Emit, rig: Rig) {
             config
                 .kinds
                 .iter()
-                .map(|kind| &config.translator(kind).name),
+                .filter_map(|kind| config.translator(kind))
+                .map(|model| &model.name),
         )
-        .chain([&config.translator("").name]);
+        .chain(config.translator("").map(|model| &model.name));
     let mut models: HashMap<String, Model> = HashMap::new();
     for name in used {
         let Some(registered) = config.model(name).filter(|_| !models.contains_key(name)) else {
@@ -725,8 +741,13 @@ async fn pipeline(config: Config, assistant: Assistant, emit: Emit, rig: Rig) {
         let settings = settings.to_string();
         models.insert(name.clone(), Model { llm, id, settings });
     }
-    // A valid config names a registered assistant model, so it was built.
-    let model = models[&config.llm.model].clone();
+    // A model the config names was built; without one, asking is told so.
+    let none = || Model {
+        llm: Arc::new(Unavailable(NO_CHAT_MODEL.into())),
+        id: String::new(),
+        settings: String::new(),
+    };
+    let model = models.get(&config.llm.model).cloned().unwrap_or_else(none);
     let kind_models: HashMap<String, Model> = config
         .kinds
         .iter()
@@ -780,12 +801,19 @@ async fn pipeline(config: Config, assistant: Assistant, emit: Emit, rig: Rig) {
         })
         .collect();
     let translation = Translating {
-        model: models[&config.translator("").name].clone(),
+        model: config
+            .translator("")
+            .and_then(|translator| models.get(&translator.name))
+            .cloned()
+            .unwrap_or_else(none),
         kind_models: config
             .kinds
             .iter()
             .filter(|kind| config.models.iter().any(|m| m.translates.contains(kind)))
-            .map(|kind| (kind.clone(), models[&config.translator(kind).name].clone()))
+            .filter_map(|kind| {
+                let translator = models.get(&config.translator(kind)?.name)?;
+                Some((kind.clone(), translator.clone()))
+            })
             .collect(),
     };
     let setup = Arc::new(Setup {
@@ -1481,7 +1509,9 @@ impl Session {
                 .to_string_lossy()
                 .into_owned()
         });
-        let stt_config = config.transcriber(&kind).clone();
+        let Some(stt_config) = config.transcriber(&kind).cloned() else {
+            return (self.emit)(failed(NO_TRANSCRIPTION_MODEL.into()));
+        };
         let request = import::Request {
             path,
             title,
@@ -4001,6 +4031,50 @@ mod tests {
         let id = d.start("Retro").await;
         let events = d.line(&format!("session.show {id}")).await;
         assert_eq!(said(&events), ["session_detail"]);
+    }
+
+    #[tokio::test]
+    async fn without_a_config_file_the_daemon_runs_empty_and_a_save_writes_it() {
+        let mut d = daemon(json!({"participants": raw()["participants"]}));
+        assert!(!d.session.config_path.exists());
+        let snapshot = d.configured().await;
+        assert_eq!(snapshot["actions"], json!([]));
+        assert_eq!(
+            snapshot["kind_models"]["meeting"],
+            json!({"transcription": "", "chat": ""})
+        );
+        // Nothing is wrong yet: no part names a model it cannot have.
+        let problems = d.events.lock().unwrap().clone();
+        assert!(
+            !problems
+                .iter()
+                .any(|event| event["code"] == "stt.unavailable"
+                    || event["code"] == "model.unavailable"),
+            "{problems:?}"
+        );
+        // What needs a model says that none is chosen.
+        d.start("Retro").await;
+        let unheard = d.until(|event| event["code"] == "stt.unavailable").await;
+        assert_eq!(unheard["params"]["detail"], NO_TRANSCRIPTION_MODEL);
+        d.line("ask which queue?").await;
+        let unanswered = d.until(|event| event["code"] == "completion.failed").await;
+        assert_eq!(unanswered["params"]["detail"], NO_CHAT_MODEL);
+        let path = d.dir.path().join("call.wav");
+        std::fs::write(&path, b"RIFF").unwrap();
+        let events = d
+            .line(&format!("session.import {}", json!({"path": path})))
+            .await;
+        assert_eq!(said(&events), ["import.failed"]);
+        assert_eq!(events[0]["params"]["detail"], NO_TRANSCRIPTION_MODEL);
+        // The first save writes the file.
+        let mut saved = raw();
+        saved["token"] = json!("secret");
+        let events = d.line(&format!("config.set {saved}")).await;
+        assert_eq!(said(&events), ["config_saved"]);
+        assert_eq!(
+            config::load(&d.session.config_path).unwrap(),
+            d.session.current
+        );
     }
 
     #[tokio::test]

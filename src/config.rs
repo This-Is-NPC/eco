@@ -49,7 +49,8 @@ fn default_languages() -> Vec<String> {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SttConfig {
-    /// The name of a registered transcription model.
+    /// The name of a registered transcription model; empty when none is chosen.
+    #[serde(default)]
     pub model: String,
     /// Code from `languages` used now; "auto" lets the server detect it.
     #[serde(default = "SttConfig::default_language")]
@@ -83,6 +84,16 @@ impl<'a> Key<'a> {
 impl SttConfig {
     fn default_language() -> String {
         "pt".into()
+    }
+}
+
+impl Default for SttConfig {
+    fn default() -> Self {
+        Self {
+            model: String::new(),
+            language: Self::default_language(),
+            languages: default_languages(),
+        }
     }
 }
 
@@ -157,7 +168,8 @@ impl ModelConfig {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LlmConfig {
-    /// The name of a registered model.
+    /// The name of a registered chat model; empty when none is chosen.
+    #[serde(default)]
     pub model: String,
     /// Characters of transcript and earlier answers a request may carry (~4 per token).
     #[serde(default = "LlmConfig::default_max_context_chars")]
@@ -174,6 +186,16 @@ impl LlmConfig {
 
     fn default_concurrency() -> usize {
         8
+    }
+}
+
+impl Default for LlmConfig {
+    fn default() -> Self {
+        Self {
+            model: String::new(),
+            max_context_chars: Self::default_max_context_chars(),
+            concurrency: Self::default_concurrency(),
+        }
     }
 }
 
@@ -299,7 +321,9 @@ struct Raw {
     kinds: Vec<String>,
     #[serde(default = "default_rules")]
     rules: String,
+    #[serde(default)]
     stt: SttConfig,
+    #[serde(default)]
     llm: LlmConfig,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     reviewer: Option<ReviewerConfig>,
@@ -384,22 +408,21 @@ impl Config {
     }
 
     /// The model that translates sessions of `session_kind`: its own, the
-    /// translation default, or the assistant's.
-    pub fn translator(&self, session_kind: &str) -> &ModelConfig {
+    /// translation default, or the assistant's; `None` when there is none.
+    pub fn translator(&self, session_kind: &str) -> Option<&ModelConfig> {
         let own = self
             .models
             .iter()
             .find(|m| m.translates.iter().any(|k| k == session_kind));
         let default = Some(&self.translation.model).filter(|name| !name.is_empty());
         own.or_else(|| self.model(default.unwrap_or(&self.llm.model)))
-            .expect("a valid config names registered chat models")
     }
 
-    /// The model that transcribes sessions of `session_kind`: its own, or the default.
-    pub fn transcriber(&self, session_kind: &str) -> &ModelConfig {
+    /// The model that transcribes sessions of `session_kind`: its own, or the
+    /// default; `None` when there is none.
+    pub fn transcriber(&self, session_kind: &str) -> Option<&ModelConfig> {
         self.model_of_kind(ModelType::Transcription, session_kind)
             .or_else(|| self.model(&self.stt.model))
-            .expect("a valid config names a registered transcription model")
     }
 
     /// Build a Config from its JSON shape (what the overlay sends); validate it.
@@ -561,13 +584,15 @@ impl Config {
             self.model(name)
                 .is_none_or(|model| model.kind != ModelType::Chat)
         };
-        if self
-            .model(&self.stt.model)
-            .is_none_or(|model| model.kind != ModelType::Transcription)
+        // An empty default names no model: sessions say so until one is chosen.
+        if !self.stt.model.is_empty()
+            && self
+                .model(&self.stt.model)
+                .is_none_or(|model| model.kind != ModelType::Transcription)
         {
             return fail("transcription must name a registered transcription model");
         }
-        if unknown(&self.llm.model) {
+        if !self.llm.model.is_empty() && unknown(&self.llm.model) {
             return fail("the assistant must name a registered chat model");
         }
         if let Some(reviewer) = &self.reviewer
@@ -653,14 +678,14 @@ pub(crate) fn valid_color(color: &str) -> bool {
     color.len() == 7 && color.starts_with('#') && color[1..].chars().all(|c| c.is_ascii_hexdigit())
 }
 
+/// The config at `path`; no file there is the empty config, which registers
+/// no model, until the first save writes it.
 pub fn load(path: &Path) -> Result<Config, ConfigError> {
-    let text = fs::read_to_string(path).map_err(|error| match error.kind() {
-        std::io::ErrorKind::NotFound => ConfigError(format!(
-            "no config at {}; see docs/design.md §9",
-            path.display()
-        )),
-        _ => ConfigError(format!("{}: {error}", path.display())),
-    })?;
+    let text = match fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(error) => return Err(ConfigError(format!("{}: {error}", path.display()))),
+    };
     let raw: Raw = toml::from_str(&text).map_err(|error| {
         let message = error.to_string();
         if message.contains("missing field") || message.contains("unknown field") {
@@ -866,8 +891,8 @@ mod tests {
             .push(json!({"name": "local", "type": "transcription", "base_url": "http://lan:8000/v1", "model": "whisper-large-v3", "kinds": ["idea"]}));
         value["models"][2]["kinds"] = json!(["idea"]);
         let config = Config::from_value(value.clone()).unwrap();
-        assert_eq!(config.transcriber("idea").name, "local");
-        assert_eq!(config.transcriber("meeting").name, "whisper");
+        assert_eq!(config.transcriber("idea").unwrap().name, "local");
+        assert_eq!(config.transcriber("meeting").unwrap().name, "whisper");
         assert_eq!(
             config.model_of_kind(ModelType::Chat, "idea").unwrap().name,
             "grok"
@@ -885,16 +910,17 @@ mod tests {
     #[test]
     fn translation_names_a_chat_model_only() {
         let config = Config::from_value(raw()).unwrap();
-        assert_eq!(config.translator("meeting").name, "gemini");
+        assert_eq!(config.translator("meeting").unwrap().name, "gemini");
         let mut value = with("translation", json!({"model": "grok"}));
         let config = Config::from_value(value.clone()).unwrap();
-        assert_eq!(config.translator("meeting").name, "grok");
+        assert_eq!(config.translator("meeting").unwrap().name, "grok");
         assert_eq!(Config::from_value(config.to_value()).unwrap(), config);
         value["models"][1]["translates"] = json!(["idea"]);
         assert_eq!(
             Config::from_value(value.clone())
                 .unwrap()
                 .translator("idea")
+                .unwrap()
                 .name,
             "gemini"
         );
@@ -1047,10 +1073,36 @@ mod tests {
     }
 
     #[test]
-    fn missing_file_is_a_config_error() {
+    fn a_missing_file_is_the_empty_config() {
         let directory = tempfile::tempdir().unwrap();
-        let error = load(&directory.path().join("nope.toml")).unwrap_err().0;
-        assert!(error.contains("no config"));
+        let empty = load(&directory.path().join("nope.toml")).unwrap();
+        assert!(empty.models.is_empty());
+        assert!(empty.participants.is_empty() && empty.actions.is_empty());
+        assert_eq!(
+            (empty.stt.model.as_str(), empty.llm.model.as_str()),
+            ("", "")
+        );
+        assert_eq!(empty.kinds, default_kinds());
+        assert_eq!(empty.transcriber("meeting"), None);
+        assert_eq!(empty.translator("meeting"), None);
+        assert_eq!(Config::from_value(json!({})).unwrap(), empty);
+        assert!(!directory.path().join("nope.toml").exists());
+    }
+
+    #[test]
+    fn a_default_names_a_registered_model_or_none() {
+        let only_models = json!({"models": [
+            {"name": "w", "type": "transcription", "base_url": "http://stt", "model": "whisper-1"},
+            {"name": "m", "type": "chat", "base_url": "http://llm", "model": "m"},
+        ]});
+        let config = Config::from_value(only_models.clone()).unwrap();
+        assert_eq!(config.transcriber("meeting"), None);
+        let mut named = only_models;
+        named["stt"] = json!({"model": "m"});
+        assert!(error_of(named.clone()).contains("transcription must name"));
+        named["stt"] = json!({"model": "w"});
+        named["llm"] = json!({"model": "w"});
+        assert!(error_of(named).contains("assistant must name"));
     }
 
     #[test]
@@ -1070,8 +1122,15 @@ mod tests {
 
         fs::write(&path, "[stt]\nmodel = \"whisper\"\n").unwrap();
         let error = load(&path).unwrap_err().0;
+        assert_eq!(
+            error,
+            "transcription must name a registered transcription model"
+        );
+
+        fs::write(&path, "[llm]\nmodle = \"m\"\n").unwrap();
+        let error = load(&path).unwrap_err().0;
         assert!(error.starts_with("invalid config: "), "{error}");
-        assert!(error.ends_with("missing field `llm`"), "{error}");
+        assert!(error.contains("unknown field `modle`"), "{error}");
     }
 
     #[test]

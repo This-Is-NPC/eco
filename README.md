@@ -47,9 +47,10 @@ again](docs/how-to-install-and-remove.md) is the whole of it.
 
 ## Start here
 
-The daemon will not start without `~/.config/eco/config.toml`; the smallest one
-that starts is in [the install page](docs/how-to-install-and-remove.md#3-write-a-first-config),
-and from then on the settings window writes it for you. Then, in the window:
+There is no config to write by hand: without `~/.config/eco/config.toml` the
+daemon starts with an empty one, and the settings window writes the file at
+its first save ([the install page](docs/how-to-install-and-remove.md#3-register-the-models-in-the-window)).
+Then, in the window:
 
 1. `SUPER+ALT+C` opens the settings. **Audio** first: one audio source for you
    on the default microphone, marked THIS IS ME, and one for everybody else on

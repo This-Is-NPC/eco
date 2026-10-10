@@ -545,12 +545,12 @@ mod tests {
     async fn a_daemon_that_never_listens_is_reported_with_what_it_said() {
         assert_eq!(
             silent_error(Some(
-                "eco: no config at /c.toml; see docs/design.md §9\r\n\
-                 eco: no config at /c.toml; see docs/design.md §9\r\n"
+                "eco: missing /m/silero_vad.onnx; run `eco setup`\r\n\
+                 eco: missing /m/silero_vad.onnx; run `eco setup`\r\n"
             ))
             .await,
             "the daemon was started, but did not open the socket; it said:\n\
-             \x20 eco: no config at /c.toml; see docs/design.md §9"
+             \x20 eco: missing /m/silero_vad.onnx; run `eco setup`"
         );
         assert_eq!(
             silent_error(Some(

@@ -195,12 +195,12 @@ mod tests {
         assert_eq!(read_log(&log), None);
         std::fs::write(
             &log,
-            "eco: no config at C:\\c.toml; see docs/design.md \u{a7}9\r\n",
+            "eco: missing C:\\Users\\Zo\u{eb}\\silero_vad.onnx; run `eco setup`\r\n",
         )
         .unwrap();
         assert_eq!(
             read_log(&log).as_deref(),
-            Some("eco: no config at C:\\c.toml; see docs/design.md \u{a7}9\r\n")
+            Some("eco: missing C:\\Users\\Zo\u{eb}\\silero_vad.onnx; run `eco setup`\r\n")
         );
     }
 

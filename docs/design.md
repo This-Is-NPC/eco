@@ -760,7 +760,14 @@ holds is listed and shown as `interrupted`, never reopened by itself.
 ## 9. Configuration
 
 `~/.config/eco/config.toml` (written by the config window; hand edits work too,
-but comments are not kept):
+but comments are not kept). No file is the empty config: no model, no
+participant, no action, the defaults for the rest. The daemon starts on
+it, so the window opens and its settings write the file at the first save; a
+file that does not parse or validate still stops the daemon. `stt.model` and
+`llm.model` may be empty, naming no default: a session that needs that model
+is told `no transcription model is chosen`, as an `stt.unavailable` error, and
+an answer fails with `no chat model is chosen` (`completion.failed`). Every
+field:
 
 ```toml
 kinds = ["meeting", "conversation", "other", "idea"]  # what a session can be

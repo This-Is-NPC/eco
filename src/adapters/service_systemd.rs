@@ -197,14 +197,14 @@ exit 0"#,
             dir.path(),
             "journalctl",
             &format!(
-                "echo \"$*\" > '{}'\necho 'eco: no config at /c.toml'",
+                "echo \"$*\" > '{}'\necho 'eco: missing /m/silero_vad.onnx'",
                 calls.display()
             ),
         );
         let since = UNIX_EPOCH + std::time::Duration::from_millis(1_700_000_000_900);
         assert_eq!(
             journal(&program, since).await.as_deref(),
-            Some("eco: no config at /c.toml\n")
+            Some("eco: missing /m/silero_vad.onnx\n")
         );
         assert_eq!(
             fs::read_to_string(calls).unwrap(),
