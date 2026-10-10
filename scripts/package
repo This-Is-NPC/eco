@@ -7,7 +7,8 @@ the SHA256SUMS that install.sh checks it against. Needs makepkg; not as root.
 
 On Windows: dist/eco-<version>-windows-x86_64.zip of the working tree, one
 folder eco/ laid out as the daemon looks for what it ships (docs/design.md
-§13): bin/eco.exe, the window program and its Qt runtime in lib/eco (built by
+§13), staged by scripts/lib/windows.py as scripts/install-windows installs it:
+bin/eco.exe, the window program and its Qt runtime in lib/eco (built by
 scripts/window-build), the overlay in share/eco/overlay, the icon, the licence
 and README.txt."""
 
@@ -23,21 +24,15 @@ from pathlib import Path
 root = Path(os.environ.get("MISE_PROJECT_ROOT") or Path.cwd())
 
 if sys.platform == "win32":
-    window = root / "target/window/eco-window.exe"
-    if not window.exists():
-        sys.exit("package: no target/window/eco-window.exe; run `mise run window:build`")
+    sys.dont_write_bytecode = True
+    sys.path.insert(0, str(root / "scripts/lib"))
+    import windows
+
+    windows.build(root)
     version = tomllib.loads((root / "Cargo.toml").read_text())["package"]["version"]
-    subprocess.run(["cargo", "build", "--release", "--locked", "--quiet"], cwd=root, check=True)
     staging = root / "target/windows"
-    shutil.rmtree(staging, ignore_errors=True)
     eco = staging / "eco"
-    (eco / "bin").mkdir(parents=True)
-    shutil.copy2(root / "target/release/eco.exe", eco / "bin/eco.exe")
-    shutil.copytree(window.parent, eco / "lib/eco")
-    shutil.copytree(root / "overlay", eco / "share/eco/overlay")
-    shutil.copy2(root / "packaging/eco.svg", eco / "eco.svg")
-    shutil.copy2(root / "LICENSE", eco / "LICENSE")
-    shutil.copy2(root / "packaging/windows/README.txt", eco / "README.txt")
+    windows.stage(root, eco)
     archive = root / "dist" / f"eco-{version}-windows-x86_64.zip"
     archive.parent.mkdir(exist_ok=True)
     files = sorted(path for path in eco.rglob("*") if path.is_file())

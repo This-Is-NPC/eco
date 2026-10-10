@@ -41,6 +41,21 @@ description = "Build eco for release and install it under ~/.local (PREFIX overr
 depends = ["window:build"]
 run = "scripts/install"
 
+[tasks."install:windows"]
+description = "Windows only: build eco for release and install it for your account in %LOCALAPPDATA%\\Programs\\eco, its bin on your PATH, then eco setup"
+run = "scripts/install-windows"
+run_windows = [{ task = "window:build" }, "python scripts/install-windows"]
+
+[tasks."uninstall:windows"]
+description = "Windows only: stop eco and remove the install, its PATH entry and login script; asks whether to delete your sessions, config and models too"
+raw = true
+usage = '''
+flag "--keep-data" help="Keep the sessions, config and models without asking"
+flag "--delete-everything" help="Also delete the sessions, config and models without asking"
+'''
+run = "scripts/uninstall-windows"
+run_windows = "python scripts/uninstall-windows"
+
 [tasks."readme:gif"]
 description = "Render the README's animated GIF from packaging/eco.omapixel (needs omapixel)"
 run = "scripts/readme-gif"
