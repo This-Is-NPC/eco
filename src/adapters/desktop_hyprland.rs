@@ -315,4 +315,26 @@ mod tests {
         assert_eq!(fs::read_to_string(&path).unwrap(), "-- mine\n");
         assert!(backups(&path).is_empty());
     }
+
+    #[test]
+    fn without_shipped_rules_the_config_is_left_alone() {
+        let (_dir, path) = bindings(Some("-- mine\n"));
+        let said = Hyprland::new(path.clone(), None).load_rules().unwrap();
+        assert_eq!(
+            said,
+            "no Hyprland rules installed beside this eco; Hyprland config left as is"
+        );
+        assert_eq!(fs::read_to_string(&path).unwrap(), "-- mine\n");
+    }
+
+    #[test]
+    fn bindings_it_cannot_read_are_a_warning() {
+        let (_dir, path) = bindings(None);
+        fs::create_dir_all(&path).unwrap();
+        let warning = load(&path, Some(Path::new(RULES))).unwrap_err();
+        assert!(
+            warning.starts_with(&format!("could not read {}", path.display())),
+            "{warning}"
+        );
+    }
 }

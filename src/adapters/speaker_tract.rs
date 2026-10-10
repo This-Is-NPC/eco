@@ -84,10 +84,10 @@ mod tests {
     #[test]
     fn matches_the_wespeaker_pipeline() {
         let model = paths::speaker_model();
+        let shown = model.display();
         assert!(
             model.exists(),
-            "run `mise run setup` first: {} is missing",
-            model.display()
+            "run `mise run setup` first: {shown} is missing"
         );
         let bytes = include_bytes!("../../tests/fixtures/speaker-clips.s16");
         let samples: Vec<i16> = bytes
@@ -110,6 +110,10 @@ mod tests {
         }
 
         let embedder = TractEmbedder::load(&model).unwrap();
+        assert_eq!(
+            embedder.embed(&[0; 10]).unwrap_err().0,
+            "the clip is shorter than a frame"
+        );
         let embeddings: Vec<Vec<f32>> = clips.iter().map(|c| embedder.embed(c).unwrap()).collect();
         for (index, expected) in reference["embeddings"]
             .as_array()

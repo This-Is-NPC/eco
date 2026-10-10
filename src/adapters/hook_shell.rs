@@ -76,5 +76,10 @@ mod tests {
             .await
             .unwrap_err();
         assert_eq!(failure.0, "no token");
+        let silent = ShellHooks
+            .run("exit 4".into(), "a".into(), "b".into())
+            .await
+            .unwrap_err();
+        assert_eq!(silent.0, "exit status: 4");
     }
 }

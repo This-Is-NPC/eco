@@ -108,10 +108,10 @@ mod tests {
         let frames: Vec<_> = frames(shell("echo noise >&2; echo 'bad input' >&2; exit 3"))
             .collect()
             .await;
-        let [Err(error)] = frames.as_slice() else {
-            panic!("{frames:?}")
-        };
-        assert_eq!(error.0, "sh: bad input");
+        assert!(
+            matches!(frames.as_slice(), [Err(error)] if error.0 == "sh: bad input"),
+            "{frames:?}"
+        );
     }
 
     #[tokio::test]

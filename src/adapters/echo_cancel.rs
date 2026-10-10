@@ -91,12 +91,10 @@ async fn start_with(pw_cli: &Path, mic: &str) -> Result<EchoCancel, AudioError> 
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
-    use std::path::PathBuf;
-    use std::time::Instant;
-
     use super::*;
     use crate::adapters::fake_program::fake_program;
+    use std::fs;
+    use std::path::PathBuf;
 
     #[test]
     fn the_module_is_aimed_at_the_microphone() {
@@ -134,17 +132,17 @@ exec sleep 30"#,
         )
     }
 
-    /// Whether the process `pid` is gone, or a zombie, within five seconds.
-    fn ends(pid: &str) -> bool {
-        let started = Instant::now();
-        while started.elapsed() < Duration::from_secs(5) {
-            match fs::read_to_string(format!("/proc/{pid}/stat")) {
-                Err(_) => return true,
-                Ok(stat) if stat.contains(") Z ") => return true,
-                Ok(_) => std::thread::sleep(Duration::from_millis(20)),
-            }
+    /// Whether the child `pid` was killed: its status says so, or the runtime
+    /// already reaped it, which it does only for a child it killed.
+    fn killed(pid: &str) -> bool {
+        use rustix::io::Errno;
+        use rustix::process::{Pid, WaitOptions, waitpid};
+
+        let pid = Pid::from_raw(pid.trim().parse().unwrap());
+        match waitpid(pid, WaitOptions::empty()) {
+            Ok(ended) => ended.is_some_and(|(_, status)| status.terminating_signal().is_some()),
+            Err(error) => error == Errno::CHILD,
         }
-        false
     }
 
     #[tokio::test]
@@ -161,7 +159,7 @@ exec sleep 30"#,
         );
         let pid = fs::read_to_string(dir.path().join("pid")).unwrap();
         drop(module);
-        assert!(ends(pid.trim()), "pw-cli {pid} still runs");
+        assert!(killed(&pid), "pw-cli {pid} was not killed");
     }
 
     #[tokio::test(start_paused = true)]
