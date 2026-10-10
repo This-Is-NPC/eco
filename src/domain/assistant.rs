@@ -1512,7 +1512,6 @@ impl Assistant {
             return;
         }
         let Some(mut person) = self.person(person_id) else {
-            self.emit(error("person.not_found", "person not found", json!({})));
             return;
         };
         person.color = color.to_ascii_lowercase();
@@ -5315,6 +5314,25 @@ mod tests {
         assert_eq!(last("session_detail")["speakers"][0]["name"], "Ana Paula");
         assistant.forget_person("nobody");
         assert_eq!(last("error")["code"], "person.not_found");
+    }
+
+    #[test]
+    fn coloring_no_one_is_refused_once() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = PeopleFiles::new(directory.path().join("people"));
+        let events: Events = Arc::default();
+        let sink = Arc::clone(&events);
+        let emit: Emit = Arc::new(move |event| sink.lock().unwrap().push(event));
+        let assistant = Assistant::new(emit, Arc::new(NoSessionFiles), Arc::new(store), no_hooks());
+        assistant.set_person_color("nobody", "#ffb000");
+        assert_eq!(
+            *events.lock().unwrap(),
+            [error(
+                "person.not_found",
+                "no person \"nobody\"",
+                json!({"id": "nobody"})
+            )]
+        );
     }
 
     #[test]

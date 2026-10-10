@@ -3220,6 +3220,12 @@ mod tests {
                 json!("Eva"),
             ),
             (
+                r##"person.color {"person": "p4", "color": "#00ff00"}"##.into(),
+                vec!["person.not_found"],
+                "/0/params/id",
+                json!("p4"),
+            ),
+            (
                 r#"person.rename {"id": "p1", "name": "Eva"}"#.into(),
                 vec!["person.not_found"],
                 "/0/params/id",
