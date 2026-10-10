@@ -1,15 +1,75 @@
-#!/usr/bin/env bash
-# Build the Arch package of the committed HEAD into target/arch/pkg, with the
-# SHA256SUMS that install.sh checks it against. Needs makepkg; not as root.
-set -euo pipefail
-root="${MISE_PROJECT_ROOT:-$(pwd)}"
-out="$root/target/arch"
-rm -rf "$out"
-mkdir -p "$out/build" "$out/pkg" "$out/src" "$out/log"
-cd "$root/packaging/arch"
-# -d: the runtime dependencies are the target machine's, not the builder's.
-ECO_TREE="$root" BUILDDIR="$out/build" PKGDEST="$out/pkg" SRCDEST="$out/src" LOGDEST="$out/log" \
-  makepkg -f -d --noconfirm
-cd "$out/pkg"
-sha256sum eco-[0-9]*.pkg.tar.zst > SHA256SUMS
-cat SHA256SUMS
+#!/usr/bin/env python3
+"""Build the release package of eco for the machine it runs on. Run from the
+root of the tree.
+
+On Linux: the Arch package of the committed HEAD into target/arch/pkg, with
+the SHA256SUMS that install.sh checks it against. Needs makepkg; not as root.
+
+On Windows: dist/eco-<version>-windows-x86_64.zip of the working tree, one
+folder eco/ laid out as the daemon looks for what it ships (docs/design.md
+§13): bin/eco.exe, the window program and its Qt runtime in lib/eco (built by
+scripts/window-build), the overlay in share/eco/overlay, the icon, the licence
+and README.txt."""
+
+import hashlib
+import os
+import shutil
+import subprocess
+import sys
+import tomllib
+import zipfile
+from pathlib import Path
+
+root = Path(os.environ.get("MISE_PROJECT_ROOT") or Path.cwd())
+
+if sys.platform == "win32":
+    window = root / "target/window/eco-window.exe"
+    if not window.exists():
+        sys.exit("package: no target/window/eco-window.exe; run `mise run window:build`")
+    version = tomllib.loads((root / "Cargo.toml").read_text())["package"]["version"]
+    subprocess.run(["cargo", "build", "--release", "--locked", "--quiet"], cwd=root, check=True)
+    staging = root / "target/windows"
+    shutil.rmtree(staging, ignore_errors=True)
+    eco = staging / "eco"
+    (eco / "bin").mkdir(parents=True)
+    shutil.copy2(root / "target/release/eco.exe", eco / "bin/eco.exe")
+    shutil.copytree(window.parent, eco / "lib/eco")
+    shutil.copytree(root / "overlay", eco / "share/eco/overlay")
+    shutil.copy2(root / "packaging/eco.svg", eco / "eco.svg")
+    shutil.copy2(root / "LICENSE", eco / "LICENSE")
+    shutil.copy2(root / "packaging/windows/README.txt", eco / "README.txt")
+    archive = root / "dist" / f"eco-{version}-windows-x86_64.zip"
+    archive.parent.mkdir(exist_ok=True)
+    files = sorted(path for path in eco.rglob("*") if path.is_file())
+    with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED, strict_timestamps=False) as zip:
+        for path in files:
+            zip.write(path, path.relative_to(staging).as_posix())
+    digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+    print(f"{digest}  {archive.name}")
+    print(f"{archive}: {len(files)} files, {archive.stat().st_size} bytes")
+else:
+    out = root / "target/arch"
+    shutil.rmtree(out, ignore_errors=True)
+    for directory in ("build", "pkg", "src", "log"):
+        (out / directory).mkdir(parents=True)
+    # -d: the runtime dependencies are the target machine's, not the builder's.
+    subprocess.run(
+        ["makepkg", "-f", "-d", "--noconfirm"],
+        cwd=root / "packaging/arch",
+        env=os.environ | {
+            "ECO_TREE": str(root),
+            "BUILDDIR": str(out / "build"),
+            "PKGDEST": str(out / "pkg"),
+            "SRCDEST": str(out / "src"),
+            "LOGDEST": str(out / "log"),
+        },
+        check=True,
+    )
+    packages = sorted((out / "pkg").glob("eco-[0-9]*.pkg.tar.zst"))
+    if not packages:
+        sys.exit("package: makepkg wrote no eco package")
+    sums = "".join(
+        f"{hashlib.sha256(package.read_bytes()).hexdigest()}  {package.name}\n" for package in packages
+    )
+    (out / "pkg/SHA256SUMS").write_text(sums)
+    print(sums, end="")

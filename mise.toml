@@ -113,8 +113,9 @@ description = "Install the versioned pre-push hook that runs the gate and posts 
 run = "scripts/hooks-install"
 
 [tasks.package]
-description = "Build the Arch package of the committed HEAD into target/arch/pkg, with its SHA256SUMS"
+description = "Build the release package: on Linux the Arch package of the committed HEAD into target/arch/pkg, with its SHA256SUMS; on Windows dist/eco-<version>-windows-x86_64.zip"
 run = "scripts/package"
+run_windows = [{ task = "window:build" }, "python scripts/package"]
 
 [tasks."bench:llm"]
 description = "Measure time to first token of candidate models on OpenRouter (needs OPENROUTER_API_KEY)"

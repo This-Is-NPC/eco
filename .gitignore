@@ -8,3 +8,4 @@ benchmark/runs.js
 __pycache__/
 .claude/worktrees/
 .qt/
+dist/
