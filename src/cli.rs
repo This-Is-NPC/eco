@@ -984,29 +984,58 @@ mod tests {
     /// A client wired to a fake daemon that, turn by turn, checks the command it
     /// receives and answers with that turn's events.
     fn conversing(turns: Vec<(&'static str, Vec<Value>)>) -> Client {
+        greeted(json!({"type": "snapshot", "kinds": ["meeting"]}), turns)
+    }
+
+    /// `conversing`, with the daemon greeting the client with `greeting`.
+    fn greeted(greeting: Value, turns: Vec<(&'static str, Vec<Value>)>) -> Client {
+        let (ours, theirs) = Stream::pair().unwrap();
+        tokio::spawn(daemon(theirs, greeting, turns));
+        Client::over(ours)
+    }
+
+    /// The fake daemon's end of one connection: greet, then answer each turn.
+    async fn daemon(theirs: Stream, greeting: Value, turns: Vec<(&'static str, Vec<Value>)>) {
+        let (mut reader, mut writer) = local_socket::split(theirs);
+        writer
+            .write_all(format!("{greeting}\n").as_bytes())
+            .await
+            .unwrap();
+        for (expected, events) in turns {
+            let mut received = vec![0u8; expected.len() + 1];
+            reader.read_exact(&mut received).await.unwrap();
+            assert_eq!(String::from_utf8_lossy(&received), format!("{expected}\n"));
+            for event in events {
+                writer
+                    .write_all(format!("{event}\n").as_bytes())
+                    .await
+                    .unwrap();
+            }
+        }
+        // Hold the connection open, as the daemon does.
+        let _ = reader.read(&mut [0u8; 1]).await;
+    }
+
+    /// A client wired to a fake daemon that checks the command it receives,
+    /// writes `lines` as they are, and closes the connection.
+    fn closing_after(expected: &'static str, lines: &'static [&'static str]) -> Client {
         let (ours, theirs) = Stream::pair().unwrap();
         tokio::spawn(async move {
-            let (mut reader, mut writer) = local_socket::split(theirs);
-            let greeting = json!({"type": "snapshot", "kinds": ["meeting"]});
-            writer
-                .write_all(format!("{greeting}\n").as_bytes())
-                .await
-                .unwrap();
-            for (expected, events) in turns {
-                let mut received = vec![0u8; expected.len() + 1];
-                reader.read_exact(&mut received).await.unwrap();
-                assert_eq!(String::from_utf8_lossy(&received), format!("{expected}\n"));
-                for event in events {
-                    writer
-                        .write_all(format!("{event}\n").as_bytes())
-                        .await
-                        .unwrap();
-                }
+            let (reader, mut writer) = local_socket::split(theirs);
+            let mut commands = BufReader::new(reader).lines();
+            assert_eq!(commands.next_line().await.unwrap().unwrap(), expected);
+            for line in lines {
+                writer
+                    .write_all(format!("{line}\n").as_bytes())
+                    .await
+                    .unwrap();
             }
-            // Hold the connection open, as the daemon does.
-            let _ = reader.read(&mut [0u8; 1]).await;
         });
         Client::over(ours)
+    }
+
+    fn refusal(code: &str) -> Value {
+        json!({"type": "error", "code": code, "message": format!("{code} happened")})
     }
 
     fn signal() -> Value {
@@ -1416,8 +1445,13 @@ mod tests {
             r#"session.line.edit {"id":"n1","who":"Eles","at":1.5,"text":"Windhawk"}"#,
             vec![edited],
         );
-        let change = LineChange::Edit("Windhawk".into());
-        let line = client.line("n1", "Eles", 1.5, change).await.unwrap();
+        let request = Request::Line {
+            id: "n1".into(),
+            who: "Eles".into(),
+            at: 1.5,
+            change: LineChange::Edit("Windhawk".into()),
+        };
+        let line = client.handle(request).await.unwrap();
         assert_eq!(line["text"], "Windhawk");
     }
 
@@ -1494,6 +1528,543 @@ mod tests {
             .err()
             .unwrap();
         assert_eq!(failure.code, "daemon.offline");
+    }
+
+    #[tokio::test]
+    async fn a_socket_path_the_system_refuses_is_unavailable() {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        let failure = Client::connect(&file.path().join("eco.sock"))
+            .await
+            .err()
+            .unwrap();
+        assert_eq!(failure.code, "daemon.unavailable");
+    }
+
+    /// A socket at a fresh path whose daemon answers one connection.
+    async fn listening(turns: Vec<(&'static str, Vec<Value>)>) -> (tempfile::TempDir, PathBuf) {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("eco.sock");
+        let listener = local_socket::Listener::bind(&path).await.unwrap();
+        tokio::spawn(async move {
+            let stream = listener.accept().await.unwrap();
+            let greeting = json!({"type": "snapshot", "kinds": ["meeting"]});
+            daemon(stream, greeting, turns).await;
+        });
+        (directory, path)
+    }
+
+    #[tokio::test]
+    async fn run_exits_zero_once_the_daemon_answers() {
+        let sessions = json!({"type": "sessions", "sessions": [{"id": "a", "kind": "idea"}]});
+        let (_directory, socket) = listening(vec![("sessions", vec![sessions])]).await;
+        let request = Request::Sessions {
+            kind: None,
+            person: None,
+            tag: None,
+            search: None,
+        };
+        assert_eq!(run(&socket, request).await, 0);
+
+        let vtt = json!({"type": "session_export", "id": "n1", "text": "WEBVTT\n"});
+        let (_directory, socket) = listening(vec![("session.export n1", vec![vtt])]).await;
+        assert_eq!(run(&socket, Request::Export { id: "n1".into() }).await, 0);
+    }
+
+    #[tokio::test]
+    async fn run_exits_one_when_the_daemon_refuses_or_is_offline() {
+        let (_directory, socket) = listening(vec![(
+            "session.delete n9",
+            vec![refusal("session.not_found")],
+        )])
+        .await;
+        assert_eq!(run(&socket, Request::Delete { id: "n9".into() }).await, 1);
+
+        let directory = tempfile::tempdir().unwrap();
+        let offline = directory.path().join("eco.sock");
+        assert_eq!(run(&offline, Request::Show { id: "n1".into() }).await, 1);
+    }
+
+    #[tokio::test]
+    async fn a_line_that_is_not_json_is_skipped() {
+        let mut client = closing_after(
+            "session.delete n1",
+            &["not json", r#"{"type":"session_deleted","id":"n1"}"#],
+        );
+        assert_eq!(client.delete("n1").await, Ok(json!({"id": "n1"})));
+    }
+
+    #[tokio::test]
+    async fn a_daemon_that_closes_before_settling_is_a_failure() {
+        let mut client = closing_after("session.delete n1", &[]);
+        assert_eq!(client.delete("n1").await.unwrap_err().code, "daemon.closed");
+    }
+
+    #[tokio::test]
+    async fn a_command_to_a_gone_daemon_is_a_failure() {
+        let (ours, theirs) = Stream::pair().unwrap();
+        drop(theirs);
+        let mut client = Client::over(ours);
+        assert_eq!(client.delete("n1").await.unwrap_err().code, "daemon.closed");
+    }
+
+    #[tokio::test]
+    async fn a_delete_settles_on_its_own_session() {
+        let events = vec![
+            json!({"type": "session_deleted", "id": "other"}),
+            refusal("transcription.failed"),
+            json!({"type": "session_deleted", "id": "n1"}),
+        ];
+        let mut client = talking_to("session.delete n1", events);
+        let request = Request::Delete { id: "n1".into() };
+        assert_eq!(client.handle(request).await, Ok(json!({"id": "n1"})));
+
+        let mut client = talking_to("session.delete n1", vec![refusal("people.failed")]);
+        let request = Request::Delete { id: "n1".into() };
+        assert_eq!(
+            client.handle(request).await.unwrap_err(),
+            Failure::new("people.failed", "people.failed happened")
+        );
+    }
+
+    #[tokio::test]
+    async fn a_line_is_given_to_a_person() {
+        let events = vec![
+            json!({"type": "transcript_reassigned", "session": "n1", "at": 9.0, "label": "x", "name": "x"}),
+            json!({"type": "transcript_reassigned", "session": "n1", "who": "Eles", "at": 1.5, "label": "Ana", "name": "Ana"}),
+        ];
+        let mut client = talking_to(
+            r#"person.assign_line {"id":"n1","who":"Eles","at":1.5,"person":"","name":"Ana"}"#,
+            events,
+        );
+        let request = Request::AssignLine {
+            id: "n1".into(),
+            who: "Eles".into(),
+            at: 1.5,
+            person: None,
+            name: Some("Ana".into()),
+        };
+        assert_eq!(
+            client.handle(request).await,
+            Ok(json!({"session": "n1", "label": "Ana", "name": "Ana"}))
+        );
+
+        let mut client = talking_to(
+            r#"person.assign_line {"id":"n1","who":"Eles","at":1.5,"person":"p1","name":""}"#,
+            vec![refusal("line.not_found")],
+        );
+        let request = Request::AssignLine {
+            id: "n1".into(),
+            who: "Eles".into(),
+            at: 1.5,
+            person: Some("p1".into()),
+            name: None,
+        };
+        assert_eq!(
+            client.handle(request).await.unwrap_err().code,
+            "line.not_found"
+        );
+    }
+
+    #[tokio::test]
+    async fn every_speaker_is_given_to_one_person() {
+        let events = vec![
+            json!({"type": "person_assigned_all", "session": "other", "speakers": 5}),
+            json!({"type": "person_assigned_all", "session": "n1", "speakers": 2}),
+        ];
+        let mut client = talking_to(
+            r#"person.assign_all {"session":"n1","person":"p1","name":""}"#,
+            events,
+        );
+        let request = Request::AssignAll {
+            id: "n1".into(),
+            person: Some("p1".into()),
+            name: None,
+        };
+        assert_eq!(
+            client.handle(request).await,
+            Ok(json!({"session": "n1", "speakers": 2}))
+        );
+
+        let mut client = talking_to(
+            r#"person.assign_all {"session":"n1","person":"","name":"Ana"}"#,
+            vec![refusal("person.not_found")],
+        );
+        let request = Request::AssignAll {
+            id: "n1".into(),
+            person: None,
+            name: Some("Ana".into()),
+        };
+        assert_eq!(
+            client.handle(request).await.unwrap_err().code,
+            "person.not_found"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_speaker_is_given_a_known_person_by_id() {
+        let speakers = json!([{"label": "Speaker 1", "name": "Speaker 1", "person": null}]);
+        let assign =
+            r#"person.assign {"session":"n1","label":"Speaker 1","person":"p1","name":""}"#;
+        let events = vec![
+            json!({"type": "speaker_renamed", "session": "n1", "label": "Speaker 2", "name": "Bia"}),
+            json!({"type": "speaker_renamed", "session": "n1", "label": "Speaker 1", "name": "Ana"}),
+        ];
+        let mut client = with_speakers("live", speakers.clone(), vec![(assign, events)]);
+        let request = Request::Speaker {
+            id: "n1".into(),
+            label: "Speaker 1".into(),
+            who: Who::Person("p1".into()),
+        };
+        assert_eq!(
+            client.handle(request).await,
+            Ok(json!({"session": "n1", "label": "Speaker 1", "name": "Ana"}))
+        );
+
+        let steps = vec![(assign, vec![refusal("people.failed")])];
+        let mut client = with_speakers("live", speakers, steps);
+        let failure = client
+            .speaker("n1", "Speaker 1", Who::Person("p1".into()))
+            .await
+            .unwrap_err();
+        assert_eq!(failure.code, "people.failed");
+    }
+
+    #[tokio::test]
+    async fn nobody_unassigns_a_person_or_clears_a_name() {
+        let renamed = json!({"type": "speaker_renamed", "session": "n1", "label": "Speaker 1", "name": "Speaker 1"});
+        let assigned = json!([{"label": "Speaker 1", "name": "Ana", "person": "p1"}]);
+        let unassign = r#"person.unassign {"session":"n1","label":"Speaker 1"}"#;
+        let mut client = with_speakers("live", assigned, vec![(unassign, vec![renamed.clone()])]);
+        let nobody = client.speaker("n1", "Speaker 1", Who::Nobody).await;
+        assert_eq!(
+            nobody,
+            Ok(json!({"session": "n1", "label": "Speaker 1", "name": "Speaker 1"}))
+        );
+
+        let named = json!([{"label": "Speaker 1", "name": "Chefe", "person": null, "guess": null}]);
+        let clear = r#"session.speaker {"id":"n1","label":"Speaker 1","name":""}"#;
+        let mut client = with_speakers("live", named, vec![(clear, vec![renamed])]);
+        let nobody = client.speaker("n1", "Speaker 1", Who::Nobody).await;
+        assert_eq!(nobody.unwrap()["name"], "Speaker 1");
+    }
+
+    #[tokio::test]
+    async fn nobody_clears_a_guess() {
+        let guessed = json!([{"label": "Speaker 1", "name": "Speaker 1", "person": null,
+            "guess": {"person": "p1", "name": "Ana", "score": 0.9}}]);
+        let clear = r#"person.guess.clear {"session":"n1","label":"Speaker 1"}"#;
+        let events = vec![
+            json!({"type": "session_speakers", "session": "other", "speakers": []}),
+            json!({"type": "session_speakers", "session": "n1", "speakers": []}),
+        ];
+        let mut client = with_speakers("live", guessed.clone(), vec![(clear, events)]);
+        let cleared = client.speaker("n1", "Speaker 1", Who::Nobody).await;
+        assert_eq!(
+            cleared,
+            Ok(json!({"session": "n1", "label": "Speaker 1", "name": "Speaker 1"}))
+        );
+
+        let steps = vec![(clear, vec![refusal("speaker.invalid")])];
+        let mut client = with_speakers("live", guessed, steps);
+        let failure = client
+            .speaker("n1", "Speaker 1", Who::Nobody)
+            .await
+            .unwrap_err();
+        assert_eq!(failure.code, "speaker.invalid");
+    }
+
+    /// The greeting of a daemon with two context slots: one for meetings, one for ideas.
+    fn with_slots() -> Value {
+        json!({"type": "snapshot", "contexts": [
+            {"name": "cv", "kinds": ["meeting"]},
+            {"name": "notes", "kinds": ["idea"]},
+        ]})
+    }
+
+    #[tokio::test]
+    async fn a_session_without_chosen_contexts_has_those_of_its_kind() {
+        let detail = json!({"type": "session_detail", "session": {"id": "n1", "kind": "meeting"}});
+        let mut client = greeted(with_slots(), vec![("session.show n1", vec![detail])]);
+        let request = Request::Context {
+            id: "n1".into(),
+            add: vec![],
+            remove: vec![],
+        };
+        assert_eq!(
+            client.handle(request).await,
+            Ok(json!({"session": "n1", "contexts": ["cv"], "available": ["cv", "notes"]}))
+        );
+    }
+
+    #[tokio::test]
+    async fn contexts_are_turned_on_and_off() {
+        let detail = json!({"type": "session_detail", "session": {"id": "n1", "kind": "meeting", "contexts": ["cv"]}});
+        let events = vec![
+            json!({"type": "session_context", "session": "other", "contexts": []}),
+            json!({"type": "session_context", "session": "n1", "contexts": ["notes"]}),
+        ];
+        let mut client = greeted(
+            with_slots(),
+            vec![
+                ("session.show n1", vec![detail.clone()]),
+                (
+                    r#"session.context {"id":"n1","contexts":["notes"]}"#,
+                    events,
+                ),
+            ],
+        );
+        let changed = client
+            .context("n1", &["notes".into(), "notes".into()], &["cv".into()])
+            .await;
+        assert_eq!(
+            changed,
+            Ok(json!({"session": "n1", "contexts": ["notes"], "available": ["cv", "notes"]}))
+        );
+
+        let mut client = greeted(
+            with_slots(),
+            vec![
+                ("session.show n1", vec![detail]),
+                (
+                    r#"session.context {"id":"n1","contexts":["cv","notes"]}"#,
+                    vec![refusal("session.not_found")],
+                ),
+            ],
+        );
+        let failure = client.context("n1", &["notes".into()], &[]).await;
+        assert_eq!(failure.unwrap_err().code, "session.not_found");
+    }
+
+    #[tokio::test]
+    async fn an_unknown_context_slot_is_refused_before_asking() {
+        let mut client = greeted(with_slots(), vec![]);
+        let failure = client
+            .context("n1", &[], &["cvv".into()])
+            .await
+            .unwrap_err();
+        assert_eq!(failure.code, "context.unknown");
+        assert_eq!(
+            failure.message,
+            r#"no context slot "cvv"; there are ["cv", "notes"]"#
+        );
+    }
+
+    #[tokio::test]
+    async fn a_person_joins_or_leaves_a_session() {
+        let events = vec![
+            json!({"type": "attendees_changed", "session": "other", "people": []}),
+            json!({"type": "attendees_changed", "session": "n1", "people": [{"id": "p1", "name": "Ana"}]}),
+        ];
+        let mut client = talking_to(
+            r#"person.attend {"session":"n1","person":"","name":"Ana"}"#,
+            events,
+        );
+        let request = Request::Participant {
+            id: "n1".into(),
+            person: None,
+            name: Some("Ana".into()),
+            remove: false,
+        };
+        assert_eq!(
+            client.handle(request).await,
+            Ok(json!([{"id": "p1", "name": "Ana"}]))
+        );
+
+        let mut client = talking_to(
+            r#"person.leave {"session":"n1","person":"p1","name":""}"#,
+            vec![refusal("person.not_found")],
+        );
+        let request = Request::Participant {
+            id: "n1".into(),
+            person: Some("p1".into()),
+            name: None,
+            remove: true,
+        };
+        assert_eq!(
+            client.handle(request).await.unwrap_err().code,
+            "person.not_found"
+        );
+    }
+
+    #[tokio::test]
+    async fn people_are_listed_renamed_and_adopted() {
+        let everyone = json!({"type": "people", "people": [{"id": "p1", "name": "Ana"}]});
+        let mut client = talking_to("people", vec![signal(), everyone.clone()]);
+        let request = Request::People(People::List);
+        assert_eq!(
+            client.handle(request).await,
+            Ok(json!([{"id": "p1", "name": "Ana"}]))
+        );
+
+        let mut client = talking_to(r#"person.rename {"id":"p1","name":"Ana"}"#, vec![everyone]);
+        let request = Request::People(People::Rename {
+            id: "p1".into(),
+            name: "Ana".into(),
+        });
+        assert_eq!(client.handle(request).await.unwrap()[0]["name"], "Ana");
+
+        let adopted = json!({"type": "people_adopted", "count": 3});
+        let mut client = talking_to("people.adopt", vec![signal(), adopted]);
+        let request = Request::People(People::Adopt);
+        assert_eq!(client.handle(request).await, Ok(json!({"adopted": 3})));
+
+        let mut client = talking_to("people.adopt", vec![refusal("people.failed")]);
+        let request = Request::People(People::Adopt);
+        assert_eq!(
+            client.handle(request).await.unwrap_err().code,
+            "people.failed"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_rename_with_title_and_kind_asks_nothing_first() {
+        let events = vec![
+            json!({"type": "session_renamed", "id": "other", "title": "x", "kind": "idea"}),
+            json!({"type": "session_renamed", "id": "n1", "title": "Retro", "kind": "meeting"}),
+        ];
+        let mut client = talking_to(
+            r#"session.rename {"id":"n1","title":"Retro","kind":"meeting"}"#,
+            events,
+        );
+        let request = Request::Rename {
+            id: "n1".into(),
+            title: Some("Retro".into()),
+            kind: Some("meeting".into()),
+        };
+        assert_eq!(
+            client.handle(request).await,
+            Ok(json!({"id": "n1", "title": "Retro", "kind": "meeting"}))
+        );
+    }
+
+    #[tokio::test]
+    async fn a_rename_keeps_what_is_not_given() {
+        let detail = json!({"type": "session_detail", "session": {"id": "n1", "title": "Old", "kind": "idea"}});
+        let renamed =
+            json!({"type": "session_renamed", "id": "n1", "title": "Retro", "kind": "idea"});
+        let mut client = conversing(vec![
+            ("session.show n1", vec![detail.clone()]),
+            (
+                r#"session.rename {"id":"n1","title":"Retro","kind":"idea"}"#,
+                vec![renamed],
+            ),
+        ]);
+        let renamed = client.rename("n1", Some("Retro".into()), None).await;
+        assert_eq!(renamed.unwrap()["title"], "Retro");
+
+        let mut client = conversing(vec![
+            ("session.show n1", vec![detail]),
+            (
+                r#"session.rename {"id":"n1","title":"Old","kind":"meeting"}"#,
+                vec![refusal("session.invalid")],
+            ),
+        ]);
+        let failure = client.rename("n1", None, Some("meeting".into())).await;
+        assert_eq!(failure.unwrap_err().code, "session.invalid");
+
+        let mut client = talking_to("session.show n9", vec![refusal("session.not_found")]);
+        let failure = client.rename("n9", None, None).await.unwrap_err();
+        assert_eq!(failure.code, "session.not_found");
+    }
+
+    #[tokio::test]
+    async fn a_session_is_shown_with_its_timeline_and_speakers() {
+        let detail = json!({"type": "session_detail", "session": {"id": "n1"},
+            "timeline": [{"who": "Eles"}], "speakers": [], "extra": 1});
+        let other = json!({"type": "session_detail", "session": {"id": "other"}});
+        let mut client = talking_to("session.show n1", vec![other, detail]);
+        let request = Request::Show { id: "n1".into() };
+        assert_eq!(
+            client.handle(request).await,
+            Ok(json!({"session": {"id": "n1"}, "timeline": [{"who": "Eles"}], "speakers": []}))
+        );
+    }
+
+    #[tokio::test]
+    async fn sessions_with_a_blank_search_are_not_searched() {
+        let sessions = json!({"type": "sessions", "sessions": [{"id": "a", "kind": "idea"}]});
+        let mut client = talking_to("sessions", vec![sessions]);
+        let request = Request::Sessions {
+            kind: None,
+            person: None,
+            tag: None,
+            search: Some(" \n ".into()),
+        };
+        assert_eq!(
+            client.handle(request).await,
+            Ok(json!([{"id": "a", "kind": "idea"}]))
+        );
+    }
+
+    #[tokio::test]
+    async fn a_tag_is_removed_or_renamed() {
+        let untagged = json!({"type": "session_tags", "session": "n1", "tags": []});
+        let mut client = talking_to(r#"session.untag {"id":"n1","tag":"Q3"}"#, vec![untagged]);
+        let request = Request::Tag(Tag::Remove {
+            id: "n1".into(),
+            tag: "Q3".into(),
+        });
+        assert_eq!(
+            client.handle(request).await,
+            Ok(json!({"session": "n1", "tags": []}))
+        );
+
+        let renamed = json!({"type": "tag_renamed", "from": "Q3", "to": "Q4", "sessions": 2});
+        let mut client = talking_to(r#"tag.rename {"from":"Q3","to":"Q4"}"#, vec![renamed]);
+        let request = Request::Tag(Tag::Rename {
+            from: "Q3".into(),
+            to: "Q4".into(),
+        });
+        assert_eq!(
+            client.handle(request).await,
+            Ok(json!({"from": "Q3", "to": "Q4", "sessions": 2}))
+        );
+    }
+
+    #[tokio::test]
+    async fn a_window_command_returns_once_the_daemon_closes() {
+        let mut client = talking_to(r#"window.call {"call":"focus"}"#, vec![]);
+        let request = Request::Window(Window::Call {
+            call: "focus",
+            path: None,
+        });
+        assert_eq!(client.handle(request).await, Ok(Value::Null));
+    }
+
+    #[tokio::test]
+    async fn an_import_sends_its_options_and_an_absolute_path() {
+        let path = std::path::absolute("talk.mp4").unwrap();
+        let expected = json!({"path": path, "title": "Talk", "kind": "meeting",
+            "language": "pt", "participant": "Ana", "started_at": 1.5});
+        let expected: &'static str = format!("session.import {expected}").leak();
+        let started = json!({"type": "import_started", "session": {"id": "i1"}, "total_s": 60.0});
+        let mut client = talking_to(expected, vec![signal(), started]);
+        let request = Request::Import {
+            path: "talk.mp4".into(),
+            title: Some("Talk".into()),
+            kind: Some("meeting".into()),
+            language: Some("pt".into()),
+            participant: Some("Ana".into()),
+            started_at: Some(1.5),
+            wait: false,
+        };
+        assert_eq!(
+            client.handle(request).await,
+            Ok(json!({"session": {"id": "i1"}, "total_s": 60.0}))
+        );
+    }
+
+    #[tokio::test]
+    async fn a_waited_import_fails_with_its_transcription() {
+        let events = vec![
+            json!({"type": "import_started", "session": {"id": "i1"}, "total_s": 60.0}),
+            json!({"type": "import_done", "id": "other", "complete": true}),
+            refusal("transcription.failed"),
+            refusal("import.failed"),
+        ];
+        let mut client = talking_to(r#"session.import {"path":"/talk.mp4"}"#, events);
+        let failure = client.import(&json!({"path": "/talk.mp4"}), true).await;
+        assert_eq!(failure.unwrap_err().code, "import.failed");
     }
 
     #[test]
