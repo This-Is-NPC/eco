@@ -1,16 +1,14 @@
 //! The overlay windows, each an `eco-window` process running the QML in
 //! `overlay/`, for as long as the session holds them (docs/design.md §3).
 
-use std::fs;
-use std::io::{self, Write};
-use std::path::{Path, PathBuf};
+use std::io;
+use std::path::PathBuf;
 use std::process::{ExitStatus, Stdio};
 use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::process::{Child, Command};
 
-use crate::config::{private_dir, private_file};
 use crate::paths;
 use crate::ports::WindowControl;
 
@@ -33,12 +31,12 @@ fn program() -> PathBuf {
 /// The overlay windows, each its own eco-window process: a number, which the
 /// window is told, and the session it shows, which it tells back. Every window
 /// is handed the same token, which tells its commands apart from other clients';
-/// a window the daemon did not start reads it from `paths::token_path()`.
+/// a window the daemon did not start reads it from `paths::token_path()`,
+/// which the control socket writes.
 /// `control` focuses each window as it opens and, while `hidden`, leaves them
 /// all out of screen sharing.
 pub struct Windows {
     token: String,
-    _kept: TokenFile,
     program: PathBuf,
     control: Arc<dyn WindowControl>,
     hidden: bool,
@@ -54,27 +52,20 @@ struct Window {
 }
 
 impl Windows {
-    pub fn new(token: String, control: Arc<dyn WindowControl>, hidden: bool) -> io::Result<Self> {
-        Self::run(program(), &paths::token_path(), token, control, hidden)
+    pub fn new(token: String, control: Arc<dyn WindowControl>, hidden: bool) -> Self {
+        Self::run(program(), token, control, hidden)
     }
 
-    /// Windows run by `program`, with the token kept at `token_path`.
-    fn run(
-        program: PathBuf,
-        token_path: &Path,
-        token: String,
-        control: Arc<dyn WindowControl>,
-        hidden: bool,
-    ) -> io::Result<Self> {
-        Ok(Self {
-            _kept: TokenFile::write(token_path, &token)?,
+    /// Windows run by `program`.
+    fn run(program: PathBuf, token: String, control: Arc<dyn WindowControl>, hidden: bool) -> Self {
+        Self {
             token,
             program,
             control,
             hidden,
             last: 0,
             open: Vec::new(),
-        })
+        }
     }
 
     pub fn is_open(&self) -> bool {
@@ -209,69 +200,10 @@ fn terminate(child: &mut Child) {
     let _ = child.start_kill();
 }
 
-/// The token in a file only its user reads; dropping it removes the file.
-struct TokenFile(PathBuf);
-
-impl TokenFile {
-    fn write(path: &Path, token: &str) -> io::Result<Self> {
-        // A file left by a daemon that was killed is replaced, never reused.
-        match fs::remove_file(path) {
-            Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error),
-            _ => {}
-        }
-        if let Some(parent) = path.parent() {
-            private_dir(parent)?;
-        }
-        private_file()
-            .write(true)
-            .create_new(true)
-            .open(path)?
-            .write_all(token.as_bytes())?;
-        Ok(Self(path.into()))
-    }
-}
-
-impl Drop for TokenFile {
-    fn drop(&mut self) {
-        let _ = fs::remove_file(&self.0);
-    }
-}
-
-#[cfg(test)]
+#[cfg(all(test, windows))]
 mod tests {
     use super::*;
 
-    #[test]
-    fn the_token_file_is_the_users_alone_and_goes_with_the_daemon() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("eco.token");
-        fs::write(&path, "stale").unwrap();
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
-        }
-        let file = TokenFile::write(&path, "secret").unwrap();
-        assert_eq!(fs::read_to_string(&path).unwrap(), "secret");
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let mode = fs::metadata(&path).unwrap().permissions().mode();
-            assert_eq!(mode & 0o777, 0o600);
-        }
-        drop(file);
-        assert!(!path.exists());
-    }
-
-    #[test]
-    fn the_token_file_makes_its_directory() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("eco").join("eco.token");
-        let _file = TokenFile::write(&path, "secret").unwrap();
-        assert_eq!(fs::read_to_string(&path).unwrap(), "secret");
-    }
-
-    #[cfg(windows)]
     #[tokio::test]
     async fn a_window_process_that_is_terminated_exits() {
         let mut child = Command::new("ping")
@@ -291,6 +223,8 @@ mod tests {
 /// The windows, each run by a stand-in shell script.
 #[cfg(all(test, unix))]
 mod programs {
+    use std::fs;
+    use std::path::Path;
     use std::sync::Mutex;
 
     use futures::FutureExt;
@@ -331,8 +265,7 @@ mod programs {
 
     /// Windows whose program notes what it was handed in `dir/window-<number>`
     /// and then waits, or exits with 4 at once when told to show `exit`, or
-    /// with 2 a moment after opening when told to show `later`; their token
-    /// file is in `dir`.
+    /// with 2 a moment after opening when told to show `later`.
     fn windows(dir: &Path, control: Arc<dyn WindowControl>, hidden: bool) -> Windows {
         let program = fake_program(
             dir,
@@ -345,14 +278,7 @@ exec sleep 30"#,
                 dir.display()
             ),
         );
-        Windows::run(
-            program,
-            &dir.join("eco.token"),
-            "secret".into(),
-            control,
-            hidden,
-        )
-        .unwrap()
+        Windows::run(program, "secret".into(), control, hidden)
     }
 
     #[tokio::test]

@@ -3,12 +3,13 @@
 //! `{"ok": false, "code": …, "message": …}`, exiting non-zero on failure.
 //! `export` prints the document itself, to pipe or redirect.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use chrono::{Local, NaiveDateTime, TimeZone};
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines};
 
+use crate::adapters::control_socket::{self, Address};
 use crate::adapters::local_socket::{self, ConnectError, ReadHalf, Stream, WriteHalf};
 use crate::domain::session::same_tag;
 
@@ -177,11 +178,11 @@ impl Failure {
     }
 }
 
-/// Run `request` against the daemon at `socket`, print the result, and return
-/// the exit code.
-pub async fn run(socket: &Path, request: Request) -> i32 {
+/// Run `request` against the daemon at `address`, print the result, and
+/// return the exit code.
+pub async fn run(address: &Address, request: Request) -> i32 {
     let document = matches!(request, Request::Export { .. });
-    let answered = match Client::connect(socket).await {
+    let answered = match Client::connect(address).await {
         Ok(mut client) => client.handle(request).await,
         Err(failure) => Err(failure),
     };
@@ -253,8 +254,8 @@ struct Client {
 }
 
 impl Client {
-    async fn connect(socket: &Path) -> Result<Self, Failure> {
-        let stream = local_socket::connect(socket)
+    async fn connect(address: &Address) -> Result<Self, Failure> {
+        let stream = control_socket::connect(address)
             .await
             .map_err(connect_failure)?
             .ok_or_else(|| {
@@ -1540,7 +1541,7 @@ mod tests {
     #[tokio::test]
     async fn a_daemon_that_is_not_running_is_reported() {
         let directory = tempfile::tempdir().unwrap();
-        let failure = Client::connect(&local_socket::scratch(directory.path()))
+        let failure = Client::connect(&Address::scratch(directory.path()))
             .await
             .err()
             .unwrap();
@@ -1551,7 +1552,7 @@ mod tests {
     #[tokio::test]
     async fn a_socket_path_the_system_refuses_is_unavailable() {
         let file = tempfile::NamedTempFile::new().unwrap();
-        let failure = Client::connect(&file.path().join("eco.sock"))
+        let failure = Client::connect(&Address::scratch(file.path()))
             .await
             .err()
             .unwrap();
@@ -1559,10 +1560,10 @@ mod tests {
     }
 
     /// A socket at a fresh path whose daemon answers one connection.
-    async fn listening(turns: Vec<(&'static str, Vec<Value>)>) -> (tempfile::TempDir, PathBuf) {
+    async fn listening(turns: Vec<(&'static str, Vec<Value>)>) -> (tempfile::TempDir, Address) {
         let directory = tempfile::tempdir().unwrap();
-        let path = local_socket::scratch(directory.path());
-        let listener = local_socket::Listener::bind(&path).await.unwrap();
+        let path = Address::scratch(directory.path());
+        let listener = control_socket::FakeListener::bind(&path).await;
         tokio::spawn(async move {
             let stream = listener.accept().await.unwrap();
             let greeting = json!({"type": "snapshot", "kinds": ["meeting"]});
@@ -1598,7 +1599,7 @@ mod tests {
         assert_eq!(run(&socket, Request::Delete { id: "n9".into() }).await, 1);
 
         let directory = tempfile::tempdir().unwrap();
-        let offline = local_socket::scratch(directory.path());
+        let offline = Address::scratch(directory.path());
         assert_eq!(run(&offline, Request::Show { id: "n1".into() }).await, 1);
     }
 

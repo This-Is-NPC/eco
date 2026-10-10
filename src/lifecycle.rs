@@ -1,7 +1,6 @@
 //! Start, stop and check the daemon over its socket; the caller names the
-//! socket and the service manager that starts the daemon.
+//! daemon's address and the service manager that starts the daemon.
 
-use std::path::Path;
 #[cfg(windows)]
 use std::path::PathBuf;
 use std::time::Duration;
@@ -11,7 +10,8 @@ use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::time::{sleep, timeout};
 
-use crate::adapters::local_socket::{self, Stream};
+use crate::adapters::control_socket::{self, Address};
+use crate::adapters::local_socket::Stream;
 use crate::ports::ServiceManager;
 
 const READY_TIMEOUT: Duration = Duration::from_secs(10);
@@ -26,12 +26,12 @@ struct Daemon {
     exe: Option<PathBuf>,
 }
 
-async fn socket(path: &Path) -> Result<Option<Stream>> {
-    Ok(local_socket::connect(path).await?)
+async fn socket(address: &Address) -> Result<Option<Stream>> {
+    Ok(control_socket::connect(address).await?)
 }
 
-async fn connect(path: &Path) -> Result<Option<Daemon>> {
-    let Some(stream) = socket(path).await? else {
+async fn connect(address: &Address) -> Result<Option<Daemon>> {
+    let Some(stream) = socket(address).await? else {
         return Ok(None);
     };
     let mut stream = BufReader::new(stream);
@@ -64,10 +64,10 @@ async fn connect(path: &Path) -> Result<Option<Daemon>> {
     }))
 }
 
-async fn ready(socket: &Path) -> Result<Daemon> {
+async fn ready(address: &Address) -> Result<Daemon> {
     let until = tokio::time::Instant::now() + READY_TIMEOUT;
     loop {
-        if let Some(daemon) = connect(socket).await? {
+        if let Some(daemon) = connect(address).await? {
             return Ok(daemon);
         }
         if tokio::time::Instant::now() >= until {
@@ -102,13 +102,17 @@ async fn open(mut daemon: Daemon) -> Result<()> {
     }
 }
 
-/// Reach the daemon on `socket`, started through `service` when nothing answers.
-pub async fn start(service: &dyn ServiceManager, socket: &Path, show_window: bool) -> Result<()> {
-    let daemon = match connect(socket).await? {
+/// Reach the daemon at `address`, started through `service` when nothing answers.
+pub async fn start(
+    service: &dyn ServiceManager,
+    address: &Address,
+    show_window: bool,
+) -> Result<()> {
+    let daemon = match connect(address).await? {
         Some(daemon) => daemon,
         None => {
             service.start().await?;
-            ready(socket).await?
+            ready(address).await?
         }
     };
     if show_window {
@@ -119,15 +123,15 @@ pub async fn start(service: &dyn ServiceManager, socket: &Path, show_window: boo
     }
 }
 
-pub async fn stop(socket_path: &Path) -> Result<()> {
-    let Some(mut stream) = socket(socket_path).await? else {
+pub async fn stop(address: &Address) -> Result<()> {
+    let Some(mut stream) = socket(address).await? else {
         println!("eco: daemon already stopped");
         return Ok(());
     };
     stream.write_all(b"stop\n").await?;
     let until = tokio::time::Instant::now() + READY_TIMEOUT;
     loop {
-        if socket(socket_path).await?.is_none() {
+        if socket(address).await?.is_none() {
             println!("eco: daemon stopped");
             return Ok(());
         }
@@ -138,11 +142,11 @@ pub async fn stop(socket_path: &Path) -> Result<()> {
     }
 }
 
-/// Stop the daemon on `socket` and start it again through `service`, with its
+/// Stop the daemon at `address` and start it again through `service`, with its
 /// window open unless the running daemon had it closed.
-pub async fn restart(service: &dyn ServiceManager, socket_path: &Path) -> Result<()> {
-    let show_window = if socket(socket_path).await?.is_some() {
-        connect(socket_path)
+pub async fn restart(service: &dyn ServiceManager, address: &Address) -> Result<()> {
+    let show_window = if socket(address).await?.is_some() {
+        connect(address)
             .await
             .ok()
             .flatten()
@@ -150,22 +154,18 @@ pub async fn restart(service: &dyn ServiceManager, socket_path: &Path) -> Result
     } else {
         true
     };
-    stop(socket_path).await?;
-    start(service, socket_path, show_window).await
+    stop(address).await?;
+    start(service, address, show_window).await
 }
 
-/// Report the daemon on `socket` and return the exit status: 0 when it runs,
+/// Report the daemon at `address` and return the exit status: 0 when it runs,
 /// 3 when it is stopped or `window_open` asks for a window it has closed.
-pub async fn status(
-    socket_path: &Path,
-    expect_current_exe: bool,
-    window_open: bool,
-) -> Result<i32> {
-    let Some(_) = socket(socket_path).await? else {
+pub async fn status(address: &Address, expect_current_exe: bool, window_open: bool) -> Result<i32> {
+    let Some(_) = socket(address).await? else {
         println!("eco: daemon stopped");
         return Ok(3);
     };
-    let daemon = match connect(socket_path).await {
+    let daemon = match connect(address).await {
         Ok(Some(daemon)) => daemon,
         Err(error) if !expect_current_exe => {
             println!("eco: daemon running ({error})");
@@ -212,9 +212,10 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use super::*;
+    use crate::adapters::control_socket::FakeListener;
 
-    fn socket_in(directory: &tempfile::TempDir) -> PathBuf {
-        local_socket::scratch(directory.path())
+    fn socket_in(directory: &tempfile::TempDir) -> Address {
+        Address::scratch(directory.path())
     }
 
     /// A daemon's greeting as `pid`, which runs this test's executable when
@@ -241,8 +242,8 @@ mod tests {
     /// window on `overlay.open` and goes away on `stop` unless it ignores it.
     /// Like the real one, it serves each client on its own while it listens,
     /// and its clients go with it.
-    async fn fake_daemon(socket: &Path, pid: u32, overlay: bool, on_stop: OnStop) {
-        let listener = local_socket::Listener::bind(socket).await.unwrap();
+    async fn fake_daemon(socket: &Address, pid: u32, overlay: bool, on_stop: OnStop) {
+        let listener = FakeListener::bind(socket).await;
         tokio::spawn(async move {
             let (stopped, mut stop) = tokio::sync::mpsc::channel::<()>(1);
             let mut clients = tokio::task::JoinSet::new();
@@ -278,8 +279,8 @@ mod tests {
     }
 
     /// A socket on `path` that writes `reply` to every client and hangs up.
-    async fn replying(path: &Path, reply: &'static [u8]) {
-        let listener = local_socket::Listener::bind(path).await.unwrap();
+    async fn replying(path: &Address, reply: &'static [u8]) {
+        let listener = FakeListener::bind(path).await;
         tokio::spawn(async move {
             while let Ok(mut stream) = listener.accept().await {
                 let _ = stream.write_all(reply).await;
@@ -289,7 +290,7 @@ mod tests {
 
     /// A service manager whose daemon comes up on `socket` with its window closed.
     struct FakeService {
-        socket: PathBuf,
+        socket: Address,
         starts: AtomicUsize,
     }
 
@@ -322,7 +323,7 @@ mod tests {
     async fn open_error(reply: Option<&'static [u8]>) -> String {
         let directory = tempfile::tempdir().unwrap();
         let path = socket_in(&directory);
-        let listener = local_socket::Listener::bind(&path).await.unwrap();
+        let listener = FakeListener::bind(&path).await;
         tokio::spawn(async move {
             let stream = listener.accept().await.unwrap();
             let mut stream = BufReader::new(stream);
@@ -343,7 +344,7 @@ mod tests {
     async fn window_open_waits_for_a_daemon_acknowledgement() {
         let directory = tempfile::tempdir().unwrap();
         let path = socket_in(&directory);
-        let listener = local_socket::Listener::bind(&path).await.unwrap();
+        let listener = FakeListener::bind(&path).await;
         let server = tokio::spawn(async move {
             let mut stream = listener.accept().await.unwrap();
             stream
@@ -499,7 +500,7 @@ mod tests {
     async fn a_socket_that_never_greets_times_out() {
         let directory = tempfile::tempdir().unwrap();
         let path = socket_in(&directory);
-        let _listener = local_socket::Listener::bind(&path).await.unwrap();
+        let _listener = FakeListener::bind(&path).await;
         assert_eq!(
             connect(&path).await.err().unwrap().to_string(),
             "the eco socket did not answer"

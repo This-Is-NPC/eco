@@ -16,7 +16,7 @@ use tokio::sync::{OnceCell, Semaphore, mpsc, watch};
 use tokio::task::{JoinHandle, JoinSet};
 
 use crate::adapters::audio_file::WavFileSource;
-use crate::adapters::control_socket::{Clients, ControlSocket, Greeting};
+use crate::adapters::control_socket::{Address, Clients, ControlSocket, Greeting};
 use crate::adapters::diarizer_process;
 use crate::adapters::hook_shell::ShellHooks;
 use crate::adapters::http::Endpoint;
@@ -2005,13 +2005,14 @@ pub async fn run(
         outages.clone(),
         Arc::clone(&pending),
     );
-    let _control = ControlSocket::bind(&paths::socket_path(), clients, greeting, commands).await?;
     let token = uuid::Uuid::new_v4().simple().to_string();
+    let _control =
+        ControlSocket::bind(&Address::user(), token.clone(), clients, greeting, commands).await?;
     let mut windows = overlay::Windows::new(
         token.clone(),
         Arc::new(PlatformWindows::default()),
         current.hide_from_share,
-    )?;
+    );
     if !headless {
         windows.open(None, None).await?;
         overlay_open.store(true, Ordering::Relaxed);

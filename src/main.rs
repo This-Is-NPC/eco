@@ -19,6 +19,7 @@ use std::path::{Path, PathBuf};
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 
+use crate::adapters::control_socket::Address;
 // What runs the daemon in the background: the systemd user service, or on
 // Windows nothing yet (docs/design.md §15).
 #[cfg(unix)]
@@ -575,15 +576,14 @@ async fn main() -> Result<()> {
     let ran = match Run::from(Cli::parse().command) {
         Run::SetUp { harnesses } => set_up(harnesses).await,
         Run::Start { show_window } => {
-            lifecycle::start(&PlatformService, &paths::socket_path(), show_window).await
+            lifecycle::start(&PlatformService, &Address::user(), show_window).await
         }
-        Run::Stop => lifecycle::stop(&paths::socket_path()).await,
-        Run::Restart => lifecycle::restart(&PlatformService, &paths::socket_path()).await,
+        Run::Stop => lifecycle::stop(&Address::user()).await,
+        Run::Restart => lifecycle::restart(&PlatformService, &Address::user()).await,
         Run::Status {
             expect_current_exe,
             window_open,
-        } => match lifecycle::status(&paths::socket_path(), expect_current_exe, window_open).await?
-        {
+        } => match lifecycle::status(&Address::user(), expect_current_exe, window_open).await? {
             0 => Ok(()),
             code => std::process::exit(code),
         },
@@ -601,7 +601,7 @@ async fn main() -> Result<()> {
         Run::BenchDiarization(options) => bench::diarization::run(options).await,
         Run::BenchPeople { dir, series } => bench::people::run(dir, series).await,
         // The client prints its JSON; its code is the exit status.
-        Run::Client(request) => match cli::run(&paths::socket_path(), request).await {
+        Run::Client(request) => match cli::run(&Address::user(), request).await {
             0 => Ok(()),
             code => std::process::exit(code),
         },
