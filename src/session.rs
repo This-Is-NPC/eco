@@ -1,7 +1,11 @@
 //! The session: the socket, the overlay and one capture pipeline per saved config.
 
 use std::collections::{BTreeSet, HashMap};
+use std::future::Future;
+use std::io;
 use std::path::{Path, PathBuf};
+use std::process::ExitStatus;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -13,7 +17,7 @@ use tokio::task::{JoinHandle, JoinSet};
 
 use crate::adapters::audio_file::WavFileSource;
 use crate::adapters::audio_pipewire::PipeWire;
-use crate::adapters::control_socket::{Clients, ControlSocket};
+use crate::adapters::control_socket::{Clients, ControlSocket, Greeting};
 use crate::adapters::diarizer_process;
 use crate::adapters::hook_shell::ShellHooks;
 use crate::adapters::http::Endpoint;
@@ -35,6 +39,7 @@ use crate::domain::channel::{
     Captured, CapturedStream, Listeners, Transcriber, Trouble, Utterance, capture_channel,
     monitor_channel, transcribe,
 };
+use crate::domain::diarization::Diarization;
 use crate::domain::events::{error, transcription};
 use crate::domain::hub::{Capture, Hub};
 use crate::domain::segmenter::{Segment, SegmenterConfig};
@@ -228,6 +233,7 @@ struct Channels {
     assistant: Assistant,
     emit: Emit,
     vad: SileroModel,
+    diarizer: Diarizer,
 }
 
 /// One transcriber: an input's audio read from the hub by one model in one
@@ -304,6 +310,7 @@ impl Work for Channels {
                 assistant,
                 emit,
                 vad,
+                diarizer,
             } = self;
             let recording = listening.is_some();
             // While a session records, the user's microphone may be echo-cancelled;
@@ -338,7 +345,7 @@ impl Work for Channels {
                 .map(|input| {
                     let others = !input.user && recording;
                     others
-                        .then(|| voices(assistant, emit, &input.participant))
+                        .then(|| voices(assistant, emit, &input.participant, diarizer))
                         .flatten()
                 })
                 .collect();
@@ -438,17 +445,20 @@ struct Voices {
     lines: Arc<Mutex<Vec<HeardLine>>>,
 }
 
-/// Start telling the voices heard as `who` apart, when the speaker model is set
-/// up; once the input stops recording, the session's lines get their voices.
-fn voices(assistant: &Assistant, emit: &Emit, who: &str) -> Option<Voices> {
-    let model = paths::speaker_model();
-    if !model.exists() {
-        return None;
-    }
+/// What the diarizer found, once the sender of its speech is dropped.
+type Found = Box<dyn FnOnce(Result<Diarization, String>) + Send>;
+
+/// Starts a diarizer that tells the voices of one input apart: the sender its
+/// speech goes to, or `None` when the speaker model is not set up.
+type Diarizer = Arc<dyn Fn(Found) -> Option<std::sync::mpsc::Sender<Segment>> + Send + Sync>;
+
+/// Start telling the voices heard as `who` apart, when `diarizer` can; once the
+/// input stops recording, the session's lines get their voices.
+fn voices(assistant: &Assistant, emit: &Emit, who: &str, diarizer: &Diarizer) -> Option<Voices> {
     let lines: Arc<Mutex<Vec<HeardLine>>> = Arc::default();
     let (assistant, emit, who) = (assistant.clone(), Arc::clone(emit), who.to_string());
     let heard = Arc::clone(&lines);
-    let regions = diarizer_process::spawn(&model, move |found| match found {
+    let regions = diarizer(Box::new(move |found| match found {
         Ok(diarization) => {
             let lines = std::mem::take(&mut *heard.lock().expect("not poisoned"));
             let mut sessions: Vec<&str> = lines.iter().map(|line| line.session.as_str()).collect();
@@ -468,7 +478,7 @@ fn voices(assistant: &Assistant, emit: &Emit, who: &str) -> Option<Voices> {
             format!("diarization: {detail}"),
             json!({"detail": detail}),
         )),
-    });
+    }))?;
     Some(Voices { regions, lines })
 }
 
@@ -540,15 +550,24 @@ impl Drop for Configured {
     }
 }
 
-/// Capture, transcribe and serve actions with one configuration until dropped.
-async fn pipeline(
-    config: Config,
-    assistant: Assistant,
+/// What every pipeline hears with, whatever its config: the file replayed or
+/// the devices, the VAD, and the diarizer.
+#[derive(Clone)]
+struct Rig {
     replay: Option<PathBuf>,
     audio: Arc<dyn AudioDevices>,
-    emit: Emit,
     vad: SileroModel,
-) {
+    diarizer: Diarizer,
+}
+
+/// Capture, transcribe and serve actions with one configuration until dropped.
+async fn pipeline(config: Config, assistant: Assistant, emit: Emit, rig: Rig) {
+    let Rig {
+        replay,
+        audio,
+        vad,
+        diarizer,
+    } = rig;
     let devices = if replay.is_some() {
         Vec::new()
     } else {
@@ -756,6 +775,7 @@ async fn pipeline(
         assistant: assistant.clone(),
         emit: Arc::clone(&emit),
         vad,
+        diarizer,
     };
     // Transcribe only while a session records; otherwise only measure the inputs,
     // so the overlay shows they work.
@@ -836,27 +856,71 @@ fn route_call(newest: Option<u32>, mut call: Value) -> CallTo {
     }
 }
 
-/// Open another overlay window that shows a live session no window shows, and
-/// makes `call` when given; say whether it opened.
-async fn open_window(
-    windows: &mut overlay::Windows,
-    live: Vec<String>,
-    call: Option<&str>,
-    clients: &Clients,
-    overlay_open: &std::sync::atomic::AtomicBool,
-) {
-    let shown: Vec<&str> = windows.shown().collect();
-    let unshown = live
-        .into_iter()
-        .rev()
-        .find(|id| !shown.contains(&id.as_str()));
-    match windows.open(unshown.as_deref(), call).await {
-        Ok(()) => {
-            overlay_open.store(true, std::sync::atomic::Ordering::Relaxed);
-            clients.emit(&json!({"type": "overlay_status", "open": true}));
-        }
-        Err(error) => clients
-            .emit(&json!({"type": "overlay_status", "open": false, "message": error.to_string()})),
+/// The overlay windows as the daemon's loop drives them: `overlay::Windows`,
+/// whose windows are eco-window processes, or a fake in tests.
+trait Overlay: Send {
+    /// The live sessions some window shows.
+    fn shown(&self) -> Vec<String>;
+    /// The window opened last of those still open.
+    fn newest(&self) -> Option<u32>;
+    fn is_open(&self) -> bool;
+    /// Open another window, focused, that shows `show` and makes `call`.
+    fn open<'a>(
+        &'a mut self,
+        show: Option<&'a str>,
+        call: Option<&'a str>,
+    ) -> BoxFuture<'a, io::Result<()>>;
+    /// Give the keyboard to the open window `number`.
+    fn focus(&self, number: u32) -> BoxFuture<'_, io::Result<()>>;
+    /// Note the session the window `number` shows now, or none when empty.
+    fn shows(&mut self, number: u32, session: &str);
+    /// Leave every window out of screen sharing, or show them in it again.
+    fn hide_from_share(&mut self, hidden: bool) -> BoxFuture<'_, ()>;
+    /// Resolves when a window exits; never, without one.
+    fn exited(&mut self) -> BoxFuture<'_, Option<ExitStatus>>;
+    /// Terminate every window and wait for them to exit.
+    fn close(self: Box<Self>) -> BoxFuture<'static, ()>;
+}
+
+impl Overlay for overlay::Windows {
+    fn shown(&self) -> Vec<String> {
+        overlay::Windows::shown(self).map(String::from).collect()
+    }
+
+    fn newest(&self) -> Option<u32> {
+        overlay::Windows::newest(self)
+    }
+
+    fn is_open(&self) -> bool {
+        overlay::Windows::is_open(self)
+    }
+
+    fn open<'a>(
+        &'a mut self,
+        show: Option<&'a str>,
+        call: Option<&'a str>,
+    ) -> BoxFuture<'a, io::Result<()>> {
+        Box::pin(overlay::Windows::open(self, show, call))
+    }
+
+    fn focus(&self, number: u32) -> BoxFuture<'_, io::Result<()>> {
+        Box::pin(overlay::Windows::focus(self, number))
+    }
+
+    fn shows(&mut self, number: u32, session: &str) {
+        overlay::Windows::shows(self, number, session);
+    }
+
+    fn hide_from_share(&mut self, hidden: bool) -> BoxFuture<'_, ()> {
+        Box::pin(overlay::Windows::hide_from_share(self, hidden))
+    }
+
+    fn exited(&mut self) -> BoxFuture<'_, Option<ExitStatus>> {
+        Box::pin(overlay::Windows::exited(self))
+    }
+
+    fn close(self: Box<Self>) -> BoxFuture<'static, ()> {
+        Box::pin(overlay::Windows::close(*self))
     }
 }
 
@@ -1015,6 +1079,26 @@ impl Pending {
     }
 }
 
+/// What a client that connects is told first: the daemon, the snapshot, and
+/// the change held for the user, if any.
+fn greeting(
+    assistant: Assistant,
+    overlay_open: Arc<AtomicBool>,
+    pending: Arc<Mutex<Pending>>,
+) -> Greeting {
+    Arc::new(move || {
+        let mut events = vec![json!({
+            "type": "daemon",
+            "version": env!("CARGO_PKG_VERSION"),
+            "pid": std::process::id(),
+            "overlay": overlay_open.load(Ordering::Relaxed),
+        })];
+        events.extend(assistant.snapshot());
+        events.extend(pending.lock().expect("not poisoned").event());
+        events
+    })
+}
+
 struct Session {
     config_path: PathBuf,
     current: Config,
@@ -1023,9 +1107,7 @@ struct Session {
     /// A config another client asked for, held for the user; a client that
     /// connects is greeted with its `config_pending` event.
     pending: Arc<Mutex<Pending>>,
-    replay: Option<PathBuf>,
-    audio: Arc<dyn AudioDevices>,
-    vad: SileroModel,
+    rig: Rig,
     assistant: Assistant,
     emit: Emit,
     pipeline: Option<JoinHandle<()>>,
@@ -1034,18 +1116,103 @@ struct Session {
     people: Arc<dyn PeopleStore>,
     /// The file being imported, one at a time.
     importing: Option<JoinHandle<()>>,
+    windows: Box<dyn Overlay>,
+    /// Whether a window is open, as a client that connects is told.
+    overlay_open: Arc<AtomicBool>,
 }
 
 impl Session {
+    /// Serve the lines `received` until `stop` arrives or `shutdown` resolves,
+    /// then stop capture, the import and the windows.
+    async fn serve(
+        mut self,
+        mut received: mpsc::UnboundedReceiver<String>,
+        shutdown: impl Future<Output = ()>,
+    ) {
+        let mut shutdown = std::pin::pin!(shutdown);
+        loop {
+            tokio::select! {
+                Some(line) = received.recv() => if !self.handle(&line).await {
+                    break;
+                },
+                status = self.windows.exited() => {
+                    self.overlay_open.store(self.windows.is_open(), Ordering::Relaxed);
+                    if let Some(status) = status.filter(|status| !status.success()) {
+                        eprintln!(
+                            "eco: an overlay window exited ({status}); check WAYLAND_DISPLAY, then `eco start`"
+                        );
+                    }
+                }
+                () = &mut shutdown => break,
+            }
+        }
+        stop(self.pipeline.take()).await;
+        stop(self.importing.take()).await;
+        self.background.shutdown().await;
+        self.windows.close().await;
+    }
+
+    /// Handle one line from the socket: the windows' own, or a command; false
+    /// once the daemon should stop.
+    async fn handle(&mut self, line: &str) -> bool {
+        // Opening the app again opens another window.
+        if line.trim() == "overlay.open" {
+            self.open_window(None).await;
+        } else if let ("window.call", Some(payload)) = split(line)
+            && let Some(call) = window_call(payload)
+        {
+            match route_call(self.windows.newest(), call) {
+                CallTo::Window(number, event) => {
+                    // Focused first, so a window the call opens (the
+                    // settings) keeps the keyboard it takes on opening.
+                    if let Err(error) = self.windows.focus(number).await {
+                        eprintln!("eco: {error}");
+                    }
+                    if let Some(event) = event {
+                        (self.emit)(event);
+                    }
+                }
+                CallTo::NewWindow(call) => self.open_window(call.as_deref()).await,
+            }
+        } else if let ("window.show", Some(payload)) = split(line) {
+            if let Some((number, shows)) = window_shows(payload) {
+                self.windows.shows(number, &shows);
+                if !shows.is_empty() {
+                    self.assistant.focus(&shows);
+                }
+            }
+        } else if !self.command(line).await {
+            return false;
+        }
+        let hidden = self.current.hide_from_share;
+        self.windows.hide_from_share(hidden).await;
+        true
+    }
+
+    /// Open another overlay window that shows a live session no window shows,
+    /// and makes `call` when given; say whether it opened.
+    async fn open_window(&mut self, call: Option<&str>) {
+        let live = self.assistant.live();
+        let shown = self.windows.shown();
+        let unshown = live.into_iter().rev().find(|id| !shown.contains(id));
+        match self.windows.open(unshown.as_deref(), call).await {
+            Ok(()) => {
+                self.overlay_open.store(true, Ordering::Relaxed);
+                (self.emit)(json!({"type": "overlay_status", "open": true}));
+            }
+            Err(error) => (self.emit)(
+                json!({"type": "overlay_status", "open": false, "message": error.to_string()}),
+            ),
+        }
+    }
+
     async fn restart(&mut self) {
         stop(self.pipeline.take()).await;
         self.pipeline = Some(tokio::spawn(pipeline(
             self.current.clone(),
             self.assistant.clone(),
-            self.replay.clone(),
-            Arc::clone(&self.audio),
             Arc::clone(&self.emit),
-            self.vad.clone(),
+            self.rig.clone(),
         )));
     }
 
@@ -1251,7 +1418,7 @@ impl Session {
             started_at: request.get("started_at").and_then(Value::as_f64),
         };
         let (vad, log, people, emit) = (
-            self.vad.clone(),
+            self.rig.vad.clone(),
             Arc::clone(&self.log),
             Arc::clone(&self.people),
             Arc::clone(&self.emit),
@@ -1278,7 +1445,7 @@ impl Session {
             ("note", Some(text)) => self.assistant.note(None, text),
             ("config", None) => {
                 let config = self.current.to_value();
-                let listed = self.audio.list();
+                let listed = self.rig.audio.list();
                 self.background.spawn(async move {
                     let devices = serde_json::to_value(listed.await).unwrap_or_default();
                     let omapass = json!({"installed": omapass::installed(), "page": omapass::PAGE});
@@ -1286,7 +1453,7 @@ impl Session {
                 });
             }
             ("devices", None) => {
-                let listed = self.audio.list();
+                let listed = self.rig.audio.list();
                 self.background.spawn(async move {
                     let devices = serde_json::to_value(listed.await).unwrap_or_default();
                     emit(json!({"type": "devices", "devices": devices}));
@@ -1587,22 +1754,10 @@ impl Session {
             }
             ("omapass", None) => {
                 self.background.spawn(async move {
-                    let listed = match omapass::accounts().await {
-                        Ok(accounts) => {
-                            let accounts: Vec<Value> = accounts
-                                .iter()
-                                .map(|a| json!({"account": a.account, "folder": a.folder}))
-                                .collect();
-                            json!({"type": "omapass", "installed": true, "accounts": accounts})
-                        }
-                        Err(_) if !omapass::installed() => {
-                            json!({"type": "omapass", "installed": false, "accounts": []})
-                        }
-                        Err(failure) => {
-                            json!({"type": "omapass", "installed": true, "accounts": [], "error": failure})
-                        }
-                    };
-                    emit(listed);
+                    emit(omapass_listed(
+                        omapass::accounts().await,
+                        omapass::installed,
+                    ));
                 });
             }
             ("stop", None) => return false,
@@ -1616,6 +1771,27 @@ impl Session {
             }
         }
         true
+    }
+}
+
+/// The `omapass` event: the accounts listed, or, when they could not be,
+/// whether omapass is `installed` and why not.
+fn omapass_listed(
+    listed: Result<Vec<omapass::Account>, String>,
+    installed: impl FnOnce() -> bool,
+) -> Value {
+    match listed {
+        Ok(accounts) => {
+            let accounts: Vec<Value> = accounts
+                .iter()
+                .map(|a| json!({"account": a.account, "folder": a.folder}))
+                .collect();
+            json!({"type": "omapass", "installed": true, "accounts": accounts})
+        }
+        Err(_) if !installed() => json!({"type": "omapass", "installed": false, "accounts": []}),
+        Err(failure) => {
+            json!({"type": "omapass", "installed": true, "accounts": [], "error": failure})
+        }
     }
 }
 
@@ -1792,28 +1968,16 @@ pub async fn run(
         Arc::clone(&people),
         Arc::new(ShellHooks),
     );
-    let (commands, mut received) = mpsc::unbounded_channel();
-    let overlay_open = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let (commands, received) = mpsc::unbounded_channel();
+    let overlay_open = Arc::new(AtomicBool::new(false));
     let pending: Arc<Mutex<Pending>> = Arc::default();
-    let greeting = {
-        let assistant = assistant.clone();
-        let overlay_open = Arc::clone(&overlay_open);
-        let pending = Arc::clone(&pending);
-        Arc::new(move || {
-            let mut events = vec![json!({
-                "type": "daemon",
-                "version": env!("CARGO_PKG_VERSION"),
-                "pid": std::process::id(),
-                "overlay": overlay_open.load(std::sync::atomic::Ordering::Relaxed),
-            })];
-            events.extend(assistant.snapshot());
-            events.extend(pending.lock().expect("not poisoned").event());
-            events
-        })
-    };
+    let greeting = greeting(
+        assistant.clone(),
+        Arc::clone(&overlay_open),
+        Arc::clone(&pending),
+    );
+    let _control = ControlSocket::bind(&paths::socket_path(), clients, greeting, commands).await?;
     let token = uuid::Uuid::new_v4().simple().to_string();
-    let _control =
-        ControlSocket::bind(&paths::socket_path(), clients.clone(), greeting, commands).await?;
     let mut windows = overlay::Windows::new(
         token.clone(),
         Arc::new(HyprlandWindows::default()),
@@ -1821,17 +1985,25 @@ pub async fn run(
     )?;
     if !headless {
         windows.open(None, None).await?;
-        overlay_open.store(true, std::sync::atomic::Ordering::Relaxed);
+        overlay_open.store(true, Ordering::Relaxed);
     }
-
+    let diarizer: Diarizer = Arc::new(|found| {
+        let model = paths::speaker_model();
+        model
+            .exists()
+            .then(|| diarizer_process::spawn(&model, found))
+    });
     let mut session = Session {
         config_path: config_path.into(),
         current,
         token,
         pending,
-        replay,
-        audio: Arc::new(PipeWire),
-        vad,
+        rig: Rig {
+            replay,
+            audio: Arc::new(PipeWire),
+            vad,
+            diarizer,
+        },
         assistant,
         emit,
         pipeline: None,
@@ -1839,61 +2011,18 @@ pub async fn run(
         log,
         people,
         importing: None,
+        windows: Box::new(windows),
+        overlay_open,
     };
     session.restart().await;
     let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
-    loop {
+    let signalled = async move {
         tokio::select! {
-            Some(command) = received.recv() => {
-                // Opening the app again opens another window.
-                if command.trim() == "overlay.open" {
-                    open_window(&mut windows, session.assistant.live(), None, &clients, &overlay_open).await;
-                } else if let ("window.call", Some(payload)) = split(&command)
-                    && let Some(call) = window_call(payload)
-                {
-                    match route_call(windows.newest(), call) {
-                        CallTo::Window(number, event) => {
-                            // Focused first, so a window the call opens (the
-                            // settings) keeps the keyboard it takes on opening.
-                            if let Err(error) = windows.focus(number).await {
-                                eprintln!("eco: {error}");
-                            }
-                            if let Some(event) = event {
-                                clients.emit(&event);
-                            }
-                        }
-                        CallTo::NewWindow(call) => {
-                            open_window(&mut windows, session.assistant.live(), call.as_deref(), &clients, &overlay_open).await;
-                        }
-                    }
-                } else if let ("window.show", Some(payload)) = split(&command) {
-                    if let Some((number, shows)) = window_shows(payload) {
-                        windows.shows(number, &shows);
-                        if !shows.is_empty() {
-                            session.assistant.focus(&shows);
-                        }
-                    }
-                } else if !session.command(&command).await {
-                    break;
-                }
-                windows.hide_from_share(session.current.hide_from_share).await;
-            }
-            status = windows.exited() => {
-                overlay_open.store(windows.is_open(), std::sync::atomic::Ordering::Relaxed);
-                if let Some(status) = status.filter(|status| !status.success()) {
-                    eprintln!(
-                        "eco: an overlay window exited ({status}); check WAYLAND_DISPLAY, then `eco start`"
-                    );
-                }
-            }
-            _ = tokio::signal::ctrl_c() => break,
-            _ = terminate.recv() => break,
+            _ = tokio::signal::ctrl_c() => {}
+            _ = terminate.recv() => {}
         }
-    }
-    stop(session.pipeline.take()).await;
-    stop(session.importing.take()).await;
-    session.background.shutdown().await;
-    windows.close().await;
+    };
+    session.serve(received, signalled).await;
     Ok(())
 }
 
