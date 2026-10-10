@@ -1,0 +1,9 @@
+module Eco.Live
+Composer 1.0 Composer.qml
+ComposerSurface 1.0 ComposerSurface.qml
+GuessStrip 1.0 GuessStrip.qml
+NoteCard 1.0 NoteCard.qml
+SessionControl 1.0 SessionControl.qml
+SpeechTurn 1.0 SpeechTurn.qml
+SuggestionCard 1.0 SuggestionCard.qml
+TimelineView 1.0 TimelineView.qml

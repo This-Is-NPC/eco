@@ -1,4 +1,7 @@
 import QtQuick
+import Eco.Core
+import Eco.Settings
+import Eco.Window
 
 // The eco window, as eco-window runs it. Shortcuts reach it through the daemon:
 // see Eco.act.

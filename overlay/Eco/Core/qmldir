@@ -1,0 +1,9 @@
+module Eco.Core
+singleton Eco 1.0 Eco.qml
+singleton I18n 1.0 I18n.qml
+singleton Theme 1.0 Theme.qml
+InputSignal 1.0 InputSignal.qml
+Singleton 1.0 Singleton.qml
+Draft 1.0 draft.js
+Focus 1.0 focus.js
+Markdown 1.0 markdown.js

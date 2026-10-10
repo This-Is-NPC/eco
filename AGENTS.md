@@ -237,13 +237,19 @@ at `$XDG_RUNTIME_DIR/eco.sock`, behind `src/adapters/local_socket.rs`), one
 JSON object per line; the overlay
 never calls a provider, never holds a secret and never writes the
 config — it sends a draft and the daemon validates and saves it. QML
-views compose the kit in `overlay/` (clean cyberpunk HUD:
+views compose the kit in `overlay/Eco/Kit/` (clean cyberpunk HUD:
 monospace, hairlines, outlined surfaces, theme accent) and keep no
-logic beyond binding the `Eco` singleton. The control lab
+logic beyond binding the `Eco` singleton. The overlay is QML modules by
+role under `overlay/Eco/` (`docs/design.md §3`), imported by name, never by
+relative path: Core imports none of them, Kit only Core, and Live,
+Sessions, Dialogs and Settings only Kit and Core — never each other; a
+piece two of them share goes to Kit, and Window composes them; `mise run
+check` runs `scripts/overlay-check` to enforce this. The control lab
 (`mise run preview:controls`) shows every kit component: a new or
 changed component is shown there in the same change, and a view
-reuses a kit component instead of drawing its own variant. Interface text lives only in
-the language packs (`overlay/i18n/*.json`, read through `I18n.t`):
+reuses a kit component instead of drawing its own variant — also enforced by
+`mise run check`. Interface text lives only in
+the language packs (`overlay/Eco/Core/i18n/*.json`, read through `I18n.t`):
 add a key to every pack, never a literal in QML; daemon errors carry a
 `code` with an `error.<code>` text. Motion must mean something —
 a state, new content, or the user's action; nothing animates on a timer

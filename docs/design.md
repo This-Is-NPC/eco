@@ -100,10 +100,11 @@ overlay only renders events: it never calls a provider, never holds a secret and
 never writes the config — it sends a draft and the daemon validates and saves it.
 
 **The window host.** `eco-window <file.qml>` (`window/`, C++ on Qt 6, built
-by `mise run window:build` into `target/window`) loads one QML file of
-`overlay/` — `shell.qml`, the eco window, or `ControlLab.qml` — with a
-QGuiApplication and a QQmlApplicationEngine, and does nothing else: no logic
-lives in it beyond the bridge it hands QML as the module `EcoHost`:
+by `mise run window:build` into `target/window`) loads one entry of
+`overlay/` — `shell.qml`, the eco window, or `lab.qml`, the control lab — with
+a QGuiApplication and a QQmlApplicationEngine, puts the entry's folder on the
+engine's import path, and does nothing else: no logic lives in it beyond the
+bridge it hands QML as the module `EcoHost`:
 
 | Type | What QML gets |
 |---|---|
@@ -112,13 +113,36 @@ lives in it beyond the bridge it hands QML as the module `EcoHost`:
 | `TextFile` | the file or directory at `path`, watched: `text` (the file as last read), `changed()` (it changed on disk), `reload()` |
 
 Its windows are QtQuick `Window`s; its Wayland app id is `eco`, the class
-`packaging/hypr/eco.lua` matches. `overlay/qmldir` declares the three
-singletons (`Eco`, `Theme`, `I18n`), whose root is `overlay/Singleton.qml`.
-It logs to stderr, which the daemon passes on. The QML is shipped and loaded
+`packaging/hypr/eco.lua` matches. It logs to stderr, which the daemon passes on. The QML is shipped and loaded
 as files, as `mise run shots` and the control lab load it from the checkout,
 and compiled on first use into Qt's disk cache (`~/.cache/eco/qmlcache`), so a
 window opens faster from its second start (measured in
 [benchmarks.md](benchmarks.md#the-window-on-plain-qt-6-2026-10-09)).
+
+**The QML modules.** The overlay is split by role into QML modules under
+`overlay/Eco/`, each folder a module with a `qmldir` that lists its types;
+files import modules by name (`import Eco.Kit`), never by relative path:
+
+| Module | Holds | Imports of the overlay |
+|---|---|---|
+| `Eco.Core` | the singletons `Eco` (the socket and the state), `Theme`, `I18n`, their root `Singleton`, `InputSignal`, the language packs in `i18n/`, and the JavaScript libraries `Draft` (`draft.js`), `Focus` (`focus.js`) and `Markdown` (`markdown.js`), declared in its `qmldir` | none |
+| `Eco.Kit` | the generic components every view composes: buttons, chips, fields, dropdowns, menus, dialogs' frames, tables, panels, status lines, `Stage` | `Eco.Core` |
+| `Eco.Live` | the live session: timeline, speech turns, answer and note cards, composer, session control, speaker guesses | `Eco.Core`, `Eco.Kit` |
+| `Eco.Sessions` | history, a session's details (attendees, speakers, context, translation), people, cost, the import strip | `Eco.Core`, `Eco.Kit` |
+| `Eco.Dialogs` | start, import, rename, speaker assignment | `Eco.Core`, `Eco.Kit` |
+| `Eco.Settings` | the settings window and its pages | `Eco.Core`, `Eco.Kit` |
+| `Eco.Window` | the composing root: `OverlayPanel`, the eco window, and `SessionView`, which joins the live session to its details | every module above |
+| `Eco.Lab` | the control lab | any |
+
+Live, Sessions, Dialogs and Settings never import each other: a piece two of
+them share belongs in `Eco.Kit`, and what joins them lives in `Eco.Window`.
+`shell.qml` composes `OverlayPanel` with the settings window; `lab.qml` runs
+`ControlLab`.
+
+`mise run overlay:check` (`scripts/overlay-check`, part of `mise run check`)
+enforces this table: it fails on an import a module may not make, a relative
+`import "…"`, a file undeclared in its folder's `qmldir`, or a Kit component
+never used, directly or through composition, under `Eco/Lab`.
 
 **Rust (daemon) + QML on Qt 6 (overlay).**
 
@@ -177,7 +201,7 @@ eco/
 │   ├── domain/              # segmenter, sessions, assistant, prompts, people, billing
 │   ├── adapters/            # audio, vad, stt, llm, socket, terminal, overlay, files
 │   └── bench/               # the measurements behind docs/benchmarks.md
-├── overlay/                 # the window's QML and language packs
+├── overlay/                 # the window's QML: shell.qml, lab.qml, Eco/* modules
 ├── window/                  # eco-window, the Qt 6 program that runs it (§3)
 ├── packaging/               # Hyprland rules, user service, launcher, icon
 ├── skills/eco/SKILL.md      # the agent skill, embedded in the binary
@@ -1113,7 +1137,7 @@ indices, one accent from the active Omarchy theme
 (`$XDG_STATE_HOME/omarchy/current/theme/colors.toml`, with `~/.local/state` as
 the default). The overlay reloads the palette after file edits and theme
 directory replacements, including light and dark mode changes. The
-kit lives in `overlay/` (`Panel`, `SurfaceFrame`, `TraceButton`, `Chip`, `Tab`,
+kit lives in `overlay/Eco/Kit/` (`Panel`, `SurfaceFrame`, `TraceButton`, `Chip`, `Tab`,
 `TextBox`, `Field`, `NumberField`, `Kicker`, `Masthead`, `StatusMessage`,
 `Icon`, `EcgTrace`); views compose it and hold no logic
 beyond binding `Eco`, the singleton that owns the socket. The control lab
@@ -1128,7 +1152,7 @@ beyond binding `Eco`, the singleton that owns the socket. The control lab
   an accent tint, distinct from hover; the current row of a list is tinted
   with its title in the accent. No side bars.
 - **Languages:** the interface is translated through JSON language packs in
-  `overlay/i18n/` (English, Brazilian Portuguese, Japanese), found and
+  `overlay/Eco/Core/i18n/` (English, Brazilian Portuguese, Japanese), found and
   reloaded on their own, chosen in Settings › Interface (`[ui] language`,
   `auto` follows the system). Dates follow the chosen locale; daemon errors
   carry codes the overlay translates. See [i18n.md](i18n.md).
@@ -1176,7 +1200,7 @@ reconnects to the socket on its own.
   silence or anything else between their lines; answers as framed cards whose
   Markdown is drawn as it streams (marks still open are closed; images, which
   Qt would fetch, become their alt text, and any `![` left, code included,
-  gets a zero-width space so no image can open, `overlay/markdown.js`) that light up
+  gets a zero-width space so no image can open, `overlay/Eco/Core/markdown.js`) that light up
   while they stream, show the question asked and can be removed; a complete
   answer can be copied (its Markdown to the clipboard, `wl-copy`); it follows the
   newest entry, but an answer streaming taller than the view keeps its top in
@@ -1432,7 +1456,7 @@ another tab decides is only read, never picked, there.
   open, what uses it in full and read-only (the defaults, the reviewer, the
   skills that name it and each kind's transcription, assistant and translation
   that answer with it, as the overlay's one resolver, `answering` in
-  `overlay/draft.js`, mirrors the daemon's precedence), its type while nothing
+  `overlay/Eco/Core/draft.js`, mirrors the daemon's precedence), its type while nothing
   uses it (changing it keeps the name and model id; the provider and key change
   only when its base URL does not fit the new type), its name, for chat
   REASONING (the provider's — or IN EXTRA FIELDS when `extra` sets one —, off,
@@ -1671,7 +1695,7 @@ That is the whole gate. It runs:
 | step | what it refuses |
 |---|---|
 | `lint` | Rust not formatted by `cargo fmt`, any clippy warning (`-D warnings`, all targets) |
-| `test` | `eco-window` that does not build without a warning (`window:build`), a failing `cargo test`: the domain tests, the i18n checks (`tests/i18n.rs`), the answer Markdown (`overlay/markdown.js`) against its QML test case (`tests/overlay.rs`, run offscreen by Qt's `qmltestrunner`), eco-window's bridge offscreen (`tests/window.rs`: lines each way, the reconnect, a watched file, a clean exit) and the VAD and speaker parity tests against the Python fixtures (these need the models from `mise run setup`) |
+| `test` | `eco-window` that does not build without a warning (`window:build`), a failing `cargo test`: the domain tests, the i18n checks (`tests/i18n.rs`), the answer Markdown (`overlay/Eco/Core/markdown.js`) against its QML test case (`tests/overlay.rs`, run offscreen by Qt's `qmltestrunner`), eco-window's bridge offscreen (`tests/window.rs`: lines each way, the reconnect, a watched file, a clean exit) and the VAD and speaker parity tests against the Python fixtures (these need the models from `mise run setup`) |
 | `cli:check` | a `docs/cli.md` that is not what the binary's usage spec generates |
 | `docs:check` | a relative link or image in `README.md` or `docs/*.md` whose file, or whose heading for an `#anchor`, is missing |
 
@@ -1750,5 +1774,5 @@ adapter lives today.
 | Audio devices and capture | the `AudioDevices` port, adapter `PipeWire`: devices from `pw-dump`, an `AudioSource` per device through `pw-record`, echo cancellation by `libpipewire-module-echo-cancel` loaded through `pw-cli`; composed in `src/session.rs` | `src/ports.rs`, `src/adapters/audio_pipewire.rs`, `src/adapters/pipewire_devices.rs`, `src/adapters/echo_cancel.rs` |
 | Service lifecycle and desktop setup | `ServiceManager`: the systemd user service (`systemctl --user`), chosen in `src/main.rs`; `DesktopIntegration`: the line loaded into the Hyprland Lua config (`~/.config/hypr/bindings.lua`), chosen in `src/setup.rs` | `src/adapters/service_systemd.rs`, `src/adapters/desktop_hyprland.rs` |
 | Window control | the `WindowControl` port, adapter `HyprlandWindows`: giving a window process's overlay (its window titled `eco`, never the settings window) the keyboard and raising it above the settings, so a dialog the shortcut opens shows and setting `no_screen_share` on its windows through `hyprctl dispatch`, by pid, again on Hyprland's `openwindow` events while they are hidden; composed in `src/session.rs`, used by `src/adapters/overlay.rs`, which launches `eco-window`. The window rules in `packaging/hypr/eco.lua` centering the config window stay compositor config | `src/ports.rs`, `src/adapters/window_hyprland.rs`, `src/adapters/overlay.rs`, `packaging/hypr/eco.lua` |
-| The window host's bridge | `eco-window`'s `EcoHost` module: `Host` gives the QML its environment and copies to the Wayland clipboard through `wl-copy`; `LineSocket` is a `QLocalSocket` to the daemon socket, whose path `overlay/Eco.qml` builds from `XDG_RUNTIME_DIR`; `TextFile` reads and watches files, such as the Omarchy theme under `XDG_STATE_HOME` that `overlay/Theme.qml` follows | `window/main.cpp`, `window/host.h`, `window/line_socket.h`, `window/text_file.h` |
+| The window host's bridge | `eco-window`'s `EcoHost` module: `Host` gives the QML its environment and copies to the Wayland clipboard through `wl-copy`; `LineSocket` is a `QLocalSocket` to the daemon socket, whose path `overlay/Eco/Core/Eco.qml` builds from `XDG_RUNTIME_DIR`; `TextFile` reads and watches files, such as the Omarchy theme under `XDG_STATE_HOME` that `overlay/Eco/Core/Theme.qml` follows | `window/main.cpp`, `window/host.h`, `window/line_socket.h`, `window/text_file.h` |
 | Shortcuts | a global Hyprland bind that runs an `eco window` command, which sends one line to the socket and returns once the daemon has read it: `window.call` for those that open a view, the daemon giving that window the keyboard | `packaging/hypr/eco.lua`, `src/cli.rs` |

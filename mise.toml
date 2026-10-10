@@ -85,9 +85,13 @@ run = "scripts/cli-check"
 description = "Fail when a relative link or image in README.md or docs/*.md does not resolve"
 run = "scripts/docs-check"
 
+[tasks."overlay:check"]
+description = "Fail when an overlay QML module imports one it may not, a relative import appears, a file is undeclared in its qmldir, or a Kit component is not shown in the control lab"
+run = "scripts/overlay-check"
+
 [tasks.check]
-description = "Run lint, tests, the docs/cli.md check and the docs link check"
-depends = ["lint", "test", "cli:check", "docs:check"]
+description = "Run lint, tests, the docs/cli.md check, the docs link check and the overlay module check"
+depends = ["lint", "test", "cli:check", "docs:check", "overlay:check"]
 
 [tasks."local-check"]
 description = "Run the gate on HEAD and post the local-check status master requires"

@@ -1,8 +1,10 @@
-// eco-window <file.qml>: runs one QML file of the overlay — shell.qml, the eco
-// window, or ControlLab.qml — with the bridge in host.h, line_socket.h and
-// text_file.h imported as `EcoHost`.
+// eco-window <file.qml>: runs one entry of the overlay — shell.qml, the eco
+// window, or lab.qml, the control lab — with the bridge in host.h,
+// line_socket.h and text_file.h imported as `EcoHost`, and the entry's folder
+// on the import path, where the Eco.* modules live (docs/design.md §3).
 
 #include <QCoreApplication>
+#include <QFileInfo>
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QUrl>
@@ -35,7 +37,9 @@ int main(int argc, char **argv) {
   QObject::connect(
       &engine, &QQmlApplicationEngine::objectCreationFailed, &app, [] { QCoreApplication::exit(1); },
       Qt::QueuedConnection);
-  engine.load(QUrl::fromLocalFile(QString::fromLocal8Bit(argv[1])));
+  const QFileInfo entry(QString::fromLocal8Bit(argv[1]));
+  engine.addImportPath(entry.absolutePath());
+  engine.load(QUrl::fromLocalFile(entry.absoluteFilePath()));
   if (engine.rootObjects().isEmpty())
     return 1;
   return app.exec();

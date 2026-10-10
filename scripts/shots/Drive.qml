@@ -1,5 +1,6 @@
 import QtQuick
 import EcoHost
+import Eco.Core
 
 // Test-only driver, injected by scripts/shots/shoot into a copy of the overlay
 // and never shipped: `run` evaluates a JS body with helpers to find, click and
