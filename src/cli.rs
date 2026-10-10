@@ -480,34 +480,13 @@ impl Client {
         ))
     }
 
-    /// Send what a shortcut asks and return: what follows shows in the window.
+    /// Send what a shortcut asks and return once the daemon has read it: what
+    /// follows shows in the window.
     async fn window(&mut self, window: Window) -> Result<Value, Failure> {
-        self.shortcut(&window.line()).await
-    }
-
-    /// Send a shortcut's `command`, returning once the daemon has read it.
-    #[cfg(unix)]
-    async fn shortcut(&mut self, command: &str) -> Result<Value, Failure> {
-        self.send(command).await?;
-        // The daemon stops serving a client it can no longer write to, maybe
-        // before reading its line: close only our writing half, and return
-        // once the daemon has read to its end and closed.
-        self.writer
-            .shutdown()
+        self.send(&window.line()).await?;
+        self.send(control_socket::SYNC).await?;
+        self.until(|event| (event["type"] == "synced").then_some(Ok(Value::Null)))
             .await
-            .map_err(|e| Failure::new("daemon.closed", e.to_string()))?;
-        while let Ok(Some(_)) = self.lines.next_line().await {}
-        Ok(Value::Null)
-    }
-
-    /// A shortcut's command, which a named pipe cannot send so as to know
-    /// when the daemon has read it: it has no writing half to close alone.
-    #[cfg(windows)]
-    async fn shortcut(&mut self, _: &str) -> Result<Value, Failure> {
-        Err(Failure::new(
-            "window.unsupported",
-            "`eco window` is not supported on Windows yet",
-        ))
     }
 
     /// List the tags, tag or untag a session, or rename or delete a tag everywhere.
@@ -1508,9 +1487,11 @@ mod tests {
         assert_eq!(kept["text"], "a\nb");
     }
 
-    #[cfg(unix)]
     #[tokio::test]
-    async fn window_commands_send_what_a_shortcut_asks() {
+    async fn window_commands_send_what_a_shortcut_asks_and_return_once_read() {
+        let path = std::path::absolute("/tmp/retro.vtt").unwrap();
+        let imported = json!({"call": "import", "path": path});
+        let imported: &'static str = format!("window.call {imported}").leak();
         let asks = [
             (
                 Window::Call {
@@ -1524,24 +1505,49 @@ mod tests {
                     call: "import",
                     path: Some("/tmp/retro.vtt".into()),
                 },
-                r#"window.call {"call":"import","path":"/tmp/retro.vtt"}"#,
+                imported,
             ),
             (Window::Action { name: "ask".into() }, "action ask"),
             (Window::Toggle, "session.toggle"),
         ];
         for (window, expected) in asks {
-            let (ours, mut theirs) = local_socket::pair();
-            let mut client = Client::over(ours);
-            let mut asked = Box::pin(client.window(window));
-            // Not done while the daemon may still be reading the line.
-            let early = std::time::Duration::from_millis(50);
-            assert!(tokio::time::timeout(early, &mut asked).await.is_err());
-            let mut received = String::new();
-            theirs.read_to_string(&mut received).await.unwrap();
-            assert_eq!(received, format!("{expected}\n"));
-            drop(theirs);
-            assert_eq!(asked.await, Ok(Value::Null));
+            let synced = json!({"type": "synced"});
+            let mut client = conversing(vec![(expected, vec![signal()]), ("sync", vec![synced])]);
+            assert_eq!(client.window(window).await, Ok(Value::Null));
         }
+    }
+
+    #[tokio::test]
+    async fn a_window_command_the_daemon_closes_on_before_it_is_read_fails() {
+        let mut client = closing_after("session.toggle", &[]);
+        let failure = client.window(Window::Toggle).await.unwrap_err();
+        assert_eq!(failure.code, "daemon.closed");
+    }
+
+    #[tokio::test]
+    async fn a_window_command_reaches_a_running_daemon() {
+        let directory = tempfile::tempdir().unwrap();
+        let address = Address::scratch(directory.path());
+        let (commands, mut received) = tokio::sync::mpsc::unbounded_channel();
+        let _socket = control_socket::ControlSocket::bind(
+            &address,
+            "token".into(),
+            control_socket::Clients::default(),
+            std::sync::Arc::new(Vec::new),
+            commands,
+        )
+        .await
+        .unwrap();
+        let request = Request::Window(Window::Call {
+            call: "focus",
+            path: None,
+        });
+        let ran = tokio::time::timeout(std::time::Duration::from_secs(10), run(&address, request));
+        assert_eq!(ran.await, Ok(0));
+        assert_eq!(
+            received.try_recv().unwrap(),
+            r#"window.call {"call":"focus"}"#
+        );
     }
 
     #[tokio::test]
@@ -2047,25 +2053,6 @@ mod tests {
             client.handle(request).await,
             Ok(json!({"from": "Q3", "to": "Q4", "sessions": 2}))
         );
-    }
-
-    #[cfg(windows)]
-    #[tokio::test]
-    async fn a_window_command_is_not_supported_on_windows() {
-        let (ours, _theirs) = local_socket::pair();
-        let failure = Client::over(ours).window(Window::Toggle).await.unwrap_err();
-        assert_eq!(failure.code, "window.unsupported");
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn a_window_command_returns_once_the_daemon_closes() {
-        let mut client = talking_to(r#"window.call {"call":"focus"}"#, vec![]);
-        let request = Request::Window(Window::Call {
-            call: "focus",
-            path: None,
-        });
-        assert_eq!(client.handle(request).await, Ok(Value::Null));
     }
 
     #[tokio::test]

@@ -25,6 +25,13 @@ const MAX_LINE: usize = 1 << 20;
 /// How many lines may wait to be written to one client.
 const MAX_QUEUED: usize = 4096;
 
+/// The command a client sends after others to learn the daemon has read them:
+/// its connection answers `SYNCED` to that client alone (docs/design.md §10).
+pub const SYNC: &str = "sync";
+
+/// The answer to `SYNC`.
+const SYNCED: &str = "{\"type\":\"synced\"}\n";
+
 /// Whether a client whose queue is full may miss `event` and stay connected:
 /// only the live input meter, whose next reading replaces it.
 fn transient(event: &Event) -> bool {
@@ -284,6 +291,7 @@ async fn serve(
         let _ = outgoing.try_send(format!("{event}\n"));
     }
     let (kept, dropped) = oneshot::channel();
+    let answer = outgoing.clone();
     clients.add(Client {
         lines: outgoing,
         _kept: kept,
@@ -312,13 +320,19 @@ async fn serve(
                 break;
             };
             let command = line.trim();
-            if !command.is_empty() && commands.send(command.to_string()).is_err() {
+            // Lines are read in order, so every line before `SYNC` was taken.
+            if command == SYNC {
+                if answer.try_send(SYNCED.into()).is_err() {
+                    break;
+                }
+            } else if !command.is_empty() && commands.send(command.to_string()).is_err() {
                 break;
             }
         }
     };
     // The client is done when it stops reading, stops writing, sends a line
-    // past the cap, or falls behind and its queue is dropped.
+    // past the cap, or falls behind and its queue is dropped or cannot take
+    // its `SYNCED`.
     tokio::select! { () = write => {}, () = read => {}, _ = dropped => {} }
 }
 
@@ -373,6 +387,30 @@ mod tests {
         // The socket file goes with it; a named pipe has none.
         #[cfg(unix)]
         assert!(!path.socket.exists());
+    }
+
+    #[tokio::test]
+    async fn sync_is_answered_to_its_client_alone_after_the_lines_before_it() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = Address::scratch(directory.path());
+        let (_socket, clients, mut commands) = bound(&path, Vec::new()).await;
+        let other = connect(&path).await;
+        let stream = connect(&path).await;
+        let (reader, mut writer) = local_socket::split(stream);
+        let mut lines = BufReader::new(reader).lines();
+        writer.write_all(b"session.toggle\nsync\n").await.unwrap();
+        assert_eq!(
+            lines.next_line().await.unwrap().unwrap(),
+            r#"{"type":"synced"}"#
+        );
+        assert_eq!(commands.try_recv().unwrap(), "session.toggle");
+        assert!(commands.try_recv().is_err(), "`sync` is not a command");
+        clients.emit(&json!({"type": "note"}));
+        let mut other = BufReader::new(other).lines();
+        assert_eq!(
+            other.next_line().await.unwrap().unwrap(),
+            r#"{"type":"note"}"#
+        );
     }
 
     #[tokio::test]
@@ -460,6 +498,33 @@ mod tests {
             clients.0.lock().unwrap().is_empty(),
             "a lost real event drops it"
         );
+    }
+
+    #[tokio::test]
+    async fn a_client_whose_queue_cannot_take_synced_is_dropped() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = Address::scratch(directory.path());
+        let (_socket, clients, _commands) = bound(&path, Vec::new()).await;
+        let mut stalled = connect(&path).await;
+        while clients.0.lock().unwrap().is_empty() {
+            tokio::task::yield_now().await;
+        }
+        let text = "x".repeat(1024);
+        for _ in 0..MAX_QUEUED * 2 {
+            clients.emit(&json!({"type": "signal", "input": text, "level": 0.5, "speech": true}));
+            tokio::task::yield_now().await;
+        }
+        stalled.write_all(b"sync\n").await.unwrap();
+        // A signal keeps a client whose queue is full: only a closed one goes.
+        let started = std::time::Instant::now();
+        while !clients.0.lock().unwrap().is_empty() {
+            assert!(
+                started.elapsed() < std::time::Duration::from_secs(5),
+                "the daemon closes the connection"
+            );
+            clients.emit(&json!({"type": "signal", "input": "x", "level": 0.5, "speech": true}));
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
     }
 
     /// Emit an event until the clients that left are dropped; five seconds at most.

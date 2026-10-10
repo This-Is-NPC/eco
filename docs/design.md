@@ -993,6 +993,14 @@ without running it. Each client has a queue of at most 4096 lines
 any other event it cannot take drops it and closes its connection, while the
 daemon and the other clients go on.
 
+A client learns that the daemon has read its lines by sending `sync` after
+them. The connection reads lines in order and answers `{"type":"synced"}` to
+that client alone, with no command run; a queue that cannot take it closes the
+connection (`SYNC` in `src/adapters/control_socket.rs`). `eco window` uses it
+(§11): a CLI that exits right after writing could otherwise leave before the
+daemon reads its line, which then may never run. It is one mechanism on both
+platforms, for a named pipe cannot close its writing half alone.
+
 ### 10.1 Events
 
 A new client first receives `snapshot`; a window asks for the timeline of the
@@ -1006,6 +1014,7 @@ session it shows:
 {"type":"window_call","window":2,"call":"import","path":"/home/me/retro.mp4"}
 {"type":"window_focus","pid":10872}
 {"type":"window_share","pids":[10872,11240],"hidden":true}
+{"type":"synced"}
 {"type":"session_timeline","session":"…","timeline":[{"type":"transcript",…},{"type":"note",…},{"type":"suggestion",…}]}
 {"type":"transcript","session":"…","who":"Eles","name":"Ana","text":"...","at":1791083840.1,"latency_ms":990}
 {"type":"transcript_partial","session":"…","who":"Eles","name":"Ana","text":"so the next…"}
@@ -1152,7 +1161,8 @@ imported), `import.cancel`, `entry.remove <json>`
 (`{"session","id"}`: an answer or a note of the open session, the one read back,
 or a stored one, whose log gets a `removed` record; clients get `note_removed`
 for a note and `suggestion_removed` otherwise, even when it was already gone)
-and `stop`.
+`sync` (no command: the connection answers `synced` to this client alone once
+it has read every line before it, §10) and `stop`.
 
 ---
 
@@ -1184,14 +1194,16 @@ How the commands are built:
   `session.not_found`, `session.delete_failed`, `action.unknown`,
   `completion.failed`, `suggestion.removed` (replaced by a newer request), `import.busy`,
   `import.failed`, `person.not_found`, `person.invalid`, `person.exists`,
-  `people.failed`, `line.not_found`, `tag.invalid`, `tag.not_found`,
-  `window.unsupported` (`eco window` on Windows, §15). They read
+  `people.failed`, `line.not_found`, `tag.invalid`, `tag.not_found`.
+  They read
   the broadcast for their own reply, so they work beside the overlay. `export`
   prints the document itself, to pipe or redirect.
 - `window` sends what a global shortcut asks — `window.call` (`focus`,
   `config`, `new` as `new_session`, `sessions`, `import [<path>]`),
-  `action <name>` or `session.toggle` (§10.2) — and prints
-  `{"ok":true,"data":null}` once it is sent, without waiting for the window.
+  `action <name>` or `session.toggle` (§10.2) — then `sync`, and prints
+  `{"ok":true,"data":null}` once `synced` comes back, so the daemon has read
+  the line, without waiting for the window; a connection that closes first
+  is `daemon.closed`.
   None of these needs the windows' token.
 - `show` carries the session's speakers and storage path/byte count; `speaker`
   names one speaker, while `assign` can identify one line or every line.
@@ -1922,6 +1934,6 @@ adapter lives on each platform today.
 | The running executable | `eco status --expect-current-exe` compares the daemon's `/proc/<pid>/exe` with this executable by device and inode | it compares the `exe` the daemon's greeting names with this executable's path; Windows lets no one overwrite a running executable | `src/lifecycle.rs` |
 | Window control | the `WindowControl` port, adapter `HyprlandWindows`: giving a window process's overlay (its window titled `eco`, never the settings window) the keyboard and raising it above the settings, so a dialog the shortcut opens shows and setting `no_screen_share` on its windows through `hyprctl dispatch`, by pid, again on Hyprland's `openwindow` events while they are hidden; composed in `src/session.rs`, used by `src/adapters/overlay.rs`, which launches `eco-window`. The window rules in `packaging/hypr/eco.lua` centering the config window stay compositor config | adapter `HostWindows`: the windows control themselves. Focusing sends `window_focus` with the pid and hiding sends `window_share` with the pids (§10.1), to every client; the window of that process answers through its host, `Host.raise` on its eco window, or `Host.hideFromCapture`, and the last of each is told again to a client that connects, as a window does just after it opens. Windows gives the foreground only to a process that has it or had the last input, and neither the daemon nor its windows, in the background, do: `raise()` and `requestActivate()` alone left the window behind another program, its taskbar button flashing (seen in a desktop test). So the host's `Host.raise` first attaches its thread to the input of the foreground window's thread (`AttachThreadInput`), brings the window to the top and calls `SetForegroundWindow`, then detaches, after checking that thread answers (`SendMessageTimeout`), as an attached hung thread would hang the window: the workaround Qt applies under its private `AlwaysActivateWindow` option. Chosen over a synthetic Alt press before `SetForegroundWindow`, which reaches the program in front (an Alt press and release opens its menu bar), and over the daemon passing the right on with `AllowSetForegroundWindow` from the hotkey's thread, which has no safe binding in Rust and would not cover `eco window` from a terminal. Leaving out of capture needs Windows 10 2004 or later, and leaves the windows out of the user's own screenshots and recordings too | `src/ports.rs`, `src/adapters/window_hyprland.rs`, `src/adapters/window_host.rs`, `src/adapters/overlay.rs`, `window/host.h`, `packaging/hypr/eco.lua` |
 | The window host's bridge | `eco-window`'s `EcoHost` module, built with the system's compiler and Qt by Ninja: `Host` gives the QML its pid, its environment and local paths, and copies to the Wayland clipboard through `wl-copy`; `LineSocket` is a `QLocalSocket` to the daemon socket the daemon names in `ECO_SOCKET`; `TextFile` reads and watches files, such as the Omarchy theme under `XDG_STATE_HOME` that `overlay/Eco/Core/Theme.qml` follows | the same module, built with MSVC through CMake's Visual Studio generator against the Qt `scripts/qt-install` puts under `.qt`, with Qt's libraries copied beside `eco-window.exe` by `windeployqt`; `src/adapters/overlay.rs` runs `<prefix>\lib\eco\eco-window.exe` beside an installed `eco`, else the checkout's `target\window\eco-window.exe`. `Host.copy` puts the text on the clipboard through Qt, `Host.hideFromCapture` sets the windows' display affinity, and `LineSocket` connects to the named pipe and sends `auth <token>` first. `tests/window.rs` and `tests/overlay.rs` run there too, the second with the `qmltestrunner` under `.qt`. There is no Omarchy theme, so the window keeps its own colours | `window/main.cpp`, `window/host.h`, `window/line_socket.h`, `window/text_file.h`, `scripts/window-build`, `scripts/qt-install` |
-| Shortcuts | a global Hyprland bind that runs an `eco window` command, which sends one line to the socket and returns once the daemon has read it: `window.call` for those that open a view, the daemon giving that window the keyboard | the daemon registers `[shortcuts]` (§9) itself, `Win+Alt+A`, `Q`, `C`, `N`, `P`, `H` and `E` by default, the keys of `eco.lua` with the Windows key for SUPER, none of them one Microsoft documents for Windows (`Win+Alt` with a digit opens a taskbar jump list, and was refused on a desktop; the Game Bar holds `G`, `M`, `R` and `T`; Omarchy binds `SUPER+ALT+1` to `5` to a group's windows), through the `windows-hotkeys` crate: `RegisterHotKey` on a hidden message-only window of a thread of its own, which waits for `WM_HOTKEY` in the crate's loop. A pressed key hands the daemon's loop the very line `eco window` builds (`cli::Window::line`), so it is routed as the command would be. A key the system refuses, another program holding it, is written to the daemon's log and greets every client as an `error` with the code `shortcut.unavailable`, which names the config's path, to be created if missing, as the settings window has no place for shortcuts; the others still work. Chosen over `global-hotkey`, which registers the same way but leaves the message loop to the application, and that loop is `unsafe` code eco forbids, and over `livesplit-hotkey`, which installs a low-level keyboard hook: it sees every key pressed in every program, passes the shortcut on to the program in front as well (Win+Alt+1 would also open the first taskbar program's jump list) and cannot tell a key another program holds (read in the crates' sources). The keys are read when the daemon starts. Over ssh the system refuses every key: that session has no interactive window station (`RegisterHotKey` fails with error 1459, `ERROR_REQUIRES_INTERACTIVE_WINDOWSTATION`, measured), so each is reported; on a desktop, `Win+Alt+C`, `N`, `H` and `E` registered and worked when pressed (seen in a desktop test). `eco window` itself fails with `window.unsupported`, for a named pipe has no writing half to close alone, which is how the command knows the daemon has read its line | `packaging/hypr/eco.lua`, `src/cli.rs`, `src/shortcuts.rs`, `src/adapters/shortcuts_windows.rs` |
+| Shortcuts | a global Hyprland bind that runs an `eco window` command, which sends one line to the socket and returns once the daemon has read it: `window.call` for those that open a view, the daemon giving that window the keyboard | the daemon registers `[shortcuts]` (§9) itself, `Win+Alt+A`, `Q`, `C`, `N`, `P`, `H` and `E` by default, the keys of `eco.lua` with the Windows key for SUPER, none of them one Microsoft documents for Windows (`Win+Alt` with a digit opens a taskbar jump list, and was refused on a desktop; the Game Bar holds `G`, `M`, `R` and `T`; Omarchy binds `SUPER+ALT+1` to `5` to a group's windows), through the `windows-hotkeys` crate: `RegisterHotKey` on a hidden message-only window of a thread of its own, which waits for `WM_HOTKEY` in the crate's loop. A pressed key hands the daemon's loop the very line `eco window` builds (`cli::Window::line`), so it is routed as the command would be. A key the system refuses, another program holding it, is written to the daemon's log and greets every client as an `error` with the code `shortcut.unavailable`, which names the config's path, to be created if missing, as the settings window has no place for shortcuts; the others still work. Chosen over `global-hotkey`, which registers the same way but leaves the message loop to the application, and that loop is `unsafe` code eco forbids, and over `livesplit-hotkey`, which installs a low-level keyboard hook: it sees every key pressed in every program, passes the shortcut on to the program in front as well (Win+Alt+1 would also open the first taskbar program's jump list) and cannot tell a key another program holds (read in the crates' sources). The keys are read when the daemon starts. Over ssh the system refuses every key: that session has no interactive window station (`RegisterHotKey` fails with error 1459, `ERROR_REQUIRES_INTERACTIVE_WINDOWSTATION`, measured), so each is reported; on a desktop, `Win+Alt+C`, `N`, `H` and `E` registered and worked when pressed (seen in a desktop test). `eco window` works as on Linux, knowing the daemon has read its line from the `synced` answer to `sync` (§10) | `packaging/hypr/eco.lua`, `src/cli.rs`, `src/shortcuts.rs`, `src/adapters/shortcuts_windows.rs` |
 | The hook shell | `shell()` runs each hook with `sh -c` | `shell()` runs each hook with `cmd /S /C "<command>"`, the command handed over as written, for cmd does not read its line by the quoting rules other programs use; a hook reads `%ECO_SESSION%` and `%ECO_TITLE%`. cmd is on every Windows | `src/adapters/hook_shell.rs` |
 | The omapass keyring | `api_key_omapass` reads a key through the omapass CLI | omapass does not exist: it is never installed, and a key from it fails | `src/adapters/omapass.rs` |

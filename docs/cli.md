@@ -537,7 +537,7 @@ Delete a person and the voices kept for them; sessions keep the name
 
 - **Usage**: `eco window <SUBCOMMAND>`
 
-Do what a shortcut does, on the newest eco window or the session shown; returns once sent
+Do what a shortcut does, on the newest eco window or the session shown; returns once the daemon has read it
 
 ## `eco window focus`
 

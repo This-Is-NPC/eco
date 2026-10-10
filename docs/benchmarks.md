@@ -321,8 +321,6 @@ No test was written for these lines, read in the code and left on purpose:
 - `local_date` in `src/cli.rs`, a local time skipped by a clock change: it
   needs the process time zone set, which needs `unsafe`, and the crate
   forbids it.
-- `window` in `src/cli.rs`, the error from closing the write half of a
-  socket that was just written: only an operating-system failure reaches it.
 - The rest are lines of the tests themselves: `panic!` arms that run only
   when a test fails, and the end of fake daemons that serve until the test
   drops them.

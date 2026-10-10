@@ -215,7 +215,7 @@ enum Command {
         #[command(subcommand)]
         action: Option<PeopleCommand>,
     },
-    /// Do what a shortcut does, on the newest eco window or the session shown; returns once sent.
+    /// Do what a shortcut does, on the newest eco window or the session shown; returns once the daemon has read it.
     Window {
         #[command(subcommand)]
         action: WindowCommand,

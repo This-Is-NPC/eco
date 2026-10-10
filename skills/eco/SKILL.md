@@ -23,7 +23,7 @@ Codes: `argument.invalid`, `daemon.offline`, `daemon.access_denied`, `daemon.una
 `session.not_found`, `session.invalid`, `session.delete_failed`, `action.unknown`,
 `completion.failed`, `suggestion.removed`, `import.busy`, `import.failed`,
 `person.not_found`, `person.invalid`, `person.exists`, `people.failed`,
-`line.not_found`, `window.unsupported`.
+`line.not_found`.
 
 The commands talk to the running eco daemon. On `daemon.offline`, tell the
 user; run `eco start --headless` only if they agree. On
@@ -156,8 +156,7 @@ transcribed (`--no-wait` returns once it starts). One import runs at a time.
 
 `eco window` does what the user's global shortcuts do, on their screen; use it
 only when the user asks to see something there. It returns `data: null` once
-sent, and the window shows the rest. On Windows it fails with
-`window.unsupported`.
+the daemon has read it, and the window shows the rest.
 
 ```bash
 eco window focus                 # bring the eco window to the front (opens one if none is)
