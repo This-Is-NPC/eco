@@ -105,34 +105,107 @@ mod tests {
 
     use super::*;
 
-    /// A stand-in omapass that knows two passwords and a Nostr key.
-    fn fake(directory: &Path) -> PathBuf {
+    /// A stand-in omapass in `directory` that runs `body` for every command.
+    fn scripted(directory: &Path, body: &str) -> Option<PathBuf> {
         let path = directory.join("omapass");
-        let script = r#"#!/bin/sh
-case "$1" in
+        std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        // A process another test forked while the file was open for writing
+        // holds it so until that process execs; running it fails until then.
+        let busy = |e: &std::io::Error| e.kind() == std::io::ErrorKind::ExecutableFileBusy;
+        let _ran = std::iter::repeat_with(|| std::process::Command::new(&path).output())
+            .find(|run| !run.as_ref().is_err_and(busy));
+        Some(path)
+    }
+
+    /// A stand-in omapass that knows two passwords and a Nostr key.
+    fn fake(directory: &Path) -> Option<PathBuf> {
+        let script = r#"case "$1" in
   list) echo '[{"account":"openrouter","folder":"AI","kind":""},{"account":"nostr:default","folder":"Nostr","kind":"nostr"},{"account":"deepgram","folder":"AI","kind":""}]' ;;
   get) [ "$3" = "deepgram" ] && printf 'dg-secret\n' && exit 0; echo "omapass: no such account: $3" >&2; exit 1 ;;
-esac
-"#;
-        std::fs::write(&path, script).unwrap();
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
-        path
+esac"#;
+        scripted(directory, script)
     }
 
     #[tokio::test]
     async fn accounts_are_its_passwords_and_secrets_come_piped() {
         let directory = tempfile::tempdir().unwrap();
         let omapass = fake(directory.path());
-        let accounts = accounts_of(Some(omapass.clone())).await.unwrap();
+        let accounts = accounts_of(omapass.clone()).await.unwrap();
         let names: Vec<&str> = accounts.iter().map(|a| a.account.as_str()).collect();
         assert_eq!(names, ["deepgram", "openrouter"]);
         assert_eq!(accounts[0].folder, "AI");
         assert_eq!(
-            secret_of(Some(omapass.clone()), "deepgram").await.unwrap(),
+            secret_of(omapass.clone(), "deepgram").await.unwrap(),
             "dg-secret"
         );
-        let failure = secret_of(Some(omapass), "nope").await.unwrap_err();
+        let failure = secret_of(omapass, "nope").await.unwrap_err();
         assert_eq!(failure, "omapass: omapass: no such account: nope");
         assert!(!failure.contains("dg-secret"));
+    }
+
+    #[test]
+    fn the_program_is_found_on_path_before_the_plugin() {
+        let on_path = tempfile::tempdir().unwrap();
+        let elsewhere = tempfile::tempdir().unwrap();
+        let program = scripted(on_path.path(), "exit 0").unwrap();
+        let plugin = scripted(elsewhere.path(), "exit 0").unwrap();
+        let path = std::env::join_paths([elsewhere.path().join("bin"), on_path.path().into()]);
+        assert_eq!(find(path.ok(), plugin.clone()), Some(program));
+        assert_eq!(find(None, plugin.clone()), Some(plugin));
+        let gone = elsewhere.path().join("none");
+        assert_eq!(find(Some(on_path.path().join("x").into()), gone), None);
+    }
+
+    #[tokio::test]
+    async fn without_the_program_eco_says_where_to_get_it() {
+        let missing = format!("omapass is not installed ({PAGE})");
+        assert_eq!(accounts_of(None).await.unwrap_err(), missing);
+        assert_eq!(secret_of(None, "deepgram").await.unwrap_err(), missing);
+    }
+
+    #[tokio::test]
+    async fn a_program_that_cannot_run_or_fails_silently_is_an_error() {
+        let directory = tempfile::tempdir().unwrap();
+        let absent = Some(directory.path().join("omapass"));
+        let cannot = accounts_of(absent).await.unwrap_err();
+        assert!(cannot.starts_with("omapass: "), "{cannot}");
+        let silent = scripted(directory.path(), "echo '  ' >&2; exit 3");
+        assert_eq!(accounts_of(silent).await.unwrap_err(), "omapass: failed");
+    }
+
+    #[tokio::test]
+    async fn a_list_that_is_not_json_or_lacks_names_is_read_as_far_as_it_goes() {
+        let directory = tempfile::tempdir().unwrap();
+        let garbled = scripted(directory.path(), "echo 'not json'");
+        let error = accounts_of(garbled).await.unwrap_err();
+        assert!(error.starts_with("omapass: expected"), "{error}");
+        let partial = scripted(
+            directory.path(),
+            r#"echo '[{"folder":"AI"},{"account":"groq"}]'"#,
+        );
+        let accounts = accounts_of(partial).await.unwrap();
+        assert_eq!(
+            accounts,
+            [Account {
+                account: "groq".into(),
+                folder: String::new()
+            }]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_secret_that_is_blank_or_not_text_is_refused() {
+        let directory = tempfile::tempdir().unwrap();
+        let blank = scripted(directory.path(), r"printf '  \n'");
+        assert_eq!(
+            secret_of(blank, "groq").await.unwrap_err(),
+            "omapass: groq is empty"
+        );
+        let binary = scripted(directory.path(), r"printf '\377\376'");
+        assert_eq!(
+            secret_of(binary, "groq").await.unwrap_err(),
+            "omapass: groq is not text"
+        );
     }
 }
