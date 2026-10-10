@@ -23,6 +23,7 @@ rustls-platform-verifier = "0.7.1"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.151", features = ["preserve_order"] }
 sha2 = "0.11.0"
+sys-locale = "0.3.2"
 thiserror = "2.0.21"
 tokio = { version = "1.53.2", features = ["rt-multi-thread", "macros", "process", "io-util", "time", "net", "sync", "fs", "signal"] }
 tokio-tungstenite = { version = "0.30.0", default-features = false, features = ["connect", "__rustls-tls"] }

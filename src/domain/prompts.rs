@@ -17,12 +17,44 @@ Contexto do usuário:
 {context}
 ";
 
-/// The rules a config starts with; the user edits them in `rules`.
+/// The rules a config written before eco followed the system language starts
+/// with; the user edits them in `rules`.
 pub const DEFAULT_RULES: &str = "- Responda no idioma da transcrição.
 - Seja curto: o usuário pode estar lendo enquanto a conversa continua.
 - Use o contexto do usuário quando for relevante.
 - Não repita o que uma resposta anterior já disse; avance a partir dela.
 - Nunca atribua ao usuário fatos que não estão na transcrição nem no contexto.";
+
+/// The default rules in each language a first config may start in, by
+/// language code; English is the first, for any other language.
+const RULES: [(&str, &str); 3] = [
+    (
+        "en",
+        "- Answer in the language of the transcript.
+- Be brief: the user may be reading while the conversation goes on.
+- Use the user's context when it is relevant.
+- Do not repeat what an earlier answer already said; move on from it.
+- Never attribute to the user facts that are in neither the transcript nor the context.",
+    ),
+    ("pt", DEFAULT_RULES),
+    (
+        "ja",
+        "- 文字起こしと同じ言語で答えてください。
+- 簡潔に：会話が続く間、ユーザーは読みながら聞いているかもしれません。
+- 関係があるときは、ユーザーのコンテキストを使ってください。
+- 前の回答ですでに言ったことは繰り返さず、その先へ進めてください。
+- 文字起こしにもコンテキストにもない事実を、ユーザーのものとして述べないでください。",
+    ),
+];
+
+/// The default rules in `language` (`en`, `pt`, `ja`), else in English.
+pub fn default_rules(language: &str) -> &'static str {
+    RULES
+        .iter()
+        .find(|(code, _)| *code == language)
+        .unwrap_or(&RULES[0])
+        .1
+}
 
 /// What a reviewer is asked, after the draft, unless the user wrote their own.
 pub const DEFAULT_REVIEW: &str = "\

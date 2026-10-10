@@ -779,8 +779,14 @@ holds is listed and shown as `interrupted`, never reopened by itself.
 
 `~/.config/eco/config.toml` (written by the config window; hand edits work too,
 but comments are not kept). No file is the empty config: no model, no
-participant, no action, the defaults for the rest. The daemon starts on
-it, so the window opens and its settings write the file at the first save; a
+participant, no action, the defaults for the rest — in the system language
+(`sys-locale`: `LANGUAGE`, `LC_ALL`, `LC_MESSAGES`, `LANG` on Linux, the
+user's display language on Windows): `ui.language` its pack (`pt-BR`,
+`ja-JP`, `en-US`), `stt.language` its code, first after `auto` in
+`stt.languages`, and `rules` the default rules in it; any language without a
+pack starts in English. A file that exists is read as written: a field it
+leaves out takes the default below, whatever the system says. The daemon
+starts on it, so the window opens and its settings write the file at the first save; a
 file that does not parse or validate still stops the daemon. `stt.model` and
 `llm.model` may be empty, naming no default: a session that needs that model
 is told `no transcription model is chosen`, as an `stt.unavailable` error, and

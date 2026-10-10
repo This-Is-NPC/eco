@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use crate::domain::action::Action;
-use crate::domain::prompts::{DEFAULT_REVIEW, DEFAULT_RULES};
+use crate::domain::prompts::{self, DEFAULT_REVIEW, DEFAULT_RULES};
 use crate::paths;
 
 #[derive(Debug, thiserror::Error)]
@@ -678,12 +678,61 @@ pub(crate) fn valid_color(color: &str) -> bool {
     color.len() == 7 && color.starts_with('#') && color[1..].chars().all(|c| c.is_ascii_hexdigit())
 }
 
-/// The config at `path`; no file there is the empty config, which registers
-/// no model, until the first save writes it.
+/// The interface pack and transcription language a first config starts in, by
+/// the system language: (pack, transcription code). English is the first, for
+/// any language without a pack.
+const FIRST_LANGUAGES: [(&str, &str); 3] = [("en-US", "en"), ("pt-BR", "pt"), ("ja-JP", "ja")];
+
+/// The empty config in the system language `locale` (`pt_BR.UTF-8`, `ja-JP`):
+/// its interface, its transcription language and its rules; English for a
+/// language eco has no pack for, or none.
+fn first_run(locale: Option<&str>) -> Config {
+    let language = locale
+        .map(|locale| locale.split(['_', '-', '.', '@']).next().unwrap_or(""))
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let (pack, code) = FIRST_LANGUAGES
+        .iter()
+        .find(|(_, code)| *code == language)
+        .unwrap_or(&FIRST_LANGUAGES[0]);
+    let languages = ["auto", code]
+        .into_iter()
+        .map(String::from)
+        .chain(
+            default_languages()
+                .into_iter()
+                .filter(|l| l != "auto" && l != code),
+        )
+        .collect();
+    let raw = Raw {
+        rules: prompts::default_rules(code).into(),
+        stt: SttConfig {
+            language: (*code).into(),
+            languages,
+            ..SttConfig::default()
+        },
+        ui: UiTable {
+            language: (*pack).into(),
+            ..UiTable::default()
+        },
+        ..toml::from_str("").expect("the empty file is a config")
+    };
+    Config::from_raw(raw).expect("a first config is valid")
+}
+
+/// The config at `path`; no file there is the empty config in the system
+/// language, which registers no model, until the first save writes it.
 pub fn load(path: &Path) -> Result<Config, ConfigError> {
+    load_in(path, sys_locale::get_locale().as_deref())
+}
+
+/// `load`, with `locale` as the system language.
+fn load_in(path: &Path, locale: Option<&str>) -> Result<Config, ConfigError> {
     let text = match fs::read_to_string(path) {
         Ok(text) => text,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(first_run(locale));
+        }
         Err(error) => return Err(ConfigError(format!("{}: {error}", path.display()))),
     };
     let raw: Raw = toml::from_str(&text).map_err(|error| {
@@ -1075,7 +1124,7 @@ mod tests {
     #[test]
     fn a_missing_file_is_the_empty_config() {
         let directory = tempfile::tempdir().unwrap();
-        let empty = load(&directory.path().join("nope.toml")).unwrap();
+        let empty = load_in(&directory.path().join("nope.toml"), Some("pt_BR.UTF-8")).unwrap();
         assert!(empty.models.is_empty());
         assert!(empty.participants.is_empty() && empty.actions.is_empty());
         assert_eq!(
@@ -1085,8 +1134,63 @@ mod tests {
         assert_eq!(empty.kinds, default_kinds());
         assert_eq!(empty.transcriber("meeting"), None);
         assert_eq!(empty.translator("meeting"), None);
-        assert_eq!(Config::from_value(json!({})).unwrap(), empty);
+        let mut written_empty = Config::from_value(json!({})).unwrap();
+        written_empty.ui_language = "pt-BR".into();
+        assert_eq!(written_empty, empty);
         assert!(!directory.path().join("nope.toml").exists());
+    }
+
+    #[test]
+    fn a_first_config_follows_the_system_language_and_falls_back_to_english() {
+        let directory = tempfile::tempdir().unwrap();
+        let missing = directory.path().join("config.toml");
+        let first = |locale: Option<&str>| {
+            let config = load_in(&missing, locale).unwrap();
+            (
+                config.ui_language,
+                config.stt.language,
+                config.stt.languages,
+                config.rules,
+            )
+        };
+        let (ui, stt, languages, rules) = first(Some("pt_BR.UTF-8"));
+        assert_eq!((ui.as_str(), stt.as_str()), ("pt-BR", "pt"));
+        assert_eq!(languages, ["auto", "pt", "en", "es"]);
+        assert_eq!(rules, DEFAULT_RULES);
+        let (ui, stt, languages, rules) = first(Some("ja-JP"));
+        assert_eq!((ui.as_str(), stt.as_str()), ("ja-JP", "ja"));
+        assert_eq!(languages, ["auto", "ja", "pt", "en", "es"]);
+        assert!(
+            rules.starts_with("- 文字起こしと同じ言語で答えて"),
+            "{rules}"
+        );
+        let english = first(Some("en-GB"));
+        assert_eq!((english.0.as_str(), english.1.as_str()), ("en-US", "en"));
+        assert_eq!(english.2, ["auto", "en", "pt", "es"]);
+        assert!(
+            english
+                .3
+                .starts_with("- Answer in the language of the transcript.")
+        );
+        assert_eq!(first(Some("de-DE")), english);
+        assert_eq!(first(Some("C")), english);
+        assert_eq!(first(None), english);
+        assert!(!missing.exists());
+    }
+
+    #[test]
+    fn an_existing_config_keeps_its_language_whatever_the_system_says() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("config.toml");
+        fs::write(&path, "kinds = [\"meeting\"]\n").unwrap();
+        let config = load_in(&path, Some("ja_JP.UTF-8")).unwrap();
+        assert_eq!(config.ui_language, "auto");
+        assert_eq!(config.stt.language, "pt");
+        assert_eq!(config.rules, DEFAULT_RULES);
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            "kinds = [\"meeting\"]\n"
+        );
     }
 
     #[test]

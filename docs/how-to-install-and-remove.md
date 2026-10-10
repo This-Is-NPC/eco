@@ -77,7 +77,11 @@ eco: skill /home/you/.claude/skills/eco/SKILL.md is up to date
 
 There is no config to write by hand. Without `~/.config/eco/config.toml` the
 daemon starts with an empty one: no model, no audio source, the defaults for
-the rest. Start eco (step 5) and its window opens; `SUPER+ALT+C` opens the
+the rest. It starts in the system language: Portuguese, Japanese or English
+by `LANGUAGE`, `LC_ALL`, `LC_MESSAGES` or `LANG` (the Windows display language on
+Windows), and English for any other. The window's language, the language
+sessions are transcribed in and the answer rules follow it; the settings
+change each of them. Start eco (step 5) and its window opens; `SUPER+ALT+C` opens the
 settings. **Models** registers a transcription model and a chat model, each
 with where its key comes from ([how to register models](how-to-register-models.md)),
 and **Audio** says who is heard
