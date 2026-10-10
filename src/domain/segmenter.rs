@@ -151,9 +151,7 @@ mod tests {
         probabilities.extend([0.9; 20]);
         probabilities.extend(vec![0.0; silence]);
         let segments = feed(&mut Segmenter::new(config), &probabilities);
-        let [segment] = segments.as_slice() else {
-            panic!("one segment")
-        };
+        let [segment]: &[Segment; 1] = segments.as_slice().try_into().expect("one segment");
         assert_eq!(segment.pcm[0] as usize, 5 - pad);
         assert_eq!(segment.start, (5 - pad) * FRAME_SAMPLES);
         assert_eq!(*segment.pcm.last().unwrap() as usize, 5 + 20 - 1 + pad);

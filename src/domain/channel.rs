@@ -835,6 +835,25 @@ mod tests {
         assert!((0.6..0.8).contains(&run.signals[30].0));
     }
 
+    #[tokio::test]
+    async fn speech_still_open_when_the_audio_ends_is_a_segment() {
+        let speech = [vec![0; FRAME_SAMPLES * 30], vec![5000; FRAME_SAMPLES * 20]].concat();
+        let mut source = Recorded(speech);
+        let mut segments = Vec::new();
+        segment_channel(
+            &mut source,
+            &mut loud,
+            &|_, _| {},
+            SegmenterConfig::default(),
+            &mut |segment| segments.push(segment.start / FRAME_SAMPLES),
+            &mut |_| {},
+        )
+        .await
+        .unwrap();
+        assert_eq!(segments.len(), 1);
+        assert!((27..=30).contains(&segments[0]), "{segments:?}");
+    }
+
     /// A provider that refuses its first `refused` connections before taking
     /// audio; the others name their request first, then say one phrase per
     /// 25 frames they receive (0.8 s), timed from their stream's start, with

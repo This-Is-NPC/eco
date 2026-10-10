@@ -96,11 +96,7 @@ mod tests {
             let name = format!("{input} {} {}", listening.model, listening.language);
             log.lock().unwrap().push(format!("started {name}"));
             let stops = Stops(Arc::clone(&log), name);
-            async move {
-                let _stops = stops;
-                std::future::pending::<()>().await;
-            }
-            .boxed()
+            std::future::pending().map(move |()| drop(stops)).boxed()
         }
     }
 
