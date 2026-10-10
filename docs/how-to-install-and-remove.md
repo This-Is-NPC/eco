@@ -394,16 +394,16 @@ recordings too; Microsoft documents this for Windows 10 2004 and later
 (read, not seen).
 
 **The daemon's output** goes to `%LOCALAPPDATA%\eco\daemon.log`, emptied each
-time `eco start` starts it. A daemon that will not start says why there; `eco
-start` itself only says:
+time `eco start` starts it. A daemon that will not start says why there, and
+`eco start`, after waiting 10 seconds for it, repeats that line:
 
 ```
-Error: the daemon was started, but did not open the socket
+Error: the daemon was started, but did not open the socket; it said:
+  eco: no config at C:\Users\you\AppData\Roaming\eco\config.toml; see docs/design.md §9
 ```
 
-```
-eco: no config at C:\Users\you\AppData\Roaming\eco\config.toml; see docs/design.md §9
-```
+Only a line the daemon starts with `eco: ` or `Error: ` is repeated; the rest
+of the log stays in the file.
 
 (`C:\Users\you` stands for your profile directory.)
 
@@ -527,8 +527,16 @@ which:
 eco: missing /home/you/.local/share/eco/models/silero_vad.onnx; run `eco setup`
 ```
 
-**There is no config.** The same refusal as in step 3. Write the file, then
-`eco start`.
+**There is no config.** The same refusal as in step 3. `eco start` waits 10
+seconds for the daemon, then repeats the line it left in the journal of
+`eco.service`:
+
+```
+Error: the daemon was started, but did not open the socket; it said:
+  eco: no config at /home/you/.config/eco/config.toml; see docs/design.md §9
+```
+
+Write the file, then `eco start`.
 
 **The config does not validate.** The daemon names the rule it broke, one line,
 and does not start:

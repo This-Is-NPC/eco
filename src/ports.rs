@@ -247,6 +247,9 @@ pub trait Hooks: Send + Sync {
 pub trait ServiceManager: Send + Sync {
     /// Start the service, with the graphical session it has to reach.
     fn start(&self) -> BoxFuture<'_, anyhow::Result<()>>;
+    /// What the daemons it started at or after `since` wrote, read when one
+    /// did not come up; `None` when there is nothing to read.
+    fn output(&self, since: std::time::SystemTime) -> BoxFuture<'_, Option<String>>;
 }
 
 /// Ties eco into the user's desktop: what `eco setup` sets up there.

@@ -11,6 +11,7 @@ use std::fs::File;
 use std::os::windows::process::CommandExt;
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
+use std::time::SystemTime;
 
 use anyhow::{Context, Result, bail};
 use futures::future::BoxFuture;
@@ -47,6 +48,17 @@ impl ServiceManager for BackgroundProcess {
             Ok(())
         })
     }
+
+    /// The daemon log, which each start empties: all of it is the last start's.
+    fn output(&self, _: SystemTime) -> BoxFuture<'_, Option<String>> {
+        Box::pin(async { read_log(&paths::daemon_log()) })
+    }
+}
+
+/// The text of the daemon log at `log`, when there is one.
+fn read_log(log: &Path) -> Option<String> {
+    let bytes = std::fs::read(log).ok()?;
+    Some(String::from_utf8_lossy(&bytes).into_owned())
 }
 
 /// Start the daemon from this executable, its output in the daemon log; run
@@ -174,6 +186,22 @@ mod tests {
         let written = std::fs::read_to_string(&log).unwrap();
         assert!(written.contains("Microsoft"), "{written}");
         assert!(!written.contains("an earlier run"));
+    }
+
+    #[test]
+    fn the_output_is_the_daemon_log() {
+        let directory = tempfile::tempdir().unwrap();
+        let log = directory.path().join("daemon.log");
+        assert_eq!(read_log(&log), None);
+        std::fs::write(
+            &log,
+            "eco: no config at C:\\c.toml; see docs/design.md \u{a7}9\r\n",
+        )
+        .unwrap();
+        assert_eq!(
+            read_log(&log).as_deref(),
+            Some("eco: no config at C:\\c.toml; see docs/design.md \u{a7}9\r\n")
+        );
     }
 
     #[test]

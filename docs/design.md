@@ -1155,7 +1155,14 @@ How the commands are built:
   `bench` measures model latency and diarization. Neither needs a daemon.
 - `start`, `stop`, `restart` and `status` manage the daemon. The user service
   runs `eco daemon --headless`; `eco start` starts it if needed and waits for
-  `overlay_status` after opening the window (`--headless` skips it).
+  `overlay_status` after opening the window (`--headless` skips it). A
+  daemon that has not opened the socket within 10 seconds is reported with
+  its own reason: the last line of its output that starts with `eco: ` or
+  `Error: ` (what it prints as it exits on an error, with the `Caused by:`
+  lines after it), read from the journal of `eco.service` since the start
+  (`journalctl --user _SYSTEMD_USER_UNIT=eco.service`) or from
+  `daemon.log` on Windows. No other line is shown: the output may hold
+  transcripts.
 - The session commands talk to the running daemon over its socket (start one
   with `eco start --headless` when the overlay is not wanted) and print one
   JSON object, as `okt` does: `{"ok":true,"data":…}`, or

@@ -3,7 +3,7 @@
 
 #[cfg(windows)]
 use std::path::PathBuf;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use anyhow::{Context, Result, bail};
 use serde_json::Value;
@@ -64,17 +64,48 @@ async fn connect(address: &Address) -> Result<Option<Daemon>> {
     }))
 }
 
-async fn ready(address: &Address) -> Result<Daemon> {
+/// The daemon once it answers at `address`, or `None` when it has not within
+/// `READY_TIMEOUT`.
+async fn ready(address: &Address) -> Result<Option<Daemon>> {
     let until = tokio::time::Instant::now() + READY_TIMEOUT;
     loop {
         if let Some(daemon) = connect(address).await? {
-            return Ok(daemon);
+            return Ok(Some(daemon));
         }
         if tokio::time::Instant::now() >= until {
-            bail!("the daemon was started, but did not open the socket");
+            return Ok(None);
         }
         sleep(Duration::from_millis(100)).await;
     }
+}
+
+/// The daemon's own reason for not coming up in its `output`: the last line
+/// it starts with `eco: ` or `Error: `, as it exits on an error, with the
+/// `Caused by:` lines that follow it, each indented; `None` when there is no
+/// such line. Nothing else is taken: the output may hold transcripts.
+fn reason(output: &str) -> Option<String> {
+    let lines: Vec<&str> = output
+        .lines()
+        .map(str::trim_end)
+        .filter(|line| !line.is_empty())
+        .collect();
+    let from = lines
+        .iter()
+        .rposition(|line| line.starts_with("eco: ") || line.starts_with("Error: "))?;
+    let mut said = vec![lines[from]];
+    if lines.get(from + 1) == Some(&"Caused by:") {
+        said.extend(
+            lines[from + 1..]
+                .iter()
+                .take_while(|line| **line == "Caused by:" || line.starts_with(' ')),
+        );
+    }
+    Some(
+        said.iter()
+            .map(|line| format!("  {line}"))
+            .collect::<Vec<_>>()
+            .join("\n"),
+    )
 }
 
 async fn open(mut daemon: Daemon) -> Result<()> {
@@ -111,8 +142,18 @@ pub async fn start(
     let daemon = match connect(address).await? {
         Some(daemon) => daemon,
         None => {
+            let since = SystemTime::now();
             service.start().await?;
-            ready(address).await?
+            let Some(daemon) = ready(address).await? else {
+                let said = service.output(since).await;
+                match said.as_deref().and_then(reason) {
+                    Some(reason) => bail!(
+                        "the daemon was started, but did not open the socket; it said:\n{reason}"
+                    ),
+                    None => bail!("the daemon was started, but did not open the socket"),
+                }
+            };
+            daemon
         }
     };
     if show_window {
@@ -302,6 +343,10 @@ mod tests {
                 Ok(())
             })
         }
+
+        fn output(&self, _: SystemTime) -> futures::future::BoxFuture<'_, Option<String>> {
+            Box::pin(async { None })
+        }
     }
 
     fn fake_service(directory: &tempfile::TempDir) -> FakeService {
@@ -436,6 +481,10 @@ mod tests {
             fn start(&self) -> futures::future::BoxFuture<'_, Result<()>> {
                 Box::pin(async { bail!("cannot start eco.service: no user manager") })
             }
+
+            fn output(&self, _: SystemTime) -> futures::future::BoxFuture<'_, Option<String>> {
+                Box::pin(async { None })
+            }
         }
         let directory = tempfile::tempdir().unwrap();
         let error = start(&Broken, &socket_in(&directory), false)
@@ -447,20 +496,80 @@ mod tests {
         );
     }
 
-    #[tokio::test(start_paused = true)]
-    async fn a_service_whose_daemon_never_listens_times_out() {
-        struct Silent;
-        impl ServiceManager for Silent {
-            fn start(&self) -> futures::future::BoxFuture<'_, Result<()>> {
-                Box::pin(async { Ok(()) })
-            }
+    /// A service whose daemon never listens and wrote `output`.
+    struct Silent {
+        output: Option<&'static str>,
+        asked_since: std::sync::Mutex<Option<SystemTime>>,
+    }
+
+    impl ServiceManager for Silent {
+        fn start(&self) -> futures::future::BoxFuture<'_, Result<()>> {
+            Box::pin(async { Ok(()) })
         }
+
+        fn output(&self, since: SystemTime) -> futures::future::BoxFuture<'_, Option<String>> {
+            *self.asked_since.lock().unwrap() = Some(since);
+            Box::pin(async { self.output.map(String::from) })
+        }
+    }
+
+    /// The error of starting a daemon that never listens and wrote `output`.
+    async fn silent_error(output: Option<&'static str>) -> String {
         let directory = tempfile::tempdir().unwrap();
-        let error = start(&Silent, &socket_in(&directory), false)
+        let service = Silent {
+            output,
+            asked_since: Default::default(),
+        };
+        let before = SystemTime::now();
+        let error = start(&service, &socket_in(&directory), false)
             .await
             .unwrap_err();
+        let since = service.asked_since.into_inner().unwrap().unwrap();
+        assert!(since >= before && since <= SystemTime::now());
+        error.to_string()
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_service_whose_daemon_never_listens_times_out() {
         assert_eq!(
-            error.to_string(),
+            silent_error(None).await,
+            "the daemon was started, but did not open the socket"
+        );
+        assert_eq!(
+            silent_error(Some("\n  \n")).await,
+            "the daemon was started, but did not open the socket"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_daemon_that_never_listens_is_reported_with_what_it_said() {
+        assert_eq!(
+            silent_error(Some(
+                "eco: no config at /c.toml; see docs/design.md §9\r\n\
+                 eco: no config at /c.toml; see docs/design.md §9\r\n"
+            ))
+            .await,
+            "the daemon was started, but did not open the socket; it said:\n\
+             \x20 eco: no config at /c.toml; see docs/design.md §9"
+        );
+        assert_eq!(
+            silent_error(Some(
+                "eco: warning\nError: cannot bind\n\nCaused by:\n    in use\n"
+            ))
+            .await,
+            "the daemon was started, but did not open the socket; it said:\n\
+             \x20 Error: cannot bind\n  Caused by:\n      in use"
+        );
+        assert_eq!(
+            silent_error(Some(
+                "Error: no device\n[Them] a transcript\n    an answer\n"
+            ))
+            .await,
+            "the daemon was started, but did not open the socket; it said:\n\
+             \x20 Error: no device"
+        );
+        assert_eq!(
+            silent_error(Some("[Them] a transcript\n**Answer:** yes\n")).await,
             "the daemon was started, but did not open the socket"
         );
     }

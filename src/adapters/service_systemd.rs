@@ -2,6 +2,7 @@
 
 use std::ffi::{OsStr, OsString};
 use std::path::Path;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
 use futures::future::BoxFuture;
@@ -25,6 +26,28 @@ impl ServiceManager for SystemdUser {
             session(|name| std::env::var_os(name)),
         ))
     }
+
+    fn output(&self, since: SystemTime) -> BoxFuture<'_, Option<String>> {
+        Box::pin(journal(Path::new("journalctl"), since))
+    }
+}
+
+/// What the processes of eco.service wrote to the user journal from the
+/// second `since` falls in, read through the program `journalctl`; the
+/// manager's own lines about the unit are left out.
+async fn journal(journalctl: &Path, since: SystemTime) -> Option<String> {
+    let seconds = since.duration_since(UNIX_EPOCH).ok()?.as_secs();
+    let output = Command::new(journalctl)
+        .args(["--user", "--output=cat", "--no-pager", "--quiet"])
+        .arg(format!("--since=@{seconds}"))
+        .arg("_SYSTEMD_USER_UNIT=eco.service")
+        .output()
+        .await
+        .ok()?;
+    output
+        .status
+        .success()
+        .then(|| String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
 /// This shell's graphical session as `NAME=value` assignments: each variable
@@ -163,6 +186,43 @@ exit 0"#,
         assert_eq!(
             calls(dir.path()),
             "--user set-environment WAYLAND_DISPLAY=w\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_journal_is_read_from_the_second_the_start_began() {
+        let dir = tempfile::tempdir().unwrap();
+        let calls = dir.path().join("calls");
+        let program = fake_program(
+            dir.path(),
+            "journalctl",
+            &format!(
+                "echo \"$*\" > '{}'\necho 'eco: no config at /c.toml'",
+                calls.display()
+            ),
+        );
+        let since = UNIX_EPOCH + std::time::Duration::from_millis(1_700_000_000_900);
+        assert_eq!(
+            journal(&program, since).await.as_deref(),
+            Some("eco: no config at /c.toml\n")
+        );
+        assert_eq!(
+            fs::read_to_string(calls).unwrap(),
+            "--user --output=cat --no-pager --quiet --since=@1700000000 \
+             _SYSTEMD_USER_UNIT=eco.service\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_journal_that_cannot_be_read_says_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let failing = fake_program(dir.path(), "journalctl", "echo 'eco: x'; exit 1");
+        assert_eq!(journal(&failing, SystemTime::now()).await, None);
+        let missing = dir.path().join("none");
+        assert_eq!(journal(&missing, SystemTime::now()).await, None);
+        assert_eq!(
+            journal(&failing, UNIX_EPOCH - std::time::Duration::from_secs(1)).await,
+            None
         );
     }
 
