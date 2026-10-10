@@ -555,6 +555,11 @@ mod tests {
             .arg("30")
             .spawn()
             .unwrap();
+        // Until it execs, the child still runs this test's executable.
+        let exe = format!("/proc/{}/exe", other.id());
+        while std::fs::read_link(&exe).ok() == std::env::current_exe().ok() {
+            tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+        }
         fake_daemon(&path, other.id(), false, OnStop::Exit).await;
         let error = status(&path, true, false).await.unwrap_err();
         other.kill().unwrap();
