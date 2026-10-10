@@ -742,6 +742,8 @@ Singleton {
       uiLanguage = event.ui_language
       transcribers = event.transcribers || []
       answers = ({})
+      // Each source down now follows as its own `transcription` event.
+      links = ({})
       // A daemon met again sends the timeline again.
       followed = ""
       live = event.live || []

