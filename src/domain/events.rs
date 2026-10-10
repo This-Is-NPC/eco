@@ -1,5 +1,8 @@
 //! Events the daemon sends to its clients, one JSON object per line.
 
+use std::collections::BTreeMap;
+use std::sync::{Arc, Mutex};
+
 use serde_json::{Map, Value, json};
 
 use crate::domain::channel::Trouble;
@@ -38,6 +41,50 @@ pub fn transcription(who: &str, trouble: &Trouble) -> Event {
     }
 }
 
+/// The sources whose streaming transcription is down now, each with the
+/// `transcription` event that said so, for the clients that connect later.
+#[derive(Clone, Default)]
+pub struct Outages(Arc<Mutex<BTreeMap<String, Event>>>);
+
+impl Outages {
+    /// The event `trouble` makes for `who`, noted: down holds until back.
+    pub fn note(&self, who: &str, trouble: &Trouble) -> Event {
+        let event = transcription(who, trouble);
+        let mut down = self.0.lock().expect("not poisoned");
+        match trouble {
+            Trouble::Down(_) => {
+                down.insert(who.to_string(), event.clone());
+            }
+            Trouble::Back { .. } => {
+                down.remove(who);
+            }
+            Trouble::Failed(_) => {}
+        }
+        event
+    }
+
+    /// The `transcription` down event of every source down now.
+    pub fn events(&self) -> Vec<Event> {
+        let down = self.0.lock().expect("not poisoned");
+        down.values().cloned().collect()
+    }
+
+    /// A guard that forgets `who`'s outage once its transcriber stops, however
+    /// it stops.
+    pub fn until_stopped<'a>(&'a self, who: &'a str) -> Stopped<'a> {
+        Stopped(self, who)
+    }
+}
+
+/// Forgets a source's outage when dropped.
+pub struct Stopped<'a>(&'a Outages, &'a str);
+
+impl Drop for Stopped<'_> {
+    fn drop(&mut self) {
+        self.0.0.lock().expect("not poisoned").remove(self.1);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::time::Duration;
@@ -64,6 +111,14 @@ mod tests {
             transcription("Eles", &back).to_string(),
             r#"{"type":"transcription","who":"Eles","state":"back","down_s":7.5,"dropped_s":2.5}"#
         );
+    }
+
+    #[test]
+    fn speech_lost_is_told_but_not_kept_for_later_clients() {
+        let outages = Outages::default();
+        let event = outages.note("Eles", &Trouble::Failed("timed out".into()));
+        assert_eq!(event["code"], "transcription.failed");
+        assert_eq!(outages.events(), [] as [Value; 0]);
     }
 
     #[test]

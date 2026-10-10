@@ -1,6 +1,6 @@
 //! The session: the socket, the overlay and one capture pipeline per saved config.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap};
 use std::future::Future;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -40,7 +40,7 @@ use crate::domain::channel::{
     monitor_channel, transcribe,
 };
 use crate::domain::diarization::Diarization;
-use crate::domain::events::{error, transcription};
+use crate::domain::events::{Outages, error};
 use crate::domain::hub::{Capture, Hub};
 use crate::domain::segmenter::{Segment, SegmenterConfig};
 use crate::domain::transcribers::{Listening, Transcribers};
@@ -237,44 +237,6 @@ struct Channels {
     outages: Outages,
 }
 
-/// The sources whose streaming transcription is down now, each with the
-/// `transcription` event that said so, for the clients that connect later.
-#[derive(Clone, Default)]
-struct Outages(Arc<Mutex<BTreeMap<String, Value>>>);
-
-impl Outages {
-    /// The event `trouble` makes for `who`, noted: down holds until back.
-    fn note(&self, who: &str, trouble: &Trouble) -> Value {
-        let event = transcription(who, trouble);
-        let mut down = self.0.lock().expect("not poisoned");
-        match trouble {
-            Trouble::Down(_) => {
-                down.insert(who.to_string(), event.clone());
-            }
-            Trouble::Back { .. } => {
-                down.remove(who);
-            }
-            Trouble::Failed(_) => {}
-        }
-        event
-    }
-
-    /// The `transcription` down event of every source down now.
-    fn events(&self) -> Vec<Value> {
-        let down = self.0.lock().expect("not poisoned");
-        down.values().cloned().collect()
-    }
-}
-
-/// Forgets a source's outage once its transcriber stops, however it stops.
-struct Stopped<'a>(&'a Outages, &'a str);
-
-impl Drop for Stopped<'_> {
-    fn drop(&mut self) {
-        self.0.0.lock().expect("not poisoned").remove(self.1);
-    }
-}
-
 /// One transcriber: an input's audio read from the hub by one model in one
 /// language, each line going to every recording session listening with it.
 /// It reads from when it starts, so what is said while its model is built
@@ -290,7 +252,7 @@ fn transcriber(
     lines: Option<Arc<Mutex<Vec<HeardLine>>>>,
 ) -> BoxFuture<'static, ()> {
     Box::pin(async move {
-        let _stopped = Stopped(&outages, &who);
+        let _stopped = outages.until_stopped(&who);
         let built = cell.get_or_init(|| async {
             let built = build(&models, &from).await;
             if let Err(reason) = &built {
@@ -1463,17 +1425,19 @@ impl Session {
             per_minute: stt_config.price_per_minute,
             started_at: request.get("started_at").and_then(Value::as_f64),
         };
-        let (vad, log, people, emit) = (
+        let (vad, log, people, emit, outages) = (
             self.rig.vad.clone(),
             Arc::clone(&self.log),
             Arc::clone(&self.people),
             Arc::clone(&self.emit),
+            self.rig.outages.clone(),
         );
         let assistant = self.assistant.clone();
         self.importing = Some(tokio::spawn(async move {
             match Stt::build(&stt_config, &request.language, true).await {
                 Ok(stt) => {
-                    import::run(request, stt.transcriber(), vad, log, people, emit).await;
+                    let stt = stt.transcriber();
+                    import::run(request, stt, &outages, vad, log, people, emit).await;
                     // The requests the file was transcribed under are priced once it is in.
                     assistant.price_unpaid();
                 }
@@ -4158,14 +4122,6 @@ mod tests {
             (&json!(id), &json!(["Eles"]))
         );
         assert_eq!(*regions.lock().unwrap(), 1);
-    }
-
-    #[test]
-    fn speech_lost_is_told_but_not_kept_for_later_clients() {
-        let outages = Outages::default();
-        let event = outages.note("Eles", &Trouble::Failed("timed out".into()));
-        assert_eq!(event["code"], "transcription.failed");
-        assert_eq!(outages.events(), [] as [Value; 0]);
     }
 
     #[tokio::test]

@@ -19,7 +19,7 @@ use crate::domain::channel::{
     Listeners, SpeechProbability, Transcriber, Trouble, Utterance, transcribe_channel,
 };
 use crate::domain::diarization::{Diarization, label_lines};
-use crate::domain::events::{error, transcription};
+use crate::domain::events::{Outages, error};
 use crate::domain::segmenter::{Segment, SegmenterConfig};
 use crate::domain::session::{ENDED, HeardBy, IMPORT, Session, now, recorded_at};
 use crate::paths;
@@ -151,6 +151,7 @@ pub async fn date(path: &Path) -> Option<f64> {
 pub async fn run(
     request: Request,
     stt: Transcriber<'_>,
+    outages: &Outages,
     vad: SileroModel,
     log: Arc<dyn SessionLog>,
     people: Arc<dyn PeopleStore>,
@@ -163,16 +164,19 @@ pub async fn run(
     };
     let hearing = Hearing {
         stt,
+        outages,
         speech: &mut probability,
         speakers: || speakers(&paths::speaker_model()),
     };
     import(request, hearing, &*log, &*people, emit).await;
 }
 
-/// What hears a media file: its STT, the speech probability of each frame, and
-/// what tells its speakers apart, started once its audio is read.
+/// What hears a media file: its STT, where its outages are kept for the
+/// clients that connect later, the speech probability of each frame, and what
+/// tells its speakers apart, started once its audio is read.
 struct Hearing<'a, S> {
     stt: Transcriber<'a>,
+    outages: &'a Outages,
     speech: SpeechProbability<'a>,
     speakers: S,
 }
@@ -277,7 +281,8 @@ async fn media(
         }
         progress(heard.end());
     };
-    let trouble = |who: &str, trouble: Trouble| emit(transcription(who, &trouble));
+    let _stopped = hearing.outages.until_stopped(&request.participant);
+    let trouble = |who: &str, trouble: Trouble| emit(hearing.outages.note(who, &trouble));
     // Each segment is a request of its own, the session's alone.
     let billed = |request_id: String, seconds: f64| {
         let mut session = importing.session.lock().expect("not poisoned");
@@ -533,6 +538,7 @@ mod tests {
             let mut speech = loud;
             let hearing = Hearing {
                 stt,
+                outages: &Outages::default(),
                 speech: &mut speech,
                 speakers,
             };
@@ -875,6 +881,7 @@ mod tests {
         let mut speech = loud;
         let hearing = Hearing {
             stt: Transcriber::Segments(&stt),
+            outages: &Outages::default(),
             speech: &mut speech,
             speakers: || None,
         };
@@ -889,6 +896,66 @@ mod tests {
         assert_eq!(events[1]["complete"], false);
         let records = stores.stored(&events);
         assert_eq!(of_type(&records, "state").last().unwrap()["state"], "ended");
+    }
+
+    /// A streaming STT that refuses its first connection and leaves every
+    /// later one open, hearing nothing; `reopened` is told the second.
+    #[derive(Default)]
+    struct DownOnce {
+        calls: AtomicUsize,
+        reopened: Notify,
+    }
+
+    impl StreamingSpeechToText for DownOnce {
+        fn transcribe<'a>(
+            &'a self,
+            _: BoxStream<'a, Frame>,
+        ) -> BoxStream<'a, Result<Heard, TranscriptionError>> {
+            if self.calls.fetch_add(1, Ordering::SeqCst) == 0 {
+                let refused = TranscriptionError("refused".into());
+                return stream::iter([Err(refused)]).boxed();
+            }
+            self.reopened.notify_one();
+            stream::pending().boxed()
+        }
+    }
+
+    /// A client that connects while an import's transcription is down is told,
+    /// until the import stops.
+    #[tokio::test(start_paused = true)]
+    async fn an_import_down_is_kept_for_later_clients_until_it_stops() {
+        let stores = stores();
+        let wav = two_phrases(stores.directory.path());
+        let stt = DownOnce::default();
+        let outages = Outages::default();
+        let (emit, _) = recorder();
+        let mut speech = loud;
+        let hearing = Hearing {
+            stt: Transcriber::Stream(&stt),
+            outages: &outages,
+            speech: &mut speech,
+            speakers: || None,
+        };
+        let mut importing = Box::pin(import(
+            request(&wav),
+            hearing,
+            &stores.log,
+            &stores.people,
+            emit,
+        ));
+        tokio::select! {
+            () = &mut importing => panic!("an open connection never lets the import finish"),
+            () = stt.reopened.notified() => {}
+        }
+        assert_eq!(
+            outages.events(),
+            [
+                json!({"type": "transcription", "who": "Ana", "state": "down",
+                "code": "stt.down", "detail": "refused"})
+            ]
+        );
+        drop(importing);
+        assert_eq!(outages.events(), [] as [Value; 0]);
     }
 
     /// A WebVTT transcript's cues are the lines, said by the speaker each names
@@ -1041,6 +1108,7 @@ mod tests {
         run(
             request(&path),
             Transcriber::Segments(&stt),
+            &Outages::default(),
             vad,
             log,
             people,

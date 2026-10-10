@@ -970,7 +970,8 @@ the `code` a window translates as `error.<code>` and the provider's `detail`;
 the outage outlasted the five minutes held, §5). It is told as it happens; a
 client that connects while a source is down is greeted, after `snapshot`, with
 that source's `down` event, until it is back or no transcriber reads it any
-more.
+more. An import streamed to its model is a source too, named by its
+participant, kept until it is back or the import stops.
 
 ### 10.2 Commands
 
