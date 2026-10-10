@@ -85,7 +85,8 @@ where
                     let line = String::from_utf8_lossy(&line);
                     match parse_line(line.trim_end_matches(['\r', '\n'])) {
                         Ok(chunks) => ready.extend(chunks),
-                        Err(error) => return Some((Err(error), (bytes, buffer, ready, true))),
+                        // The lines after a garbled one are not read.
+                        Err(error) => return Some((Err(error), (bytes, Vec::new(), ready, true))),
                     }
                     continue;
                 }
@@ -452,6 +453,16 @@ mod tests {
             .collect()
             .await;
         assert_eq!(chunks, [Chunk::Text("Olá".into())]);
+    }
+
+    #[tokio::test]
+    async fn a_garbled_event_ends_the_stream_with_an_error() {
+        let reply = b"data: {\"choices\":[{\"delta\":{\"content\":\"Ol\"}}]}\n\ndata: {oops\n\ndata: {\"choices\":[{\"delta\":{\"content\":\"never\"}}]}\n\n";
+        let (chunks, _) = collect(200, reply.to_vec(), json!({}), "m", hello()).await;
+        assert_eq!(chunks.len(), 2, "{chunks:?}");
+        assert_eq!(chunks[0].as_ref().unwrap(), &Chunk::Text("Ol".into()));
+        let error = &chunks[1].as_ref().unwrap_err().0;
+        assert_eq!(error, "key must be a string at line 1 column 2");
     }
 
     #[tokio::test]
