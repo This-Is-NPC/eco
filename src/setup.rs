@@ -2,9 +2,10 @@
 //! eco's rules.
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
+use reqwest::Client;
 use sha2::{Digest, Sha256};
 
 use crate::adapters::desktop_hyprland::Hyprland;
@@ -47,29 +48,41 @@ fn digest(bytes: &[u8]) -> String {
 
 /// Download each model unless the one in place already has the pinned checksum.
 pub async fn run() -> Result<Vec<String>> {
+    let client = http::client(None)?;
     let mut done = Vec::new();
     for model in &MODELS {
         let target = (model.target)();
-        if fs::read(&target).is_ok_and(|bytes| digest(&bytes) == model.sha256) {
-            done.push(format!("{} is up to date", target.display()));
-            continue;
-        }
-        let bytes = http::client(None)?
-            .get(model.url)
-            .send()
-            .await?
-            .error_for_status()?
-            .bytes()
-            .await?;
-        let found = digest(&bytes);
-        if found != model.sha256 {
-            bail!("{} checksum mismatch: {found}", model.name);
-        }
-        fs::create_dir_all(target.parent().context("model path has a parent")?)?;
-        fs::write(&target, &bytes)?;
-        done.push(format!("saved {}", target.display()));
+        done.push(fetch(&client, model.name, model.sha256, model.url, &target).await?);
     }
     Ok(done)
+}
+
+/// Download `url` to `target` unless `target` already has `sha256`; nothing is
+/// written when the download fails or has another checksum.
+async fn fetch(
+    client: &Client,
+    name: &str,
+    sha256: &str,
+    url: &str,
+    target: &Path,
+) -> Result<String> {
+    if fs::read(target).is_ok_and(|bytes| digest(&bytes) == sha256) {
+        return Ok(format!("{} is up to date", target.display()));
+    }
+    let bytes = client
+        .get(url)
+        .send()
+        .await?
+        .error_for_status()?
+        .bytes()
+        .await?;
+    let found = digest(&bytes);
+    if found != sha256 {
+        bail!("{name} checksum mismatch: {found}");
+    }
+    fs::create_dir_all(target.parent().context("model path has a parent")?)?;
+    fs::write(target, &bytes)?;
+    Ok(format!("saved {}", target.display()))
 }
 
 /// The desktop `eco setup` loads eco's rules into.
