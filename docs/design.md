@@ -100,7 +100,9 @@ overlay only renders events: it never calls a provider, never holds a secret and
 never writes the config — it sends a draft and the daemon validates and saves it.
 
 **The window host.** `eco-window <file.qml>` (`window/`, C++ on Qt 6, built
-by `mise run window:build` into `target/window`) loads one entry of
+by `mise run window:build` into `target/window`; on Windows with MSVC and the
+Qt `mise run qt:install` puts under `.qt`, whose libraries it copies beside
+`eco-window.exe`) loads one entry of
 `overlay/` — `shell.qml`, the eco window, or `lab.qml`, the control lab — with
 a QGuiApplication and a QQmlApplicationEngine, puts the entry's folder on the
 engine's import path, and does nothing else: no logic lives in it beyond the
@@ -108,10 +110,13 @@ bridge it hands QML as the module `EcoHost`:
 
 | Type | What QML gets |
 |---|---|
-| `Host` (singleton) | `env(name)` (an environment variable, or `""`), `copy(text)` (the clipboard, through `wl-copy` started detached, which keeps serving it after the window exits) |
-| `LineSocket` | a Unix socket at `path`, one line per message each way: `send(line)`, `received(line)`, `connected`; it connects again every second while down, and an empty path closes it |
+| `Host` (singleton) | `env(name)` (an environment variable, or `""`), `localPath(url)` (the local path a `file:` URL names, as file dialogs and drops give them), `copy(text)` (the clipboard: on Linux through `wl-copy` started detached, which keeps serving it after the window exits; on Windows through Qt, which hands it to Windows to keep when the window exits — read in Qt's sources, not seen: the Windows machine is reached over ssh, with no desktop) |
+| `LineSocket` | the daemon's socket at `path` — a Unix socket, or on Windows a named pipe — one line per message each way: `send(line)`, `received(line)`, `connected`; it connects again every second while down, and an empty path closes it. On Windows its first line on every connection is `auth <token>`, with its `token` (§10) |
 | `TextFile` | the file or directory at `path`, watched: `text` (the file as last read), `changed()` (it changed on disk), `reload()` |
 
+The daemon tells each window it starts where its socket is, in `ECO_SOCKET`
+(the Unix socket's path, or the pipe's name), and the token of the run, in
+`ECO_TOKEN`; `overlay/Eco/Core/Eco.qml` connects there with that token.
 Its windows are QtQuick `Window`s; its Wayland app id is `eco`, the class
 `packaging/hypr/eco.lua` matches. It logs to stderr, which the daemon passes on. The QML is shipped and loaded
 as files, as `mise run shots` and the control lab load it from the checkout,
@@ -959,7 +964,9 @@ read the file and send the line (`connect` in
 moment the daemon starts or stops, they treat the daemon as not running. On
 Linux there is no such line: the socket is `0600`, so only its user can open
 it. `admitted` and `introduce` in `src/adapters/control_socket.rs` are the one
-place that decides this per platform.
+place that decides this per platform. A window gets the token from the daemon
+that starts it, in `ECO_TOKEN`, and its `LineSocket` sends the line first on
+every connection, a reconnection too (§3).
 
 Two limits keep one client from growing the daemon's memory. A command line
 longer than 1 MiB (`MAX_LINE` in `src/adapters/control_socket.rs`; a
@@ -1733,7 +1740,7 @@ That is the whole gate. It runs:
 | step | what it refuses |
 |---|---|
 | `lint` | Rust not formatted by `cargo fmt`, any clippy warning (`-D warnings`, all targets) |
-| `test` | `eco-window` that does not build without a warning (`window:build`), a failing `cargo test`: the domain tests, the i18n checks (`tests/i18n.rs`), the answer Markdown (`overlay/Eco/Core/markdown.js`) against its QML test case (`tests/overlay.rs`, run offscreen by Qt's `qmltestrunner`), eco-window's bridge offscreen (`tests/window.rs`: lines each way, the reconnect, a watched file, a clean exit) and the VAD and speaker parity tests against the Python fixtures (these need the models from `mise run setup`) |
+| `test` | `eco-window` that does not build without a warning (`window:build`), a failing `cargo test`: the domain tests, the i18n checks (`tests/i18n.rs`), the answer Markdown (`overlay/Eco/Core/markdown.js`) against its QML test case (`tests/overlay.rs`, run offscreen by Qt's `qmltestrunner`), eco-window's bridge offscreen (`tests/window.rs`: lines each way, on Windows the `auth` line first, the reconnect, a local path, a watched file, a clean exit) and the VAD and speaker parity tests against the Python fixtures (these need the models from `mise run setup`) |
 | `cli:check` | a `docs/cli.md` that is not what the binary's usage spec generates |
 | `docs:check` | a relative link or image in `README.md` or `docs/*.md` whose file, or whose heading for an `#anchor`, is missing |
 
@@ -1832,7 +1839,7 @@ lives on each platform today.
 | Stopping the daemon and its windows | the daemon stops on Ctrl-C or `SIGTERM`; a window process is sent `SIGTERM` | the daemon stops on Ctrl-C, Ctrl-Break, its console closing or Windows shutting down; a window process is terminated | `src/session.rs`, `src/adapters/overlay.rs` |
 | The running executable | `eco status --expect-current-exe` compares the daemon's `/proc/<pid>/exe` with this executable by device and inode | it compares the `exe` the daemon's greeting names with this executable's path; Windows lets no one overwrite a running executable | `src/lifecycle.rs` |
 | Window control | the `WindowControl` port, adapter `HyprlandWindows`: giving a window process's overlay (its window titled `eco`, never the settings window) the keyboard and raising it above the settings, so a dialog the shortcut opens shows and setting `no_screen_share` on its windows through `hyprctl dispatch`, by pid, again on Hyprland's `openwindow` events while they are hidden; composed in `src/session.rs`, used by `src/adapters/overlay.rs`, which launches `eco-window`. The window rules in `packaging/hypr/eco.lua` centering the config window stay compositor config | `Unsupported`: focusing and hiding from screen sharing fail as not supported, and the window stays open | `src/ports.rs`, `src/adapters/window_hyprland.rs`, `src/adapters/overlay.rs`, `src/adapters/unsupported.rs`, `packaging/hypr/eco.lua` |
-| The window host's bridge | `eco-window`'s `EcoHost` module: `Host` gives the QML its environment and copies to the Wayland clipboard through `wl-copy`; `LineSocket` is a `QLocalSocket` to the daemon socket, whose path `overlay/Eco/Core/Eco.qml` builds from `XDG_RUNTIME_DIR`; `TextFile` reads and watches files, such as the Omarchy theme under `XDG_STATE_HOME` that `overlay/Eco/Core/Theme.qml` follows | not built: `eco-window` is not built on Windows, so `tests/window.rs` and `tests/overlay.rs` run on Linux only. Its `LineSocket` sends no `auth` line, which a window on Windows needs before the daemon answers it (§10) | `window/main.cpp`, `window/host.h`, `window/line_socket.h`, `window/text_file.h` |
+| The window host's bridge | `eco-window`'s `EcoHost` module, built with the system's compiler and Qt by Ninja: `Host` gives the QML its environment and local paths, and copies to the Wayland clipboard through `wl-copy`; `LineSocket` is a `QLocalSocket` to the daemon socket the daemon names in `ECO_SOCKET`; `TextFile` reads and watches files, such as the Omarchy theme under `XDG_STATE_HOME` that `overlay/Eco/Core/Theme.qml` follows | the same module, built with MSVC through CMake's Visual Studio generator against the Qt `scripts/qt-install` puts under `.qt`, with Qt's libraries copied beside `eco-window.exe` by `windeployqt`; `src/adapters/overlay.rs` runs `<prefix>\lib\eco\eco-window.exe` beside an installed `eco`, else the checkout's `target\window\eco-window.exe`. `Host.copy` puts the text on the clipboard through Qt, and `LineSocket` connects to the named pipe and sends `auth <token>` first. `tests/window.rs` and `tests/overlay.rs` run there too, the second with the `qmltestrunner` under `.qt`. There is no Omarchy theme, so the window keeps its own colours | `window/main.cpp`, `window/host.h`, `window/line_socket.h`, `window/text_file.h`, `scripts/window-build`, `scripts/qt-install` |
 | Shortcuts | a global Hyprland bind that runs an `eco window` command, which sends one line to the socket and returns once the daemon has read it: `window.call` for those that open a view, the daemon giving that window the keyboard | none: `eco window` fails with `window.unsupported`, for a named pipe has no writing half to close alone, which is how the command knows the daemon has read its line | `packaging/hypr/eco.lua`, `src/cli.rs` |
 | The hook shell | `shell()` runs each hook with `sh -c` | `shell()` runs each hook with `cmd /S /C "<command>"`, the command handed over as written, for cmd does not read its line by the quoting rules other programs use; a hook reads `%ECO_SESSION%` and `%ECO_TITLE%`. cmd is on every Windows | `src/adapters/hook_shell.rs` |
 | The omapass keyring | `api_key_omapass` reads a key through the omapass CLI | omapass does not exist: it is never installed, and a key from it fails | `src/adapters/omapass.rs` |

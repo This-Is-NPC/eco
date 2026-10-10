@@ -223,21 +223,21 @@ starts it. A crash restarts it (`Restart=on-failure`).
 ## On Windows
 
 eco builds and runs on Windows from a checkout; there is no package. The
-daemon's verbs are the same, with two differences: it runs as a process of
-your own in the background rather than a service, and its window is not built
-on Windows, so start it without one:
+daemon's verbs are the same, with one difference: it runs as a process of
+your own in the background rather than a service. Its window is
+`target\window\eco-window.exe`, which `mise run window:build` builds, putting
+Qt into the checkout the first time;
+[how it is built](design.md#working-on-eco) says what Windows needs for that.
 
 ```powershell
-eco start --headless   # "eco: daemon running"
+eco start              # "eco: window opened"
+eco start --headless   # "eco: daemon running", without a window
 eco status             # "eco: daemon running (pid 10900, version 0.2.0)"
 eco stop               # "eco: daemon stopped"
 ```
 
-A plain `eco start` starts the daemon too, then fails to open the window:
-
-```
-Error: eco window failed: C:\projects\eco/target/window/eco-window: The system cannot find the path specified. (os error 3)
-```
+Without the window built, `eco start` starts the daemon, then fails to open
+the window with `Error: eco window failed:` and the path it looked for.
 
 **The daemon's output** goes to `%LOCALAPPDATA%\eco\daemon.log`, emptied each
 time `eco start` starts it. A daemon that will not start says why there; `eco

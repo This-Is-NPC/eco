@@ -2,7 +2,7 @@
 //! `overlay/`, for as long as the session holds them (docs/design.md §3).
 
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{ExitStatus, Stdio};
 use std::sync::Arc;
 use std::time::Duration;
@@ -21,21 +21,24 @@ fn shell() -> PathBuf {
 }
 
 /// The program that runs it: installed beside the binary
-/// (`<prefix>/lib/eco/eco-window`), or this checkout's build
-/// (`mise run window:build`) when eco runs from it.
+/// (`<prefix>/lib/eco/eco-window`, `eco-window.exe` on Windows), or this
+/// checkout's build (`mise run window:build`) when eco runs from it.
 fn program() -> PathBuf {
-    paths::shipped_program("eco-window")
-        .unwrap_or_else(|| concat!(env!("CARGO_MANIFEST_DIR"), "/target/window/eco-window").into())
+    let name = format!("eco-window{}", std::env::consts::EXE_SUFFIX);
+    paths::shipped_program(&name).unwrap_or_else(|| {
+        Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/target/window")).join(name)
+    })
 }
 
 /// The overlay windows, each its own eco-window process: a number, which the
 /// window is told, and the session it shows, which it tells back. Every window
-/// is handed the same token, which tells its commands apart from other clients';
+/// is told the daemon's socket and handed the same token, which tells its commands apart from other clients';
 /// a window the daemon did not start reads it from `paths::token_path()`,
 /// which the control socket writes.
 /// `control` focuses each window as it opens and, while `hidden`, leaves them
 /// all out of screen sharing.
 pub struct Windows {
+    socket: PathBuf,
     token: String,
     program: PathBuf,
     control: Arc<dyn WindowControl>,
@@ -52,13 +55,25 @@ struct Window {
 }
 
 impl Windows {
-    pub fn new(token: String, control: Arc<dyn WindowControl>, hidden: bool) -> Self {
-        Self::run(program(), token, control, hidden)
+    pub fn new(
+        socket: PathBuf,
+        token: String,
+        control: Arc<dyn WindowControl>,
+        hidden: bool,
+    ) -> Self {
+        Self::run(program(), socket, token, control, hidden)
     }
 
     /// Windows run by `program`.
-    fn run(program: PathBuf, token: String, control: Arc<dyn WindowControl>, hidden: bool) -> Self {
+    fn run(
+        program: PathBuf,
+        socket: PathBuf,
+        token: String,
+        control: Arc<dyn WindowControl>,
+        hidden: bool,
+    ) -> Self {
         Self {
+            socket,
             token,
             program,
             control,
@@ -91,6 +106,7 @@ impl Windows {
             .env("ECO_WINDOW", number.to_string())
             .env("ECO_SHOW", show.unwrap_or_default())
             .env("ECO_CALL", call.unwrap_or_default())
+            .env("ECO_SOCKET", &self.socket)
             .env("ECO_TOKEN", &self.token)
             .stdout(Stdio::null())
             .stderr(Stdio::inherit())
@@ -271,31 +287,42 @@ mod programs {
             dir,
             "eco-window",
             &format!(
-                r#"echo "$1 $ECO_WINDOW $ECO_SHOW $ECO_CALL $ECO_TOKEN" > '{}'/window-$ECO_WINDOW
+                r#"echo "$1 $ECO_WINDOW $ECO_SHOW $ECO_CALL $ECO_SOCKET $ECO_TOKEN" > '{}'/window-$ECO_WINDOW
 [ "$ECO_SHOW" = exit ] && exit 4
 [ "$ECO_SHOW" = later ] && sleep 0.4 && exit 2
 exec sleep 30"#,
                 dir.display()
             ),
         );
-        Windows::run(program, "secret".into(), control, hidden)
+        Windows::run(
+            program,
+            dir.join("eco.sock"),
+            "secret".into(),
+            control,
+            hidden,
+        )
     }
 
     #[tokio::test]
-    async fn a_window_is_handed_its_number_session_call_and_token() {
+    async fn a_window_is_handed_its_number_session_call_socket_and_token() {
         let dir = tempfile::tempdir().unwrap();
         let mut windows = windows(dir.path(), Arc::new(Noted::default()), false);
         windows.open(Some("s1"), Some("{}")).await.unwrap();
         windows.open(None, None).await.unwrap();
         assert!(windows.is_open());
         let handed = |number: u32| fs::read_to_string(dir.path().join(format!("window-{number}")));
+        let socket = dir.path().join("eco.sock");
         assert_eq!(
             handed(1).unwrap(),
-            format!("{} 1 s1 {{}} secret\n", shell().display())
+            format!(
+                "{} 1 s1 {{}} {} secret\n",
+                shell().display(),
+                socket.display()
+            )
         );
         assert_eq!(
             handed(2).unwrap(),
-            format!("{} 2   secret\n", shell().display())
+            format!("{} 2   {} secret\n", shell().display(), socket.display())
         );
         assert_eq!(windows.shown().collect::<Vec<_>>(), ["s1", ""]);
         windows.shows(2, "s2");

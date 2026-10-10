@@ -2006,9 +2006,11 @@ pub async fn run(
         Arc::clone(&pending),
     );
     let token = uuid::Uuid::new_v4().simple().to_string();
+    let address = Address::user();
     let _control =
-        ControlSocket::bind(&Address::user(), token.clone(), clients, greeting, commands).await?;
+        ControlSocket::bind(&address, token.clone(), clients, greeting, commands).await?;
     let mut windows = overlay::Windows::new(
+        address.socket,
         token.clone(),
         Arc::<PlatformWindows>::default(),
         current.hide_from_share,

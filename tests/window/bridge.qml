@@ -10,11 +10,13 @@ QtObject {
   }
   property LineSocket link: LineSocket {
     path: Host.env("ECO_TEST_SOCKET")
+    token: Host.env("ECO_TEST_TOKEN")
     onReceived: line => {
       if (line === "quit")
         Qt.quit()
       else
-        send(JSON.stringify({ line: line, value: Host.env("ECO_TEST_VALUE"), text: file.text }))
+        send(JSON.stringify({ line: line, value: Host.env("ECO_TEST_VALUE"), text: file.text,
+          path: Host.localPath(Host.env("ECO_TEST_URL")) }))
     }
   }
 }

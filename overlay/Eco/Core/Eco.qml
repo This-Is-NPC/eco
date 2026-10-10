@@ -296,7 +296,7 @@ Singleton {
     else
       send("entry.remove " + JSON.stringify({ session: onScreen.id, id: id }))
   }
-  // copy puts text on the Wayland clipboard, as it is, and says what it was.
+  // copy puts text on the clipboard, as it is, and says what it was.
   function copy(text, notice) {
     Host.copy(text)
     tell([[notice || "status.copied"]], false)
@@ -305,7 +305,7 @@ Singleton {
   // not copied.
   property string exporting: ""
   // The local path a file: URL names, as file dialogs and drops give them.
-  function localPath(url) { return decodeURIComponent(url.toString().replace(/^file:\/\//, "")) }
+  function localPath(url) { return Host.localPath(url) }
   // The files a context can be read from, for a file dialog.
   function textFileFilters() { return [I18n.t("files.text") + " (*.md *.txt)", I18n.t("import.any") + " (*)"] }
   function copyTranscript(id) { exporting = id; send("session.export " + id) }
@@ -1140,11 +1140,12 @@ Singleton {
     InputSignal {}
   }
 
-  // The connection to the daemon, made again every second while it (which may
-  // restart) does not answer.
+  // The connection to the daemon at the socket it named, made again every
+  // second while it (which may restart) does not answer.
   LineSocket {
     id: link
-    path: Host.env("XDG_RUNTIME_DIR") + "/eco.sock"
+    path: Host.env("ECO_SOCKET")
+    token: root.token
     onReceived: line => root.handle(JSON.parse(line))
   }
 }
