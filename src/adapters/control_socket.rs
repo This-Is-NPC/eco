@@ -286,4 +286,72 @@ mod tests {
             "a lost real event drops it"
         );
     }
+
+    /// Emit an event until the clients that left are dropped; five seconds at most.
+    async fn emit_until_alone(clients: &Clients) -> usize {
+        let started = std::time::Instant::now();
+        loop {
+            clients.emit(&json!({"type": "note", "text": "x"}));
+            let left = clients.0.lock().unwrap().len();
+            if left == 0 || started.elapsed() > std::time::Duration::from_secs(5) {
+                return left;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn a_client_that_leaves_is_dropped() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("eco.sock");
+        let (_socket, clients, _commands) = bound(&path, Vec::new()).await;
+        let mut client = connect(&path).await;
+        client.write_all(b"one\n").await.unwrap();
+        drop(client);
+        assert_eq!(emit_until_alone(&clients).await, 0);
+    }
+
+    #[tokio::test]
+    async fn a_client_that_stops_reading_is_dropped() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("eco.sock");
+        let (_socket, clients, mut commands) = bound(&path, Vec::new()).await;
+        let mut client = connect(&path).await;
+        client.write_all(b"ready\n").await.unwrap();
+        assert_eq!(commands.recv().await.unwrap(), "ready");
+        // Its writes still arrive; the daemon's writes to it fail.
+        let client = client.into_std().unwrap();
+        client.shutdown(std::net::Shutdown::Read).unwrap();
+        assert_eq!(emit_until_alone(&clients).await, 0);
+    }
+
+    /// The connection is closed after `line`, and no command came of it.
+    async fn ends_the_connection(line: &[u8], keep_commands: bool) {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("eco.sock");
+        let (_socket, _, mut commands) = bound(&path, Vec::new()).await;
+        if !keep_commands {
+            commands.close();
+        }
+        let mut client = connect(&path).await;
+        client.write_all(line).await.unwrap();
+        let mut rest = Vec::new();
+        let closed = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            client.read_to_end(&mut rest),
+        )
+        .await;
+        assert!(closed.is_ok(), "the daemon closes the connection");
+        assert!(commands.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn a_line_that_is_not_utf8_ends_the_connection() {
+        ends_the_connection(b"\xff\xfe\n", true).await;
+    }
+
+    #[tokio::test]
+    async fn a_command_the_daemon_no_longer_takes_ends_the_connection() {
+        ends_the_connection(b"action probe\n", false).await;
+    }
 }

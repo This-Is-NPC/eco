@@ -131,4 +131,26 @@ mod tests {
                 .is_none()
         );
     }
+
+    #[tokio::test]
+    async fn a_socket_the_process_may_not_open_is_denied_or_unavailable() {
+        use std::os::unix::fs::MetadataExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("eco.sock");
+        let _listener = Listener::bind(&path).await.unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let denied = connect(&path).await;
+        // Root connects through any mode.
+        let root = std::fs::metadata("/proc/self").unwrap().uid() == 0;
+        assert!(root || matches!(denied, Err(ConnectError::AccessDenied)));
+
+        let file = directory.path().join("plain");
+        std::fs::write(&file, "").unwrap();
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
+        assert!(matches!(
+            connect(&file.join("below")).await,
+            Err(ConnectError::Unavailable(_))
+        ));
+    }
 }
