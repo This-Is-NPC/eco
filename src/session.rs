@@ -45,15 +45,15 @@ use crate::domain::transcribers::{Listening, Transcribers};
 use crate::import;
 use crate::paths;
 use crate::ports::{
-    AudioDevices, AudioError, AudioSource, Device, LanguageModel, PeopleStore, SessionLog,
-    SpeechToText, StreamingSpeechToText, TranscriptionBilling,
+    AudioDevices, AudioError, AudioSource, Device, EchoError, LanguageModel, PeopleStore,
+    SessionLog, SpeechToText, StreamingSpeechToText, TranscriptionBilling,
 };
 
 // The platform's audio and window control: Linux's, or Windows' (docs/design.md §15).
 #[cfg(unix)]
 use crate::adapters::audio_pipewire::PipeWire as PlatformAudio;
 #[cfg(windows)]
-use crate::adapters::unsupported::Unsupported as PlatformAudio;
+use crate::adapters::audio_wasapi::Wasapi as PlatformAudio;
 #[cfg(windows)]
 use crate::adapters::unsupported::Unsupported as PlatformWindows;
 #[cfg(unix)]
@@ -333,7 +333,15 @@ impl Work for Channels {
             let echo = match microphone.filter(|_| recording) {
                 Some(mic) => match audio.cancel_echo(&mic).await {
                     Ok(module) => Some(module),
-                    Err(failure) => {
+                    Err(unavailable @ EchoError::Unavailable) => {
+                        emit(error(
+                            "echo_cancel.unavailable",
+                            unavailable.to_string(),
+                            Value::Null,
+                        ));
+                        None
+                    }
+                    Err(EchoError::Failed(failure)) => {
                         let detail = failure.0;
                         emit(error(
                             "echo_cancel.failed",
@@ -2208,12 +2216,14 @@ mod tests {
 
     /// Three devices; logs every capture it builds and each echo cancellation.
     /// Its sources hear the speech fixture when `speech`, and end at once
-    /// otherwise; cancelling the echo fails when `echo_fails`.
+    /// otherwise; cancelling the echo fails when `echo_fails`, and the platform
+    /// has none when `echo_unavailable`.
     #[derive(Default)]
     struct FakeAudio {
         captured: Mutex<Vec<String>>,
         speech: bool,
         echo_fails: bool,
+        echo_unavailable: bool,
     }
 
     impl FakeAudio {
@@ -2241,12 +2251,15 @@ mod tests {
             self.source("cancelled".into())
         }
 
-        fn cancel_echo(&self, mic: &str) -> BoxFuture<'static, Result<EchoCancelling, AudioError>> {
+        fn cancel_echo(&self, mic: &str) -> BoxFuture<'static, Result<EchoCancelling, EchoError>> {
             self.captured.lock().unwrap().push(format!("echo {mic}"));
-            let fails = self.echo_fails;
+            let (fails, unavailable) = (self.echo_fails, self.echo_unavailable);
             async move {
+                if unavailable {
+                    return Err(EchoError::Unavailable);
+                }
                 match fails {
-                    true => Err(AudioError("no echo-cancel module".into())),
+                    true => Err(AudioError("no echo-cancel module".into()).into()),
                     false => Ok(Box::new(()) as EchoCancelling),
                 }
             }
@@ -4030,6 +4043,27 @@ mod tests {
         d.configured().await;
         let failed = d.until(|event| event["code"] == "echo_cancel.failed").await;
         assert_eq!(failed["params"]["detail"], "no echo-cancel module");
+    }
+
+    #[tokio::test]
+    async fn a_platform_without_echo_cancellation_says_so() {
+        let mut raw = raw();
+        raw["audio"] = json!({"echo_cancel": true});
+        let audio = Arc::new(FakeAudio {
+            echo_unavailable: true,
+            ..FakeAudio::default()
+        });
+        let mut d = daemon_on(raw, audio, no_diarizer());
+        d.start("Retro").await;
+        d.configured().await;
+        let unavailable = d
+            .until(|event| event["code"] == "echo_cancel.unavailable")
+            .await;
+        assert_eq!(
+            unavailable["message"],
+            "echo cancellation is not available on this system"
+        );
+        assert_eq!(unavailable["params"], json!({}));
     }
 
     /// Hears `words` in every clip, billed under the request "r1".

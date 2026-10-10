@@ -410,6 +410,7 @@
   "error.people.failed": "人物を保存できませんでした：{detail}",
   "error.line.not_found": "その発言はもうセッションにありません",
   "error.echo_cancel.failed": "エコーキャンセルを使用できません：{detail}",
+  "error.echo_cancel.unavailable": "このシステムではエコーキャンセルを使用できません。マイクはそのまま使われます",
   "error.person.not_found": "その人物は見つかりません",
   "error.person.invalid": "人物には名前が必要です",
   "error.person.exists": "{name} はすでに登録されています",

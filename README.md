@@ -192,6 +192,10 @@ again on the page where you meet it.
 - **Some providers report no cost.** A transcription provider other than
   Deepgram, or an answer provider that sends token counts and no cost, leaves
   that part unknown; the total then says it is a floor.
+- **No echo cancellation on Windows.** Windows offers eco none: with ECHO
+  CANCELLATION on, a session says so and records the raw microphone
+  ([how to set up audio sources](docs/how-to-set-up-audio-sources.md)). DROP
+  ECHOES and headphones still work.
 - **Sessions recorded before eco kept costs stay unknown.** Their logs hold no
   cost records, and nothing brings those costs back.
 

@@ -34,6 +34,9 @@ uuid = { version = "1.27.0", features = ["v4"] }
 [target.'cfg(unix)'.dependencies]
 rustix = { version = "1.1.5", features = ["process"] }
 
+[target.'cfg(windows)'.dependencies]
+cpal = "0.18.2"
+
 [lints.rust]
 unsafe_code = "forbid"
 

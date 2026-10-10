@@ -410,6 +410,7 @@
   "error.people.failed": "Could not keep people: {detail}",
   "error.line.not_found": "That line is no longer in the session",
   "error.echo_cancel.failed": "Echo cancellation is off: {detail}",
+  "error.echo_cancel.unavailable": "Echo cancellation is not available on this system; the microphone is heard as it is",
   "error.person.not_found": "No such person",
   "error.person.invalid": "A person needs a name",
   "error.person.exists": "{name} is already someone",

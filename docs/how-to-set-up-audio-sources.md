@@ -83,7 +83,7 @@ Under **YOUR MICROPHONE**:
 - **ECHO CANCELLATION** — off by default. While a session records, PipeWire's
   echo canceller removes from your microphone what the **default output** plays.
   It costs about 3% of one core while recording, and only works against the
-  default output.
+  default output. On Windows there is none: see What can go wrong.
 
 ## 5. Save
 
@@ -142,7 +142,14 @@ Audio/Sink  alsa_output.usb-Logitech_G522_LIGHTSPEED_-_Wireless_Mode_00000000000
 Audio/Source  alsa_input.usb-Logitech_G522_LIGHTSPEED_-_Wireless_Mode_0000000000000000-00.mono-fallback
 ```
 
-`Audio/Source` is a microphone, `Audio/Sink` an output. A device's trace colour is
+`Audio/Source` is a microphone, `Audio/Sink` an output.
+
+On Windows the devices are the WASAPI endpoints: every active capture
+endpoint is a microphone (`MIC`), every active render endpoint an output
+(`OUT`), captured as what it plays. Any device other than the two defaults is
+its endpoint id, as Windows names it (`{0.0.1.00000000}.{…}` for a microphone,
+`{0.0.0.00000000}.{…}` for an output); ADD DEVICE shows each with its name, such
+as `Microphone (USB Audio Device)` or `Speakers (High Definition Audio Device)`. A device's trace colour is
 `[colors]`, by device: `"@default-input" = "#ffb000"`. The daemon reads the file
 when it starts, so a hand edit needs `eco restart`.
 
@@ -165,6 +172,12 @@ longer heard, `Nobody else is heard` when it held the only output, and
 
 **Echo cancellation would not start.** The status line says
 `Echo cancellation is off: <why>`, and eco records from the raw microphone.
+
+**Echo cancellation on Windows.** Windows offers eco none. With ECHO
+CANCELLATION on, each recording says
+`Echo cancellation is not available on this system; the microphone is heard as it is`,
+and eco records from the raw microphone. Turn it off, and use DROP ECHOES or
+headphones.
 
 **The config refuses a device in two sources, or two sources that are you:**
 `a device can belong to one participant only`,

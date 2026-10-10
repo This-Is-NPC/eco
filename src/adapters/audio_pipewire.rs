@@ -12,7 +12,7 @@ use crate::adapters::devices::{DEFAULT_INPUT, DEFAULT_OUTPUT};
 use crate::adapters::pipewire_devices::list_devices;
 use crate::adapters::{echo_cancel, pipe};
 use crate::ports::{
-    AudioDevices, AudioError, AudioSource, Device, EchoCancelling, Frame, SAMPLE_RATE,
+    AudioDevices, AudioError, AudioSource, Device, EchoCancelling, EchoError, Frame, SAMPLE_RATE,
 };
 
 /// The audio of a PipeWire session.
@@ -31,7 +31,7 @@ impl AudioDevices for PipeWire {
         Box::new(PipeWireSource::cancelled())
     }
 
-    fn cancel_echo(&self, mic: &str) -> BoxFuture<'static, Result<EchoCancelling, AudioError>> {
+    fn cancel_echo(&self, mic: &str) -> BoxFuture<'static, Result<EchoCancelling, EchoError>> {
         let mic = mic.to_owned();
         async move {
             let module = echo_cancel::start(&mic).await?;

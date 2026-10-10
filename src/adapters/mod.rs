@@ -1,13 +1,17 @@
 //! Every external system, behind a port.
 
+// Platform-neutral; only Windows' audio needs it outside the tests.
+#[cfg(any(windows, test))]
+pub mod audio_convert;
 pub mod audio_ffmpeg;
 pub mod audio_file;
 #[cfg(unix)]
 pub mod audio_pipewire;
+#[cfg(windows)]
+pub mod audio_wasapi;
 pub mod control_socket;
 #[cfg(unix)]
 pub mod desktop_hyprland;
-#[cfg(unix)]
 pub mod devices;
 pub mod diarizer_process;
 #[cfg(unix)]

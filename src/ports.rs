@@ -35,8 +35,6 @@ pub struct Device {
 }
 
 impl Device {
-    // Only the Linux audio adapter lists devices so far.
-    #[cfg_attr(windows, allow(dead_code))]
     pub fn new(id: &str, label: &str, kind: &str) -> Self {
         Self {
             id: id.into(),
@@ -49,6 +47,17 @@ impl Device {
 /// Echo cancellation running on one microphone; dropping it stops it.
 pub type EchoCancelling = Box<dyn Send>;
 
+/// Why echo cancellation is not running.
+#[derive(Debug, thiserror::Error)]
+pub enum EchoError {
+    /// The platform has none to offer: Windows' audio.
+    #[cfg_attr(unix, allow(dead_code))]
+    #[error("echo cancellation is not available on this system")]
+    Unavailable,
+    #[error(transparent)]
+    Failed(#[from] AudioError),
+}
+
 /// The platform's audio: the devices eco can listen to, and capture from each.
 pub trait AudioDevices: Send + Sync {
     /// Every device, the system defaults first.
@@ -59,7 +68,7 @@ pub trait AudioDevices: Send + Sync {
     /// taken out; it hears only while that cancellation runs.
     fn capture_cancelled(&self) -> Box<dyn AudioSource>;
     /// Start cancelling, on `mic` (a device id), what the default output plays.
-    fn cancel_echo(&self, mic: &str) -> BoxFuture<'static, Result<EchoCancelling, AudioError>>;
+    fn cancel_echo(&self, mic: &str) -> BoxFuture<'static, Result<EchoCancelling, EchoError>>;
 }
 
 #[derive(Debug, thiserror::Error)]

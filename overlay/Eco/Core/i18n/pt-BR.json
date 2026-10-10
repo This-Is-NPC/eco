@@ -410,6 +410,7 @@
   "error.people.failed": "Não foi possível guardar as pessoas: {detail}",
   "error.line.not_found": "Essa fala não está mais na sessão",
   "error.echo_cancel.failed": "Cancelamento de eco desligado: {detail}",
+  "error.echo_cancel.unavailable": "O cancelamento de eco não está disponível neste sistema; o microfone é ouvido como está",
   "error.person.not_found": "Pessoa não encontrada",
   "error.person.invalid": "A pessoa precisa de um nome",
   "error.person.exists": "{name} já é alguém",
