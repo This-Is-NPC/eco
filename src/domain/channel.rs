@@ -80,8 +80,59 @@ pub enum Trouble {
     /// last one failed, closed or stalled.
     Down(String),
     /// A connection takes the audio again, after `down`; `dropped` seconds of
-    /// audio heard meanwhile were lost.
+    /// audio heard meanwhile were lost. For a source, it is heard again.
     Back { down: Duration, dropped: f64 },
+    /// The source itself cannot be heard — it failed to open or stopped: why.
+    /// It is opened again until it is back.
+    Unheard(String),
+}
+
+/// What a live source that fails does: `None` ends its capture with the
+/// failure; `Some` tells it `Unheard` at its first failure and `Back` at its
+/// first frame after, opening the source again meanwhile after a wait that
+/// backs off — a device may appear later.
+pub type Reopen<'a> = Option<&'a (dyn Fn(Trouble) + Sync)>;
+
+/// Hand `heard` every frame of `source` until it ends; a failure of the source
+/// ends it too, unless `reopen` opens it again. The frames that follow a
+/// reopening go on from the last, so the source's time never restarts.
+async fn each_frame(
+    source: &mut dyn AudioSource,
+    reopen: Reopen<'_>,
+    heard: &mut (dyn FnMut(Frame) -> Result<(), AudioError> + Send),
+) -> Result<(), AudioError> {
+    let mut wait = FIRST_WAIT;
+    // When the outage under way began.
+    let mut down = None::<Instant>;
+    loop {
+        let mut frames = source.frames();
+        let failure = loop {
+            match frames.next().await {
+                Some(Ok(frame)) => {
+                    if let (Some(since), Some(trouble)) = (down.take(), reopen) {
+                        trouble(Trouble::Back {
+                            down: since.elapsed(),
+                            dropped: 0.0,
+                        });
+                    }
+                    wait = FIRST_WAIT;
+                    heard(frame)?;
+                }
+                Some(Err(failure)) => break failure,
+                None => return Ok(()),
+            }
+        };
+        drop(frames);
+        let Some(trouble) = reopen else {
+            return Err(failure);
+        };
+        if down.is_none() {
+            trouble(Trouble::Unheard(failure.0));
+            down = Some(Instant::now());
+        }
+        sleep(wait).await;
+        wait = (wait * 2).min(LONGEST_WAIT);
+    }
 }
 
 /// What a transcriber reports as it goes.
@@ -115,6 +166,7 @@ pub type CapturedStream<'a> = futures::stream::BoxStream<'a, Captured>;
 /// frame's loudness and whether it is speech; `heard` sees every frame.
 pub async fn segment_channel(
     source: &mut dyn AudioSource,
+    reopen: Reopen<'_>,
     speech_probability: SpeechProbability<'_>,
     signal: &(dyn Fn(f64, bool) + Sync),
     config: SegmenterConfig,
@@ -122,16 +174,16 @@ pub async fn segment_channel(
     heard: &mut (dyn FnMut(&Frame) + Send),
 ) -> Result<(), AudioError> {
     let mut segmenter = Segmenter::new(config);
-    let mut frames = source.frames();
-    while let Some(frame) = frames.next().await {
-        let frame = frame?;
+    each_frame(source, reopen, &mut |frame| {
         heard(&frame);
         let probability = speech_probability(&frame)?;
         signal(loudness(&frame), probability >= config.threshold);
         if let Some(closed) = segmenter.push(frame, probability) {
             segment(closed);
         }
-    }
+        Ok(())
+    })
+    .await?;
     if let Some(closed) = segmenter.flush() {
         segment(closed);
     }
@@ -142,6 +194,7 @@ pub async fn segment_channel(
 /// every frame and every closed stretch of speech to `captured`.
 pub async fn capture_channel(
     source: &mut dyn AudioSource,
+    reopen: Reopen<'_>,
     speech_probability: SpeechProbability<'_>,
     signal: &(dyn Fn(f64, bool) + Sync),
     config: SegmenterConfig,
@@ -150,6 +203,7 @@ pub async fn capture_channel(
     let mut index = 0;
     segment_channel(
         source,
+        reopen,
         speech_probability,
         signal,
         config,
@@ -187,7 +241,7 @@ pub async fn transcribe_channel(
             }
             let _ = sender.send(captured);
         };
-        capture_channel(source, speech_probability, signal, config, &captured).await
+        capture_channel(source, None, speech_probability, signal, config, &captured).await
     };
     let captured = futures::stream::poll_fn(move |context| receiver.poll_recv(context)).boxed();
     let (read, ()) = tokio::join!(read, transcribe(who, captured, stt, listeners));
@@ -281,8 +335,8 @@ async fn by_segment(
     }
 }
 
-/// The wait before a stream is opened again after a failure; each failure
-/// that follows doubles it, up to the longest.
+/// The wait before a stream or a source is opened again after a failure; each
+/// failure that follows doubles it, up to the longest.
 const FIRST_WAIT: Duration = Duration::from_secs(1);
 const LONGEST_WAIT: Duration = Duration::from_secs(30);
 
@@ -485,16 +539,16 @@ async fn pause(held: &Mutex<Held>, wait: Duration) -> bool {
 /// Report one source's signal without transcribing or keeping anything.
 pub async fn monitor_channel(
     source: &mut dyn AudioSource,
+    reopen: Reopen<'_>,
     speech_probability: SpeechProbability<'_>,
     signal: &(dyn Fn(f64, bool) + Sync),
     threshold: f32,
 ) -> Result<(), AudioError> {
-    let mut frames = source.frames();
-    while let Some(frame) = frames.next().await {
-        let frame = frame?;
+    each_frame(source, reopen, &mut |frame| {
         signal(loudness(&frame), speech_probability(&frame)? >= threshold);
-    }
-    Ok(())
+        Ok(())
+    })
+    .await
 }
 
 #[cfg(test)]
@@ -599,6 +653,7 @@ mod tests {
         match trouble {
             Trouble::Failed(why) => format!("{who}: {why}"),
             Trouble::Down(why) => format!("{who}: down: {why}"),
+            Trouble::Unheard(why) => format!("{who}: unheard: {why}"),
             Trouble::Back { down, dropped } => format!(
                 "{who}: back after {:.3} s, dropped {dropped:.3} s",
                 down.as_secs_f64()
@@ -842,6 +897,7 @@ mod tests {
         let mut segments = Vec::new();
         segment_channel(
             &mut source,
+            None,
             &mut loud,
             &|_, _| {},
             SegmenterConfig::default(),
@@ -1211,6 +1267,84 @@ mod tests {
         assert!(run.ends.is_empty());
     }
 
+    /// A device that fails to open `refused` times, then hears 10 frames and
+    /// fails, then cannot open again.
+    struct Flaky {
+        refused: usize,
+        opened: usize,
+    }
+
+    impl AudioSource for Flaky {
+        fn frames(&mut self) -> BoxStream<'_, Result<Frame, AudioError>> {
+            self.opened += 1;
+            if self.opened <= self.refused {
+                let failure = AudioError("no default microphone".into());
+                return stream::iter([Err(failure)]).boxed();
+            }
+            let frames = (0..10).map(|n| Ok(vec![n; FRAME_SAMPLES]));
+            stream::iter(frames.chain([Err(AudioError("unplugged".into()))])).boxed()
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_source_that_fails_is_opened_again_with_backoff_and_its_frames_go_on() {
+        let mut source = Flaky {
+            refused: 2,
+            opened: 0,
+        };
+        let start = Instant::now();
+        let troubles = Mutex::new(Vec::new());
+        let trouble = |trouble: Trouble| {
+            let at = start.elapsed().as_secs_f64();
+            troubles
+                .lock()
+                .unwrap()
+                .push(format!("{at:.0} {}", said("Eu", &trouble)));
+        };
+        let frames = Mutex::new(Vec::new());
+        let captured = |captured: Captured| {
+            if let Captured::Frame(index, frame) = captured {
+                frames.lock().unwrap().push((index, frame[0]));
+            }
+        };
+        let mut probability = loud;
+        let capture = capture_channel(
+            &mut source,
+            Some(&trouble),
+            &mut probability,
+            &|_, _| {},
+            SegmenterConfig::default(),
+            &captured,
+        );
+        // It never ends on its own: it is dropped after its second failure.
+        let _ = tokio::time::timeout(Duration::from_millis(4500), capture).await;
+        assert_eq!(
+            *troubles.lock().unwrap(),
+            [
+                "0 Eu: unheard: no default microphone",
+                "3 Eu: back after 3.000 s, dropped 0.000 s",
+                "3 Eu: unheard: unplugged",
+                "4 Eu: back after 1.000 s, dropped 0.000 s",
+                "4 Eu: unheard: unplugged",
+            ]
+        );
+        let frames = frames.into_inner().unwrap();
+        let indices: Vec<usize> = frames.iter().map(|(index, _)| *index).collect();
+        assert_eq!(indices, (0..20).collect::<Vec<_>>());
+        assert_eq!(source.opened, 4);
+    }
+
+    #[tokio::test]
+    async fn a_source_that_fails_without_reopening_ends_with_its_failure() {
+        let mut source = Flaky {
+            refused: 1,
+            opened: 0,
+        };
+        let failed = monitor_channel(&mut source, None, &mut loud, &|_, _| {}, 0.5).await;
+        assert_eq!(failed.unwrap_err().0, "no default microphone");
+        assert_eq!(source.opened, 1);
+    }
+
     #[tokio::test]
     async fn monitoring_reports_signal_and_transcribes_nothing() {
         let signals = Mutex::new(Vec::new());
@@ -1218,6 +1352,7 @@ mod tests {
         let mut probability = loud;
         monitor_channel(
             &mut source,
+            None,
             &mut probability,
             &|l, s| signals.lock().unwrap().push((l, s)),
             0.5,

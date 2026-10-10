@@ -104,9 +104,16 @@ mod tests {
         let mut probability = loud;
         let config = SegmenterConfig::default();
         let captured = |captured| capture.send(captured);
-        capture_channel(&mut source, &mut probability, &|_, _| {}, config, &captured)
-            .await
-            .unwrap();
+        capture_channel(
+            &mut source,
+            None,
+            &mut probability,
+            &|_, _| {},
+            config,
+            &captured,
+        )
+        .await
+        .unwrap();
         drop(capture);
         let (first, second): (Vec<_>, Vec<_>) = tokio::join!(first.collect(), second.collect());
         assert_eq!(*source.opened.lock().unwrap(), 1);

@@ -491,6 +491,7 @@
   "lab.simulate": "SIMULATE",
   "error.stt.unavailable": "Transcription unavailable: {detail}. Inputs are measured but nothing is transcribed; fix it in Settings › Models.",
   "error.stt.down": "Transcription down · reconnecting",
+  "error.capture.down": "Device not heard · opening it again",
   "transcription.back": "Transcription back",
   "transcription.back_dropped": "Transcription back · {n} s of audio lost",
   "lab.transcription_strip": "Transcription state",

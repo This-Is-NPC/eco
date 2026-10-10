@@ -20,9 +20,10 @@ pub fn error(code: &str, message: impl Into<String>, params: Value) -> Event {
     json!({"type": "error", "code": code, "params": params, "message": message.into()})
 }
 
-/// `who`'s trouble: speech lost is an error; a streaming transcription gone
-/// down carries the `code` a client translates and the provider's `detail`,
-/// and back, the seconds it was down and the seconds of audio it dropped.
+/// `who`'s trouble: speech lost is an error; a streaming transcription or the
+/// source itself gone down carries the `code` a client translates and the
+/// `detail` of the failure, and back, the seconds it was down and the seconds
+/// of audio it dropped.
 pub fn transcription(who: &str, trouble: &Trouble) -> Event {
     match trouble {
         Trouble::Failed(detail) => error(
@@ -33,6 +34,10 @@ pub fn transcription(who: &str, trouble: &Trouble) -> Event {
         Trouble::Down(detail) => json!({
             "type": "transcription", "who": who, "state": "down",
             "code": "stt.down", "detail": detail,
+        }),
+        Trouble::Unheard(detail) => json!({
+            "type": "transcription", "who": who, "state": "down",
+            "code": "capture.down", "detail": detail,
         }),
         Trouble::Back { down, dropped } => json!({
             "type": "transcription", "who": who, "state": "back",
@@ -52,7 +57,7 @@ impl Outages {
         let event = transcription(who, trouble);
         let mut down = self.0.lock().expect("not poisoned");
         match trouble {
-            Trouble::Down(_) => {
+            Trouble::Down(_) | Trouble::Unheard(_) => {
                 down.insert(who.to_string(), event.clone());
             }
             Trouble::Back { .. } => {
@@ -69,8 +74,8 @@ impl Outages {
         down.values().cloned().collect()
     }
 
-    /// A guard that forgets `who`'s outage once its transcriber stops, however
-    /// it stops.
+    /// A guard that forgets `who`'s outage once its transcriber or its capture
+    /// stops, however it stops.
     pub fn until_stopped<'a>(&'a self, who: &'a str) -> Stopped<'a> {
         Stopped(self, who)
     }
@@ -103,6 +108,11 @@ mod tests {
             down.to_string(),
             r#"{"type":"transcription","who":"Eles","state":"down","code":"stt.down","detail":"connection reset"}"#
         );
+        let unheard = transcription("Eu", &Trouble::Unheard("not connected".into()));
+        assert_eq!(
+            unheard.to_string(),
+            r#"{"type":"transcription","who":"Eu","state":"down","code":"capture.down","detail":"not connected"}"#
+        );
         let back = Trouble::Back {
             down: Duration::from_millis(7500),
             dropped: 2.5,
@@ -118,6 +128,19 @@ mod tests {
         let outages = Outages::default();
         let event = outages.note("Eles", &Trouble::Failed("timed out".into()));
         assert_eq!(event["code"], "transcription.failed");
+        assert_eq!(outages.events(), [] as [Value; 0]);
+    }
+
+    #[test]
+    fn a_source_unheard_is_kept_for_later_clients_until_it_is_back() {
+        let outages = Outages::default();
+        let unheard = outages.note("Eu", &Trouble::Unheard("not connected".into()));
+        assert_eq!(outages.events(), [unheard]);
+        let back = Trouble::Back {
+            down: Duration::from_secs(3),
+            dropped: 0.0,
+        };
+        outages.note("Eu", &back);
         assert_eq!(outages.events(), [] as [Value; 0]);
     }
 

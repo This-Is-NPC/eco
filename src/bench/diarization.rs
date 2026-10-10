@@ -89,6 +89,7 @@ pub async fn diarize<'a>(
     };
     segment_channel(
         &mut source,
+        None,
         &mut probability,
         &|_, _| {},
         SegmenterConfig::default(),

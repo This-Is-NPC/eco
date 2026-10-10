@@ -491,6 +491,7 @@
   "lab.simulate": "SIMULAR",
   "error.stt.unavailable": "Transcrição indisponível: {detail}. As entradas são medidas, mas nada é transcrito; corrija em Configurações › Modelos.",
   "error.stt.down": "Transcrição fora do ar · reconectando",
+  "error.capture.down": "Dispositivo sem áudio · abrindo de novo",
   "transcription.back": "Transcrição de volta",
   "transcription.back_dropped": "Transcrição de volta · {n} s de áudio perdidos",
   "lab.transcription_strip": "Estado da transcrição",

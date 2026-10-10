@@ -34,7 +34,7 @@ use crate::adapters::webvtt;
 use crate::config::{self, Config, ConfigError, Key, ModelConfig, ModelType};
 use crate::domain::assistant::{Assistant, ContextSlot, Emit, Model, Reviewer, Setup, Translating};
 use crate::domain::channel::{
-    Captured, CapturedStream, Listeners, Transcriber, Trouble, Utterance, capture_channel,
+    Captured, CapturedStream, Listeners, Reopen, Transcriber, Trouble, Utterance, capture_channel,
     monitor_channel, transcribe,
 };
 use crate::domain::diarization::Diarization;
@@ -126,6 +126,9 @@ pub struct Input {
     pub user: bool,
     pub color: Option<String>,
     pub source: Box<dyn AudioSource>,
+    /// A device, opened again while it fails, for it may appear later; a file
+    /// replayed ends its capture with its failure.
+    pub reopens: bool,
     /// The same microphone with the others' audio cancelled, used while a session
     /// records when echo cancellation is on.
     pub cancelled: Option<Box<dyn AudioSource>>,
@@ -153,6 +156,7 @@ pub fn inputs(
             user: false,
             color: None,
             source: Box::new(WavFileSource::new(replay.into(), true)),
+            reopens: false,
             cancelled: None,
         }];
     }
@@ -174,6 +178,7 @@ pub fn inputs(
                         user: participant.user,
                         color: config.colors.get(&device.id).cloned(),
                         source: audio.capture(device),
+                        reopens: true,
                         cancelled,
                     });
                 }
@@ -416,7 +421,7 @@ impl Work for Channels {
                 None => None,
             };
             let cancelling = echo.is_some();
-            let (emit, assistant, vad) = (&*emit, &*assistant, &*vad);
+            let (emit, assistant, vad, outages) = (&*emit, &*assistant, &*vad, &*outages);
             // Each input is captured once, into the hub its transcribers read.
             let mut hub = Hub::default();
             let captures: Vec<Capture> = inputs.iter().map(|i| hub.input(&i.id)).collect();
@@ -454,10 +459,17 @@ impl Work for Channels {
                     let signal = move |level: f64, speech: bool| {
                         emit(json!({"type": "signal", "input": id, "level": level, "speech": speech}));
                     };
+                    // A device that fails is told down and opened again; the
+                    // other inputs keep capturing meanwhile.
+                    let who = input.participant.as_str();
+                    let _stopped = outages.until_stopped(who);
+                    let trouble = |trouble: Trouble| emit(outages.note(who, &trouble));
+                    let reopen: Reopen = input.reopens.then_some(&trouble);
                     // Outside a session the audio is only measured, never segmented.
                     if !recording {
                         let threshold = SegmenterConfig::default().threshold;
-                        return monitor_channel(source, &mut probability, &signal, threshold).await;
+                        return monitor_channel(source, reopen, &mut probability, &signal, threshold)
+                            .await;
                     }
                     let regions = voices.as_ref().map(|voices| voices.regions.clone());
                     // The capture goes with this closure, so its readers end when the source does.
@@ -470,7 +482,8 @@ impl Work for Channels {
                         capture.send(captured);
                     };
                     let config = SegmenterConfig::default();
-                    capture_channel(source, &mut probability, &signal, config, &captured).await
+                    capture_channel(source, reopen, &mut probability, &signal, config, &captured)
+                        .await
                 },
             );
             let mut captured = std::pin::pin!(try_join_all(channels));
@@ -2332,20 +2345,33 @@ mod tests {
 
     /// Three devices; logs every capture it builds and each echo cancellation.
     /// Its sources hear the speech fixture when `speech`, and end at once
-    /// otherwise; cancelling the echo fails when `echo_fails`, and the platform
-    /// has none when `echo_unavailable`.
+    /// otherwise; the device `unopened` never opens; cancelling the echo fails
+    /// when `echo_fails`, and the platform has none when `echo_unavailable`.
     #[derive(Default)]
     struct FakeAudio {
         captured: Mutex<Vec<String>>,
         speech: bool,
+        unopened: Option<&'static str>,
         echo_fails: bool,
         echo_unavailable: bool,
     }
 
     impl FakeAudio {
         fn source(&self, name: String) -> Box<dyn AudioSource> {
+            if self.unopened == Some(name.as_str()) {
+                return Box::new(Unopened);
+            }
             self.captured.lock().unwrap().push(name);
             Box::new(Clip(if self.speech { speech() } else { Vec::new() }))
+        }
+    }
+
+    /// A device that fails each time it is opened.
+    struct Unopened;
+
+    impl AudioSource for Unopened {
+        fn frames(&mut self) -> stream::BoxStream<'_, Result<Frame, AudioError>> {
+            stream::iter([Err(AudioError("not connected".into()))]).boxed()
         }
     }
 
@@ -4281,6 +4307,40 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_device_that_cannot_open_is_told_down_and_the_others_are_transcribed() {
+        let reply = (200, None, br#"{"text": "bom dia"}"#.to_vec());
+        let (base, _) = http::testing::serve(vec![reply; 8]).await;
+        let mut raw = raw();
+        raw["models"][0]["base_url"] = json!(base);
+        let audio = Arc::new(FakeAudio {
+            speech: true,
+            unopened: Some("@default-input"),
+            ..FakeAudio::default()
+        });
+        let mut d = daemon_on(raw, audio, no_diarizer());
+        d.start("Retro").await;
+        d.configured().await;
+        let down = d.until(|event| event["type"] == "transcription").await;
+        assert_eq!(
+            down,
+            json!({"type": "transcription", "who": "Eu", "state": "down",
+                   "code": "capture.down", "detail": "not connected"})
+        );
+        let line = d.until(|event| event["type"] == "transcript").await;
+        assert_eq!(
+            (&line["who"], &line["text"]),
+            (&json!("Recrutador"), &json!("bom dia"))
+        );
+        let stopped = d
+            .events
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|e| e["code"] == "capture.stopped");
+        assert!(!stopped);
+    }
+
+    #[tokio::test]
     async fn a_microphone_whose_echo_cannot_be_cancelled_is_heard_as_it_is() {
         let mut raw = raw();
         raw["audio"] = json!({"echo_cancel": true});
@@ -4510,6 +4570,7 @@ mod tests {
             user: true,
             color: None,
             source: Box::new(Endless),
+            reopens: true,
             cancelled: None,
         };
         let mut channels = Channels {

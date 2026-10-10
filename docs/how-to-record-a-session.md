@@ -160,6 +160,13 @@ transcribed; fix it in Settings › Models.` — usually a key that is not set.
 **An input went quiet.** The capsule shows a warning for it; its name is on the
 hint, and a click opens the audio settings.
 
+**A device cannot be heard.** Under the capsule, that source reads
+`Device not heard · opening it again`; why is on the hover — on a remote
+desktop with no microphone, the default microphone is `not connected`. The
+other sources keep recording and transcribing. eco opens the device again,
+waiting longer each time up to 30 s, and once it is heard the line reads
+`Transcription back`.
+
 **The transcription provider went down.** Under the capsule, that source reads
 `Transcription down · reconnecting`; the provider's reason is on the hover.
 Nothing to do: eco opens the connection again and keeps what is heard

@@ -491,6 +491,7 @@
   "lab.simulate": "シミュレート",
   "error.stt.unavailable": "文字起こしを利用できません：{detail}。入力は計測されますが文字起こしはされません。設定 › モデルで直してください。",
   "error.stt.down": "文字起こし停止中 · 再接続しています",
+  "error.capture.down": "デバイスが聞こえません · 開き直しています",
   "transcription.back": "文字起こし復旧",
   "transcription.back_dropped": "文字起こし復旧 · 音声 {n} 秒が失われました",
   "lab.transcription_strip": "文字起こしの状態",
