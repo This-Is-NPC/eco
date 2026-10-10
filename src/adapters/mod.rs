@@ -7,6 +7,8 @@ pub mod audio_pipewire;
 pub mod control_socket;
 #[cfg(unix)]
 pub mod desktop_hyprland;
+#[cfg(unix)]
+pub mod devices;
 pub mod diarizer_process;
 #[cfg(unix)]
 pub mod echo_cancel;

@@ -10,7 +10,7 @@ use std::time::Duration;
 use tokio::io::AsyncWriteExt;
 use tokio::process::{Child, ChildStdin, Command};
 
-use crate::adapters::pipewire_devices::DEFAULT_INPUT;
+use crate::adapters::devices::DEFAULT_INPUT;
 use crate::ports::AudioError;
 
 /// Nodes eco creates for itself; never offered as devices.

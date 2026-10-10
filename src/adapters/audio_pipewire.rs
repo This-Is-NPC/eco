@@ -8,7 +8,8 @@ use futures::future::BoxFuture;
 use futures::stream::BoxStream;
 use tokio::process::Command;
 
-use crate::adapters::pipewire_devices::{DEFAULT_INPUT, DEFAULT_OUTPUT, list_devices};
+use crate::adapters::devices::{DEFAULT_INPUT, DEFAULT_OUTPUT};
+use crate::adapters::pipewire_devices::list_devices;
 use crate::adapters::{echo_cancel, pipe};
 use crate::ports::{
     AudioDevices, AudioError, AudioSource, Device, EchoCancelling, Frame, SAMPLE_RATE,
@@ -89,7 +90,7 @@ impl AudioSource for PipeWireSource {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::adapters::pipewire_devices::defaults;
+    use crate::adapters::devices::defaults;
 
     #[test]
     fn pw_record_arguments_per_device() {
