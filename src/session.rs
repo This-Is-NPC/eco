@@ -2010,7 +2010,7 @@ pub async fn run(
         ControlSocket::bind(&Address::user(), token.clone(), clients, greeting, commands).await?;
     let mut windows = overlay::Windows::new(
         token.clone(),
-        Arc::new(PlatformWindows::default()),
+        Arc::<PlatformWindows>::default(),
         current.hide_from_share,
     );
     if !headless {
