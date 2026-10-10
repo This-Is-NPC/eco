@@ -763,7 +763,14 @@ impl Assistant {
         match self.inner.log.delete(session_id) {
             Ok(true) => {}
             Ok(false) => return self.not_found(session_id),
-            Err(failure) => return self.store_failed(&failure),
+            Err(failure) => {
+                let detail = &failure.0;
+                return self.emit(error(
+                    "session.delete_failed",
+                    format!("cannot delete the session: {detail}"),
+                    json!({"id": session_id, "detail": detail}),
+                ));
+            }
         }
         {
             let mut state = self.state();
@@ -6167,7 +6174,7 @@ mod tests {
         let failed = events.lock().unwrap().last().unwrap().clone();
         assert_eq!(
             (failed["code"].as_str(), failed["params"]["detail"].as_str()),
-            (Some("people.failed"), Some("read-only file system"))
+            (Some("session.delete_failed"), Some("read-only file system"))
         );
         // It stays listed, readable and editable.
         assistant.sessions();

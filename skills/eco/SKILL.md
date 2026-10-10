@@ -20,7 +20,7 @@ agents.
 Every command prints one JSON object: `{"ok": true, "data": …}`, or
 `{"ok": false, "code": "…", "message": "…"}` with exit status 1. Check `ok`.
 Codes: `argument.invalid`, `daemon.offline`, `daemon.access_denied`, `daemon.unavailable`,
-`session.not_found`, `session.invalid`, `action.unknown`,
+`session.not_found`, `session.invalid`, `session.delete_failed`, `action.unknown`,
 `completion.failed`, `suggestion.removed`, `import.busy`, `import.failed`,
 `person.not_found`, `person.invalid`, `person.exists`, `people.failed`,
 `line.not_found`.

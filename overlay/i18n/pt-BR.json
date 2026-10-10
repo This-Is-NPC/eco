@@ -398,6 +398,7 @@
   "error.session.not_resumable": "Só uma sessão pausada ou encerrada pode ser retomada",
   "error.session.not_found": "Sessão não encontrada",
   "error.session.live": "Encerre a sessão antes de excluí-la",
+  "error.session.delete_failed": "Não foi possível excluir a sessão: {detail}",
   "error.session.unreadable.one": "{count} registro de sessão ilegível foi pulado",
   "error.session.unreadable.other": "{count} registros de sessão ilegíveis foram pulados",
   "error.session.invalid": "Pedido de sessão inválido: {detail}",

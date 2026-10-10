@@ -398,6 +398,7 @@
   "error.session.not_resumable": "Only a paused or ended session can be resumed",
   "error.session.not_found": "Session not found",
   "error.session.live": "End the session before deleting it",
+  "error.session.delete_failed": "Could not delete the session: {detail}",
   "error.session.unreadable.one": "{count} unreadable session log skipped",
   "error.session.unreadable.other": "{count} unreadable session logs skipped",
   "error.session.invalid": "Invalid session request: {detail}",

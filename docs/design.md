@@ -496,7 +496,8 @@ any other label shows as written.
   the context, the export and the CLI read the correction.
 - **Delete:** an interrupted or ended session can be deleted; deletion removes
   its log and associated voice links. A live session, recording or paused,
-  cannot be deleted: the daemon refuses with `session.live`.
+  cannot be deleted: the daemon refuses with `session.live`. A log the disk
+  will not remove stays listed, and the daemon reports `session.delete_failed`.
 - **Resilience:** an unreadable log is skipped in the list with a warning, and a
   command that fails is reported to the clients without dropping the socket.
 
@@ -1078,8 +1079,8 @@ How the commands are built:
   `argument.invalid` (an argument holds a line feed or a carriage return,
   which could end the command line early; nothing is sent),
   `daemon.offline`, `daemon.access_denied`, `daemon.unavailable`,
-  `session.not_found`, `action.unknown`, `completion.failed`,
-  `suggestion.removed` (replaced by a newer request), `import.busy`,
+  `session.not_found`, `session.delete_failed`, `action.unknown`,
+  `completion.failed`, `suggestion.removed` (replaced by a newer request), `import.busy`,
   `import.failed`, `person.not_found`, `person.invalid`, `person.exists`,
   `people.failed`, `line.not_found`, `tag.invalid`, `tag.not_found`. They read
   the broadcast for their own reply, so they work beside the overlay. `export`

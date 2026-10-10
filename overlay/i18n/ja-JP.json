@@ -398,6 +398,7 @@
   "error.session.not_resumable": "再開できるのは一時停止中か終了したセッションだけです",
   "error.session.not_found": "セッションが見つかりません",
   "error.session.live": "削除する前にセッションを終了してください",
+  "error.session.delete_failed": "セッションを削除できませんでした：{detail}",
   "error.session.unreadable.one": "読み取れないセッション記録 {count} 件をスキップしました",
   "error.session.unreadable.other": "読み取れないセッション記録 {count} 件をスキップしました",
   "error.session.invalid": "セッションのリクエストが不正です：{detail}",

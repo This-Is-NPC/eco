@@ -542,7 +542,7 @@ impl Client {
             if event["type"] == "session_deleted" && event["id"] == id {
                 return Some(Ok(json!({"id": id})));
             }
-            failure_in(event, &["session.", "people.failed"]).map(Err)
+            failure_in(event, &["session."]).map(Err)
         })
         .await
     }
@@ -1612,17 +1612,20 @@ mod tests {
         let events = vec![
             json!({"type": "session_deleted", "id": "other"}),
             refusal("transcription.failed"),
+            // Its voice links failing does not undo the deletion.
+            refusal("people.failed"),
             json!({"type": "session_deleted", "id": "n1"}),
         ];
         let mut client = talking_to("session.delete n1", events);
         let request = Request::Delete { id: "n1".into() };
         assert_eq!(client.handle(request).await, Ok(json!({"id": "n1"})));
 
-        let mut client = talking_to("session.delete n1", vec![refusal("people.failed")]);
+        let refused = vec![refusal("session.delete_failed")];
+        let mut client = talking_to("session.delete n1", refused);
         let request = Request::Delete { id: "n1".into() };
         assert_eq!(
             client.handle(request).await.unwrap_err(),
-            Failure::new("people.failed", "people.failed happened")
+            Failure::new("session.delete_failed", "session.delete_failed happened")
         );
     }
 
