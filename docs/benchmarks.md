@@ -326,3 +326,22 @@ No test was written for these lines, read in the code and left on purpose:
 - The rest are lines of the tests themselves: `panic!` arms that run only
   when a test fails, and the end of fake daemons that serve until the test
   drops them.
+
+## Streaming connection coverage (2026-10-09)
+
+Measured with `mise run coverage` on `src/adapters/websocket.rs`, before and
+after the tests of a stalled connection.
+
+| File | What it holds | Lines before | Lines after |
+|---|---|---|---|
+| `src/adapters/websocket.rs` | a streaming transcription over a WebSocket: audio out, pings, phrases back, a stall ended | 80.81% (19 of 99 missed) | 90.91% (21 of 231) |
+
+No test was written for these lines, read in the code:
+
+- `tls()`: the platform's certificate store, reached only by a `wss://` URL,
+  which a local test server does not serve.
+- The request headers, the billed request's id and the `Partial` and
+  `Nothing` readings: they predate this change and have no test yet.
+- The rest are lines of the tests themselves: `panic!` arms that run only
+  when a test fails, and the end of a fake provider that waits until the
+  test drops it.

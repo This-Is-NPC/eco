@@ -257,7 +257,10 @@ eco/
   16 kHz PCM and they decide where a phrase ends (Deepgram: 300 ms of silence,
   or 1 s by `UtteranceEnd`; Scribe: its VAD at 0.6 s); outside a session nothing
   is sent — the local VAD only measures the inputs. The local VAD still cuts
-  segments, for imports' diarization. A dropped connection that had worked is
+  segments, for imports' diarization. While audio goes out, a WebSocket ping
+  goes every 5 s; a connection that brings nothing back — no pong, no message
+  — for 15 s is stalled and counts as dropped. Frames flow without a gap while
+  a session records, so Deepgram's `KeepAlive` is never needed. A dropped connection that had worked is
   opened again after a second, its phrases timed after the audio sent
   before; one that never took audio is reported and not retried. An import
   streams to Scribe with waiting frames joined into chunks of up to a second
