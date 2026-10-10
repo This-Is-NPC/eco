@@ -56,10 +56,21 @@ struct Window {
 
 impl Windows {
     pub fn new(token: String, control: Arc<dyn WindowControl>, hidden: bool) -> io::Result<Self> {
+        Self::run(program(), &paths::token_path(), token, control, hidden)
+    }
+
+    /// Windows run by `program`, with the token kept at `token_path`.
+    fn run(
+        program: PathBuf,
+        token_path: &Path,
+        token: String,
+        control: Arc<dyn WindowControl>,
+        hidden: bool,
+    ) -> io::Result<Self> {
         Ok(Self {
-            _kept: TokenFile::write(&paths::token_path(), &token)?,
+            _kept: TokenFile::write(token_path, &token)?,
             token,
-            program: program(),
+            program,
             control,
             hidden,
             last: 0,
@@ -221,6 +232,7 @@ mod tests {
     use futures::future::BoxFuture;
 
     use super::*;
+    use crate::adapters::fake_program::fake_program;
     use crate::ports::WindowError;
 
     #[test]
@@ -266,20 +278,128 @@ mod tests {
         }
     }
 
-    /// Windows whose program only waits, with their token file in `dir`.
+    /// Windows whose program notes what it was handed in `dir/window-<number>`
+    /// and then waits, or exits with 4 at once when told to show `exit`, or
+    /// with 2 a moment after opening when told to show `later`; their token
+    /// file is in `dir`.
     fn windows(dir: &Path, control: Arc<dyn WindowControl>, hidden: bool) -> Windows {
-        let program = dir.join("eco-window");
-        fs::write(&program, "#!/bin/sh\nexec sleep 30\n").unwrap();
-        fs::set_permissions(&program, fs::Permissions::from_mode(0o755)).unwrap();
-        Windows {
-            token: "secret".into(),
-            _kept: TokenFile::write(&dir.join("eco.token"), "secret").unwrap(),
+        let program = fake_program(
+            dir,
+            "eco-window",
+            &format!(
+                r#"echo "$1 $ECO_WINDOW $ECO_SHOW $ECO_CALL $ECO_TOKEN" > '{}'/window-$ECO_WINDOW
+[ "$ECO_SHOW" = exit ] && exit 4
+[ "$ECO_SHOW" = later ] && sleep 0.4 && exit 2
+exec sleep 30"#,
+                dir.display()
+            ),
+        );
+        Windows::run(
             program,
+            &dir.join("eco.token"),
+            "secret".into(),
             control,
             hidden,
-            last: 0,
-            open: Vec::new(),
-        }
+        )
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_window_is_handed_its_number_session_call_and_token() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut windows = windows(dir.path(), Arc::new(Noted::default()), false);
+        windows.open(Some("s1"), Some("{}")).await.unwrap();
+        windows.open(None, None).await.unwrap();
+        assert!(windows.is_open());
+        let handed = |number: u32| fs::read_to_string(dir.path().join(format!("window-{number}")));
+        assert_eq!(
+            handed(1).unwrap(),
+            format!("{} 1 s1 {{}} secret\n", shell().display())
+        );
+        assert_eq!(
+            handed(2).unwrap(),
+            format!("{} 2   secret\n", shell().display())
+        );
+        assert_eq!(windows.shown().collect::<Vec<_>>(), ["s1", ""]);
+        windows.shows(2, "s2");
+        windows.shows(9, "s9");
+        assert_eq!(windows.shown().collect::<Vec<_>>(), ["s1", "s2"]);
+        windows.close().await;
+    }
+
+    #[tokio::test]
+    async fn a_window_that_exits_at_once_is_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let control = Arc::new(Noted::default());
+        let mut windows = windows(dir.path(), control.clone(), false);
+        let error = windows.open(Some("exit"), None).await.unwrap_err();
+        assert_eq!(error.to_string(), "eco-window exited with exit status: 4");
+        assert!(!windows.is_open());
+        assert!(control.take().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_missing_program_is_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut windows = windows(dir.path(), Arc::new(Noted::default()), false);
+        let missing = dir.path().join("gone");
+        windows.program = missing.clone();
+        let error = windows.open(None, None).await.unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .starts_with(&format!("{}: ", missing.display())),
+            "{error}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_window_that_exits_leaves_the_set_and_the_share() {
+        let dir = tempfile::tempdir().unwrap();
+        let control = Arc::new(Noted::default());
+        let mut windows = windows(dir.path(), control.clone(), true);
+        windows.open(None, None).await.unwrap();
+        windows.open(Some("later"), None).await.unwrap();
+        let first = pids(&windows)[0];
+        control.take();
+        let status = windows.exited().await.unwrap();
+        assert_eq!(status.code(), Some(2));
+        assert_eq!(windows.newest(), Some(1));
+        assert_eq!(control.take(), [format!("hide [{first}] true")]);
+        windows.close().await;
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn without_a_window_nothing_exits() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut windows = windows(dir.path(), Arc::new(Noted::default()), false);
+        let waited = tokio::time::timeout(Duration::from_secs(60), windows.exited()).await;
+        assert!(waited.is_err());
+    }
+
+    #[tokio::test]
+    async fn focus_reaches_an_open_window_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let control = Arc::new(Noted::default());
+        let mut windows = windows(dir.path(), control.clone(), false);
+        windows.open(None, None).await.unwrap();
+        let first = pids(&windows)[0];
+        control.take();
+        windows.focus(1).await.unwrap();
+        assert_eq!(control.take(), [format!("focus {first}")]);
+        let error = windows.focus(2).await.unwrap_err();
+        assert_eq!(error.to_string(), "no eco window 2 is open");
+        windows.close().await;
+    }
+
+    #[tokio::test]
+    async fn closing_terminates_every_window() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut windows = windows(dir.path(), Arc::new(Noted::default()), false);
+        windows.open(None, None).await.unwrap();
+        let pid = pids(&windows)[0];
+        windows.close().await;
+        assert!(!Path::new(&format!("/proc/{pid}")).exists());
     }
 
     fn pids(windows: &Windows) -> Vec<u32> {

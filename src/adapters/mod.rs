@@ -7,6 +7,8 @@ pub mod control_socket;
 pub mod desktop_hyprland;
 pub mod diarizer_process;
 pub mod echo_cancel;
+#[cfg(test)]
+pub mod fake_program;
 pub mod fbank;
 pub mod hook_shell;
 pub mod http;

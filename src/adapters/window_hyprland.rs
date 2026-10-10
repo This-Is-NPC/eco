@@ -1,7 +1,7 @@
 //! Hyprland: eco's windows, found by pid, focused and left out of screen
 //! sharing through `hyprctl dispatch` (docs/design.md §15).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Output;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -16,22 +16,43 @@ use tokio::task::JoinHandle;
 use crate::paths;
 use crate::ports::{WindowControl, WindowError};
 
-#[derive(Default)]
 pub struct HyprlandWindows {
+    /// The program that runs Hyprland's dispatchers.
+    hyprctl: PathBuf,
+    /// Hyprland's event socket, when eco runs under one.
+    events: Option<PathBuf>,
     /// The processes whose windows are left out of screen sharing.
     hidden: Arc<Mutex<Vec<u32>>>,
     /// Reads Hyprland's events while some are, to leave out each window they open.
     follower: Mutex<Option<JoinHandle<()>>>,
 }
 
+impl Default for HyprlandWindows {
+    fn default() -> Self {
+        Self::new("hyprctl".into(), paths::hypr_events())
+    }
+}
+
+impl HyprlandWindows {
+    fn new(hyprctl: PathBuf, events: Option<PathBuf>) -> Self {
+        Self {
+            hyprctl,
+            events,
+            hidden: Arc::default(),
+            follower: Mutex::default(),
+        }
+    }
+}
+
 impl WindowControl for HyprlandWindows {
     fn focus(&self, pid: u32) -> BoxFuture<'static, Result<(), WindowError>> {
+        let hyprctl = self.hyprctl.clone();
         async move {
             let focus = focus_script(pid);
             let mut last = String::new();
             // The window shows a moment after its process starts.
             for _ in 0..50 {
-                let output = dispatch(&focus).await?;
+                let output = dispatch(&hyprctl, &focus).await?;
                 if output.status.success() && String::from_utf8_lossy(&output.stdout).trim() == "ok"
                 {
                     return Ok(());
@@ -58,10 +79,16 @@ impl WindowControl for HyprlandWindows {
                 follower.abort();
             }
         } else if follower.is_none() {
-            *follower = paths::hypr_events()
-                .map(|events| tokio::spawn(follow(events, Arc::clone(&self.hidden))));
+            *follower = self.events.clone().map(|events| {
+                tokio::spawn(follow(
+                    self.hyprctl.clone(),
+                    events,
+                    Arc::clone(&self.hidden),
+                ))
+            });
         }
-        async move { share(&pids, hidden).await }.boxed()
+        let hyprctl = self.hyprctl.clone();
+        async move { share(&hyprctl, &pids, hidden).await }.boxed()
     }
 }
 
@@ -73,9 +100,9 @@ impl Drop for HyprlandWindows {
     }
 }
 
-/// Run Hyprland's Lua dispatcher on `lua`.
-async fn dispatch(lua: &str) -> Result<Output, WindowError> {
-    Command::new("hyprctl")
+/// Run Hyprland's Lua dispatcher on `lua` through the program `hyprctl`.
+async fn dispatch(hyprctl: &Path, lua: &str) -> Result<Output, WindowError> {
+    Command::new(hyprctl)
         .args(["dispatch", lua])
         .output()
         .await
@@ -93,11 +120,11 @@ fn said(output: &Output) -> String {
 }
 
 /// Set Hyprland's `no_screen_share` on every window of the processes `pids`.
-async fn share(pids: &[u32], hidden: bool) -> Result<(), WindowError> {
+async fn share(hyprctl: &Path, pids: &[u32], hidden: bool) -> Result<(), WindowError> {
     if pids.is_empty() {
         return Ok(());
     }
-    let output = dispatch(&share_script(pids, hidden)).await?;
+    let output = dispatch(hyprctl, &share_script(pids, hidden)).await?;
     if output.status.success() {
         Ok(())
     } else {
@@ -147,14 +174,14 @@ end)()"#
 /// Leave out of screen sharing each eco window that opens while `hidden` lists
 /// processes, as Hyprland's event socket `events` reports it; connects again
 /// every second while the socket is down.
-async fn follow(events: PathBuf, hidden: Arc<Mutex<Vec<u32>>>) {
+async fn follow(hyprctl: PathBuf, events: PathBuf, hidden: Arc<Mutex<Vec<u32>>>) {
     loop {
         if let Ok(stream) = UnixStream::connect(&events).await {
             let mut lines = BufReader::new(stream).lines();
             while let Ok(Some(line)) = lines.next_line().await {
                 if opens_eco_window(&line) {
                     let pids = hidden.lock().expect("not poisoned").clone();
-                    if let Err(error) = share(&pids, true).await {
+                    if let Err(error) = share(&hyprctl, &pids, true).await {
                         eprintln!("eco: {error}");
                     }
                 }
@@ -175,7 +202,14 @@ fn opens_eco_window(event: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+    use std::time::Instant;
+
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::UnixListener;
+
     use super::*;
+    use crate::adapters::fake_program::fake_program;
 
     #[test]
     fn only_an_eco_window_opening_counts() {
@@ -208,5 +242,150 @@ mod tests {
             "{script}"
         );
         assert!(share_script(&[12], false).contains(r#"value = "0""#));
+    }
+
+    /// A hyprctl that notes each call's arguments, one file per call in
+    /// `dir/calls`, and runs `answer` for its reply.
+    fn hyprctl(dir: &Path, answer: &str) -> PathBuf {
+        let calls = dir.join("calls");
+        fs::create_dir(&calls).unwrap();
+        fake_program(
+            dir,
+            "hyprctl",
+            &format!(
+                r#"n=$(ls '{calls}' | wc -l)
+printf '%s\n%s' "$1" "$2" > '{calls}'/$n
+{answer}"#,
+                calls = calls.display()
+            ),
+        )
+    }
+
+    /// The calls hyprctl received, in order: its arguments, one per line.
+    fn calls(dir: &Path) -> Vec<String> {
+        let mut found: Vec<(usize, String)> = fs::read_dir(dir.join("calls"))
+            .unwrap()
+            .map(|entry| {
+                let entry = entry.unwrap();
+                let number = entry.file_name().to_str().unwrap().parse().unwrap();
+                (number, fs::read_to_string(entry.path()).unwrap())
+            })
+            .collect();
+        found.sort();
+        found.into_iter().map(|(_, call)| call).collect()
+    }
+
+    /// The calls once there are `count` of them; waits up to five seconds.
+    async fn calls_once(dir: &Path, count: usize) -> Vec<String> {
+        let started = Instant::now();
+        loop {
+            let found = calls(dir);
+            if found.len() >= count || started.elapsed() > Duration::from_secs(5) {
+                return found;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn focus_retries_until_the_window_shows() {
+        let dir = tempfile::tempdir().unwrap();
+        let program = hyprctl(
+            dir.path(),
+            r#"[ "$n" -lt 2 ] && echo "error: no eco window yet" && exit 0
+echo ok"#,
+        );
+        let windows = HyprlandWindows::new(program, None);
+        windows.focus(42).await.unwrap();
+        let calls = calls(dir.path());
+        assert_eq!(calls.len(), 3);
+        assert_eq!(calls[0], format!("dispatch\n{}", focus_script(42)));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn focus_gives_up_with_what_hyprland_last_said() {
+        let dir = tempfile::tempdir().unwrap();
+        let program = hyprctl(dir.path(), "echo 'no eco window yet' >&2; exit 3");
+        let windows = HyprlandWindows::new(program, None);
+        let error = windows.focus(42).await.unwrap_err();
+        assert_eq!(
+            error.0,
+            "Hyprland could not focus the eco window (exit status: 3: no eco window yet)"
+        );
+        assert_eq!(calls(dir.path()).len(), 50);
+    }
+
+    #[tokio::test]
+    async fn a_missing_hyprctl_is_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("hyprctl");
+        let windows = HyprlandWindows::new(missing, None);
+        let error = windows.focus(42).await.unwrap_err();
+        assert!(error.0.starts_with("hyprctl: "), "{}", error.0);
+    }
+
+    #[tokio::test]
+    async fn sharing_dispatches_the_script_for_the_processes() {
+        let dir = tempfile::tempdir().unwrap();
+        let program = hyprctl(dir.path(), "exit 0");
+        let windows = HyprlandWindows::new(program, None);
+        windows.hide_from_share(vec![12], true).await.unwrap();
+        windows.hide_from_share(vec![12], false).await.unwrap();
+        windows.hide_from_share(Vec::new(), true).await.unwrap();
+        assert_eq!(
+            calls(dir.path()),
+            [
+                format!("dispatch\n{}", share_script(&[12], true)),
+                format!("dispatch\n{}", share_script(&[12], false)),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_refused_share_says_what_hyprland_said() {
+        let dir = tempfile::tempdir().unwrap();
+        let program = hyprctl(dir.path(), "echo 'no such prop'; exit 1");
+        let windows = HyprlandWindows::new(program, None);
+        let error = windows.hide_from_share(vec![12], true).await.unwrap_err();
+        assert_eq!(
+            error.0,
+            "Hyprland could not set no_screen_share on the eco windows \
+             (exit status: 1: no such prop)"
+        );
+    }
+
+    /// An eco window opening while sharing is off for eco's windows is left
+    /// out too, also after the event socket went down and came back; showing
+    /// them again, or dropping the control, stops following.
+    #[tokio::test]
+    async fn each_eco_window_that_opens_is_left_out_while_hidden() {
+        let dir = tempfile::tempdir().unwrap();
+        let program = hyprctl(dir.path(), "exit 1");
+        let socket = dir.path().join(".socket2.sock");
+        let events = UnixListener::bind(&socket).unwrap();
+        let windows = HyprlandWindows::new(program, Some(socket));
+        let shared = format!("dispatch\n{}", share_script(&[7], true));
+
+        assert!(windows.hide_from_share(vec![7], true).await.is_err());
+        let (first, _) = events.accept().await.unwrap();
+        drop(first);
+        let (mut stream, _) = events.accept().await.unwrap();
+        stream
+            .write_all(b"openwindow>>55d1,1,firefox,x\nopenwindow>>55d2,1,eco,eco\n")
+            .await
+            .unwrap();
+        assert_eq!(
+            calls_once(dir.path(), 2).await,
+            [shared.clone(), shared.clone()]
+        );
+
+        assert!(windows.hide_from_share(vec![7], true).await.is_err());
+        windows.hide_from_share(vec![7], false).await.unwrap_err();
+        assert_eq!(stream.read(&mut [0; 1]).await.unwrap(), 0, "unfollowed");
+
+        assert!(windows.hide_from_share(vec![7], true).await.is_err());
+        let (mut stream, _) = events.accept().await.unwrap();
+        drop(windows);
+        assert_eq!(stream.read(&mut [0; 1]).await.unwrap(), 0, "dropped");
     }
 }
