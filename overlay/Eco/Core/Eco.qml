@@ -163,6 +163,9 @@ Singleton {
   property var notice: []
   readonly property string message: notice.map(part => part.key ? I18n.t(part.key, part.args) : part.text).join("  ·  ")
   property bool messageIsError: false
+  // Whether the notice is an error of the live capture or its transcription,
+  // which a session that ends or is left takes with it.
+  property bool noticeLive: false
   // Counts notices, so the status line shows a new one without re-showing an
   // old one whose text merely changed language.
   property int noticeCount: 0
@@ -426,6 +429,7 @@ Singleton {
   // goes back to the sessions as they were searched and filtered, where the live
   // ones are a filter away.
   function leaveSession() {
+    forgetLive()
     stored = null
     timeline.clear()
     shown = ""
@@ -512,6 +516,7 @@ Singleton {
   function tell(parts, isError) {
     notice = parts.map(part => ({ key: part[0], args: part[1] || {} }))
     messageIsError = isError
+    noticeLive = false
     noticeCount += 1
   }
 
@@ -519,7 +524,17 @@ Singleton {
   function say(text, isError) {
     notice = text ? [{ text: text }] : []
     messageIsError = isError
+    noticeLive = false
     noticeCount += 1
+  }
+
+  // The codes of errors about the live capture and its transcription.
+  readonly property var liveCodes: ["capture.", "transcription.", "echo_cancel.", "diarization.", "stt."]
+  // forgetLive clears a notice about the live capture once the session it was
+  // about ends or is left: the sessions would read it as their own.
+  function forgetLive() {
+    if (noticeLive)
+      say("", false)
   }
 
   // kindName labels a kind: the four built in read in the interface language,
@@ -771,6 +786,8 @@ Singleton {
       // Nothing is being said into a session that does not record.
       if (session !== null && session.state !== "recording")
         partials = []
+      if (!live.some(item => item.state === "recording"))
+        forgetLive()
       settleLinks()
       break
     case "session_opened":
@@ -1134,6 +1151,7 @@ Singleton {
         tell([["error." + event.code, event.params]], true)
       else
         say(event.message, true)
+      noticeLive = liveCodes.some(code => (event.code || "").startsWith(code))
       break
     }
     }

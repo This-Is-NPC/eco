@@ -52,6 +52,21 @@ Item {
       root.check("the card waits before the first word", root.shows(card, waiting))
       card.text = "Kafka"
       root.check("the card no longer waits once words arrive", !root.shows(card, waiting))
+
+      // A capture error goes with the last recording session; others stay.
+      const recording = { id: "s1", title: "Retro", kind: "meeting", source: "live", state: "recording", running_since: null }
+      Eco.handle({ type: "session", live: [recording] })
+      Eco.handle({ type: "error", code: "capture.stopped", params: { detail: "gone" }, message: "capture stopped: gone" })
+      root.check("a capture error shows while the session records", Eco.message !== "")
+      Eco.handle({ type: "session", live: [] })
+      root.check("a capture error goes when the session ends", Eco.message === "")
+      Eco.handle({ type: "session", live: [recording] })
+      Eco.handle({ type: "error", code: "transcription.failed", params: { who: "Eles", detail: "x" }, message: "x" })
+      Eco.leaveSession()
+      root.check("a transcription error goes when the session is left", Eco.message === "")
+      Eco.handle({ type: "error", code: "import.failed", params: { detail: "bad.mp4" }, message: "import: bad.mp4" })
+      Eco.handle({ type: "session", live: [] })
+      root.check("an import error stays when a session ends", Eco.message !== "")
       Qt.exit(root.failed)
     }
   }

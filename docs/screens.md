@@ -235,8 +235,11 @@ turns green, `Transcription back`, with `· N s of audio lost` when an outage
 outlasted the five minutes eco holds; it goes with the source's next line, or
 ten seconds later. A device that cannot be opened, or stops, reads
 `Device not heard · opening it again` on the same line, with why on hover,
-while the other sources go on; eco opens it again until it is heard. Nothing
-here is a key or a button. The picture is the live
+while the other sources go on; eco opens it again until it is heard. An error
+of the capture or its transcription on the status line — a capture that
+stopped, a line that could not be transcribed — goes when the last recording
+session ends or you leave the session, so the sessions list never shows it.
+Nothing here is a key or a button. The picture is the live
 session fed one source down and the other back, from
 `scripts/shots/fixtures/outage.json`: the replay transcribes nothing, so no
 provider went down to take it.
