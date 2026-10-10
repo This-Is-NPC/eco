@@ -42,6 +42,10 @@ impl AudioDevices for Wasapi {
         Box::new(WasapiSource(defaults().swap_remove(0)))
     }
 
+    fn cancels_echo(&self) -> bool {
+        false
+    }
+
     fn cancel_echo(&self, _: &str) -> BoxFuture<'static, Result<EchoCancelling, EchoError>> {
         async { Err(EchoError::Unavailable) }.boxed()
     }
@@ -308,6 +312,7 @@ mod tests {
 
     #[tokio::test]
     async fn echo_cancellation_is_not_available() {
+        assert!(!Wasapi.cancels_echo());
         assert!(matches!(
             Wasapi.cancel_echo(DEFAULT_INPUT).await,
             Err(EchoError::Unavailable)

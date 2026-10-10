@@ -329,6 +329,7 @@ Window {
         devices: Eco.devices
         colors: window.draft.colors || {}
         audio: window.draft.audio || {}
+        echoCancelError: Eco.echoCancelError
         errors: window.errors
         onChanged: participants => window.update(d => d.participants = participants)
         onRecolored: colors => window.update(d => d.colors = colors)

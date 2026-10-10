@@ -382,7 +382,7 @@
   "audio.drop_echoes": "DROP ECHOES",
   "audio.drop_echoes_tip": "A line of yours that repeats what the others just said is their audio leaking into your microphone: it is dropped",
   "audio.echo_cancel": "ECHO CANCELLATION",
-  "audio.echo_cancel_tip": "While a session records, PipeWire removes from your microphone what the default output plays",
+  "audio.echo_cancel_tip": "While a session records, what the default output plays is taken out of your microphone",
   "audio.refresh": "REFRESH",
   "audio.refresh_tip": "Read the PipeWire devices again",
   "device.default_input": "Default microphone",

@@ -67,6 +67,8 @@ pub trait AudioDevices: Send + Sync {
     /// The microphone `cancel_echo` runs on, with what the default output plays
     /// taken out; it hears only while that cancellation runs.
     fn capture_cancelled(&self) -> Box<dyn AudioSource>;
+    /// Whether `cancel_echo` can run here; when not, it fails with `Unavailable`.
+    fn cancels_echo(&self) -> bool;
     /// Start cancelling, on `mic` (a device id), what the default output plays.
     fn cancel_echo(&self, mic: &str) -> BoxFuture<'static, Result<EchoCancelling, EchoError>>;
 }

@@ -83,7 +83,8 @@ Under **YOUR MICROPHONE**:
 - **ECHO CANCELLATION** — off by default. While a session records, PipeWire's
   echo canceller removes from your microphone what the **default output** plays.
   It costs about 3% of one core while recording, and only works against the
-  default output. On Windows there is none: see What can go wrong.
+  default output. On Windows there is none: the tab says so in place of what
+  the option does; see What can go wrong.
 
 ## 5. Save
 

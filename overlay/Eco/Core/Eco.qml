@@ -215,6 +215,8 @@ Singleton {
   property string omapassError: ""
   // Whether omapass is on this machine, and the page that tells how to install it.
   property bool omapassInstalled: true
+  // The error code that says why echo cancellation cannot run here, or "".
+  property string echoCancelError: ""
   property string omapassPage: ""
   // Provider presets by model type, from the daemon: {chat: [...], transcription: [...]},
   // each {name, values} with the model fields it sets.
@@ -1076,6 +1078,7 @@ Singleton {
       devices = event.devices
       omapassInstalled = event.omapass.installed
       omapassPage = event.omapass.page
+      echoCancelError = event.echo_cancel || ""
       break
     case "devices":
       devices = event.devices

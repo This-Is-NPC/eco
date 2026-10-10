@@ -1563,10 +1563,13 @@ impl Session {
             ("config", None) => {
                 let config = self.current.to_value();
                 let listed = self.rig.audio.list();
+                // Why echo cancellation cannot run here, as the code a session would say.
+                let echo_cancel =
+                    (!self.rig.audio.cancels_echo()).then_some("echo_cancel.unavailable");
                 self.background.spawn(async move {
                     let devices = serde_json::to_value(listed.await).unwrap_or_default();
                     let omapass = json!({"installed": omapass::installed(), "page": omapass::PAGE});
-                    emit(json!({"type": "config", "config": config, "devices": devices, "omapass": omapass, "presets": presets()}));
+                    emit(json!({"type": "config", "config": config, "devices": devices, "omapass": omapass, "presets": presets(), "echo_cancel": echo_cancel}));
                 });
             }
             ("devices", None) => {
@@ -2347,6 +2350,10 @@ mod tests {
 
         fn capture_cancelled(&self) -> Box<dyn AudioSource> {
             self.source("cancelled".into())
+        }
+
+        fn cancels_echo(&self) -> bool {
+            !self.echo_unavailable
         }
 
         fn cancel_echo(&self, mic: &str) -> BoxFuture<'static, Result<EchoCancelling, EchoError>> {
@@ -3526,6 +3533,7 @@ mod tests {
         assert_eq!(config["devices"][2]["id"], "usb-mic");
         assert_eq!(config["presets"], presets());
         assert_eq!(config["omapass"]["page"], omapass::PAGE);
+        assert_eq!(config["echo_cancel"], Value::Null);
         d.line("devices").await;
         let devices = d.until(|event| event["type"] == "devices").await;
         assert_eq!(devices["devices"], config["devices"]);
@@ -4261,6 +4269,10 @@ mod tests {
             ..FakeAudio::default()
         });
         let mut d = daemon_on(raw, audio, no_diarizer());
+        // The settings are told before any session starts.
+        d.line("config").await;
+        let config = d.until(|event| event["type"] == "config").await;
+        assert_eq!(config["echo_cancel"], "echo_cancel.unavailable");
         d.start("Retro").await;
         d.configured().await;
         let unavailable = d

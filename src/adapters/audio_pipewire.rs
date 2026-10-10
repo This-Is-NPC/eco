@@ -31,6 +31,10 @@ impl AudioDevices for PipeWire {
         Box::new(PipeWireSource::cancelled())
     }
 
+    fn cancels_echo(&self) -> bool {
+        true
+    }
+
     fn cancel_echo(&self, mic: &str) -> BoxFuture<'static, Result<EchoCancelling, EchoError>> {
         let mic = mic.to_owned();
         async move {

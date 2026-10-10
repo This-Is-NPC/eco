@@ -382,7 +382,7 @@
   "audio.drop_echoes": "DESCARTAR ECOS",
   "audio.drop_echoes_tip": "Uma fala sua que repete o que os outros acabaram de dizer é o áudio deles vazando no seu microfone: ela é descartada",
   "audio.echo_cancel": "CANCELAMENTO DE ECO",
-  "audio.echo_cancel_tip": "Enquanto a sessão grava, o PipeWire tira do seu microfone o que a saída padrão está tocando",
+  "audio.echo_cancel_tip": "Enquanto a sessão grava, o que a saída padrão está tocando é tirado do seu microfone",
   "audio.refresh": "ATUALIZAR",
   "audio.refresh_tip": "Lê de novo os dispositivos do PipeWire",
   "device.default_input": "Microfone padrão",

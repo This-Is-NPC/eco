@@ -382,7 +382,7 @@
   "audio.drop_echoes": "エコーを除外",
   "audio.drop_echoes_tip": "相手の発言をほぼ繰り返すあなたの行は、マイクに漏れた相手の音声として除外します",
   "audio.echo_cancel": "エコーキャンセル",
-  "audio.echo_cancel_tip": "セッション録音中、既定の出力で再生中の音を PipeWire がマイクから除去します",
+  "audio.echo_cancel_tip": "セッション録音中、既定の出力で再生中の音をマイクから除去します",
   "audio.refresh": "更新",
   "audio.refresh_tip": "PipeWire のデバイスを読み直します",
   "device.default_input": "既定のマイク",
