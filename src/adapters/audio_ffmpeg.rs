@@ -218,6 +218,7 @@ mod tests {
         assert_eq!(decoded.stdout.len(), SAMPLE_RATE as usize * 2);
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn a_broken_file_is_an_error() {
         let directory = tempfile::tempdir().unwrap();
