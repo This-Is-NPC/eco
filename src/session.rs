@@ -300,6 +300,15 @@ async fn build(models: &Models, listening: &Listening) -> Result<Stt, String> {
     stt.map_err(|reason| format!("{name}: {reason}"))
 }
 
+/// Tells the sessions an input is heard again when dropped: its capture stopped.
+struct HeardAgain<'a>(&'a Assistant, &'a str);
+
+impl Drop for HeardAgain<'_> {
+    fn drop(&mut self) {
+        self.0.input_heard(self.1, true);
+    }
+}
+
 struct Channels {
     inputs: Vec<Input>,
     audio: Arc<dyn AudioDevices>,
@@ -463,7 +472,14 @@ impl Work for Channels {
                     // other inputs keep capturing meanwhile.
                     let who = input.participant.as_str();
                     let _stopped = outages.until_stopped(who);
-                    let trouble = |trouble: Trouble| emit(outages.note(who, &trouble));
+                    // The sessions count the inputs heard; one that stops is heard again.
+                    let _heard = HeardAgain(assistant, &input.id);
+                    // A source is told only unheard, or back.
+                    let trouble = |trouble: Trouble| {
+                        let back = !matches!(trouble, Trouble::Unheard(_));
+                        assistant.input_heard(&input.id, back);
+                        emit(outages.note(who, &trouble));
+                    };
                     let reopen: Reopen = input.reopens.then_some(&trouble);
                     // Outside a session the audio is only measured, never segmented.
                     if !recording {
@@ -4332,6 +4348,11 @@ mod tests {
             (&line["who"], &line["text"]),
             (&json!("Recrutador"), &json!("bom dia"))
         );
+        // The session counts only the input heard.
+        let shown = d.session.assistant.snapshot()[0]["session"]["id"].clone();
+        let records = d.session.log.read(shown.as_str().unwrap()).unwrap();
+        let counted = records.iter().rfind(|r| r["type"] == "transcriber");
+        assert_eq!(counted.unwrap()["inputs"], 1);
         let stopped = d
             .events
             .lock()

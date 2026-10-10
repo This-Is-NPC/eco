@@ -658,7 +658,11 @@ its provider reported (`usd`, null when it reported none); a removed answer was
 still paid. Whenever a session starts transcribing with another model, on
 another number of inputs, or at another price, a `transcriber` record says so
 (`model` null for a WebVTT import, which nothing transcribes; `per_minute`, the
-model's `price_per_minute` then, when it has one).
+model's `price_per_minute` then, when it has one). `inputs` counts the inputs
+heard: one whose source cannot be heard (`capture.down`, §4) streams nothing, so
+it leaves the count when it goes down and comes back into it when it is heard
+again, each time with a record of its own; capture is not told, so no running
+transcriber restarts.
 
 A provider that bills by request names it: Deepgram's `dg-request-id` header on
 the WebSocket upgrade, and `metadata.request_id` in the reply to each segment of
@@ -694,7 +698,7 @@ age. An answer's or review's `spent` record names the answer (`answer`).
 
 A session's `cost` is read from its log: `llm_usd` sums the completions'
 reported costs, `transcribed_s` gives the seconds of audio each model heard —
-its run time once per input, as every input streams on its own — and
+its run time once per input heard, as every input streams on its own — and
 `transcription_usd` sums the requests' reported costs. `price_per_minute` is
 optional and empty by default: when the user gives one, it prices only what no
 reported cost covers — a billed request not priced (yet), or the time of a model
