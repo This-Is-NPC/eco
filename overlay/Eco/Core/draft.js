@@ -161,9 +161,10 @@ function problems(d) {
   if (!languages.length || languages.some(code => code !== "auto" && !/^[a-z]{2,3}$/.test(code))
       || new Set(languages).size !== languages.length || !languages.includes(d.stt.language))
     add(2, "stt.languages", "settings.invalid_languages")
-  if (!typed("transcription").includes(d.stt.model.trim()))
+  // A default may name no model, as before any is registered; one it names is registered.
+  if (d.stt.model.trim() && !typed("transcription").includes(d.stt.model.trim()))
     add(2, "stt.model", "settings.invalid_transcriber")
-  if (!typed("chat").includes(d.llm.model.trim()))
+  if (d.llm.model.trim() && !typed("chat").includes(d.llm.model.trim()))
     add(3, "llm.model", "settings.invalid_assistant")
   names(3, (d.contexts || []).map(slot => slot.name), i => "contexts." + i, true)
   if (d.reviewer && d.reviewer.enabled && !typed("chat").includes(d.reviewer.model.trim()))

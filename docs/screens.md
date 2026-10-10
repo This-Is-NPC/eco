@@ -593,7 +593,10 @@ applies to every eco window at once, and to each one that opens later.
 **What keeps the draft from saving** shows on its own field: an outline in the
 error colour and the reason under it, and a dot on the tab that holds it. A
 repeated name or a space in a skill's name shows as it is typed; a missing value
-once a save is tried. The line above the buttons only counts them:
+once a save is tried. No model is required: before any is registered, the
+draft saves with no default transcription or assistant model, and sessions say
+none is chosen until one is; a default that names a model names a registered
+one. The line above the buttons only counts them:
 
 ![The Skills tab with a dot after "05 SKILLS"; the minutes card open and renamed "weekly minutes", its NAME field outlined in red with "No spaces: shortcuts call a skill by its name." under it, and in amber the warning that global shortcuts call a skill by its name; above CLOSE, in amber, "1 field needs fixing before saving."](img/51-settings-errors.png)
 

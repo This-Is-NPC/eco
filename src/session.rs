@@ -3570,6 +3570,17 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_config_without_models_is_saved() {
+        let mut d = daemon(raw());
+        let fresh = json!({"ui": {"hide_from_share": true}, "token": "secret"});
+        let events = d.line(&format!("config.set {fresh}")).await;
+        assert_eq!(said(&events), ["config_saved"]);
+        let written = config::load(&d.session.config_path).unwrap();
+        assert!(written.models.is_empty());
+        assert!(written.hide_from_share);
+    }
+
+    #[tokio::test]
     async fn a_config_that_cannot_be_read_or_written_is_not_saved() {
         let mut d = daemon(raw());
         let events = d.line("config.set {").await;
