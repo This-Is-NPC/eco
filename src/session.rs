@@ -1268,9 +1268,8 @@ impl Session {
     /// Handle one line from the socket: the windows' own, or a command; false
     /// once the daemon should stop.
     async fn handle(&mut self, line: &str) -> bool {
-        // Opening the app again opens another window.
         if line.trim() == "overlay.open" {
-            self.open_window(None).await;
+            self.open_app().await;
         } else if let ("window.call", Some(payload)) = split(line)
             && let Some(call) = window_call(payload)
         {
@@ -1300,6 +1299,22 @@ impl Session {
         let hidden = self.current.hide_from_share;
         self.windows.hide_from_share(hidden).await;
         true
+    }
+
+    /// Opening the app: a window on a live session no window shows, else the
+    /// open window brought forward, else a window.
+    async fn open_app(&mut self) {
+        let shown = self.windows.shown();
+        let unshown = self.assistant.live().iter().any(|id| !shown.contains(id));
+        match self.windows.newest().filter(|_| !unshown) {
+            Some(number) => {
+                if let Err(error) = self.windows.focus(number).await {
+                    eprintln!("eco: {error}");
+                }
+                (self.emit)(json!({"type": "overlay_status", "open": true, "raised": true}));
+            }
+            None => self.open_window(None).await,
+        }
     }
 
     /// Open another overlay window that shows a live session no window shows,
@@ -3741,19 +3756,39 @@ mod tests {
         let mut d = daemon(raw());
         let first = d.start("Retro").await;
         let second = d.start("1:1").await;
-        for _ in 0..3 {
+        for _ in 0..2 {
             let events = d.line("overlay.open").await;
             assert_eq!(events, [json!({"type": "overlay_status", "open": true})]);
         }
         assert_eq!(
             d.asked(),
-            [
-                format!("open {second} "),
-                format!("open {first} "),
-                "open  ".into()
-            ]
+            [format!("open {second} "), format!("open {first} ")]
         );
         assert!(d.session.overlay_open.load(Ordering::Relaxed));
+    }
+
+    #[tokio::test]
+    async fn opening_the_app_again_brings_the_open_window_forward() {
+        let mut d = daemon(raw());
+        d.line("overlay.open").await;
+        let events = d.line("overlay.open").await;
+        assert_eq!(
+            events,
+            [json!({"type": "overlay_status", "open": true, "raised": true})]
+        );
+        assert_eq!(d.asked(), ["open  ", "focus 1"]);
+        // A window that cannot take the keyboard is still open.
+        d.desk.lock().unwrap().refuse = true;
+        let events = d.line("overlay.open").await;
+        assert_eq!(
+            events,
+            [json!({"type": "overlay_status", "open": true, "raised": true})]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_window_that_fails_to_open_says_why() {
+        let mut d = daemon(raw());
         d.desk.lock().unwrap().refuse = true;
         let events = d.line("overlay.open").await;
         assert_eq!(

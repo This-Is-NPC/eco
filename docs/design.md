@@ -1140,7 +1140,10 @@ and `session.note <json>` (`{"id","text"}`)
 open one),
 `session.export <id>` (the transcript as WebVTT:
 `{"type":"session_export","id","format":"vtt","text"}`),
-`overlay.open` (open another window and return `overlay_status`),
+`overlay.open` (open the app: another window on a live session no window
+shows, else the newest window brought forward, else a window; then
+`overlay_status`, with `"raised": true` when an open window was brought
+forward),
 `session.import <json>` (`{"path"}`, optionally `"title"`, `"kind"`,
 `"language"`, `"participant"`, `"started_at"` in seconds since the epoch),
 `import.date <path>` (when the file was recorded, as an import without
@@ -1238,8 +1241,10 @@ A QtQuick `Window` titled `eco` (720×680), opened by
 `eco start` (`--headless` skips it). It is a normal Hyprland window, so the user
 moves and resizes it freely; `packaging/hypr/eco.lua` floats it, pins it to
 every workspace and keeps its size. Each window is its own `eco-window` process
-(§3), numbered by the daemon (`ECO_WINDOW`). Opening the app opens another window,
-showing a live session no window shows, if there is one (`ECO_SHOW`). It
+(§3), numbered by the daemon (`ECO_WINDOW`). Opening the app opens another window
+on a live session no window shows, if there is one (`ECO_SHOW`); else it brings
+the newest open window forward through the same window control as `eco window
+focus`, and only with none open opens one. It
 reconnects to the socket on its own.
 
 - **Without a session:** the live trace of every input in the room above the
@@ -1313,8 +1318,9 @@ reconnects to the socket on its own.
   snapshot: `{kind: {"transcription", "chat"}}`), scrolls in a short window with
   its buttons kept below, and without an input it cannot start: it says so and
   offers the Audio settings.
-- **Several windows:** opening the app again always opens another window, to
-  start the next session in. The session view shows no other session: leaving
+- **Several windows:** opening the app again opens another window on a live
+  session no window shows, and otherwise brings the open one forward. The
+  session view shows no other session: leaving
   it (it keeps recording) goes to SESSIONS as it was searched and filtered,
   whose LIVE filter lists the live ones, any of which shows in that window when
   opened.

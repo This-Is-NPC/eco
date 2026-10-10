@@ -51,7 +51,7 @@ Also publish the `eco` skill to these agent harnesses: agents, claude-code
 
 - **Usage**: `eco start [--headless]`
 
-Start the daemon service and open its window
+Start the daemon service and open its window, or bring the open one forward
 
 ### Flags
 

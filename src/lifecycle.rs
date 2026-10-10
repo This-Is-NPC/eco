@@ -108,7 +108,9 @@ fn reason(output: &str) -> Option<String> {
     )
 }
 
-async fn open(mut daemon: Daemon) -> Result<()> {
+/// Ask `daemon` for its window and return what to say once it is in front:
+/// opened, or the one already open brought forward.
+async fn open(mut daemon: Daemon) -> Result<&'static str> {
     daemon.stream.get_mut().write_all(b"overlay.open\n").await?;
     let mut line = String::new();
     loop {
@@ -122,8 +124,10 @@ async fn open(mut daemon: Daemon) -> Result<()> {
         let event: Value = serde_json::from_str(&line).context("invalid eco socket response")?;
         if event["type"] == "overlay_status" {
             if event["open"] == true {
-                println!("eco: window opened");
-                return Ok(());
+                return Ok(match event["raised"] == true {
+                    true => "eco: window already open, brought forward",
+                    false => "eco: window opened",
+                });
             }
             bail!(
                 "eco window failed: {}",
@@ -157,7 +161,8 @@ pub async fn start(
         }
     };
     if show_window {
-        open(daemon).await
+        println!("{}", open(daemon).await?);
+        Ok(())
     } else {
         println!("eco: daemon running");
         Ok(())
@@ -408,7 +413,36 @@ mod tests {
                 .unwrap();
         });
         let daemon = connect(&path).await.unwrap().unwrap();
-        open(daemon).await.unwrap();
+        assert_eq!(open(daemon).await.unwrap(), "eco: window opened");
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_window_already_open_is_said_to_be_brought_forward() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = socket_in(&directory);
+        let listener = FakeListener::bind(&path).await;
+        let server = tokio::spawn(async move {
+            let mut stream = listener.accept().await.unwrap();
+            stream
+                .write_all(greeting(1, true).as_bytes())
+                .await
+                .unwrap();
+            let mut line = String::new();
+            BufReader::new(&mut stream)
+                .read_line(&mut line)
+                .await
+                .unwrap();
+            stream
+                .write_all(b"{\"type\":\"overlay_status\",\"open\":true,\"raised\":true}\n")
+                .await
+                .unwrap();
+        });
+        let daemon = connect(&path).await.unwrap().unwrap();
+        assert_eq!(
+            open(daemon).await.unwrap(),
+            "eco: window already open, brought forward"
+        );
         server.await.unwrap();
     }
 

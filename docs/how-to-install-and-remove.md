@@ -161,7 +161,9 @@ eco: window opened
 
 Or open **eco** from the launcher, which runs the same command. `eco start`
 starts the user service when nothing answers on the socket, waits for the
-daemon, and asks it for a window. Each `eco start` opens one more window.
+daemon, and asks it for a window. With a window already open, it brings that
+window forward instead and says `eco: window already open, brought forward`; it
+opens another only for a live session no window shows.
 
 ![eco's start screen: the masthead "ECO / READY", an input trace swinging across the top, the buttons NEW SESSION, SESSIONS, IMPORT and PEOPLE, and below them "Outside a session the signal is only measured: nothing is transcribed or recorded."](img/01-start.png)
 

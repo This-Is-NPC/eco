@@ -113,8 +113,9 @@ eco start
 ```
 
 `eco start` starts the daemon's user service if nothing answers on the socket
-and opens a window (`--headless` leaves it closed). Opening the app again opens
-another window; each is its own `eco-window` process.
+and opens a window (`--headless` leaves it closed). Opening the app again brings
+the open window forward, or opens another on a live session no window shows;
+each window is its own `eco-window` process.
 
 ![The start screen: the masthead "ECO / READY" with the settings button on the right; a wide input trace swinging in two bursts with a flat stretch between them; four stacked buttons, NEW SESSION lit as the primary one, then SESSIONS, IMPORT and PEOPLE; under them "Outside a session the signal is only measured: nothing is transcribed or recorded."](img/01-start.png)
 
@@ -657,6 +658,6 @@ config's.
 **Measurements.** `eco bench` and `mise run bench` print to the terminal; see
 [benchmarks.md](benchmarks.md).
 
-**Two sessions in one window.** A window shows one session. Opening the app
-again opens another window to start the next one in, and SESSIONS › LIVE is
-where every live session can be found.
+**Two sessions in one window.** A window shows one session. A session started
+while another records takes the window; the other keeps recording under
+SESSIONS › LIVE, and opening the app again opens a second window on it.
