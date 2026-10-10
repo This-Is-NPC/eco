@@ -1,0 +1,13 @@
+module Eco.Lab
+ButtonMotionSample 1.0 ButtonMotionSample.qml
+ControlLab 1.0 ControlLab.qml
+ControlLabRow 1.0 ControlLabRow.qml
+LabComposer 1.0 LabComposer.qml
+LabDataSamples 1.0 LabDataSamples.qml
+LabFeedbackSamples 1.0 LabFeedbackSamples.qml
+LabIconGallery 1.0 LabIconGallery.qml
+LabMotionSamples 1.0 LabMotionSamples.qml
+LabMotionScreen 1.0 LabMotionScreen.qml
+LabSessionsTable 1.0 LabSessionsTable.qml
+LabSurfaceSample 1.0 LabSurfaceSample.qml
+LabSurfaceSamples 1.0 LabSurfaceSamples.qml

@@ -75,16 +75,16 @@ impl SileroVad {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config;
+    use crate::paths;
 
     /// The same frames give the probabilities the Python daemon computed.
     #[test]
     fn matches_the_python_vad() {
-        let model = config::vad_model();
+        let model = paths::vad_model();
+        let shown = model.display();
         assert!(
             model.exists(),
-            "run `mise run setup` first: {} is missing",
-            model.display()
+            "run `mise run setup` first: {shown} is missing"
         );
         let bytes = include_bytes!("../../tests/fixtures/vad-frames.s16");
         let samples: Vec<i16> = bytes
@@ -105,5 +105,13 @@ mod tests {
                 "frame {index}: rust {rust} python {python}"
             );
         }
+    }
+
+    #[test]
+    fn a_file_that_is_not_a_model_is_an_error() {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(file.path(), "not onnx").unwrap();
+        let error = SileroModel::load(file.path()).err().expect("not a model");
+        assert!(error.to_string().starts_with("VAD: "), "{error}");
     }
 }

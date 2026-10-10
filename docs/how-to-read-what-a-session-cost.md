@@ -127,7 +127,7 @@ nothing: nothing transcribes it.
 Open the session, its details (`⋯`), and press **COST**. The masthead says
 `COST · <title>`; **SESSION** or Esc goes back:
 
-![The cost screen of "Acme onboarding kickoff": TOTAL US$ 0.27 at the top right; "LLM US$ 0.00068  answers US$ 0.00068" and "TRANSCRIPTION US$ 0.27 (35 MIN)"; then three charges — Transcription · 35 min at 14:34 on deepgram, US$ 0.27; Answer · What did we agree on the deadline? at 14:02 on google/gemini-2.5-flash, US$ 0.00027; and Answer · reply at 14:00, US$ 0.00041.](img/27-session-cost.png)
+![The cost screen of "Acme onboarding kickoff": TOTAL US$ 0.27 at the top right; "LLM US$ 0.00068  answers US$ 0.00068" and "TRANSCRIPTION US$ 0.27 (35 MIN)"; then three charges — Transcription · 35 min at 14:34 on deepgram, US$ 0.27; Answer · What did we agree on the deadline? at 14:02 on google/gemini-2.5-flash, US$ 0.00027; and Answer · reply at 14:00, US$ 0.00041.](img/28-session-cost.png)
 
 The total, then the LLM part split into answers, reviews and translations, then
 transcription with its minutes. Below, every charge, newest first: what it was
@@ -136,7 +136,7 @@ amount. A charge with no amount shows `?` and its reason; each reason the
 session has is also said once in full above the list, and a note says when a
 part is estimated. The screen follows a live session while it is open.
 
-![The cost screen of "Northwind backend interview": "TOTAL ≥ US$ 0.35", since a part is unknown; "LLM US$ ? answers US$ ?" and "TRANSCRIPTION US$ 0.35 (45 MIN)"; in amber, "A provider reported no cost for some calls."; "≈ estimated at the price per minute you set for the model."; then "Transcription · 45 min, 09:45 · deepgram, ≈ US$ 0.35" and, in amber, "Answer · reply, 09:00 · google/gemini-2.5-flash, ? not reported".](img/28-session-cost-unknown.png)
+![The cost screen of "Northwind backend interview": "TOTAL ≥ US$ 0.35", since a part is unknown; "LLM US$ ? answers US$ ?" and "TRANSCRIPTION US$ 0.35 (45 MIN)"; in amber, "A provider reported no cost for some calls."; "≈ estimated at the price per minute you set for the model."; then "Transcription · 45 min, 09:45 · deepgram, ≈ US$ 0.35" and, in amber, "Answer · reply, 09:00 · google/gemini-2.5-flash, ? not reported".](img/29-session-cost-unknown.png)
 
 There the provider reported nothing for the answer, so the total is a floor
 (`≥`), and Deepgram did not say what the transcription cost, so the model's

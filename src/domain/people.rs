@@ -126,6 +126,7 @@ mod tests {
         assert!(ranking[0].score > 0.99 && ranking[1].score < 0.2);
         assert_eq!(bruno.voiceprints[0].voice, [0.0, 1.0, 0.0]);
         assert_eq!(ana.similarity(&[0.0, 0.0, 0.0]), 0.0);
+        assert_eq!(Person::new("Carla").similarity(&[0.1, 0.9, 0.0]), 0.0);
     }
 
     #[test]

@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """Write the pictures in docs/img/ from the real overlay.
 
-The checkout's daemon and a copy of overlay/ run offscreen, in a temporary
-home of their own (runtime, data, config, state and cache directories), seeded
-with the synthetic fixtures beside this script. A test-only driver, Drive.qml,
-is added to the copy and evaluates JavaScript sent over `quickshell ipc`: it
-clicks and types as a user would and saves each window as it is drawn. No
-window opens on the desktop and the user's daemon and socket are never touched.
+The checkout's daemon and a copy of overlay/, run by the checkout's
+eco-window, run offscreen, in a temporary home of their own (runtime, data,
+config, state and cache directories), seeded with the synthetic fixtures beside
+this script. A test-only driver, Drive.qml, is added to the copy and evaluates
+JavaScript sent over a socket of its own: it clicks and types as a user would
+and saves each window as it is drawn. No window opens on the desktop and the
+user's daemon and socket are never touched.
 
 Called with a directory, writes the pictures there and leaves docs/img alone.
 """
@@ -32,6 +33,7 @@ HERE = ROOT / "scripts" / "shots"
 FIXTURES = HERE / "fixtures"
 OUT = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else ROOT / "docs" / "img"
 ECO = ROOT / "target" / "debug" / "eco"
+WINDOW = ROOT / "target" / "window" / "eco-window"
 # The temporary home, at a fixed path: the session details show where a session
 # is stored, and the pictures must say the same in every run.
 HOME = Path("/tmp/eco-shots")
@@ -44,6 +46,8 @@ SETTINGS = (1040, 760)
 LIVE = json.loads((FIXTURES / "live.json").read_text())
 # What comes after them: a sent and an unsent hook, a failed answer and one thinking.
 ANSWERS = json.loads((FIXTURES / "answers.json").read_text())
+# One source's transcription down and the other's back, as the daemon tells them.
+OUTAGE = json.loads((FIXTURES / "outage.json").read_text())
 # PipeWire devices to add to a source: under --replay the daemon lists none.
 DEVICES = json.loads((FIXTURES / "devices.json").read_text())
 
@@ -130,10 +134,10 @@ def seed(home):
     shutil.copytree(ROOT / "overlay", home / "overlay")
     shutil.copy(HERE / "Drive.qml", home / "overlay")
     shell = home / "overlay" / "shell.qml"
-    anchor = "  OverlayPanel { id: overlay }\n"
+    anchor = "OverlayPanel {\n  id: overlay\n"
     text = shell.read_text()
     if anchor not in text:
-        fail("overlay/shell.qml no longer declares `OverlayPanel { id: overlay }`; update the driver's anchor")
+        fail("overlay/shell.qml no longer opens with `OverlayPanel { id: overlay`; update the driver's anchor")
     shell.write_text(text.replace(anchor, anchor + "  Drive { overlay: overlay; settings: settings }\n", 1))
 
 
@@ -163,15 +167,28 @@ def start_daemon(home, env):
 
 
 class Window:
-    """The overlay copy, offscreen, and the driver inside it."""
+    """The overlay copy, offscreen, and the driver inside it, which connects to
+    a socket this listens on."""
 
     def __init__(self, home, env):
-        self.env = env
+        drive = home / "run" / "drive.sock"
+        server = socket.socket(socket.AF_UNIX)
+        server.bind(str(drive))
+        server.listen(1)
+        server.settimeout(10)
         self.log = open(home / "overlay.log", "w")
         self.process = subprocess.Popen(
-            ["quickshell", "--path", str(home / "overlay")],
-            env=env, stdout=self.log, stderr=subprocess.STDOUT, start_new_session=True,
+            [str(WINDOW), str(home / "overlay" / "shell.qml")],
+            env=dict(env, ECO_DRIVE=str(drive)), stdout=self.log, stderr=subprocess.STDOUT, start_new_session=True,
         )
+        try:
+            self.link, _ = server.accept()
+        except TimeoutError:
+            fail("the driver did not connect:\n" + (home / "overlay.log").read_text())
+        finally:
+            server.close()
+        self.link.settimeout(60)
+        self.answers = self.link.makefile("r", encoding="utf-8")
         for _ in range(100):
             if self.process.poll() is not None:
                 fail("the overlay exited:\n" + (home / "overlay.log").read_text())
@@ -181,13 +198,13 @@ class Window:
         fail("the overlay did not connect to the daemon")
 
     def js(self, code, quiet=False):
-        done = subprocess.run(
-            ["quickshell", "ipc", "--pid", str(self.process.pid), "call", "drive", "run", code],
-            env=self.env, capture_output=True, text=True,
-        )
-        answer = done.stdout.strip()
-        if not quiet and (done.returncode != 0 or answer.startswith("error:")):
-            fail(f"driver: {answer or done.stderr.strip()}\n  in: {code}")
+        self.link.sendall((json.dumps(code) + "\n").encode())
+        line = self.answers.readline()
+        if not line:
+            fail("the driver closed its socket:\n" + Path(self.log.name).read_text())
+        answer = json.loads(line)
+        if not quiet and answer.startswith("error:"):
+            fail(f"driver: {answer}\n  in: {code}")
         return answer
 
     def do(self, code, wait=0.6):
@@ -301,8 +318,8 @@ PRICING = "3b8f02c6e917"
 TALK = "6e9f3a1b2c48"
 # The settings tabs, with the number of each one's picture.
 SETTINGS_TABS = [
-    ("38", "audio"), ("40", "models"), ("42", "transcription"), ("43", "answers"),
-    ("45", "skills"), ("47", "translation"), ("48", "sessions"), ("49", "interface"),
+    ("39", "audio"), ("41", "models"), ("43", "transcription"), ("44", "answers"),
+    ("46", "skills"), ("48", "translation"), ("49", "sessions"), ("50", "interface"),
 ]
 # A change another program asked for, as the daemon holds it for the user.
 PENDING = {
@@ -365,28 +382,28 @@ def scenes(w, shots, stop):
 
     w.do("Eco.leaveSession()")
     shots.until("Eco.view === 'history' && Eco.sessionsHeard && Eco.sessions.length > 0", "the sessions")
-    shots.take("11-sessions")
+    shots.take("12-sessions")
 
     w.do("return d.click('text=\"#Acme\"')")
     menu('text="#Acme"')
-    shots.take("12-sessions-tag")
+    shots.take("13-sessions-tag")
     menu('text="#Acme"', state="close")
     w.do("let chip = d.find('text=\"#Acme\"'); while (d.kind(chip) !== 'TagChip') chip = chip.parent; chip.deleteRequested()")
-    shots.take("13-sessions-tag-delete")
+    shots.take("14-sessions-tag-delete")
     w.do("d.object('HistoryView').data.find(o => d.kind(o) === 'ConfirmDialog').close()", 0.3)
     w.do("return d.click('text=\"ALL\"')")
     w.do("return d.click('text=\"LIVE')")
-    shots.take("14-sessions-live")
+    shots.take("15-sessions-live")
     w.do("return d.click('text=\"LIVE')")
 
     w.do("return d.type('placeholderText=\"Search', 'VPN')")
     shots.until("Eco.historyFound !== null && Eco.historyAnswered === 'VPN'", "the search")
     w.do("d.blur()")
-    shots.take("15-sessions-search")
+    shots.take("16-sessions-search")
     w.do("return d.type('placeholderText=\"Search', 'quarterly budget')")
     shots.until("Eco.historyAnswered === 'quarterly budget'", "the search")
     w.do("d.blur()")
-    shots.take("16-sessions-empty")
+    shots.take("17-sessions-empty")
     w.do("return d.click('text=\"CLEAR FILTERS')")
 
     def show(session):
@@ -401,74 +418,74 @@ def scenes(w, shots, stop):
         w.do("d.all().find(i => d.kind(i) === 'ListView').positionViewAtEnd()", 0.4)
 
     show(ACME)
-    shots.take("17-session")
+    shots.take("18-session")
     shots.size(*SHORT)
     settle()
-    shots.take("18-session-short")
+    shots.take("19-session-short")
     shots.size(*WIDE)
     show(ACME)
     w.do("return d.click('name=\"more\"')")
-    shots.take("19-session-details")
+    shots.take("20-session-details")
     w.do("Eco.renameRequested(Eco.stored)")
     w.do("d.blur()")
-    shots.take("20-session-edit")
+    shots.take("21-session-edit")
     w.do("d.object('RenameDialog').close()")
     w.do("d.object('AttendeesDialog').open()")
     w.do("d.blur()")
-    shots.take("21-session-people")
+    shots.take("22-session-people")
     w.do("d.object('AttendeesDialog').close()")
     w.do("Eco.deleteRequested(Eco.stored)")
-    shots.take("22-session-delete")
+    shots.take("23-session-delete")
     w.do("d.object('ConfirmDialog').close()")
     menu('label="TRANSLATION')
-    shots.take("24-session-translation")
+    shots.take("25-session-translation")
     menu('label="TRANSLATION', state="close")
     w.do(f"Eco.speakerRequested({{ session: {q(ACME)}, label: 'Speaker 3', name: 'Speaker 3', scope: 'speaker' }})")
     w.do("return d.type('placeholderText=\"Speaker 3', 'Tom Becker')", 0.2)
     w.do("d.blur()")
-    shots.take("26-session-speaker")
+    shots.take("27-session-speaker")
     w.do("d.object('AssignmentDialog').close()")
     w.do("return d.click('text=\"COST\"')")
     shots.until("Eco.cost !== null", "the session's cost")
-    shots.take("27-session-cost")
+    shots.take("28-session-cost")
     w.do("return d.click('text=\"SESSION\"')")
     show(INTERVIEW)
     w.do("return d.click('name=\"more\"')")
     w.do("return d.click('text=\"COST\"')")
     shots.until(f"Eco.cost !== null && Eco.costOf === {q(INTERVIEW)}", "the interview's cost")
-    shots.take("28-session-cost-unknown")
+    shots.take("29-session-cost-unknown")
     w.do("return d.click('text=\"SESSION\"')")
 
     show(TALK)
     w.do("return d.click('name=\"more\"')")
     shots.until(f"Eco.guessesOf({q(TALK)}).length > 0", "the voice guess")
-    shots.take("23-session-guess")
+    shots.take("24-session-guess")
     show(PRICING)
     shots.until("Eco.stored.translating === 'en'", "the translation")
     settle()
-    shots.take("25-session-translated")
+    shots.take("26-session-translated")
     w.do("Eco.leaveSession()")
 
     w.do("Eco.openPeople()")
     shots.until("Eco.view === 'people' && Eco.peopleHeard", "the people")
-    shots.take("29-people")
+    shots.take("30-people")
     w.do("Eco.historyForPerson(Eco.people.find(p => p.name === 'Ana Ribeiro').id)")
     shots.until("Eco.view === 'history'", "the person's sessions")
-    shots.take("30-people-sessions")
+    shots.take("31-people-sessions")
     w.do("Eco.historyPerson = ''; Eco.openPeople()")
     shots.until("Eco.view === 'people'", "the people")
     people = "d.object('PeopleView')"
     w.do(f"{people}.merging = Eco.people.find(p => p.name === 'M. Lee')")
     w.do(f"{people}.pick(Eco.people.find(p => p.name === 'Marcus Lee'))")
-    shots.take("31-people-merge")
+    shots.take("32-people-merge")
     w.do(f"const v = {people}; v.data.filter(o => d.kind(o) === 'ConfirmDialog').forEach(o => o.close()); v.merging = null")
     w.do(f"{people}.forgetting(Eco.people.find(p => p.name === 'Ana Ribeiro'))")
-    shots.take("32-people-forget")
+    shots.take("33-people-forget")
     w.do(f"{people}.data.filter(o => d.kind(o) === 'ConfirmDialog').forEach(o => o.close())")
     w.do("Eco.renameRequested({ newPerson: true })")
     w.do("return d.type('title=\"add person\"', 'Tom Becker')", 0.2)
     w.do("d.blur()")
-    shots.take("33-people-add")
+    shots.take("34-people-add")
     w.do("d.object('RenameDialog').close()")
     w.do("Eco.goBack()")
 
@@ -476,18 +493,18 @@ def scenes(w, shots, stop):
     shots.until("d.object('ImportDialog').recorded !== ''", "the recording's date")
     w.do("return d.type('placeholderText=\"optional', 'Sprint retro')", 0.2)
     w.do("d.blur()")
-    shots.take("34-import")
+    shots.take("35-import")
     w.do("d.object('ImportDialog').close()")
     # An audio import part way through: the replay has no speech to transcribe.
     importing = {"id": "a0b1c2d3e4f5", "title": "Sprint retro", "kind": "meeting", "source": "import", "language": "en", "state": "importing", "started_at": time.time()}
     w.js(f"Eco.handle({q({'type': 'import_started', 'session': importing, 'total_s': 1860})})")
     w.do(f"Eco.handle({q({'type': 'import_progress', 'id': importing['id'], 'done_s': 1150})})")
-    shots.take("35-import-progress")
+    shots.take("36-import-progress")
     w.do("Eco.importing = null")
     w.do("d.object('ShortcutsDialog').open()")
-    shots.take("36-shortcuts")
+    shots.take("37-shortcuts")
     scroll_end("d.object('ShortcutsDialog').contentItem")
-    shots.take("37-shortcuts-end")
+    shots.take("38-shortcuts-end")
     w.do("d.object('ShortcutsDialog').close()")
 
     # Back to the live session: its lines, an answer and a note, from fixtures.
@@ -496,6 +513,10 @@ def scenes(w, shots, stop):
     time.sleep(1)
     feed(live, LIVE)
     shots.take("05-live")
+    for event in OUTAGE:
+        w.js(f"Eco.handle({q(event)})")
+    shots.take("11-live-transcription")
+    w.do("Eco.links = ({})", 0.3)
     shots.size(*SHORT)
     shots.take("10-live-short")
     shots.size(*WIDE)
@@ -531,7 +552,7 @@ def scenes(w, shots, stop):
         if tab == "audio":
             w.do(f"Eco.handle({{ type: 'devices', devices: Eco.devices.concat({q(DEVICES)}) }})")
             menu('label="ADD DEVICE"', 1)
-            shots.take("39-settings-audio-device", "settings")
+            shots.take("40-settings-audio-device", "settings")
             menu('label="ADD DEVICE"', 1, state="close")
         elif tab == "models":
             # The chat model open, from its top.
@@ -542,30 +563,30 @@ def scenes(w, shots, stop):
                 " page.contentY = Math.min(card.mapToItem(page.contentItem, 0, 0).y - 12, page.contentHeight - page.height)",
                 0.4,
             )
-            shots.take("41-settings-model", "settings")
+            shots.take("42-settings-model", "settings")
             w.do("return d.click('title=\"gemini-flash\"')")
         elif tab == "answers":
             scroll_end("settings.contentItem")
-            shots.take("44-settings-answers-end", "settings")
+            shots.take("45-settings-answers-end", "settings")
         elif tab == "skills":
             w.do("return d.click('title=\"reply\"')")
-            shots.take("46-settings-skill", "settings")
+            shots.take("47-settings-skill", "settings")
             w.do("return d.click('title=\"reply\"')")
     # A name that cannot be saved, then closing with it unsaved.
     w.do("Eco.openConfigAt(4)")
     w.do("return d.click('title=\"minutes\"')")
     w.do("return d.type('label=\"NAME\" value=\"minutes\"', 'weekly minutes')")
-    w.do("settings.contentItem.forceActiveFocus()")
-    shots.take("50-settings-errors", "settings")
+    w.do("d.blur('settings')")
+    shots.take("51-settings-errors", "settings")
     w.do("settings.attemptClose()")
-    shots.take("51-settings-unsaved", "settings")
+    shots.take("52-settings-unsaved", "settings")
     w.do("settings.data.filter(o => d.kind(o) === 'ConfirmDialog').forEach(o => o.close()); settings.reset()")
     w.do("Eco.toggleConfig()")
 
     # A change to a hook and a context file another program sent, held for the user.
     w.do(f"Eco.handle({q(PENDING)})")
     w.do("d.blur()")
-    shots.take("52-settings-pending")
+    shots.take("53-settings-pending")
     w.do(f"Eco.handle({q(dict(PENDING, id=None, hooks=[], files=[], models=[]))})")
 
     # The start screen once the daemon is gone.
@@ -576,8 +597,8 @@ def scenes(w, shots, stop):
 
 
 def main():
-    if not shutil.which("quickshell"):
-        fail("quickshell is not installed")
+    if not WINDOW.is_file():
+        fail(f"missing {WINDOW}; run `mise run window:build`")
     subprocess.run(["cargo", "build", "--locked", "--quiet"], cwd=ROOT, check=True)
     lock = open(f"{HOME}.lock", "w")
     try:

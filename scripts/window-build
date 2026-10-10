@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Build eco-window, the Qt 6 program that runs the overlay, into
+# target/window/eco-window (release, warnings as errors). Incremental. Run from
+# the root of the tree to build, as the PKGBUILD runs it in its own copy.
+set -euo pipefail
+cmake -S window -B target/window -G Ninja -DCMAKE_BUILD_TYPE=Release >/dev/null
+cmake --build target/window

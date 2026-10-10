@@ -1,20 +1,22 @@
 import QtQuick
-import Quickshell
-import Quickshell.Io
+import EcoHost
+import Eco.Core
 
 // Test-only driver, injected by scripts/shots/shoot into a copy of the overlay
 // and never shipped: `run` evaluates a JS body with helpers to find, click and
-// type into what is on screen, and to save a window as it is drawn.
+// type into what is on screen, and to save a window as it is drawn. The bodies
+// come over the socket ECO_DRIVE names, one JSON string a line, and each answer
+// goes back the same way.
 QtObject {
   id: drive
   property var overlay
   property var settings
 
   function win(which) { return which === "settings" ? settings.item : overlay }
-  // The window's root holds its content and the overlay layer where dialogs and menus open.
+  // The window's content item is its root: it holds the content and the overlay layer where dialogs and menus open.
   function roots() {
-    const out = [overlay.contentItem.parent]
-    if (settings.item && settings.item.visible) out.push(settings.item.contentItem.parent)
+    const out = [overlay.contentItem]
+    if (settings.item && settings.item.visible) out.push(settings.item.contentItem)
     return out
   }
   function shown(item) {
@@ -97,7 +99,12 @@ QtObject {
     throw new Error("no " + type)
   }
   // Takes the keyboard off any field, so no caret blinks in a picture.
-  function blur(which) { win(which).contentItem.forceActiveFocus() }
+  // Takes the keyboard from what holds it, as a click elsewhere would.
+  function blur(which) {
+    const item = win(which).activeFocusItem
+    if (item && item !== win(which).contentItem)
+      item.focus = false
+  }
   // Sizes a window in logical pixels, through the Qt window under it: an
   // offscreen window does not follow its implicit size once shown.
   function size(which, width, height) {
@@ -182,7 +189,7 @@ QtObject {
   // backdrop in the window's colour.
   function shot(path, which) {
     const w = win(which)
-    const root = w.contentItem.parent
+    const root = w.contentItem
     const made = name => root.children.find(c => c.objectName === name)
     const backdrop = made("driveBackdrop") || Qt.createQmlObject('import QtQuick; Rectangle { objectName: "driveBackdrop"; z: -1000 }', root, "driveBackdrop")
     backdrop.color = w.color
@@ -203,9 +210,9 @@ QtObject {
     return grabbing ? w.width + "x" + w.height : "grab refused"
   }
 
-  property IpcHandler ipc: IpcHandler {
-    target: "drive"
-    function run(code: string): string { return drive.run(code) }
+  property LineSocket link: LineSocket {
+    path: Host.env("ECO_DRIVE")
+    onReceived: line => send(JSON.stringify(drive.run(JSON.parse(line))))
   }
   function run(code) {
     try {

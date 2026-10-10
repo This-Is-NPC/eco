@@ -15,8 +15,8 @@ on the machine.
 - **Omarchy**, or Arch with Hyprland, PipeWire and a systemd user session. eco is
   Linux only. The Hyprland config it ships is Lua (`o.bind`, `o.window`).
 - **PipeWire's tools**: `pw-record` captures, `pw-dump` lists the devices.
-- **Quickshell**, which draws the window. Omarchy already has it.
-- **`socat`**, for the global shortcuts: they talk to the daemon's socket.
+- **Qt 6** (`qt6-base`, `qt6-declarative`), which draws the window. Omarchy
+  already has it, and the package depends on it.
 - **`ffmpeg` and `ffprobe`**, only to import audio or video files.
 - **`wl-copy`**, to copy an answer or a transcript to the clipboard.
 - **A key for each paid provider you use** — OpenRouter for answers, Deepgram or
@@ -174,8 +174,9 @@ window opens centred above it. It also binds the global keys:
 | `SUPER+ALT+E` | bring eco to the front |
 | `SUPER+ALT+1`, `SUPER+ALT+2` | run the skills named `ask` and `probe` |
 
-The keys send one line to the socket through `socat`; none of them starts a
-second daemon. The last row only works if you have skills by those names —
+Each key runs an `eco window` command, which hands one line to the running
+daemon; none of them starts a second daemon. Those that open a view give eco
+the keyboard. The last row only works if you have skills by those names —
 [how to write skills](how-to-write-skills.md) binds your own.
 
 ## 5. Start it
@@ -227,6 +228,8 @@ The package owns these; `pacman -Ql eco` lists every file and where it is:
 - its window, the QML the daemon launches;
 - the Hyprland rules and keys, `eco.lua`;
 - the launcher and its icon;
+- the bash, zsh and fish completions of `eco`, which complete through the
+  `usage` command the package depends on;
 - the licence;
 - the user service, which runs `eco daemon --headless`.
 
@@ -265,7 +268,7 @@ sudo pacman -R eco
 
 `eco stop` ends the daemon; `pacman -R` then removes everything the package
 put on the machine: the binary, the window, the Hyprland rules, the launcher,
-the icon, the licence and the user service.
+the icon, the completions, the licence and the user service.
 
 **The line `eco setup` added to `~/.config/hypr/bindings.lua` stays,** and
 does nothing: it loads the rules only while the file exists. To remove it too,

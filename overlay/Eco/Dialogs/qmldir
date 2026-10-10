@@ -1,0 +1,5 @@
+module Eco.Dialogs
+AssignmentDialog 1.0 AssignmentDialog.qml
+ImportDialog 1.0 ImportDialog.qml
+RenameDialog 1.0 RenameDialog.qml
+StartDialog 1.0 StartDialog.qml

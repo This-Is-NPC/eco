@@ -1,0 +1,12 @@
+module Eco.Sessions
+AttendeesDialog 1.0 AttendeesDialog.qml
+AttendeesView 1.0 AttendeesView.qml
+ContextView 1.0 ContextView.qml
+CostView 1.0 CostView.qml
+HistoryView 1.0 HistoryView.qml
+ImportStrip 1.0 ImportStrip.qml
+PeopleView 1.0 PeopleView.qml
+SessionDetails 1.0 SessionDetails.qml
+SessionsTable 1.0 SessionsTable.qml
+SpeakersView 1.0 SpeakersView.qml
+TranslationView 1.0 TranslationView.qml

@@ -1,28 +1,24 @@
 import QtQuick
-import Quickshell
-import Quickshell.Io
+import Eco.Core
+import Eco.Settings
+import Eco.Window
 
-ShellRoot {
-  OverlayPanel { id: overlay }
+// The eco window, as eco-window runs it. Shortcuts reach it through the daemon:
+// see Eco.act.
+OverlayPanel {
+  id: overlay
 
   // The settings window, created the first time it opens and then kept: see
   // ConfigWindow.
-  LazyLoader {
+  Loader {
     id: settings
-    // A child of the overlay, so Hyprland keeps it above the pinned overlay.
-    ConfigWindow { parentWindow: overlay }
+    active: false
+    // Not a child of the overlay: Hyprland keeps a child above its parent, which
+    // would hide the overlay's dialogs under the settings when a shortcut raises it.
+    sourceComponent: ConfigWindow {}
   }
   Connections {
     target: Eco
     function onConfigOpenChanged() { if (Eco.configOpen) settings.active = true }
-  }
-
-  // `quickshell ipc --path <overlay> call eco <function>`, e.g. from a Hyprland shortcut.
-  IpcHandler {
-    target: "eco"
-    function toggleConfig(): void { Eco.toggleConfig() }
-    function newSession(): void { Eco.newSessionRequested() }
-    function sessions(): void { if (Eco.session === null) Eco.openAllHistory() }
-    function importFile(path: string): void { Eco.importRequested(path) }
   }
 }

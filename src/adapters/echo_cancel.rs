@@ -3,6 +3,7 @@
 //! module and its nodes. The reference is what the default output plays
 //! (`monitor.mode`), so no application has to play through a new device.
 
+use std::path::Path;
 use std::process::Stdio;
 use std::time::Duration;
 
@@ -42,8 +43,8 @@ fn arguments(mic: &str) -> String {
     )
 }
 
-async fn source_exists() -> bool {
-    let listed = Command::new("pw-cli")
+async fn source_exists(pw_cli: &Path) -> bool {
+    let listed = Command::new(pw_cli)
         .args(["ls", "Node"])
         .stderr(Stdio::null())
         .output()
@@ -54,8 +55,13 @@ async fn source_exists() -> bool {
 /// Cancel, on `mic` (a node name or the default input), what the default
 /// output plays; ready once its source exists.
 pub async fn start(mic: &str) -> Result<EchoCancel, AudioError> {
+    start_with(Path::new("pw-cli"), mic).await
+}
+
+/// `start`, through the program `pw_cli`.
+async fn start_with(pw_cli: &Path, mic: &str) -> Result<EchoCancel, AudioError> {
     let fail = |detail: String| AudioError(format!("echo cancellation: {detail}"));
-    let mut process = Command::new("pw-cli")
+    let mut process = Command::new(pw_cli)
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -72,7 +78,7 @@ pub async fn start(mic: &str) -> Result<EchoCancel, AudioError> {
         .await
         .map_err(|e| fail(e.to_string()))?;
     for _ in 0..30 {
-        if source_exists().await {
+        if source_exists(pw_cli).await {
             return Ok(EchoCancel {
                 _process: process,
                 _input: input,
@@ -86,6 +92,9 @@ pub async fn start(mic: &str) -> Result<EchoCancel, AudioError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::adapters::fake_program::fake_program;
+    use std::fs;
+    use std::path::PathBuf;
 
     #[test]
     fn the_module_is_aimed_at_the_microphone() {
@@ -95,5 +104,89 @@ mod tests {
         assert!(chosen.contains("target.object = \"alsa_input.usb-mic\""));
         assert!(chosen.contains(&format!("node.name = \"eco.aec.source.{pid}\"")));
         assert!(!arguments(DEFAULT_INPUT).contains("target.object"));
+    }
+
+    /// A pw-cli that, run alone, notes its pid in `dir/pid` and the command it
+    /// reads in `dir/loaded`, then stays; asked `ls Node`, it lists this
+    /// process's source once `loaded` is there, when `creates`.
+    fn pw_cli(dir: &Path, creates: bool) -> PathBuf {
+        let listed = if creates {
+            source_node()
+        } else {
+            String::new()
+        };
+        fake_program(
+            dir,
+            "pw-cli",
+            &format!(
+                r#"cd '{}'
+if [ "$1 $2" = "ls Node" ]; then
+  [ -s loaded ] && echo 'node.name = "{listed}"'
+  exit 0
+fi
+echo $$ > pid
+read -r line && echo "$line" > loaded
+exec sleep 30"#,
+                dir.display()
+            ),
+        )
+    }
+
+    /// Whether the child `pid` was killed: its status says so, or the runtime
+    /// already reaped it, which it does only for a child it killed.
+    fn killed(pid: &str) -> bool {
+        use rustix::io::Errno;
+        use rustix::process::{Pid, WaitOptions, waitpid};
+
+        let pid = Pid::from_raw(pid.trim().parse().unwrap());
+        match waitpid(pid, WaitOptions::empty()) {
+            Ok(ended) => ended.is_some_and(|(_, status)| status.terminating_signal().is_some()),
+            Err(error) => error == Errno::CHILD,
+        }
+    }
+
+    #[tokio::test]
+    async fn the_module_is_loaded_and_unloaded_with_its_value() {
+        let dir = tempfile::tempdir().unwrap();
+        let program = pw_cli(dir.path(), true);
+        let module = start_with(&program, "alsa_input.usb-mic").await.unwrap();
+        assert_eq!(
+            fs::read_to_string(dir.path().join("loaded")).unwrap(),
+            format!(
+                "load-module libpipewire-module-echo-cancel {}\n",
+                arguments("alsa_input.usb-mic")
+            )
+        );
+        let pid = fs::read_to_string(dir.path().join("pid")).unwrap();
+        drop(module);
+        assert!(killed(&pid), "pw-cli {pid} was not killed");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_source_that_never_shows_is_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let program = pw_cli(dir.path(), false);
+        let error = start_with(&program, DEFAULT_INPUT)
+            .await
+            .err()
+            .expect("no source");
+        assert_eq!(
+            error.0,
+            "echo cancellation: PipeWire did not create its source"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_missing_pw_cli_is_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let error = start_with(&dir.path().join("pw-cli"), DEFAULT_INPUT)
+            .await
+            .err()
+            .expect("no pw-cli");
+        assert!(
+            error.0.starts_with("echo cancellation: No such file"),
+            "{}",
+            error.0
+        );
     }
 }

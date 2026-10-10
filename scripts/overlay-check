@@ -1,0 +1,204 @@
+#!/usr/bin/env python3
+"""Fail when the overlay's QML modules break their own rules (docs/design.md
+§3): a module imports another it may not, a relative `import "…"` appears,
+a file is not declared in its folder's qmldir (or a qmldir entry names a
+file that does not exist), or a Kit component is never used, directly or
+through composition, under Eco/Lab. Takes the overlay root as an optional
+argument, the checkout's `overlay/` by default."""
+
+import os
+import re
+import sys
+from pathlib import Path
+
+ROOT = Path(os.environ.get("MISE_PROJECT_ROOT") or Path(__file__).resolve().parents[1])
+OVERLAY = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else ROOT / "overlay"
+ECO = OVERLAY / "Eco"
+
+# What each module may import of the others (docs/design.md §3). Window and
+# Lab are "every module except itself and Lab" / "every module", so they are
+# filled in from the modules actually found, below.
+ALLOWED_IMPORTS = {
+    "Core": set(),
+    "Kit": {"Core"},
+    "Live": {"Core", "Kit"},
+    "Sessions": {"Core", "Kit"},
+    "Dialogs": {"Core", "Kit"},
+    "Settings": {"Core", "Kit"},
+}
+
+IMPORT_LINE = re.compile(r'^\s*import\s+(.+?)\s*(?://.*)?$')
+RELATIVE_IMPORT = re.compile(r'^\s*import\s+"')
+TYPE_USE = re.compile(r'\b([A-Z][A-Za-z0-9_]*)\s*\{')
+LINE_COMMENT = re.compile(r'//.*')
+BLOCK_COMMENT = re.compile(r'/\*.*?\*/', re.S)
+
+problems = []
+
+
+def fail(path, line, message):
+    where = f"{path.relative_to(OVERLAY)}:{line}" if line else f"{path.relative_to(OVERLAY)}"
+    problems.append(f"{where}: {message}")
+
+
+def modules():
+    return sorted(d.name for d in ECO.iterdir() if d.is_dir() and (d / "qmldir").exists())
+
+
+def allowed_imports(all_modules):
+    table = dict(ALLOWED_IMPORTS)
+    table["Window"] = set(all_modules) - {"Window", "Lab"}
+    table["Lab"] = set(all_modules) - {"Lab"}
+    return table
+
+
+def qml_js_files(directory):
+    return sorted(directory.glob("*.qml")) + sorted(directory.glob("*.js"))
+
+
+def parse_qmldir(path):
+    """{type name: declared file name} of a qmldir, "module" lines dropped."""
+    declared = {}
+    for number, line in enumerate(path.read_text().splitlines(), 1):
+        parts = line.split()
+        if not parts or parts[0] == "module":
+            continue
+        if parts[0] == "singleton":
+            if len(parts) < 4:
+                fail(path, number, f"malformed singleton line: {line!r}")
+                continue
+            name, fname = parts[1], parts[3]
+        else:
+            if len(parts) < 3:
+                fail(path, number, f"malformed line: {line!r}")
+                continue
+            name, fname = parts[0], parts[2]
+        declared[name] = fname
+    return declared
+
+
+def check_relative_imports(all_files):
+    for path in all_files:
+        for number, line in enumerate(path.read_text().splitlines(), 1):
+            if RELATIVE_IMPORT.match(line):
+                fail(path, number, f"relative import, import by module name instead: {line.strip()}")
+
+
+def check_qmldir_consistency(module_dirs):
+    """Every qmldir entry names a file that exists; every .qml/.js file in the
+    folder is declared by some entry."""
+    for directory in module_dirs:
+        qmldir = directory / "qmldir"
+        declared = parse_qmldir(qmldir)
+        declared_files = set(declared.values())
+        for name, fname in declared.items():
+            if not (directory / fname).exists():
+                fail(qmldir, None, f"qmldir entry {name!r} names missing file {fname}")
+        for path in qml_js_files(directory):
+            if path.name not in declared_files:
+                fail(qmldir, None, f"{path.name} is not declared in qmldir")
+
+
+def imports_of(path):
+    """[(line number, imported name)] of a file's `import X` lines, X's
+    version and `as alias` dropped; relative imports excluded."""
+    found = []
+    for number, line in enumerate(path.read_text().splitlines(), 1):
+        if RELATIVE_IMPORT.match(line):
+            continue
+        match = IMPORT_LINE.match(line)
+        if match:
+            found.append((number, match.group(1).split()[0]))
+    return found
+
+
+def check_module_imports(module_dirs, allowed):
+    for directory in module_dirs:
+        module = directory.name
+        for path in qml_js_files(directory):
+            for number, target in imports_of(path):
+                if not target.startswith("Eco."):
+                    continue
+                imported = target[len("Eco."):]
+                if imported not in allowed.get(module, set()):
+                    fail(path, number, f"{module} may not import Eco.{imported} ({target})")
+
+
+def referenced_types(path):
+    text = path.read_text()
+    text = BLOCK_COMMENT.sub("", text)
+    text = LINE_COMMENT.sub("", text)
+    return set(TYPE_USE.findall(text))
+
+
+def check_lab_coverage(all_modules):
+    type_file = {}
+    for module in all_modules:
+        directory = ECO / module
+        for name, fname in parse_qmldir(directory / "qmldir").items():
+            path = directory / fname
+            if path.exists():
+                type_file[name] = path
+
+    file_refs = {}
+    for module in all_modules:
+        for path in (ECO / module).glob("*.qml"):
+            file_refs[path] = referenced_types(path)
+    for entry in ("shell.qml", "lab.qml"):
+        path = OVERLAY / entry
+        if path.exists():
+            file_refs[path] = referenced_types(path)
+
+    lab_dir = ECO / "Lab"
+    start_files = list(lab_dir.glob("*.qml"))
+    lab_entry = OVERLAY / "lab.qml"
+    if lab_entry.exists():
+        start_files.append(lab_entry)
+
+    reached_types = set()
+    visited_files = set(start_files)
+    queue = [t for f in start_files for t in file_refs.get(f, set()) if t in type_file]
+    while queue:
+        name = queue.pop()
+        if name in reached_types:
+            continue
+        reached_types.add(name)
+        defining_file = type_file[name]
+        if defining_file not in visited_files:
+            visited_files.add(defining_file)
+            for t in file_refs.get(defining_file, set()):
+                if t in type_file:
+                    queue.append(t)
+
+    kit_dir = ECO / "Kit"
+    for name, fname in parse_qmldir(kit_dir / "qmldir").items():
+        if name not in reached_types:
+            fail(
+                kit_dir / fname,
+                None,
+                f"Kit component {name} is not shown in the control lab (no use under Eco/Lab, "
+                "directly or through another component it composes)",
+            )
+
+
+def main():
+    if not ECO.is_dir():
+        sys.exit(f"overlay-check: no {ECO} (not an overlay root?)")
+
+    all_files = [p for p in OVERLAY.rglob("*") if p.suffix in (".qml", ".js")]
+    check_relative_imports(all_files)
+
+    all_modules = modules()
+    module_dirs = [ECO / name for name in all_modules]
+    check_qmldir_consistency(module_dirs)
+    check_module_imports(module_dirs, allowed_imports(all_modules))
+    check_lab_coverage(all_modules)
+
+    if problems:
+        for problem in problems:
+            print(problem, file=sys.stderr)
+        sys.exit(f"overlay-check: {len(problems)} problem(s)")
+
+
+if __name__ == "__main__":
+    main()

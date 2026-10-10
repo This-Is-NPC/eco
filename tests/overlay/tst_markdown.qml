@@ -1,6 +1,6 @@
 import QtQuick
 import QtTest
-import "../../overlay/markdown.js" as Markdown
+import "../../overlay/Eco/Core/markdown.js" as Markdown
 
 // The answer card's Markdown keeps its text and loses every image Qt would load;
 // a `![` left anywhere, code included, carries a zero-width space after its `!`.

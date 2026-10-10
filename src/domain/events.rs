@@ -1,6 +1,11 @@
 //! Events the daemon sends to its clients, one JSON object per line.
 
+use std::collections::BTreeMap;
+use std::sync::{Arc, Mutex};
+
 use serde_json::{Map, Value, json};
+
+use crate::domain::channel::Trouble;
 
 pub type Event = Value;
 
@@ -15,18 +20,106 @@ pub fn error(code: &str, message: impl Into<String>, params: Value) -> Event {
     json!({"type": "error", "code": code, "params": params, "message": message.into()})
 }
 
-/// A segment `who` said that the STT could not transcribe.
-pub fn transcription_failed(who: &str, detail: &str) -> Event {
-    error(
-        "transcription.failed",
-        format!("{who}: transcription failed: {detail}"),
-        json!({"who": who, "detail": detail}),
-    )
+/// `who`'s trouble: speech lost is an error; a streaming transcription gone
+/// down carries the `code` a client translates and the provider's `detail`,
+/// and back, the seconds it was down and the seconds of audio it dropped.
+pub fn transcription(who: &str, trouble: &Trouble) -> Event {
+    match trouble {
+        Trouble::Failed(detail) => error(
+            "transcription.failed",
+            format!("{who}: transcription failed: {detail}"),
+            json!({"who": who, "detail": detail}),
+        ),
+        Trouble::Down(detail) => json!({
+            "type": "transcription", "who": who, "state": "down",
+            "code": "stt.down", "detail": detail,
+        }),
+        Trouble::Back { down, dropped } => json!({
+            "type": "transcription", "who": who, "state": "back",
+            "down_s": down.as_secs_f64(), "dropped_s": dropped,
+        }),
+    }
+}
+
+/// The sources whose streaming transcription is down now, each with the
+/// `transcription` event that said so, for the clients that connect later.
+#[derive(Clone, Default)]
+pub struct Outages(Arc<Mutex<BTreeMap<String, Event>>>);
+
+impl Outages {
+    /// The event `trouble` makes for `who`, noted: down holds until back.
+    pub fn note(&self, who: &str, trouble: &Trouble) -> Event {
+        let event = transcription(who, trouble);
+        let mut down = self.0.lock().expect("not poisoned");
+        match trouble {
+            Trouble::Down(_) => {
+                down.insert(who.to_string(), event.clone());
+            }
+            Trouble::Back { .. } => {
+                down.remove(who);
+            }
+            Trouble::Failed(_) => {}
+        }
+        event
+    }
+
+    /// The `transcription` down event of every source down now.
+    pub fn events(&self) -> Vec<Event> {
+        let down = self.0.lock().expect("not poisoned");
+        down.values().cloned().collect()
+    }
+
+    /// A guard that forgets `who`'s outage once its transcriber stops, however
+    /// it stops.
+    pub fn until_stopped<'a>(&'a self, who: &'a str) -> Stopped<'a> {
+        Stopped(self, who)
+    }
+}
+
+/// Forgets a source's outage when dropped.
+pub struct Stopped<'a>(&'a Outages, &'a str);
+
+impl Drop for Stopped<'_> {
+    fn drop(&mut self) {
+        self.0.0.lock().expect("not poisoned").remove(self.1);
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::*;
+
+    #[test]
+    fn a_transcription_reads_lost_as_an_error_down_with_its_code_and_back_with_its_seconds() {
+        let failed = transcription("Eles", &Trouble::Failed("timed out".into()));
+        assert_eq!(
+            failed.to_string(),
+            r#"{"type":"error","code":"transcription.failed","params":{"who":"Eles","detail":"timed out"},"message":"Eles: transcription failed: timed out"}"#
+        );
+        let down = transcription("Eles", &Trouble::Down("connection reset".into()));
+        assert_eq!(
+            down.to_string(),
+            r#"{"type":"transcription","who":"Eles","state":"down","code":"stt.down","detail":"connection reset"}"#
+        );
+        let back = Trouble::Back {
+            down: Duration::from_millis(7500),
+            dropped: 2.5,
+        };
+        assert_eq!(
+            transcription("Eles", &back).to_string(),
+            r#"{"type":"transcription","who":"Eles","state":"back","down_s":7.5,"dropped_s":2.5}"#
+        );
+    }
+
+    #[test]
+    fn speech_lost_is_told_but_not_kept_for_later_clients() {
+        let outages = Outages::default();
+        let event = outages.note("Eles", &Trouble::Failed("timed out".into()));
+        assert_eq!(event["code"], "transcription.failed");
+        assert_eq!(outages.events(), [] as [Value; 0]);
+    }
 
     #[test]
     fn errors_carry_code_params_and_message_in_order() {

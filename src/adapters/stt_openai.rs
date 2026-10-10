@@ -193,6 +193,14 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_silent_clip_or_a_reply_without_text_says_so() {
+        let (result, _) = transcribe(200, r#"{"text": " \n "}"#, "pt").await;
+        assert_eq!(result.unwrap(), []);
+        let (result, _) = transcribe(200, r#"{"segments": []}"#, "pt").await;
+        assert_eq!(result.unwrap_err().0, "the reply has no text");
+    }
+
+    #[tokio::test]
     async fn auto_language_is_left_to_the_server() {
         let (result, body) = transcribe(200, r#"{"text": "hello"}"#, "auto").await;
         assert_eq!(result.unwrap()[0].text, "hello");

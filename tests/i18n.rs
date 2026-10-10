@@ -25,7 +25,7 @@ fn files(directory: &Path, extension: &str) -> Vec<PathBuf> {
 }
 
 fn packs() -> BTreeMap<String, Map<String, Value>> {
-    files(&Path::new(ROOT).join("overlay/i18n"), "json")
+    files(&Path::new(ROOT).join("overlay/Eco/Core/i18n"), "json")
         .into_iter()
         .map(|path| {
             let code = path.file_stem().unwrap().to_string_lossy().into_owned();

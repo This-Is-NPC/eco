@@ -77,11 +77,11 @@ still ask about what was said. **RESUME** picks it up.
 
 ![The capsule of a paused session: an amber dot, the stopped time "00:01:25", PAUSED, the input trace, RESUME, and END filled red reading "END?" after one click.](img/09-live-end.png)
 
-`SUPER+ALT+P` is one line sent to the daemon's socket. The same works from a
-terminal or a script of your own:
+`SUPER+ALT+P` runs `eco window toggle`. The same works from a terminal or a
+script of your own:
 
 ```bash
-echo session.toggle | socat - UNIX-CONNECT:$XDG_RUNTIME_DIR/eco.sock
+eco window toggle
 ```
 
 It pauses or resumes the session the window showed last.
@@ -91,7 +91,7 @@ It pauses or resumes the session the window showed last.
 The **×** at the top right goes back to SESSIONS; a live session keeps
 recording. Its **LIVE** filter is the one place live sessions are listed:
 
-![The SESSIONS screen filtered to LIVE 1: TRANSCRIBING "whisper-lan · EN", and under LIVE one row, "Sprint planning", Meeting, Today 23:39, 0 min, #Acme, with a dot and RECORDING.](img/14-sessions-live.png)
+![The SESSIONS screen filtered to LIVE 1: TRANSCRIBING "whisper-lan · EN", and under LIVE one row, "Sprint planning", Meeting, Today 23:39, 0 min, #Acme, with a dot and RECORDING.](img/15-sessions-live.png)
 
 **TRANSCRIBING** says which transcriber runs, in which language, and for how many
 sessions, so a second paid model never runs unseen. Selecting the row brings the
@@ -138,7 +138,7 @@ A stored session opens from SESSIONS like a live one — the conversation, its
 details and the composer — with, in place of the capsule, when it was, how long,
 and how much was said:
 
-![A stored session, ACME ONBOARDING KICKOFF: the line "MEETING · 10 MAR 2025 14:00 · 00:34:54 · 10 LINES" with REOPEN, then the conversation with named speakers and an ASK answer card.](img/17-session.png)
+![A stored session, ACME ONBOARDING KICKOFF: the line "MEETING · 10 MAR 2025 14:00 · 00:34:54 · 10 LINES" with REOPEN, then the conversation with named speakers and an ASK answer card.](img/18-session.png)
 
 **REOPEN** (or `R`) records again into the same session, in its own language,
 appending to the same log. Without reopening, it still answers questions and
@@ -159,6 +159,13 @@ transcribed; fix it in Settings › Models.` — usually a key that is not set.
 
 **An input went quiet.** The capsule shows a warning for it; its name is on the
 hint, and a click opens the audio settings.
+
+**The transcription provider went down.** Under the capsule, that source reads
+`Transcription down · reconnecting`; the provider's reason is on the hover.
+Nothing to do: eco opens the connection again and keeps what is heard
+meanwhile, then reads `Transcription back` and the lines arrive. After five
+minutes down the oldest audio is lost, and the line says how many seconds
+([screens](screens.md#3-during-a-session)).
 
 **The daemon stopped mid-session.** The session is kept as far as it got. The
 next start marks it paused and shows it as **INTERRUPTED**; it is never reopened

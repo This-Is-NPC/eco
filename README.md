@@ -9,12 +9,12 @@ minutes, one fact — while it happens or a month later. The session is a text
 log on the laptop; the audio is heard and never kept.
 
 ![a live session: its capsule recording, an answer, a note, and the conversation](docs/img/05-live.png)
-![the sessions list, searched and filtered by kind and tag](docs/img/11-sessions.png)
-![what one session cost, charge by charge](docs/img/27-session-cost.png)
+![the sessions list, searched and filtered by kind and tag](docs/img/12-sessions.png)
+![what one session cost, charge by charge](docs/img/28-session-cost.png)
 
 Two processes. The daemon (`src/`, Rust) captures, transcribes, keeps the
-sessions and calls the models; the window (`overlay/`, QML on Quickshell) only
-draws what the daemon sends it, over one Unix socket at
+sessions and calls the models; the window (`overlay/`, QML on Qt 6, run by
+the small `eco-window` program) only draws what the daemon sends it, over one Unix socket at
 `$XDG_RUNTIME_DIR/eco.sock`. The interface speaks English, Brazilian Portuguese
 and Japanese.
 
@@ -32,7 +32,7 @@ off again. `VERSION=0.1.0` picks a release other than the latest.
 
 The package puts the binary, its window, the Hyprland rules and keys, the
 launcher and icon, the licence and a user service (written and not enabled) on
-the machine. `eco setup --harnesses agents,claude-code` then downloads the VAD
+the machine. It also installs completions of `eco` for bash, zsh and fish. `eco setup --harnesses agents,claude-code` then downloads the VAD
 and speaker models, adds the one line to `~/.config/hypr/bindings.lua` that
 loads the Hyprland rules, and publishes the `eco` skill for agents. **Removing the package keeps the
 config, the sessions, the people, the models and the agent skill** — removing
@@ -154,10 +154,11 @@ where they work:
   `SUPER+ALT+E` bring eco to the front · `SUPER+ALT+1` / `2` the skills bound
   there
 
-![the keyboard shortcuts dialog over the sessions list](docs/img/36-shortcuts.png)
+![the keyboard shortcuts dialog over the sessions list](docs/img/37-shortcuts.png)
 
-The Hyprland keys send one line to the daemon's socket through `socat`; none of
-them starts a second daemon. Every screen the window draws is in
+The Hyprland keys run `eco window …` (listed in [the commands](docs/cli.md)),
+which hands one line to the running daemon; none of them starts a second
+daemon. Every screen the window draws is in
 [the walk through it](docs/screens.md), in the order somebody meets them.
 
 ## What it does not do
@@ -203,8 +204,7 @@ has the commands.
 
 - Omarchy, or Arch with Hyprland, PipeWire (`pw-record`, `pw-dump`) and a
   systemd user session
-- Quickshell, which draws the window
-- `socat`, for the global keys
+- Qt 6 (`qt6-base`, `qt6-declarative`), which draws the window
 - `wl-copy`, to copy an answer or a transcript
 - `ffmpeg` and `ffprobe`, only to import audio or video
 - a key for each paid provider you use, or a model server of your own

@@ -208,8 +208,8 @@ between processes.
 Sessions in one daemon share the capture, the VAD and the diarizer (a child
 process per input: 7.8% CPU and 178 MB RSS of the daemon's total); a second
 transcription model costs only its connection. Two daemons pay for all of it
-twice. Each overlay is its own Quickshell process and shares nothing but the
-Qt libraries.
+twice. Each overlay was its own Quickshell process, as the window ran then,
+and shared nothing but the Qt libraries.
 
 Most of the overlay's CPU was its input traces: each sample laid the whole
 curve out again (480 points, two strokes). Laying out only the newest piece,
@@ -228,6 +228,23 @@ software rendering, so about 25 MB is the GPU driver); the overlay adds about
 65 MB, spread over first-use costs — text at a few sizes (~11 MB), Shapes
 (~6 MB), the Quickshell modules its singletons load (~18 MB) — with no single
 view or dialog above noise. The overlay's floor is Qt's.
+
+### The window on plain Qt 6 (2026-10-09)
+
+The same overlay, run by `eco-window` (§3 of [design.md](design.md#3-architecture))
+and, for comparison, by Quickshell 0.3.1 from the commit before the change.
+Release build of `eco-window`, Qt 6.11.2, on Hyprland on the Omarchy laptop;
+one window on the start screen against an isolated daemon replaying a WAV, no
+session. Time is from starting the process to Hyprland listing its window as
+mapped (`hyprctl clients`, polled every 10 ms); memory is PSS six seconds later.
+Four runs each; the first `eco-window` run had an empty QML disk cache.
+
+| Window | Time to a mapped window | PSS |
+|---|---|---|
+| `eco-window` | 315 ms with an empty cache; 175–241 ms after | 120–124 MB |
+| Quickshell | 297–314 ms | 196–200 MB |
+
+`eco-window` is 77 KB, built in about 8 s.
 
 The diarizer child held 159 MB RSS for a 29 MB model: glibc kept the tensors
 each clip's length sized differently. A fixed `MALLOC_TRIM_THRESHOLD_` (1 MB)
@@ -278,3 +295,84 @@ went back to their old wording before the kept run. The graders' check found
 168 of 171 points (169 before). A run costs about $0.84: $0.14 of answers
 and $0.70 of grading ($0.76 before).
 
+
+## CLI test coverage (2026-10-09)
+
+Measured with `mise run coverage` (cargo-llvm-cov 0.9.1, every unit and
+integration test) on the files behind the `eco` command line. Before is the
+tree that introduced the task; after is the same tree with the CLI tests.
+
+| File | What it holds | Lines before | Lines after |
+|---|---|---|---|
+| `src/cli.rs` | the client: each command's socket line, the event that settles it, its failure | 74.74% | 99.83% (3 of 1754 missed) |
+| `src/lifecycle.rs` | `eco start`, `stop`, `restart`, `status` and their exit codes | 69.35% | 99.80% (1 of 500) |
+| `src/main.rs` | parsing every subcommand and option, and what it runs | 16.67% | 89.22% (69 of 640) |
+| `src/setup.rs` | `eco setup`: model downloads and their checksums | 27.50% | 90.62% (12 of 128) |
+
+No test was written for these lines, read in the code and left on purpose:
+
+- `main()` in `src/main.rs`: the tokio runtime, the call each command makes
+  and the `process::exit` of its code. Each branch only calls a function
+  that has its own tests; a test here would restate the match.
+- `set_up` in `src/main.rs` and `run()` and `desktop()` in `src/setup.rs`:
+  the production model URLs, the user's real paths and the Hyprland
+  adapter put together. A test would reach the network or the user's
+  files; what they call (`fetch`, `skill_targets`, the adapter) is tested.
+- `local_date` in `src/cli.rs`, a local time skipped by a clock change: it
+  needs the process time zone set, which needs `unsafe`, and the crate
+  forbids it.
+- `window` in `src/cli.rs`, the error from closing the write half of a
+  socket that was just written: only an operating-system failure reaches it.
+- The rest are lines of the tests themselves: `panic!` arms that run only
+  when a test fails, and the end of fake daemons that serve until the test
+  drops them.
+
+## Streaming connection coverage (2026-10-09)
+
+Measured with `mise run coverage` on `src/adapters/websocket.rs`, before and
+after the tests of a stalled connection.
+
+| File | What it holds | Lines before | Lines after |
+|---|---|---|---|
+| `src/adapters/websocket.rs` | a streaming transcription over a WebSocket: audio out, pings, phrases back, a stall ended | 80.81% (19 of 99 missed) | 90.91% (21 of 231) |
+
+No test was written for these lines, read in the code:
+
+- `tls()`: the platform's certificate store, reached only by a `wss://` URL,
+  which a local test server does not serve.
+- The request headers, the billed request's id and the `Partial` and
+  `Nothing` readings: they predate this change and have no test yet.
+- The rest are lines of the tests themselves: `panic!` arms that run only
+  when a test fails, and the end of a fake provider that waits until the
+  test drops it.
+
+## Daemon test coverage (2026-10-10)
+
+Measured with `mise run coverage` (cargo-llvm-cov 0.9.1, unit and integration
+tests) after the daemon's tests were written; line numbers read from its
+lcov report. `src/` without `src/bench/`: **98.58% of lines** (316 of 22,265
+without a test). Before: 81.12% for the whole crate. Files not named below
+are at 100%, or miss a line the report counts without naming it (an
+artefact of counting each compiled copy of generic code).
+
+| File | Lines | Left without a test, and why |
+|---|---|---|
+| `src/session.rs` | 95.89% | `run()` (1976–2076 at measurement): builds the real VAD model, PipeWire, Hyprland, `eco-window`, the user's socket and signals; `impl Overlay for overlay::Windows`: hands each call to real windows; the omapass key source and the `omapass` command's task: run the user's keyring (what they return is tested through `omapass_listed`); the closing brace of `pipeline()`, which only ends by being aborted. |
+| `src/main.rs` | 89.22% | the body of `main()` (tokio runtime, each command's call, `process::exit`) and `set_up`'s I/O; `panic!` arms of tests, which run only when a test fails. |
+| `src/paths.rs` | 87.84% | the public wrappers that read the real environment and home (112–171); the layout behind them is tested with a fixed environment. |
+| `src/adapters/audio_pipewire.rs` | 79.27% | the trait methods that start the real `pw-record` and `pw-dump` (21–40); the arguments they build are tested. |
+| `src/import.rs` | 97.09% | the Silero and speaker-model closures in `run` and `diarizing()`, which start the real `eco diarize` child from the current executable. |
+| `src/setup.rs` | 90.62% | `run()` over the production model URLs and the user's paths; `desktop()`, one composition line. `fetch` is at 100%. |
+| `src/adapters/omapass.rs` | 95.18% | `program()`, `installed()`, `accounts()`, `secret()`: they read the real PATH and home and would run the user's keyring; `find`, `accounts_of` and `secret_of` are tested. |
+| `src/adapters/diarizer_process.rs`, `service_systemd.rs`, `echo_cancel.rs`, `pipewire_devices.rs`, `window_hyprland.rs`, `overlay.rs` | 95.4–98.5% | the one-line entry points into the real `eco diarize`, `systemctl`, `pw-cli`, `pw-dump`, `hyprctl` and `eco-window`, and `Windows::new`, which writes the real token; branches only timing reaches (a child already reaped, no event follower). |
+| `src/domain/assistant.rs` | 99.60% | states no command sequence reaches (2365, 2368, 2808, 2815, 2884–2885). |
+| `src/domain/session.rs` | 98.21% | an `unreachable!` (527). |
+| `src/adapters/control_socket.rs`, `local_socket.rs`, `pipe.rs`, `speaker_tract.rs`, `config.rs` | 97–99.7% | a closed listener's accept loop, a pipe read error and tract's input-fact error, which no input provokes; waits inside test helpers. |
+| `src/cli.rs`, `src/lifecycle.rs` | 99.6–99.8% | as in the CLI section above. |
+
+The tests found and fixed, each in its own commit: sessions with one title
+started in the same second sharing a log file; a failed delete reported as
+`people.failed`; line commands and an unknown person's colour refused twice;
+a garbled streaming event followed by lines that depended on how bytes
+arrived; import progress past the end of the file; a window that connected
+during an outage not told the source was down.

@@ -1,7 +1,7 @@
 //! `~/.config/eco/config.toml`: its schema, validation, and atomic save.
 
 use std::collections::{BTreeMap, HashSet};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::{env, fs};
 
 use serde::{Deserialize, Serialize};
@@ -9,84 +9,11 @@ use serde_json::{Map, Value};
 
 use crate::domain::action::Action;
 use crate::domain::prompts::{DEFAULT_REVIEW, DEFAULT_RULES};
+use crate::paths;
 
 #[derive(Debug, thiserror::Error)]
 #[error("{0}")]
 pub struct ConfigError(pub String);
-
-/// The XDG base directory `variable` names, or `fallback` under the home.
-fn xdg_base(variable: &str, fallback: &str) -> PathBuf {
-    env::var_os(variable)
-        .filter(|value| !value.is_empty())
-        .map(PathBuf::from)
-        .unwrap_or_else(|| home().join(fallback))
-}
-
-fn xdg(variable: &str, fallback: &str) -> PathBuf {
-    xdg_base(variable, fallback).join("eco")
-}
-
-pub fn home() -> PathBuf {
-    env::var_os("HOME").map(PathBuf::from).unwrap_or_default()
-}
-
-/// A file eco ships beside its binary, `<prefix>/share/eco/<path>` for
-/// `<prefix>/bin/eco`, when it is there.
-pub fn shipped(path: &str) -> Option<PathBuf> {
-    let exe = env::current_exe().ok()?;
-    Some(exe.parent()?.parent()?.join("share/eco").join(path)).filter(|file| file.exists())
-}
-
-/// The Hyprland file that holds the user's key bindings.
-pub fn hypr_bindings() -> PathBuf {
-    xdg_base("XDG_CONFIG_HOME", ".config").join("hypr/bindings.lua")
-}
-
-pub fn config_file() -> PathBuf {
-    xdg("XDG_CONFIG_HOME", ".config").join("config.toml")
-}
-
-pub fn data_dir() -> PathBuf {
-    xdg("XDG_DATA_HOME", ".local/share")
-}
-
-pub fn vad_model() -> PathBuf {
-    data_dir().join("models").join("silero_vad.onnx")
-}
-
-pub fn speaker_model() -> PathBuf {
-    data_dir().join("models").join("wespeaker_campplus.onnx")
-}
-
-pub fn people_dir() -> PathBuf {
-    data_dir().join("people")
-}
-
-pub fn sessions_dir() -> PathBuf {
-    data_dir().join("sessions")
-}
-
-fn runtime_dir() -> PathBuf {
-    env::var_os("XDG_RUNTIME_DIR")
-        .filter(|value| !value.is_empty())
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(format!("/run/user/{}", users_uid())))
-}
-
-pub fn socket_path() -> PathBuf {
-    runtime_dir().join("eco.sock")
-}
-
-/// Where a running daemon keeps the windows' token, for a window it did not start.
-pub fn token_path() -> PathBuf {
-    runtime_dir().join("eco.token")
-}
-
-fn users_uid() -> u32 {
-    fs::metadata("/proc/self")
-        .map(|m| std::os::unix::fs::MetadataExt::uid(&m))
-        .unwrap_or(0)
-}
 
 /// The key held by the environment variable `name`.
 pub fn env_key(name: &str) -> Result<String, ConfigError> {
@@ -691,7 +618,7 @@ impl Config {
 fn read_all(files: &[String]) -> std::io::Result<String> {
     let texts = files
         .iter()
-        .map(|file| fs::read_to_string(expand(file)))
+        .map(|file| fs::read_to_string(paths::expand(file)))
         .collect::<Result<Vec<_>, _>>()?;
     Ok(texts.join("\n\n"))
 }
@@ -716,13 +643,6 @@ fn valid_ui_language(code: &str) -> bool {
 
 pub(crate) fn valid_color(color: &str) -> bool {
     color.len() == 7 && color.starts_with('#') && color[1..].chars().all(|c| c.is_ascii_hexdigit())
-}
-
-fn expand(path: &str) -> PathBuf {
-    match path.strip_prefix("~/") {
-        Some(rest) => home().join(rest),
-        None => PathBuf::from(path),
-    }
 }
 
 pub fn load(path: &Path) -> Result<Config, ConfigError> {
@@ -964,6 +884,12 @@ mod tests {
             config.models[2].request_fields()["reasoning"],
             json!({"effort": "low"})
         );
+        let unchosen = Config::from_value(raw()).unwrap();
+        assert_eq!(
+            unchosen.models[1].request_fields()["reasoning"],
+            json!({"effort": "minimal"}),
+            "extra is sent as written"
+        );
         assert_eq!(Config::from_value(config.to_value()).unwrap(), config);
         value["models"][2]["reasoning"] = json!("max");
         assert!(error_of(value.clone()).contains("reasoning"));
@@ -1083,6 +1009,58 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let error = load(&directory.path().join("nope.toml")).unwrap_err().0;
         assert!(error.contains("no config"));
+    }
+
+    #[test]
+    fn an_unreadable_or_malformed_file_names_itself() {
+        let directory = tempfile::tempdir().unwrap();
+        let shown = directory.path().display();
+        let error = load(directory.path()).unwrap_err().0;
+        assert!(error.starts_with(&format!("{shown}: ")), "{error}");
+
+        let path = directory.path().join("config.toml");
+        fs::write(&path, "stt = ").unwrap();
+        let error = load(&path).unwrap_err().0;
+        assert!(
+            error.starts_with(&format!("{}: ", path.display())),
+            "{error}"
+        );
+
+        fs::write(&path, "[stt]\nmodel = \"whisper\"\n").unwrap();
+        let error = load(&path).unwrap_err().0;
+        assert!(error.starts_with("invalid config: "), "{error}");
+        assert!(error.ends_with("missing field `llm`"), "{error}");
+    }
+
+    #[test]
+    fn the_global_context_joins_its_files() {
+        let directory = tempfile::tempdir().unwrap();
+        let (cv, notes) = (
+            directory.path().join("cv.md"),
+            directory.path().join("notes.md"),
+        );
+        fs::write(&cv, "Currículo").unwrap();
+        fs::write(&notes, "Notas").unwrap();
+        let files = json!([cv.to_string_lossy(), notes.to_string_lossy()]);
+        let config = Config::from_value(with("context", json!({"files": files}))).unwrap();
+        assert_eq!(config.context().unwrap(), "Currículo\n\nNotas");
+        fs::remove_file(&notes).unwrap();
+        assert!(config.context().is_err());
+    }
+
+    #[test]
+    fn kinds_translations_and_actions_must_not_repeat() {
+        for kinds in [json!([]), json!(["meeting", "meeting"]), json!([" idea"])] {
+            assert!(error_of(with("kinds", kinds)).contains("kinds must be unique"));
+        }
+        let mut value = raw();
+        value["models"][1]["translates"] = json!(["meeting"]);
+        value["models"][2]["translates"] = json!(["meeting"]);
+        assert!(error_of(value).contains("at most one translation model"));
+        let mut value = raw();
+        let probe = value["actions"][0].clone();
+        value["actions"].as_array_mut().unwrap().push(probe);
+        assert!(error_of(value).contains("action names must be unique"));
     }
 
     #[test]

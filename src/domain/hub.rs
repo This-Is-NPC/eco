@@ -125,4 +125,18 @@ mod tests {
         drop(capture);
         assert_eq!(shape(&late.collect::<Vec<_>>().await), ["frame 1"]);
     }
+
+    #[tokio::test]
+    async fn a_reader_past_the_backlog_skips_to_the_oldest_kept() {
+        let mut hub = Hub::default();
+        let capture = hub.input("mic");
+        let slow = hub.read("mic").unwrap();
+        for index in 0..BACKLOG + 10 {
+            capture.send(Captured::Frame(index, Vec::new()));
+        }
+        drop(capture);
+        let heard = shape(&slow.collect::<Vec<_>>().await);
+        assert_eq!(heard.len(), BACKLOG);
+        assert_eq!(heard[0], "frame 10");
+    }
 }

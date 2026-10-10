@@ -1,31 +1,15 @@
 //! What eco can listen to, read from `pw-dump`.
 
-use serde::Serialize;
+use std::path::Path;
+
 use serde_json::Value;
 use tokio::process::Command;
 
 use crate::adapters::echo_cancel::NODE_PREFIX;
+use crate::ports::Device;
 
 pub const DEFAULT_INPUT: &str = "@default-input";
 pub const DEFAULT_OUTPUT: &str = "@default-output";
-
-/// Something eco can listen to: a microphone ("input") or what a sink plays ("output").
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct Device {
-    pub id: String,
-    pub label: String,
-    pub kind: String,
-}
-
-impl Device {
-    pub fn new(id: &str, label: &str, kind: &str) -> Self {
-        Self {
-            id: id.into(),
-            label: label.into(),
-            kind: kind.into(),
-        }
-    }
-}
 
 pub fn defaults() -> Vec<Device> {
     vec![
@@ -68,7 +52,12 @@ pub fn parse_dump(objects: &[Value]) -> Vec<Device> {
 }
 
 pub async fn list_devices() -> Vec<Device> {
-    let output = Command::new("pw-dump")
+    devices_of(Path::new("pw-dump")).await
+}
+
+/// The devices the program `pw_dump` lists; the defaults alone when it cannot.
+async fn devices_of(pw_dump: &Path) -> Vec<Device> {
+    let output = Command::new(pw_dump)
         .stderr(std::process::Stdio::null())
         .output()
         .await;
@@ -122,5 +111,24 @@ mod tests {
             Device::new("alsa_output.speaker", "Speaker", "output"),
         ]);
         assert_eq!(devices, expected);
+    }
+
+    #[tokio::test]
+    async fn devices_are_read_from_pw_dump() {
+        use crate::adapters::fake_program::fake_program;
+
+        let dir = tempfile::tempdir().unwrap();
+        let dump = fake_program(
+            dir.path(),
+            "pw-dump",
+            r#"echo '[{"info":{"props":{"media.class":"Audio/Source","node.name":"mic"}}}]'"#,
+        );
+        let mut expected = defaults();
+        expected.push(Device::new("mic", "mic", "input"));
+        assert_eq!(devices_of(&dump).await, expected);
+
+        let broken = fake_program(dir.path(), "broken", "echo 'not json'; exit 1");
+        assert_eq!(devices_of(&broken).await, defaults());
+        assert_eq!(devices_of(&dir.path().join("gone")).await, defaults());
     }
 }

@@ -1,4 +1,5 @@
-//! One append-only JSON Lines file per session, named by start time and title.
+//! One append-only JSON Lines file per session, named by start time and title,
+//! with `-2`, `-3`… when another session already holds that name.
 
 use std::fs;
 use std::io::Write;
@@ -40,6 +41,22 @@ fn append(path: &Path, record: &Record) {
         .and_then(|mut file| file.write_all(line.as_bytes()));
     if let Err(error) = written {
         eprintln!("eco: cannot write {}: {error}", path.display());
+    }
+}
+
+/// A new file for `stem` in `directory`: `<stem>.jsonl`, or `<stem>-2.jsonl` and on
+/// when another session already holds that name, so no two sessions share a log.
+fn claim(directory: &Path, stem: &str) -> PathBuf {
+    let mut n = 1;
+    loop {
+        let path = match n {
+            1 => directory.join(format!("{stem}.jsonl")),
+            _ => directory.join(format!("{stem}-{n}.jsonl")),
+        };
+        match private_file().write(true).create_new(true).open(&path) {
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => n += 1,
+            _ => return path,
+        }
     }
 }
 
@@ -136,7 +153,10 @@ impl SessionLog for SessionFiles {
                     .find(|name| !name.is_empty())
                     .unwrap_or_else(|| "session".into());
                 let _ = private_dir(&directory);
-                directory.join(format!("{}-{name}.jsonl", stamp.format("%Y-%m-%d-%H%M%S")))
+                claim(
+                    &directory,
+                    &format!("{}-{name}", stamp.format("%Y-%m-%d-%H%M%S")),
+                )
             });
             append(target, &record);
         })
@@ -282,6 +302,26 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn same_title_sessions_in_one_second_keep_their_own_files() {
+        let directory = tempfile::tempdir().unwrap();
+        let files = SessionFiles::new(directory.path().into());
+        for id in ["a", "b", "c"] {
+            let mut sink = files.writer();
+            let head = json!({"type": "session", "id": id, "title": "Call", "started_at": 1.0e9});
+            sink(head.as_object().unwrap().clone());
+            let line = json!({"type": "speech", "text": id, "at": 1.0e9});
+            sink(line.as_object().unwrap().clone());
+        }
+        let names = names(directory.path());
+        assert_eq!(names.len(), 3, "{names:?}");
+        for id in ["a", "b", "c"] {
+            let records = files.read(id).unwrap();
+            assert_eq!(records.len(), 2);
+            assert_eq!(records[1]["text"], id);
+        }
+    }
+
+    #[test]
     fn files_list_read_and_continue_sessions() {
         let directory = tempfile::tempdir().unwrap();
         let files = SessionFiles::new(directory.path().into());
@@ -340,8 +380,13 @@ pub(crate) mod tests {
         )
         .unwrap();
         fs::write(directory.path().join("2026-01-02-000000-vazia.jsonl"), "").unwrap();
+        fs::write(
+            directory.path().join("2026-01-03-000000-binaria.jsonl"),
+            [0xff, 0xfe],
+        )
+        .unwrap();
         let all = SessionFiles::new(directory.path().into()).all();
-        assert_eq!(all, vec![Vec::<Record>::new()]);
+        assert_eq!(all, vec![Vec::<Record>::new(); 2]);
     }
 
     #[test]
@@ -349,5 +394,23 @@ pub(crate) mod tests {
         let mut sink = NoSessionFiles.writer();
         sink(Record::new());
         assert!(NoSessionFiles.all().is_empty() && NoSessionFiles.read("x").is_none());
+        assert!(NoSessionFiles.append_to("x").is_none() && NoSessionFiles.storage("x").is_none());
+        assert!(!NoSessionFiles.delete("x").unwrap());
+    }
+
+    #[test]
+    fn a_directory_that_cannot_be_made_loses_the_session_without_failing() {
+        let directory = tempfile::tempdir().unwrap();
+        let blocked = directory.path().join("sessions");
+        fs::write(&blocked, "a file where the directory goes").unwrap();
+        let files = SessionFiles::new(blocked);
+        let mut sink = files.writer();
+        sink(
+            json!({"type": "session", "id": "s"})
+                .as_object()
+                .unwrap()
+                .clone(),
+        );
+        assert!(files.all().is_empty());
     }
 }

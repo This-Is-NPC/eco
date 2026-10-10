@@ -334,6 +334,7 @@ impl StreamingSpeechToText for DeepgramTranscriber {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::adapters::http::testing::{serve, serve_once};
 
     fn results(transcript: &str, words: &[(f64, f64)], speech_final: bool) -> String {
         let words: Vec<Value> = words
@@ -424,9 +425,8 @@ mod tests {
             let mut bytes = 0;
             while let Some(Ok(message)) = socket.next().await {
                 match message {
-                    Message::Binary(audio) => bytes += audio.len(),
                     Message::Text(text) if text.contains("CloseStream") => break,
-                    _ => {}
+                    audio => bytes += audio.len(),
                 }
             }
             let said = results("Bom dia.", &[(0.0, 0.5)], true);
@@ -441,10 +441,10 @@ mod tests {
             .collect()
             .await;
         assert_eq!(phrases.len(), 1);
-        let Ok(Heard::Phrase(said)) = &phrases[0] else {
-            panic!("a phrase")
-        };
-        assert_eq!(said.text, "Bom dia.");
+        assert!(
+            matches!(&phrases[0], Ok(Heard::Phrase(said)) if said.text == "Bom dia."),
+            "{phrases:?}"
+        );
         assert_eq!(server.await.unwrap(), 3 * 512 * 2);
 
         let nobody =
@@ -489,5 +489,282 @@ mod tests {
         let url = stt.url();
         assert!(url.starts_with("wss://api.deepgram.com/v1/listen?model=nova-3&language=multi"));
         assert!(url.contains("encoding=linear16&sample_rate=16000&channels=1"));
+    }
+
+    /// A transcriber whose endpoints are the local server at `base` (`http://…/v1`).
+    fn local(base: &str, key: Option<&str>) -> DeepgramTranscriber {
+        let listen = format!("{}/listen", base.replacen("http://", "ws://", 1));
+        DeepgramTranscriber::new(&listen, "nova-3", "pt", key.map(String::from))
+    }
+
+    #[tokio::test]
+    async fn recorded_audio_is_posted_as_wav_with_the_key() {
+        let reply = serde_json::json!({
+            "metadata": {"request_id": "5f0c"},
+            "results": {"utterances": [{"start": 0.0, "end": 0.5, "transcript": "Oi."}]},
+        });
+        let (base, seen) = serve_once(200, reply.to_string().into_bytes()).await;
+        let stt = local(&base, Some("dg-key"));
+        let heard = SpeechToText::transcribe(&stt, &[0; 160]).await.unwrap();
+        assert_eq!(heard.phrases[0].text, "Oi.");
+        assert_eq!(heard.request.as_deref(), Some("5f0c"));
+        let seen = seen.lock().unwrap();
+        assert!(
+            seen.head
+                .starts_with("POST /v1/listen?model=nova-3&language=pt&")
+        );
+        assert!(seen.head.contains("authorization: Token dg-key"));
+        assert!(seen.head.contains("content-type: audio/wav"));
+        assert!(seen.body.starts_with(b"RIFF"));
+    }
+
+    #[tokio::test]
+    async fn recorded_audio_refused_or_garbled_is_an_error() {
+        let (base, _) = serve_once(401, b"{}".to_vec()).await;
+        let refused = SpeechToText::transcribe(&local(&base, None), &[0; 160]).await;
+        let why = refused.unwrap_err().0;
+        assert!(why.contains("401"), "{why}");
+        let (base, _) = serve_once(200, b"<html>".to_vec()).await;
+        let garbled = SpeechToText::transcribe(&local(&base, None), &[0; 160]).await;
+        assert!(garbled.is_err());
+    }
+
+    #[tokio::test]
+    async fn the_streaming_models_come_from_the_api_root() {
+        let reply = serde_json::json!({"stt": [
+            {"canonical_name": "nova-3", "streaming": true},
+            {"canonical_name": "whisper", "streaming": false},
+        ]});
+        let (base, seen) = serve_once(200, reply.to_string().into_bytes()).await;
+        let listen = format!("{}/listen", base.replacen("http://", "ws://", 1));
+        assert_eq!(
+            models(&listen, Some("dg-key".into())).await.unwrap(),
+            ["nova-3"]
+        );
+        let head = seen.lock().unwrap().head.clone();
+        assert!(head.starts_with("GET /v1/models "), "{head}");
+        assert!(head.contains("authorization: Token dg-key"));
+        let (base, _) = serve_once(403, b"{}".to_vec()).await;
+        let listen = format!("{}/listen", base.replacen("http://", "ws://", 1));
+        let refused = models(&listen, None).await.unwrap_err();
+        assert!(refused.contains("403"), "{refused}");
+        let (base, _) = serve_once(200, b"not json".to_vec()).await;
+        let listen = format!("{}/listen", base.replacen("http://", "ws://", 1));
+        assert!(models(&listen, None).await.is_err());
+    }
+
+    fn json(value: Value) -> (u16, Option<&'static str>, Vec<u8>) {
+        (
+            200,
+            Some("application/json"),
+            value.to_string().into_bytes(),
+        )
+    }
+
+    fn status(code: u16, body: &str) -> (u16, Option<&'static str>, Vec<u8>) {
+        (code, Some("application/json"), body.as_bytes().to_vec())
+    }
+
+    fn billing(base: &str) -> DeepgramBilling {
+        DeepgramBilling::new(&format!("{base}/listen"), "dg-key".into())
+    }
+
+    #[tokio::test]
+    async fn a_cost_is_read_under_the_keys_project_once_found() {
+        let projects =
+            serde_json::json!({"projects": [{"project_id": "p1"}, {"project_id": "p2"}]});
+        let details =
+            |usd: f64| serde_json::json!({"request": {"response": {"details": {"usd": usd}}}});
+        let (base, seen) = serve(vec![
+            json(projects),
+            json(details(0.0075)),
+            json(details(0.25)),
+        ])
+        .await;
+        let billing = billing(&base);
+        assert_eq!(billing.cost("r1").await.unwrap(), Some(0.0075));
+        assert_eq!(billing.cost("r2").await.unwrap(), Some(0.25));
+        let head = seen.lock().unwrap().head.clone();
+        assert!(
+            head.starts_with("GET /v1/projects/p1/requests/r2 "),
+            "{head}"
+        );
+        assert!(head.contains("authorization: Token dg-key"));
+    }
+
+    #[tokio::test]
+    async fn a_request_deepgram_does_not_know_yet_has_no_cost() {
+        let projects = serde_json::json!({"projects": [{"project_id": "p1"}]});
+        let (base, _) = serve(vec![
+            json(projects),
+            status(404, "{}"),
+            status(400, "{}"),
+            json(serde_json::json!({"request": {}})),
+        ])
+        .await;
+        let billing = billing(&base);
+        for request in ["r1", "r2", "r3"] {
+            assert_eq!(billing.cost(request).await.unwrap(), None);
+        }
+    }
+
+    #[tokio::test]
+    async fn a_key_without_the_scope_is_told_apart_from_a_failure() {
+        let (base, _) = serve(vec![status(403, r#"{"details":"missing usage:read"}"#)]).await;
+        let forbidden = billing(&base).cost("r").await.unwrap_err();
+        assert!(
+            matches!(&forbidden, BillingError::Forbidden(why) if why == "deepgram 403 Forbidden: missing usage:read"),
+            "{forbidden:?}"
+        );
+        let (base, _) = serve(vec![status(500, r#"{"message":"down"}"#)]).await;
+        let failed = billing(&base).cost("r").await.unwrap_err();
+        assert!(
+            matches!(&failed, BillingError::Failed(why) if why == "deepgram 500 Internal Server Error: down"),
+            "{failed:?}"
+        );
+        let (base, _) = serve(vec![status(502, "<html>")]).await;
+        let failed = billing(&base).cost("r").await.unwrap_err();
+        assert!(
+            matches!(&failed, BillingError::Failed(why) if why == "deepgram 502 Bad Gateway: "),
+            "{failed:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_key_in_no_project_or_an_unreadable_reply_fails() {
+        let (base, _) = serve(vec![json(serde_json::json!({"projects": []}))]).await;
+        let lonely = billing(&base).cost("r").await.unwrap_err();
+        assert!(
+            matches!(&lonely, BillingError::Failed(why) if why == "deepgram: the key belongs to no project"),
+            "{lonely:?}"
+        );
+        let (base, _) = serve(vec![status(404, "{}")]).await;
+        let unknown = billing(&base).cost("r").await.unwrap_err();
+        assert!(matches!(unknown, BillingError::Failed(_)));
+        let (base, _) = serve(vec![(200, None, b"not json".to_vec())]).await;
+        assert!(matches!(
+            billing(&base).cost("r").await,
+            Err(BillingError::Failed(_))
+        ));
+        let closed = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}/v1", closed.local_addr().unwrap());
+        drop(closed);
+        assert!(matches!(
+            billing(&base).cost("r").await,
+            Err(BillingError::Failed(_))
+        ));
+    }
+
+    /// A Deepgram that names the request in its handshake, then sends `said`
+    /// and closes once the audio is over.
+    async fn deepgram(said: Vec<String>) -> String {
+        use futures::{SinkExt, StreamExt};
+        use tokio_tungstenite::tungstenite::handshake::server::{Request, Response};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.unwrap();
+            // tungstenite fixes the callback's error type.
+            #[allow(clippy::result_large_err)]
+            let named = |_: &Request, mut response: Response| {
+                let id = "req-42".parse().unwrap();
+                response.headers_mut().insert("dg-request-id", id);
+                Ok(response)
+            };
+            let mut socket = tokio_tungstenite::accept_hdr_async(socket, named)
+                .await
+                .unwrap();
+            while let Some(Ok(message)) = socket.next().await {
+                if matches!(&message, Message::Text(text) if text.contains("CloseStream")) {
+                    break;
+                }
+            }
+            for message in said {
+                socket.send(Message::Text(message.into())).await.unwrap();
+            }
+            let _ = socket.close(None).await;
+        });
+        format!("ws://{address}/v1/listen")
+    }
+
+    async fn stream(said: Vec<String>) -> Vec<Result<Heard, TranscriptionError>> {
+        use futures::StreamExt;
+        let url = deepgram(said).await;
+        let stt = DeepgramTranscriber::new(&url, "nova-3", "auto", Some("dg-key".into()));
+        let frames = futures::stream::iter(vec![vec![0i16; 512]]).boxed();
+        StreamingSpeechToText::transcribe(&stt, frames)
+            .collect()
+            .await
+    }
+
+    #[tokio::test]
+    async fn a_stream_names_its_request_and_says_what_it_hears() {
+        let interim = r#"{"type":"Results","is_final":false,"channel":{"alternatives":[{"transcript":"Bom"}]}}"#;
+        let heard = stream(vec![
+            r#"{"type":"SpeechStarted"}"#.into(),
+            interim.into(),
+            results("Bom dia.", &[(0.2, 0.9)], false),
+            r#"{"type":"Metadata","request_id":"req-42"}"#.into(),
+        ])
+        .await;
+        let heard: Vec<Heard> = heard.into_iter().map(Result::unwrap).collect();
+        assert_eq!(
+            heard,
+            [
+                Heard::Request("req-42".into()),
+                Heard::Partial("Bom".into()),
+                Heard::Partial("Bom dia.".into()),
+                Heard::Phrase(Phrase {
+                    start: 0.2,
+                    end: 0.9,
+                    text: "Bom dia.".into()
+                }),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_stream_deepgram_refuses_or_garbles_ends_with_an_error() {
+        let refused = stream(vec![r#"{"type":"Error","description":"bad audio"}"#.into()]).await;
+        let why = &refused.last().expect("a result").as_ref().unwrap_err().0;
+        assert_eq!(why, "deepgram: bad audio");
+        let garbled = stream(vec!["not json".into()]).await;
+        assert!(matches!(garbled.last(), Some(Err(_))), "{garbled:?}");
+    }
+
+    #[test]
+    fn finals_without_words_or_text_are_timed_by_the_message() {
+        let mut held = Held::default();
+        let silent = results("  ", &[], false);
+        assert!(phrases(held.read(&silent).unwrap()).is_empty());
+        let unworded = serde_json::json!({
+            "type": "Results", "is_final": true, "speech_final": true,
+            "start": 2.0, "duration": 1.5,
+            "channel": {"alternatives": [{"transcript": "Oi."}]},
+        });
+        assert_eq!(
+            phrases(held.read(&unworded.to_string()).unwrap()),
+            [Phrase {
+                start: 2.0,
+                end: 3.5,
+                text: "Oi.".into()
+            }]
+        );
+        let ended = results("", &[], true);
+        assert!(phrases(held.read(&ended).unwrap()).is_empty());
+        let nameless = r#"{"type":"Error"}"#;
+        assert_eq!(held.read(nameless).err().unwrap(), "deepgram: error");
+        let untimed = serde_json::json!({"results": {"utterances": [{"transcript": "Oi"}]}});
+        assert_eq!(
+            transcript(&untimed),
+            Transcript {
+                phrases: vec![Phrase {
+                    start: 0.0,
+                    end: 0.0,
+                    text: "Oi".into()
+                }],
+                request: None,
+            }
+        );
     }
 }

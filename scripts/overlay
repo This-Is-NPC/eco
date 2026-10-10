@@ -7,4 +7,4 @@ if [[ -r $XDG_RUNTIME_DIR/eco.token ]]; then
   ECO_TOKEN=$(<"$XDG_RUNTIME_DIR/eco.token")
   export ECO_TOKEN
 fi
-exec quickshell --path overlay
+exec target/window/eco-window overlay/shell.qml

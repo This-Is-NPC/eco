@@ -501,5 +501,40 @@ mod tests {
         };
         assert_eq!(cluster(&embeddings, folding), [0, 1, 0, 0, 1, 1]);
         assert_eq!(cluster(&embeddings[..1], strict), [0]);
+        let apart = Clustering {
+            threshold: 0.001,
+            min_share: 0.5,
+        };
+        let near_b = normalized(vec![0.1, 0.95]);
+        let three: Vec<&[f32]> = vec![&a, &b, &near_b];
+        assert_eq!(cluster(&three, apart), [0, 0, 0], "no group is large");
+    }
+
+    #[test]
+    fn short_clips_alone_make_no_turns() {
+        let embedder = BySign;
+        let mut diarizer = Diarizer::new(&embedder);
+        diarizer.add(1.0, &speech(100, 0.2)).unwrap();
+        diarizer.add(2.0, &speech(-100, 0.3)).unwrap();
+        let Diarization { turns, voices } = diarizer.finish(Clustering::default());
+        assert!(turns.is_empty());
+        assert!(voices.is_empty());
+    }
+
+    #[test]
+    fn silence_long_enough_is_a_voice_of_its_own() {
+        let embedder = BySign;
+        let mut diarizer = Diarizer::new(&embedder);
+        diarizer.add(0.0, &speech(100, 2.0)).unwrap();
+        diarizer.add(3.0, &speech(0, 2.0)).unwrap();
+        let Diarization { turns, voices } = diarizer.finish(Clustering::default());
+        let speakers: Vec<usize> = turns.iter().map(|t| t.speaker).collect();
+        assert_eq!(speakers, [0, 1]);
+        assert_eq!(voices.len(), 2);
+    }
+
+    #[test]
+    fn a_zero_vector_stays_zero() {
+        assert_eq!(normalized(vec![0.0, 0.0]), [0.0, 0.0]);
     }
 }

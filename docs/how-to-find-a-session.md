@@ -161,7 +161,7 @@ the history stays in the file ([design.md §7.5](design.md#75-tags)).
 LIVE, with a dot before their state, then the others newest first under their
 day:
 
-![The SESSIONS screen: HOME, IMPORT and PEOPLE above a search field reading "Search what was said, noted or answered…  /", a row of chips — LIVE 1, ALL, MEETING, CONVERSATION, OTHER, IDEA, INTERVIEW, #Acme — then "Sprint planning" under LIVE, recording, and "Acme onboarding kickoff", "Revisión de precios" and "Northwind backend interview" under their dates, each with its kind, date, length, tags and people.](img/11-sessions.png)
+![The SESSIONS screen: HOME, IMPORT and PEOPLE above a search field reading "Search what was said, noted or answered…  /", a row of chips — LIVE 1, ALL, MEETING, CONVERSATION, OTHER, IDEA, INTERVIEW, #Acme — then "Sprint planning" under LIVE, recording, and "Acme onboarding kickoff", "Revisión de precios" and "Northwind backend interview" under their dates, each with its kind, date, length, tags and people.](img/12-sessions.png)
 
 Each row says the title, kind, tags, when, how long, who, and the state. It
 never says what the session cost: that is inside the session.
@@ -169,13 +169,13 @@ never says what the session cost: that is inside the session.
 **The search** is the field at the top; `/` goes to it from anywhere in the
 list, and `↑` on the first row goes back to it:
 
-![SESSIONS searched for "VPN": one session left, "Acme onboarding kickoff", Meeting, 10 Mar 2025 14:00, 35 min, #Acme #Q2, with Ana Ribeiro, Marcus Lee and Priya Shah.](img/15-sessions-search.png)
+![SESSIONS searched for "VPN": one session left, "Acme onboarding kickoff", Meeting, 10 Mar 2025 14:00, 35 min, #Acme #Q2, with Ana Ribeiro, Marcus Lee and Priya Shah.](img/16-sessions-search.png)
 
 **The chips** filter: LIVE, the kinds (when there is more than one), and the
 tags, on one line that scrolls sideways. Selecting someone on the People screen
 adds their chip first, `PERSON: Ana Ribeiro ×`; its `×` drops it:
 
-![SESSIONS opened from Ana Ribeiro on the People screen: the lit chip "PERSON: Ana Ribeiro ×" before the others, "2 SESSIONS", Acme onboarding kickoff and Weekly sync.](img/30-people-sessions.png)
+![SESSIONS opened from Ana Ribeiro on the People screen: the lit chip "PERSON: Ana Ribeiro ×" before the others, "2 SESSIONS", Acme onboarding kickoff and Weekly sync.](img/31-people-sessions.png)
 
 **LIVE is the one place live sessions show.** Not on the start screen and not in
 another session's chat: a window that leaves a live session to go here finds it
@@ -183,14 +183,14 @@ under LIVE. With LIVE on, the line above the list says what is transcribing — 
 model and language of each transcriber running, and `×n` when one feeds several
 sessions — so a second paid model never runs unseen:
 
-![SESSIONS with the LIVE chip on: "TRANSCRIBING whisper-lan · EN" above the one live session, "Sprint planning", recording.](img/14-sessions-live.png)
+![SESSIONS with the LIVE chip on: "TRANSCRIBING whisper-lan · EN" above the one live session, "Sprint planning", recording.](img/15-sessions-live.png)
 
 A tag's chip renames or deletes the tag in every session: right click, the menu
 key, F2 or Delete. Deleting asks first, saying how many sessions lose it:
 
-![SESSIONS filtered to #Acme, with the chip's menu open beside it: RENAME and DELETE.](img/12-sessions-tag.png)
+![SESSIONS filtered to #Acme, with the chip's menu open beside it: RENAME and DELETE.](img/13-sessions-tag.png)
 
-![The DELETE TAG dialog over SESSIONS: "Delete #Acme? 4 sessions lose it." with CANCEL and DELETE.](img/13-sessions-tag-delete.png)
+![The DELETE TAG dialog over SESSIONS: "Delete #Acme? 4 sessions lose it." with CANCEL and DELETE.](img/14-sessions-tag-delete.png)
 
 A session's own tags are in its details (`⋯`): **TAGS** lists them as chips,
 whose `×` takes one off, and the field under them adds one, offering the
@@ -199,7 +199,7 @@ tagged before it says a word.
 
 When nothing matches, the list says why and offers to clear what is hiding it:
 
-![SESSIONS searched for "quarterly budget": "No session matches “quarterly budget”." and CLEAR FILTERS, with 0 SESSIONS in the corner.](img/16-sessions-empty.png)
+![SESSIONS searched for "quarterly budget": "No session matches “quarterly budget”." and CLEAR FILTERS, with 0 SESSIONS in the corner.](img/17-sessions-empty.png)
 
 ---
 

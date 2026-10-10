@@ -4,8 +4,13 @@
 ## bench, which runs the self-contained benchmark/ tool.
 
 [tools]
-rust = { version = "1.97.1", components = "rustfmt,clippy" }
+rust = { version = "1.97.1", components = "rustfmt,clippy,llvm-tools" }
 python = "3.14.8"
+cmake = "4.4.4"
+ninja = "1.13.2"
+watchexec = "2.8.0"
+"cargo:cargo-llvm-cov" = "0.9.1"
+usage = "5.1.0"
 
 [env]
 _.file = ".env"
@@ -14,8 +19,15 @@ _.file = ".env"
 description = "Download the Silero VAD and WeSpeaker CAM++ models into the eco data directory"
 run = "scripts/setup"
 
+[tasks."window:build"]
+description = "Build eco-window, the Qt 6 program that runs the overlay, into target/window"
+run = "scripts/window-build"
+sources = ["window/**/*"]
+outputs = ["target/window/eco-window"]
+
 [tasks.install]
-description = "Build eco for release and install it under ~/.local (PREFIX overrides): binary, overlay, Hyprland rules, launcher, icon, agent skill"
+description = "Build eco for release and install it under ~/.local (PREFIX overrides): binary, window program, overlay, Hyprland rules, launcher, icon, agent skill"
+depends = ["window:build"]
 run = "scripts/install"
 
 [tasks."readme:gif"]
@@ -26,9 +38,9 @@ outputs = ["docs/img/eco.gif"]
 
 [tasks.shots]
 description = "Regenerate the pictures in docs/img from the real overlay, offscreen, against an isolated daemon seeded with synthetic fixtures"
-depends = ["setup"]
+depends = ["setup", "window:build"]
 run = "scripts/shots/shoot"
-sources = ["src/**/*.rs", "Cargo.toml", "Cargo.lock", "overlay/**/*", "scripts/shots/**/*"]
+sources = ["src/**/*.rs", "Cargo.toml", "Cargo.lock", "overlay/**/*", "window/**/*", "scripts/shots/**/*"]
 outputs = ["docs/img/[0-9][0-9]-*.png"]
 
 [tasks.uninstall]
@@ -38,6 +50,7 @@ run = "scripts/uninstall"
 
 [tasks.start]
 description = "Build and run the checkout daemon and overlay in the foreground; pass development flags after --"
+depends = ["window:build"]
 run = "scripts/start"
 
 [tasks.lint]
@@ -49,27 +62,36 @@ description = "Format the Rust sources"
 run = "scripts/format"
 
 [tasks.test]
-description = "Run the test suite (the VAD and speaker parity tests need the models)"
-depends = ["setup"]
+description = "Run the test suite (the VAD and speaker parity tests need the models; the window's, eco-window)"
+depends = ["setup", "window:build"]
 run = "scripts/test"
 
+[tasks.coverage]
+description = "Measure test coverage per file with cargo-llvm-cov (slow instrumented build; not part of check)"
+depends = ["setup", "window:build"]
+run = "scripts/coverage"
+
 [tasks."cli:gen"]
-description = "Regenerate docs/cli.md from the eco binary's help"
+description = "Regenerate docs/cli.md from the eco binary's usage spec"
 run = "scripts/cli-gen"
-sources = ["src/**/*.rs", "Cargo.toml", "Cargo.lock", "scripts/cli-doc"]
+sources = ["src/**/*.rs", "Cargo.toml", "Cargo.lock", "scripts/cli-gen"]
 outputs = ["docs/cli.md"]
 
 [tasks."cli:check"]
-description = "Fail when docs/cli.md is not what the eco binary's help generates"
+description = "Fail when docs/cli.md is not what the eco binary's usage spec generates"
 run = "scripts/cli-check"
 
 [tasks."docs:check"]
 description = "Fail when a relative link or image in README.md or docs/*.md does not resolve"
 run = "scripts/docs-check"
 
+[tasks."overlay:check"]
+description = "Fail when an overlay QML module imports one it may not, a relative import appears, a file is undeclared in its qmldir, or a Kit component is not shown in the control lab"
+run = "scripts/overlay-check"
+
 [tasks.check]
-description = "Run lint, tests, the docs/cli.md check and the docs link check"
-depends = ["lint", "test", "cli:check", "docs:check"]
+description = "Run lint, tests, the docs/cli.md check, the docs link check and the overlay module check"
+depends = ["lint", "test", "cli:check", "docs:check", "overlay:check"]
 
 [tasks."local-check"]
 description = "Run the gate on HEAD and post the local-check status master requires"
@@ -100,11 +122,14 @@ flag "--output <dir>" help="Write eco's turns there as <name>.rttm (first thresh
 run = "scripts/bench-diarization"
 
 [tasks.overlay]
-description = "Run only the overlay, reloading QML on save; pair with `mise run start -- --headless`"
+description = "Run only the overlay; `mise watch overlay -o restart` runs it again on every save; pair with `mise run start -- --headless`"
+depends = ["window:build"]
 run = "scripts/overlay"
+sources = ["overlay/**/*"]
 
 [tasks."preview:controls"]
 description = "Open the interactive control lab without changing session data"
+depends = ["window:build"]
 run = "scripts/preview-controls"
 
 [tasks.bench]

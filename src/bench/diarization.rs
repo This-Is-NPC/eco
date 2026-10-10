@@ -10,10 +10,10 @@ use crate::adapters::audio_file::WavFileSource;
 use crate::adapters::speaker_tract::TractEmbedder;
 use crate::adapters::vad_silero::{SileroModel, SileroVad};
 use crate::bench::der::{Score, Segment, parse_rttm, parse_uem, score};
-use crate::config;
 use crate::domain::channel::segment_channel;
 use crate::domain::diarization::{Clustering, Diarizer, Turn};
 use crate::domain::segmenter::SegmenterConfig;
+use crate::paths;
 use crate::ports::{AudioError, SAMPLE_RATE};
 
 pub struct Options {
@@ -132,10 +132,10 @@ fn percent(part: f64, score: &Score) -> String {
 }
 
 pub async fn run(options: Options) -> Result<()> {
-    let model = options.model.clone().unwrap_or_else(config::speaker_model);
+    let model = options.model.clone().unwrap_or_else(paths::speaker_model);
     let loading = Instant::now();
     let embedder = TractEmbedder::load(&model).map_err(|e| anyhow::anyhow!(e.0))?;
-    let vad = SileroModel::load(&config::vad_model())?;
+    let vad = SileroModel::load(&paths::vad_model())?;
     println!(
         "model {} loaded in {} ms; collar {} s",
         model.display(),

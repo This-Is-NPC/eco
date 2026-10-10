@@ -64,7 +64,7 @@ through a pipe. Nothing to restart, and nothing in a file. eco finds omapass on
 
 Open the settings (`SUPER+ALT+C`), then **Models** (`Ctrl+2`).
 
-![The Models tab: "Register each model once — chat or transcription — with its provider", then four closed cards — whisper-lan (TRANSCRIPTION, whisper-large-v3-turbo, used by DEFAULT TRANSCRIPTION, MEETING…), deepgram (TRANSCRIPTION, nova-3, used by INTERVIEW), gemini-flash (CHAT, google/gemini-2.5-flash, used by ASSISTANT, TRANSLATION…), claude-haiku (CHAT, anthropic/claude-haiku-4.5, used by minutes) — and ADD MODEL.](img/40-settings-models.png)
+![The Models tab: "Register each model once — chat or transcription — with its provider", then four closed cards — whisper-lan (TRANSCRIPTION, whisper-large-v3-turbo, used by DEFAULT TRANSCRIPTION, MEETING…), deepgram (TRANSCRIPTION, nova-3, used by INTERVIEW), gemini-flash (CHAT, google/gemini-2.5-flash, used by ASSISTANT, TRANSLATION…), claude-haiku (CHAT, anthropic/claude-haiku-4.5, used by minutes) — and ADD MODEL.](img/41-settings-models.png)
 
 A closed card says what the model is and what uses it. **ADD MODEL** opens a new
 one, its name field focused, starting from the provider and key source of the
@@ -93,7 +93,7 @@ last model of its type. Fill it top to bottom:
 
 A registered chat model, open — it has no TYPE row, since it is in use:
 
-![The gemini-flash card open: "used by ASSISTANT, TRANSLATION, MEETING, …" in full; NAME "gemini-flash"; REASONING with OFF lit; PROVIDER with OPENROUTER lit, GROQ and CUSTOM; MODEL "google/gemini-2.5-flash" with LIST; KEY FROM with ENV lit and OMAPASS, holding "OPENROUTER_API_KEY"; ADVANCED, closed.](img/41-settings-model.png)
+![The gemini-flash card open: "used by ASSISTANT, TRANSLATION, MEETING, …" in full; NAME "gemini-flash"; REASONING with OFF lit; PROVIDER with OPENROUTER lit, GROQ and CUSTOM; MODEL "google/gemini-2.5-flash" with LIST; KEY FROM with ENV lit and OMAPASS, holding "OPENROUTER_API_KEY"; ADVANCED, closed.](img/42-settings-model.png)
 
 **SAVE** (`Ctrl+S`). The status line says `settings saved`.
 
@@ -128,9 +128,9 @@ Each tab picks from the registry, and owns its own choice:
 | **Translation** | the model that writes translations, or the assistant's |
 | **Sessions** | per kind of session, its own transcription, assistant and translation models |
 
-![The Transcription tab: DEFAULT MODEL whisper-lan, "Transcribes sessions whose kind picks no transcription model", then the offered spoken languages AUTO, EN, ES and PT, and DEFAULT SPOKEN LANGUAGE EN · American English.](img/42-settings-transcription.png)
+![The Transcription tab: DEFAULT MODEL whisper-lan, "Transcribes sessions whose kind picks no transcription model", then the offered spoken languages AUTO, EN, ES and PT, and DEFAULT SPOKEN LANGUAGE EN · American English.](img/43-settings-transcription.png)
 
-![The Sessions tab: the kinds Meeting (DEFAULT), Conversation, Other and Idea, each "transcribes with whisper-lan · answers with gemini-flash", and interview, which "transcribes with deepgram".](img/48-settings-sessions.png)
+![The Sessions tab: the kinds Meeting (DEFAULT), Conversation, Other and Idea, each "transcribes with whisper-lan · answers with gemini-flash", and interview, which "transcribes with deepgram".](img/49-settings-sessions.png)
 
 **A kind can run on its own models.** Open a kind in **Sessions** to give it a
 transcription, assistant and translation model of its own — an `idea` session on

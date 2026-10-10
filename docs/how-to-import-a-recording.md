@@ -171,7 +171,7 @@ has one, else the default.
 **IMPORT** on the start screen or on SESSIONS (`i`), or drop the file on the
 window:
 
-![The IMPORT A RECORDING dialog over SESSIONS: FILE holding /tmp/eco-shots/recordings/sprint-retro.vtt with BROWSE beside it, TITLE "Sprint retro", RECORDED "2026-09-30 09:15" with "30 Sep 09:15" beside it, KIND Meeting, LANGUAGE "EN · American English", SPOKEN BY Me, then CANCEL and IMPORT.](img/34-import.png)
+![The IMPORT A RECORDING dialog over SESSIONS: FILE holding /tmp/eco-shots/recordings/sprint-retro.vtt with BROWSE beside it, TITLE "Sprint retro", RECORDED "2026-09-30 09:15" with "30 Sep 09:15" beside it, KIND Meeting, LANGUAGE "EN · American English", SPOKEN BY Me, then CANCEL and IMPORT.](img/35-import.png)
 
 **RECORDED** is `--date`: it shows when the file was recorded, as SESSIONS
 will date it, and takes another date in the same shape; one it cannot read is
@@ -179,12 +179,15 @@ outlined and the import waits for it. **SPOKEN BY** is `--participant`. While it
 and on SESSIONS shows the progress, and its `×` stops it; what was transcribed
 until then stays in the session:
 
-![SESSIONS with a strip above the filters: IMPORTING, "Sprint retro", a fill across 62% of it, "62%" and a × button.](img/35-import-progress.png)
+![SESSIONS with a strip above the filters: IMPORTING, "Sprint retro", a fill across 62% of it, "62%" and a × button.](img/36-import-progress.png)
 
-From a script or a key binding, the window takes a file too:
+From a script or a key binding, the window takes a file too: the newest window
+opens the import dialog with it filled in, and the daemon opens a window first
+when none is open. The path is absolute; `/home/you` is a placeholder for your
+home:
 
 ```bash
-quickshell ipc --path overlay call eco importFile ~/recordings/rust-talk.mp4
+eco window import /home/you/recordings/rust-talk.mp4
 ```
 
 ---

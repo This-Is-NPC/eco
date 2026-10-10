@@ -226,18 +226,30 @@ repository and is reached through the same adapters as any provider.
 
 Two processes. The daemon (`src/`, Rust, toolchain pinned by mise,
 built with cargo) does capture, VAD, transcription, triggers, prompts and the
-LLM call. The overlay (`overlay/`, QML on Quickshell, launched by the daemon) only renders
-events. They talk over one Unix socket at
-`$XDG_RUNTIME_DIR/eco.sock`, one JSON object per line; the overlay
+LLM call. The overlay (`overlay/`, QML) only renders events. It runs in
+`eco-window`, a small C++ host on plain Qt 6 in `window/` (cmake and ninja
+pinned by mise, `mise run window:build`), one process per window, launched by
+the daemon. The host is a bridge and holds no logic: it gives QML the socket,
+files, the environment and the clipboard (`EcoHost`), and nothing in it knows
+the compositor — focus, raising and screen-share hiding go through the
+daemon's `WindowControl` port. Both talk over one local socket (a Unix socket
+at `$XDG_RUNTIME_DIR/eco.sock`, behind `src/adapters/local_socket.rs`), one
+JSON object per line; the overlay
 never calls a provider, never holds a secret and never writes the
 config — it sends a draft and the daemon validates and saves it. QML
-views compose the kit in `overlay/` (clean cyberpunk HUD:
+views compose the kit in `overlay/Eco/Kit/` (clean cyberpunk HUD:
 monospace, hairlines, outlined surfaces, theme accent) and keep no
-logic beyond binding the `Eco` singleton. The control lab
+logic beyond binding the `Eco` singleton. The overlay is QML modules by
+role under `overlay/Eco/` (`docs/design.md §3`), imported by name, never by
+relative path: Core imports none of them, Kit only Core, and Live,
+Sessions, Dialogs and Settings only Kit and Core — never each other; a
+piece two of them share goes to Kit, and Window composes them; `mise run
+check` runs `scripts/overlay-check` to enforce this. The control lab
 (`mise run preview:controls`) shows every kit component: a new or
 changed component is shown there in the same change, and a view
-reuses a kit component instead of drawing its own variant. Interface text lives only in
-the language packs (`overlay/i18n/*.json`, read through `I18n.t`):
+reuses a kit component instead of drawing its own variant — also enforced by
+`mise run check`. Interface text lives only in
+the language packs (`overlay/Eco/Core/i18n/*.json`, read through `I18n.t`):
 add a key to every pack, never a literal in QML; daemon errors carry a
 `code` with an `error.<code>` text. Motion must mean something —
 a state, new content, or the user's action; nothing animates on a timer
@@ -248,10 +260,34 @@ no provider, audio, or network library; it depends only on the
 traits in `src/ports.rs`. Every external system
 is an adapter under `src/adapters/`, composed from the config in
 `src/session.rs`. No `unsafe`: the crate forbids it. Add a port only when two real adapters exist or
-a test needs the seam. The LLM has one adapter: the OpenAI-compatible
+a test needs the seam. The stated exception is a *platform seam*: a
+port in `src/ports.rs` (or the window host's bridge) with one Linux
+adapter, for paths, the daemon socket, audio devices and capture,
+service lifecycle and desktop setup, window control, and shortcuts.
+Its adapter is chosen in one place — the composition in
+`src/session.rs` or the module that owns the seam. The LLM has one adapter: the OpenAI-compatible
 API, selected by `base_url`. Agents reach eco only through the `eco` CLI
 and the `skills/eco/SKILL.md` skill (no MCP); a change to the CLI updates the
 skill in the same commit.
+
+A connection to a provider that drops, closes or stalls while a session
+runs is opened again, with backoff, for as long as the session captures;
+transcription never stops silently, the overlay says when it is down and
+when it is back, and audio heard meanwhile is kept in memory only, within a
+bound, and sent once it is back.
+
+Tests. A change to behaviour comes with a test that fails without it.
+Failure paths are behaviour: a network that is down, a provider that closes
+or stalls, a process that exits, a file that is half written — each tested
+deterministically with fake adapters and tokio's paused clock, never against
+a real provider, the network, the user's socket or data. A test pins
+behaviour (a line sent, an event, an exit code, an error); none restates the
+code. Adapters that only run a program (`hyprctl`, `pw-*`, `systemctl`) are
+tested for the arguments they build and the output they read. `mise run
+coverage` measures lines per file: the target is 100% of `src/` except
+`src/bench/`, and every line left without a test is listed with its reason
+in `docs/benchmarks.md`, in the same change that leaves it; until a file
+reaches the target, no change lowers its coverage.
 
 Never write raw audio to disk. Outside a session, audio is only measured
 for the input monitor — never transcribed or stored.
@@ -265,7 +301,7 @@ No telemetry.
 
 The Hyprland config on the target machine is Lua (`o.bind`,
 `o.window`); do not ship legacy `hyprland.conf` syntax. Global
-shortcuts reach the daemon through `socat`, not by starting a second daemon.
+shortcuts run `eco window` commands, which reach the running daemon; they never start a second one.
 
 The answer benchmark is the one exception to the scripts and docs rules: it
 is a self-contained tool in `benchmark/` — one Python script on the standard
@@ -285,7 +321,8 @@ answers), the `docs/how-to-*.md` pages (one task each: install and
 remove, register models, audio sources, record, ask and use skills,
 write skills, name the speakers, find, import, translate, cost, a
 model on the LAN, eco from an agent), `docs/cli.md` (every command,
-generated by `mise run cli:gen`), `docs/screens.md` (every screen, with
+generated by `mise run cli:gen` from the usage spec `eco usage` prints, the
+same spec the shell completions use), `docs/screens.md` (every screen, with
 the pictures `mise run shots` writes to `docs/img`),
 `docs/design.md` (how it
 is built: model, architecture, protocol, state on disk; cited as

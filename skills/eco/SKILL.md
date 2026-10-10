@@ -20,7 +20,7 @@ agents.
 Every command prints one JSON object: `{"ok": true, "data": …}`, or
 `{"ok": false, "code": "…", "message": "…"}` with exit status 1. Check `ok`.
 Codes: `argument.invalid`, `daemon.offline`, `daemon.access_denied`, `daemon.unavailable`,
-`session.not_found`, `session.invalid`, `action.unknown`,
+`session.not_found`, `session.invalid`, `session.delete_failed`, `action.unknown`,
 `completion.failed`, `suggestion.removed`, `import.busy`, `import.failed`,
 `person.not_found`, `person.invalid`, `person.exists`, `people.failed`,
 `line.not_found`.
@@ -151,6 +151,20 @@ the file is heard as; the user by default) and `--date YYYY-MM-DDTHH:MM[:SS]` (w
 it was recorded, local time; by default the file's recording date, else when it
 last changed — the session's `started_at`), and waits until it is
 transcribed (`--no-wait` returns once it starts). One import runs at a time.
+
+## The user's window
+
+`eco window` does what the user's global shortcuts do, on their screen; use it
+only when the user asks to see something there. It returns `data: null` once
+sent, and the window shows the rest.
+
+```bash
+eco window focus                 # bring the eco window to the front (opens one if none is)
+eco window sessions              # the sessions list (`config`: the settings, `new`: start a session)
+eco window import ~/talk.mp4     # the import dialog with the file filled in
+eco window action <name>         # an action on the session shown; the answer is not returned
+eco window toggle                # pause or resume the session shown
+```
 
 ## Lines
 

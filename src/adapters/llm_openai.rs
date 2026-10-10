@@ -85,7 +85,8 @@ where
                     let line = String::from_utf8_lossy(&line);
                     match parse_line(line.trim_end_matches(['\r', '\n'])) {
                         Ok(chunks) => ready.extend(chunks),
-                        Err(error) => return Some((Err(error), (bytes, buffer, ready, true))),
+                        // The lines after a garbled one are not read.
+                        Err(error) => return Some((Err(error), (bytes, Vec::new(), ready, true))),
                     }
                     continue;
                 }
@@ -254,6 +255,12 @@ mod tests {
         (chunks, body)
     }
 
+    /// The one error a stream ended with, and nothing before it.
+    fn only_error(chunks: &[Result<Chunk, CompletionError>]) -> &str {
+        assert_eq!(chunks.len(), 1, "{chunks:?}");
+        &chunks[0].as_ref().unwrap_err().0
+    }
+
     fn hello() -> Vec<Message> {
         vec![Message {
             role: "user",
@@ -324,10 +331,8 @@ mod tests {
         let endpoint = Endpoint::new(&base, None, Duration::from_secs(1)).unwrap();
         let chat = OpenAIChat::new(endpoint, Map::new());
         let chunks: Vec<_> = chat.stream("m", hello()).collect().await;
-        let [Err(error)] = chunks.as_slice() else {
-            panic!("one error")
-        };
-        assert_eq!(error.0, "no reply for 1 s");
+        let error = only_error(&chunks);
+        assert_eq!(error, "no reply for 1 s");
         held.abort();
     }
 
@@ -342,11 +347,9 @@ mod tests {
             .stream("m", hello())
             .collect()
             .await;
-        let [Err(error)] = chunks.as_slice() else {
-            panic!("one error")
-        };
+        let error = only_error(&chunks);
         assert_eq!(
-            error.0,
+            error,
             format!(
                 "200: Unexpected endpoint or method. (POST /chat/completions) ({base}/ has no path; OpenAI-compatible servers usually end in /v1)"
             )
@@ -389,10 +392,8 @@ mod tests {
             hello(),
         )
         .await;
-        let [Err(error)] = chunks.as_slice() else {
-            panic!("one error")
-        };
-        assert_eq!(error.0, "402: insufficient credits");
+        let error = only_error(&chunks);
+        assert_eq!(error, "402: insufficient credits");
     }
 
     #[tokio::test]
@@ -461,5 +462,112 @@ mod tests {
         let endpoint = Endpoint::new(&base, None, Duration::from_secs(5)).unwrap();
         assert_eq!(list_models(&endpoint).await.unwrap(), ["a", "b"]);
         assert!(seen.lock().unwrap().head.starts_with("GET /v1/models "));
+    }
+
+    #[tokio::test]
+    async fn a_garbled_event_ends_the_stream_with_an_error() {
+        let reply = b"data: {\"choices\":[{\"delta\":{\"content\":\"Ol\"}}]}\n\ndata: {oops\n\ndata: {\"choices\":[{\"delta\":{\"content\":\"never\"}}]}\n\n";
+        let (chunks, _) = collect(200, reply.to_vec(), json!({}), "m", hello()).await;
+        assert_eq!(chunks.len(), 2, "{chunks:?}");
+        assert_eq!(chunks[0].as_ref().unwrap(), &Chunk::Text("Ol".into()));
+        let error = &chunks[1].as_ref().unwrap_err().0;
+        assert_eq!(error, "key must be a string at line 1 column 2");
+    }
+
+    #[tokio::test]
+    async fn a_stream_cut_short_ends_with_why() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}/v1", listener.local_addr().unwrap());
+        tokio::spawn(async move {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut buffer = [0u8; 8192];
+            let _ = socket.read(&mut buffer).await;
+            let event = "data: {\"choices\":[{\"delta\":{\"content\":\"Ol\"}}]}\n\n";
+            let head = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\n\r\n",
+                event.len() + 100
+            );
+            socket.write_all(head.as_bytes()).await.unwrap();
+            socket.write_all(event.as_bytes()).await.unwrap();
+        });
+        let endpoint = Endpoint::new(&base, None, Duration::from_secs(5)).unwrap();
+        let chunks: Vec<_> = OpenAIChat::new(endpoint, Map::new())
+            .stream("m", hello())
+            .collect()
+            .await;
+        assert_eq!(chunks.len(), 2, "{chunks:?}");
+        assert_eq!(chunks[0].as_ref().unwrap(), &Chunk::Text("Ol".into()));
+        let error = &chunks[1].as_ref().unwrap_err().0;
+        assert!(error.ends_with("(quiet for 0 s)"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn a_server_that_is_not_there_cannot_be_reached() {
+        let closed = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}/v1", closed.local_addr().unwrap());
+        drop(closed);
+        let endpoint = Endpoint::new(&base, None, Duration::from_secs(5)).unwrap();
+        let chunks: Vec<_> = OpenAIChat::new(endpoint.clone(), Map::new())
+            .stream("m", hello())
+            .collect()
+            .await;
+        let error = only_error(&chunks);
+        assert_eq!(error, format!("cannot reach {base}/"));
+        assert_eq!(
+            list_models(&endpoint).await,
+            Err(format!("cannot reach {base}/"))
+        );
+    }
+
+    #[tokio::test]
+    async fn a_refusal_in_json_with_an_answer_shape_is_still_a_refusal() {
+        let refusal = br#"{"choices":[{"message":{"content":"ok"}}],"error":"over quota"}"#;
+        let (base, _) = serve_once_as(429, Some("application/json"), refusal.to_vec()).await;
+        let endpoint = Endpoint::new(&base, None, Duration::from_secs(5)).unwrap();
+        let chunks: Vec<_> = OpenAIChat::new(endpoint, Map::new())
+            .stream("m", hello())
+            .collect()
+            .await;
+        let error = only_error(&chunks);
+        assert_eq!(error, "429: over quota");
+    }
+
+    #[tokio::test]
+    async fn an_unavailable_model_fails_every_request_with_why() {
+        let chunks: Vec<_> = Unavailable("no key".into())
+            .stream("m", hello())
+            .collect()
+            .await;
+        let error = only_error(&chunks);
+        assert_eq!(error, "no key");
+    }
+
+    #[tokio::test]
+    async fn usage_without_counts_is_zero_and_a_null_usage_is_none() {
+        let reply = sse_body(&[
+            json!({"choices": [{"delta": {"content": ""}}], "usage": null}),
+            json!({"choices": [], "usage": {}}),
+        ]);
+        let (chunks, _) = collect(200, reply, json!({}), "m", hello()).await;
+        let chunks: Vec<Chunk> = chunks.into_iter().map(Result::unwrap).collect();
+        assert_eq!(
+            chunks,
+            [Chunk::Usage(Usage {
+                prompt_tokens: 0,
+                cached_tokens: 0,
+                cost_usd: None
+            })]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_model_list_without_data_is_a_refusal() {
+        let (base, _) = serve_once(200, br#"{"models": []}"#.to_vec()).await;
+        let endpoint = Endpoint::new(&base, None, Duration::from_secs(5)).unwrap();
+        assert_eq!(
+            list_models(&endpoint).await,
+            Err(r#"200: {"models": []}"#.to_string())
+        );
     }
 }

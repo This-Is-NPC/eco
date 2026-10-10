@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 
 use futures::future::BoxFuture;
 use futures::stream::BoxStream;
+use serde::Serialize;
 use serde_json::{Map, Value};
 
 use crate::domain::people::Person;
@@ -23,6 +24,40 @@ pub struct AudioError(pub String);
 pub trait AudioSource: Send {
     /// Frames until the source ends.
     fn frames(&mut self) -> BoxStream<'_, Result<Frame, AudioError>>;
+}
+
+/// Something eco can listen to: a microphone ("input") or what an output plays ("output").
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Device {
+    pub id: String,
+    pub label: String,
+    pub kind: String,
+}
+
+impl Device {
+    pub fn new(id: &str, label: &str, kind: &str) -> Self {
+        Self {
+            id: id.into(),
+            label: label.into(),
+            kind: kind.into(),
+        }
+    }
+}
+
+/// Echo cancellation running on one microphone; dropping it stops it.
+pub type EchoCancelling = Box<dyn Send>;
+
+/// The platform's audio: the devices eco can listen to, and capture from each.
+pub trait AudioDevices: Send + Sync {
+    /// Every device, the system defaults first.
+    fn list(&self) -> BoxFuture<'static, Vec<Device>>;
+    /// Mono s16le at `SAMPLE_RATE` from `device`.
+    fn capture(&self, device: &Device) -> Box<dyn AudioSource>;
+    /// The microphone `cancel_echo` runs on, with what the default output plays
+    /// taken out; it hears only while that cancellation runs.
+    fn capture_cancelled(&self) -> Box<dyn AudioSource>;
+    /// Start cancelling, on `mic` (a device id), what the default output plays.
+    fn cancel_echo(&self, mic: &str) -> BoxFuture<'static, Result<EchoCancelling, AudioError>>;
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -195,4 +230,36 @@ pub trait Hooks: Send + Sync {
         session_id: String,
         title: String,
     ) -> BoxFuture<'static, Result<(), HookError>>;
+}
+
+/// Runs the daemon as a background service of the user's session.
+pub trait ServiceManager: Send + Sync {
+    /// Start the service, with the graphical session it has to reach.
+    fn start(&self) -> BoxFuture<'_, anyhow::Result<()>>;
+}
+
+/// Loads eco's window rules and shortcuts into the desktop's own config.
+pub trait DesktopIntegration {
+    /// What was done; `Err` is a warning: the desktop config could not be
+    /// read or written, so the rules are not loaded.
+    fn load_rules(&self) -> Result<String, String>;
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("{0}")]
+pub struct WindowError(pub String);
+
+/// The desktop's control of the windows of eco's window processes, each
+/// process named by its pid.
+pub trait WindowControl: Send + Sync {
+    /// Give the keyboard to the window of process `pid`, once it shows.
+    fn focus(&self, pid: u32) -> BoxFuture<'static, Result<(), WindowError>>;
+    /// Leave the windows of the processes `pids` out of screen sharing, or
+    /// show them in it again; while they are left out, so is every window
+    /// those processes open later.
+    fn hide_from_share(
+        &self,
+        pids: Vec<u32>,
+        hidden: bool,
+    ) -> BoxFuture<'static, Result<(), WindowError>>;
 }

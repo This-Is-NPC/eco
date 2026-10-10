@@ -84,13 +84,13 @@ removing a line drops its translation.
 Open the session's details (`⋯`) and pick a language on its **TRANSLATION**
 line, which reads `TRANSLATION: OFF` until you do:
 
-![The details of "Acme onboarding kickoff" with its TRANSLATION menu open: OFF marked, then PT · português, ES · español de España, FR · français, DE · Deutsch, IT · italiano, NL · Nederlands, PL · polski, RU · русский, UK · українська, TR · Türkçe, and more below the window's edge.](img/24-session-translation.png)
+![The details of "Acme onboarding kickoff" with its TRANSLATION menu open: OFF marked, then PT · português, ES · español de España, FR · français, DE · Deutsch, IT · italiano, NL · Nederlands, PL · polski, RU · русский, UK · українська, TR · Türkçe, and more below the window's edge.](img/25-session-translation.png)
 
 The menu leaves out the session's own language: this one is spoken in English.
 
 The translations show below each line and answer, dimmer and in italics:
 
-![A stored meeting, "Revisión de precios", with Spanish lines from Sofia Alvarez on the left and from you on the right, each with its English translation in dim italics beneath it; at the bottom an ASK card, "¿Qué falta decidir?", with its answer in Spanish and the English beneath.](img/25-session-translated.png)
+![A stored meeting, "Revisión de precios", with Spanish lines from Sofia Alvarez on the left and from you on the right, each with its English translation in dim italics beneath it; at the bottom an ASK card, "¿Qué falta decidir?", with its answer in Spanish and the English beneath.](img/26-session-translated.png)
 
 An answer's card has a translate button of its own, for one answer in a session
 that does not translate: it goes into the session's translation language when
@@ -98,7 +98,7 @@ there is one, else into the interface's.
 
 The model that writes them is chosen in **Settings › Translation**:
 
-![Settings on the Translation tab: "A session translates its lines and answers only once it is turned on in that session, on the TRANSLATION line of its details. Here you pick the model that writes the translations." and a DEFAULT MODEL dropdown on gemini-flash.](img/47-settings-translation.png)
+![Settings on the Translation tab: "A session translates its lines and answers only once it is turned on in that session, on the TRANSLATION line of its details. Here you pick the model that writes the translations." and a DEFAULT MODEL dropdown on gemini-flash.](img/48-settings-translation.png)
 
 ---
 

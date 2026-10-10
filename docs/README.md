@@ -54,7 +54,7 @@ nothing is kept until step 4.
 
 | the page | what it holds |
 |---|---|
-| [the command line](cli.md) | every command, every flag, in full. **Generated** from the binary's help by `mise run cli:gen`; `mise run check` fails when the two have come apart, so it is never edited by hand. |
+| [the command line](cli.md) | every command, every flag, in full. **Generated** from the binary's usage spec by `mise run cli:gen`; `mise run check` fails when the two have come apart, so it is never edited by hand. |
 | [the window, in the order somebody meets it](screens.md) | every screen the overlay draws, as a walk from opening it to looking back at a session weeks later — with the keys, the dialogs a happy path never reaches, and what has no screen. |
 | [how it is built](design.md) | for contributors: the model, the architecture, the socket, the state on disk and the gate. Its section numbers are cited from code, errors and other pages as `docs/design.md §N`, so they do not move. |
 | [benchmarks](benchmarks.md) | the measurements, dated: model latency, the LAN models, the prompt cache, diarization, streaming transcription, the overlay's cost. Answer quality is [`benchmark/README.md`](../benchmark/README.md). |

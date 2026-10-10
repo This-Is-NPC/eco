@@ -93,11 +93,11 @@ word by word.
 The same in the window: **Settings › Models**, ADD MODEL, type TRANSCRIPTION,
 provider **CUSTOM** with the base URL above and the key left empty:
 
-![Settings on the Models tab: four model cards — whisper-lan, TRANSCRIPTION · whisper-large-v3-turbo, used by DEFAULT TRANSCRIPTION, MEETING, CONVERSAT…; deepgram, TRANSCRIPTION · nova-3, used by INTERVIEW; gemini-flash, CHAT · google/gemini-2.5-flash, used by ASSISTANT, TRANSLATION, MEETING…; claude-haiku, CHAT · anthropic/claude-haiku-4.5, used by minutes — and ADD MODEL.](img/40-settings-models.png)
+![Settings on the Models tab: four model cards — whisper-lan, TRANSCRIPTION · whisper-large-v3-turbo, used by DEFAULT TRANSCRIPTION, MEETING, CONVERSAT…; deepgram, TRANSCRIPTION · nova-3, used by INTERVIEW; gemini-flash, CHAT · google/gemini-2.5-flash, used by ASSISTANT, TRANSLATION, MEETING…; claude-haiku, CHAT · anthropic/claude-haiku-4.5, used by minutes — and ADD MODEL.](img/41-settings-models.png)
 
 Then **Settings › Transcription** makes it the default:
 
-![Settings on the Transcription tab: DEFAULT MODEL whisper-lan, "Transcribes sessions whose kind picks no transcription model", then the offered spoken languages AUTO, EN, ES, PT and the default spoken language EN.](img/42-settings-transcription.png)
+![Settings on the Transcription tab: DEFAULT MODEL whisper-lan, "Transcribes sessions whose kind picks no transcription model", then the offered spoken languages AUTO, EN, ES, PT and the default spoken language EN.](img/43-settings-transcription.png)
 
 ## 5. Or only for some kinds of session
 
@@ -116,7 +116,7 @@ kinds = ["idea"]          # idea sessions transcribe here; the rest keep [stt] m
 or, in the window, open the kind in **Settings › Sessions** and pick its
 transcription model:
 
-![Settings on the Sessions tab: Meeting (DEFAULT), Conversation, Other and Idea transcribe with whisper-lan and answer with gemini-flash; interview transcribes with deepgram.](img/48-settings-sessions.png)
+![Settings on the Sessions tab: Meeting (DEFAULT), Conversation, Other and Idea transcribe with whisper-lan and answer with gemini-flash; interview transcribes with deepgram.](img/49-settings-sessions.png)
 
 **If that model is down, its sessions say so. Nothing falls back to another
 model** — a session that should stay at home does not quietly go to the cloud.

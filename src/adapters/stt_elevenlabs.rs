@@ -127,16 +127,13 @@ mod tests {
                 {"text": "dia.", "start": 0.75, "end": 1.1, "type": "word"},
             ],
         });
-        let Reading::Phrases(phrases) = read(&committed.to_string()).unwrap() else {
-            panic!("a phrase")
-        };
-        assert_eq!(
-            phrases,
-            [Phrase {
-                start: 0.5,
-                end: 1.1,
-                text: "Bom dia.".into()
-            }]
+        let said = [Phrase {
+            start: 0.5,
+            end: 1.1,
+            text: "Bom dia.".into(),
+        }];
+        assert!(
+            matches!(read(&committed.to_string()).unwrap(), Reading::Phrases(phrases) if phrases == said)
         );
         let partial = r#"{"message_type":"partial_transcript","text":" Bom di "}"#;
         assert!(matches!(read(partial).unwrap(), Reading::Partial(words) if words == "Bom di"));
@@ -151,10 +148,9 @@ mod tests {
 
     #[test]
     fn audio_goes_as_base64_pcm() {
-        let Message::Text(text) = chunk(&[1, -1], true) else {
-            panic!("text")
-        };
-        let message: Value = serde_json::from_str(&text).unwrap();
+        let message = chunk(&[1, -1], true);
+        assert!(message.is_text());
+        let message: Value = serde_json::from_str(message.to_text().unwrap()).unwrap();
         assert_eq!(message["audio_base_64"], "AQD//w==");
         assert_eq!(message["commit"], true);
         let stt = ElevenLabsTranscriber::new("wss://x/realtime", "scribe_v2_realtime", "pt", None);
@@ -162,5 +158,98 @@ mod tests {
             stt.url()
                 .ends_with("include_timestamps=true&language_code=pt")
         );
+    }
+
+    #[test]
+    fn what_is_not_a_timed_transcript_says_nothing() {
+        assert!(read("not json").is_err());
+        let started = r#"{"message_type":"session_started","session_id":"s"}"#;
+        assert!(matches!(read(started).unwrap(), Reading::Nothing));
+        let untimed = r#"{"message_type":"committed_transcript_with_timestamps","text":"Oi"}"#;
+        assert!(matches!(read(untimed).unwrap(), Reading::Nothing));
+        let blank = json!({
+            "message_type": "committed_transcript_with_timestamps", "text": " ",
+            "words": [{"text": " ", "start": 0.1, "end": 0.2, "type": "word"}],
+        });
+        assert!(matches!(
+            read(&blank.to_string()).unwrap(),
+            Reading::Nothing
+        ));
+    }
+
+    /// Over a real WebSocket: the key in the handshake, audio as chunks, the
+    /// commit last, and what Scribe answers back; Scribe keeps the session
+    /// open, so the stream ends once it has been quiet.
+    #[tokio::test]
+    async fn a_stream_round_trips_through_a_websocket() {
+        use futures::{SinkExt, StreamExt};
+        use tokio_tungstenite::tungstenite::handshake::server::{Request, Response};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.unwrap();
+            let mut asked = String::new();
+            // tungstenite fixes the callback's error type.
+            #[allow(clippy::result_large_err)]
+            let seen = |request: &Request, response: Response| {
+                let key = request
+                    .headers()
+                    .get("xi-api-key")
+                    .unwrap()
+                    .to_str()
+                    .unwrap();
+                asked = format!("{} {key}", request.uri());
+                Ok(response)
+            };
+            let mut socket = tokio_tungstenite::accept_hdr_async(socket, seen)
+                .await
+                .unwrap();
+            let mut chunks = 0;
+            while let Some(Ok(message)) = socket.next().await {
+                // Pings carry no JSON.
+                let chunk: Value = serde_json::from_slice(&message.into_data()).unwrap_or_default();
+                chunks += usize::from(chunk["message_type"] == "input_audio_chunk");
+                if chunk["commit"] == true {
+                    break;
+                }
+            }
+            let partial = json!({"message_type": "partial_transcript", "text": "Bom"});
+            let committed = json!({
+                "message_type": "committed_transcript_with_timestamps", "text": "Bom dia.",
+                "words": [{"text": "Bom dia.", "start": 0.0, "end": 0.6, "type": "word"}],
+            });
+            for message in [partial, committed] {
+                let text = message.to_string();
+                socket.send(Message::Text(text.into())).await.unwrap();
+            }
+            // Held open, as Scribe does, until the client leaves.
+            while let Some(Ok(_)) = socket.next().await {}
+            (asked, chunks)
+        });
+        let stt = ElevenLabsTranscriber::new(
+            &format!("ws://{address}/v1/speech-to-text/realtime"),
+            "scribe_v2_realtime",
+            "auto",
+            Some("xi-key".into()),
+        );
+        let frames = futures::stream::iter(vec![vec![0i16; 512]]).boxed();
+        let heard: Vec<Heard> = StreamingSpeechToText::transcribe(&stt, frames)
+            .map(Result::unwrap)
+            .collect()
+            .await;
+        assert_eq!(
+            heard,
+            [
+                Heard::Partial("Bom".into()),
+                Heard::Phrase(Phrase {
+                    start: 0.0,
+                    end: 0.6,
+                    text: "Bom dia.".into()
+                }),
+            ]
+        );
+        let (asked, chunks) = server.await.unwrap();
+        assert!(asked.ends_with("include_timestamps=true xi-key"), "{asked}");
+        assert_eq!(chunks, 2);
     }
 }

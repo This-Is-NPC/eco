@@ -171,11 +171,11 @@ Who is who has one place: the **SPEAKERS** list in the session's details (the
 `⋯` button in its masthead). Each label shows the person it is, eco's guess, or
 the name it goes by:
 
-![The details panel of "Acme onboarding kickoff": under SPEAKERS, Speaker 1 → Ana Ribeiro with CLEAR and CHANGE, Me (you) → No one yet, Speaker 2 → Marcus Lee, and Speaker 3 → No one yet; under PEOPLE, Ana Ribeiro, Marcus Lee, Priya Shah.](img/19-session-details.png)
+![The details panel of "Acme onboarding kickoff": under SPEAKERS, Speaker 1 → Ana Ribeiro with CLEAR and CHANGE, Me (you) → No one yet, Speaker 2 → Marcus Lee, and Speaker 3 → No one yet; under PEOPLE, Ana Ribeiro, Marcus Lee, Priya Shah.](img/20-session-details.png)
 
 **CHANGE**, or clicking a speaker's name in the timeline, asks who they are:
 
-![The ASSIGN PERSON dialog over the details: APPLY TO with THIS SPEAKER chosen and "2 lines will change" in amber, WHO THIS IS holding "Tom Becker", a SPEAKER COLOR swatch, and KNOWN PEOPLE as chips — Ana Ribeiro, Chen Wei, Jonas Weber, M. Lee, Marcus Lee, Priya Shah, Sofia Alvarez — then CANCEL and SAVE.](img/26-session-speaker.png)
+![The ASSIGN PERSON dialog over the details: APPLY TO with THIS SPEAKER chosen and "2 lines will change" in amber, WHO THIS IS holding "Tom Becker", a SPEAKER COLOR swatch, and KNOWN PEOPLE as chips — Ana Ribeiro, Chen Wei, Jonas Weber, M. Lee, Marcus Lee, Priya Shah, Sofia Alvarez — then CANCEL and SAVE.](img/27-session-speaker.png)
 
 The people the voice suggests come first, with their score, then everyone
 known; or type a name. Opened from a line, **APPLY TO** also offers **THIS
@@ -187,11 +187,11 @@ color for this speaker alone in the session's log.
 A guess shows on the speaker's lines as `JONAS WEBER?`, and as a count above
 the conversation whose **REVIEW** opens the details at the speakers:
 
-![An imported session, "Rust meetup: async in practice", with "1 VOICE GUESS" and REVIEW above the details; under SPEAKERS, "eco guessed these speakers from their voices. Nothing changes until you confirm.", Speaker 1 → No one yet, and Speaker 2 → "Jonas Weber? · 93%" with CONFIRM, CLEAR and CHANGE.](img/23-session-guess.png)
+![An imported session, "Rust meetup: async in practice", with "1 VOICE GUESS" and REVIEW above the details; under SPEAKERS, "eco guessed these speakers from their voices. Nothing changes until you confirm.", Speaker 1 → No one yet, and Speaker 2 → "Jonas Weber? · 93%" with CONFIRM, CLEAR and CHANGE.](img/24-session-guess.png)
 
 The **+** beside PEOPLE is step 4: someone in the session who is no speaker.
 
-![The PEOPLE IN THIS SESSION dialog: FROM SPEAKERS with Ana Ribeiro and Marcus Lee, dimmed; ADD SOMEONE with a field "Add a person by name" and ADD, then chips for Priya Shah (lit, added by hand, with ×), Chen Wei, Jonas Weber, M. Lee and Sofia Alvarez; CLOSE.](img/21-session-people.png)
+![The PEOPLE IN THIS SESSION dialog: FROM SPEAKERS with Ana Ribeiro and Marcus Lee, dimmed; ADD SOMEONE with a field "Add a person by name" and ADD, then chips for Priya Shah (lit, added by hand, with ×), Chen Wei, Jonas Weber, M. Lee and Sofia Alvarez; CLOSE.](img/22-session-people.png)
 
 ---
 
@@ -200,7 +200,7 @@ The **+** beside PEOPLE is step 4: someone in the session who is no speaker.
 Everyone you named is on the **People** screen (`p` on the start screen, or
 **PEOPLE** there and in SESSIONS), with their voices and sessions:
 
-![The People screen: seven people, each with a color swatch, rename, merge and forget buttons, and "2 voices · 2 sessions" under Ana Ribeiro.](img/29-people.png)
+![The People screen: seven people, each with a color swatch, rename, merge and forget buttons, and "2 voices · 2 sessions" under Ana Ribeiro.](img/30-people.png)
 
 The same, from the CLI:
 
@@ -230,13 +230,13 @@ by name.)*
 
 Merging asks which name stays in the window, and **SWAP** turns it around:
 
-![The People screen dimmed under a MERGE PEOPLE dialog: "Merge M. Lee into Marcus Lee? M. Lee's voices and sessions move to Marcus Lee; the name Marcus Lee stays." with SWAP, CANCEL and MERGE.](img/31-people-merge.png)
+![The People screen dimmed under a MERGE PEOPLE dialog: "Merge M. Lee into Marcus Lee? M. Lee's voices and sessions move to Marcus Lee; the name Marcus Lee stays." with SWAP, CANCEL and MERGE.](img/32-people-merge.png)
 
 **Forgetting cannot be undone.** It deletes the person's file and the voices
 kept for them; the sessions keep the name as text, so a transcript never loses
 who said what. The window asks first:
 
-![The FORGET PERSON dialog over the People screen: "Forget Ana Ribeiro?" and, in red, "The 2 voices kept for Ana Ribeiro are deleted: eco will not recognise them again. The 2 sessions keep the name Ana Ribeiro.", with CANCEL and FORGET.](img/32-people-forget.png)
+![The FORGET PERSON dialog over the People screen: "Forget Ana Ribeiro?" and, in red, "The 2 voices kept for Ana Ribeiro are deleted: eco will not recognise them again. The 2 sessions keep the name Ana Ribeiro.", with CANCEL and FORGET.](img/33-people-forget.png)
 
 Opening a person on that screen lists their sessions —
 [how to find a session](how-to-find-a-session.md).

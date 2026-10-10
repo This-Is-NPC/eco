@@ -1,0 +1,4 @@
+[
+  {"type": "transcription", "who": "Them", "state": "down", "code": "stt.down", "detail": "stalled: nothing heard for 15s"},
+  {"type": "transcription", "who": "Me", "state": "back", "down_s": 318.4, "dropped_s": 18.2}
+]

@@ -1,0 +1,10 @@
+module Eco.Settings
+ActionSettings 1.0 ActionSettings.qml
+AudioPage 1.0 AudioPage.qml
+ConfigWindow 1.0 ConfigWindow.qml
+ContextSettings 1.0 ContextSettings.qml
+KindModels 1.0 KindModels.qml
+KindSettings 1.0 KindSettings.qml
+ModelPick 1.0 ModelPick.qml
+ModelSettings 1.0 ModelSettings.qml
+ProviderFields 1.0 ProviderFields.qml
