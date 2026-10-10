@@ -27,7 +27,6 @@ def stage(root, eco):
     shutil.copy2(root / "target/release/eco.exe", eco / "bin/eco.exe")
     shutil.copytree(root / "target/window", eco / "lib/eco")
     shutil.copytree(root / "overlay", eco / "share/eco/overlay")
-    shutil.copy2(root / "packaging/eco.svg", eco / "eco.svg")
     shutil.copy2(root / "LICENSE", eco / "LICENSE")
     shutil.copy2(root / "packaging/windows/README.txt", eco / "README.txt")
 

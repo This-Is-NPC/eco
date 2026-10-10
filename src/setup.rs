@@ -1,5 +1,5 @@
-//! `eco setup`: download the pinned models and pick the desktop eco is tied
-//! into.
+//! `eco setup`: download the pinned models and pick what of the desktop eco
+//! is tied into.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -11,7 +11,7 @@ use sha2::{Digest, Sha256};
 #[cfg(unix)]
 use crate::adapters::desktop_hyprland::Hyprland;
 #[cfg(windows)]
-use crate::adapters::desktop_windows::StartupFolder;
+use crate::adapters::desktop_windows::{StartMenu, StartupFolder};
 use crate::adapters::http;
 use crate::config;
 use crate::paths;
@@ -90,16 +90,23 @@ async fn fetch(
     Ok(format!("saved {}", target.display()))
 }
 
-/// The desktop `eco setup` ties eco into: Hyprland, which loads eco's rules.
+/// What `eco setup` ties eco into: Hyprland, which loads eco's rules.
 #[cfg(unix)]
-pub fn desktop() -> impl DesktopIntegration {
-    Hyprland::new(paths::hypr_bindings(), paths::shipped("hypr/eco.lua"))
+pub fn desktop() -> Vec<Box<dyn DesktopIntegration>> {
+    vec![Box::new(Hyprland::new(
+        paths::hypr_bindings(),
+        paths::shipped("hypr/eco.lua"),
+    ))]
 }
 
-/// The desktop `eco setup` ties eco into: Windows, which starts it at login.
+/// What `eco setup` ties eco into: Windows, which starts it at login and lists
+/// it in the Start menu.
 #[cfg(windows)]
-pub fn desktop() -> impl DesktopIntegration {
-    StartupFolder::new(paths::startup_dir())
+pub fn desktop() -> Vec<Box<dyn DesktopIntegration>> {
+    vec![
+        Box::new(StartupFolder::new(paths::startup_dir())),
+        Box::new(StartMenu::new(paths::start_menu_dir())),
+    ]
 }
 
 #[cfg(test)]

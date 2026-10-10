@@ -5,7 +5,8 @@ window, live or afterwards.
 This folder is the whole program. Keep it where it is, for example
 %LOCALAPPDATA%\Programs\eco, and add its bin folder to your PATH.
 
-    eco setup             download the models and start eco at login
+    eco setup             download the models, start eco at login and add it
+                          to the Start menu
     eco start             start eco and open its window
     eco status            say whether eco runs
     eco stop              stop it

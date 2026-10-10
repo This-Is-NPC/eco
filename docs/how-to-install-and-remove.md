@@ -250,13 +250,15 @@ machine with a checkout writes `dist\eco-<version>-windows-x86_64.zip`
    To upgrade, `eco stop`, delete the `eco` folder and unzip the new one in
    its place; `PATH` and the login script still point at it.
 
-3. **Download the models** and start eco at login, as step 2 does on Linux:
+3. **Download the models,** start eco at login and add it to the Start menu,
+   as step 2 does on Linux:
 
    ```
    > eco setup
    eco: C:\Users\you\AppData\Local\eco\models\silero_vad.onnx is up to date
    eco: C:\Users\you\AppData\Local\eco\models\wespeaker_campplus.onnx is up to date
    eco: login start added in C:\Users\you\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\eco.cmd; eco starts with your next login
+   eco: Start menu entry added in C:\Users\you\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\eco.lnk
    ```
 
    (`C:\Users\you` stands for your profile directory.) A first run says
@@ -273,11 +275,14 @@ machine with a checkout writes `dist\eco-<version>-windows-x86_64.zip`
    setx DEEPGRAM_API_KEY "<your key>"
    ```
 
-   `<your key>` is a placeholder. omapass keeps its secrets in a keyring
+   `<your key>` is a placeholder. Without them eco still starts (seen on
+   the machine eco was built on); what needs a model says
+   `DEEPGRAM_API_KEY is not set` or `OPENROUTER_API_KEY is not set` (read in
+   the code). omapass keeps its secrets in a keyring
    Windows does not have, so a model with `api_key_omapass` says `omapass is
    not available on Windows`.
 
-6. **Start it:**
+6. **Start it:** open **eco** from the Start menu, or in a terminal:
 
    ```powershell
    eco start              # "eco: window opened"
@@ -315,6 +320,7 @@ added C:\Users\you\AppData\Local\Programs\eco\bin to your PATH; a new terminal f
 eco: C:\Users\you\AppData\Local\eco\models\silero_vad.onnx is up to date
 eco: C:\Users\you\AppData\Local\eco\models\wespeaker_campplus.onnx is up to date
 eco: login start added in C:\Users\you\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\eco.cmd; eco starts with your next login
+eco: Start menu entry added in C:\Users\you\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\eco.lnk
 ```
 
 Open a new terminal for the new `PATH`. Running it again is the upgrade: it
@@ -333,6 +339,7 @@ models stay. On Linux the task refuses and names `mise run install`.
 Choose 1 or 2: 1
 removed C:\Users\you\AppData\Local\Programs\eco
 removed C:\Users\you\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\eco.cmd
+removed C:\Users\you\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\eco.lnk
 removed C:\Users\you\AppData\Local\Programs\eco\bin from your PATH
 kept C:\Users\you\AppData\Local\eco
 ```
@@ -428,6 +435,22 @@ script it cannot write is a warning, and `eco setup` exits with status 1.
 Remove-Item "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\eco.cmd"
 ```
 
+**The Start menu.** `eco setup` also adds the shortcut **eco** to your Start
+menu, with eco's icon:
+
+```
+eco: Start menu entry added in C:\Users\you\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\eco.lnk
+```
+
+It runs `eco start` through `conhost.exe --headless`, a console host that
+shows no window, so no console stays open while `eco start` waits for the
+daemon and its window. Run again, it says `Start menu entry … is up to date`;
+from an eco that has moved, `Start menu entry updated in …`. The shortcut is
+written through PowerShell; one it cannot write is a warning, and `eco setup`
+exits with status 1. Over ssh the shortcut's command was run and started and
+stopped the daemon; a click in the Start menu was not seen, as the machine
+eco was built on has no desktop at hand.
+
 **To take eco off Windows** with a checkout at hand, `mise run
 uninstall:windows` above does it all. Without one, stop it, delete the login
 script, the folder you unzipped (or the checkout), and its `bin` folder from
@@ -436,6 +459,7 @@ your `PATH`:
 ```powershell
 eco stop
 Remove-Item "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\eco.cmd"
+Remove-Item "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\eco.lnk"
 Remove-Item -Recurse "$env:LOCALAPPDATA\Programs\eco"
 ```
 

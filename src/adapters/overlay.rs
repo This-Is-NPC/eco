@@ -23,7 +23,7 @@ fn shell() -> PathBuf {
 /// The program that runs it: installed beside the binary
 /// (`<prefix>/lib/eco/eco-window`, `eco-window.exe` on Windows), or this
 /// checkout's build (`mise run window:build`) when eco runs from it.
-fn program() -> PathBuf {
+pub fn program() -> PathBuf {
     let name = format!("eco-window{}", std::env::consts::EXE_SUFFIX);
     paths::shipped_program(&name).unwrap_or_else(|| {
         Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/target/window")).join(name)

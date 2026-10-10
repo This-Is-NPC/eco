@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Take eco off Windows: stop it, then remove what scripts/install-windows put
-there, the eco folder in %LOCALAPPDATA%\\Programs, its PATH entry and the
-login script. --delete-everything also deletes %APPDATA%\\eco and
-%LOCALAPPDATA%\\eco (config, sessions, people, models, log); --keep-data keeps
-them. With neither, it asks."""
+there, the eco folder in %LOCALAPPDATA%\\Programs, its PATH entry, the login
+script and the Start-menu shortcut. --delete-everything also deletes
+%APPDATA%\\eco and %LOCALAPPDATA%\\eco (config, sessions, people, models,
+log); --keep-data keeps them. With neither, it asks."""
 
 import os
 import sys
@@ -36,7 +36,7 @@ if not keep and not delete:
 
 eco = windows.install_dir()
 data = [Path(os.environ["APPDATA"]) / "eco", Path(os.environ["LOCALAPPDATA"]) / "eco"]
-login = Path(os.environ["APPDATA"]) / r"Microsoft\Windows\Start Menu\Programs\Startup\eco.cmd"
+programs = Path(os.environ["APPDATA"]) / r"Microsoft\Windows\Start Menu\Programs"
 installed = eco / "bin/eco.exe"
 built = root / "target/release/eco.exe"
 for exe in (installed, built):
@@ -47,9 +47,10 @@ for path in (eco, *(data if delete else [])):
     if path.exists():
         windows.remove(path)
         print(f"removed {path}")
-if login.exists():
-    login.unlink()
-    print(f"removed {login}")
+for entry in (programs / r"Startup\eco.cmd", programs / "eco.lnk"):
+    if entry.exists():
+        entry.unlink()
+        print(f"removed {entry}")
 if windows.remove_from_user_path(eco / "bin"):
     print(f"removed {eco / 'bin'} from your PATH")
 if not delete:

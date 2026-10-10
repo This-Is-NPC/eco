@@ -138,9 +138,13 @@ impl<V: Fn(&str) -> Option<OsString>> Layout<V> {
         self.data_dir().join("daemon.log")
     }
 
-    fn startup_dir(&self) -> PathBuf {
+    fn start_menu_dir(&self) -> PathBuf {
         self.base("APPDATA", r"AppData\Roaming")
-            .join(r"Microsoft\Windows\Start Menu\Programs\Startup")
+            .join(r"Microsoft\Windows\Start Menu\Programs")
+    }
+
+    fn startup_dir(&self) -> PathBuf {
+        self.start_menu_dir().join("Startup")
     }
 }
 
@@ -233,6 +237,12 @@ pub fn daemon_log() -> PathBuf {
 #[cfg(windows)]
 pub fn startup_dir() -> PathBuf {
     layout().startup_dir()
+}
+
+/// The folder of the user's own entries in the Start menu.
+#[cfg(windows)]
+pub fn start_menu_dir() -> PathBuf {
+    layout().start_menu_dir()
 }
 
 /// The socket where the running Hyprland tells its events, when eco runs under one.
@@ -407,6 +417,7 @@ mod tests {
             layout.token_path(),
             layout.daemon_log(),
             layout.startup_dir(),
+            layout.start_menu_dir(),
             layout.expand("~/cv.md"),
         ];
         let expected = [
@@ -419,6 +430,7 @@ mod tests {
             r"C:\Users\you\AppData\Local\eco\eco.token",
             r"C:\Users\you\AppData\Local\eco\daemon.log",
             r"C:\Users\you\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup",
+            r"C:\Users\you\AppData\Roaming\Microsoft\Windows\Start Menu\Programs",
             r"C:\Users\you\cv.md",
         ];
         assert_eq!(found, expected.map(PathBuf::from));

@@ -23,7 +23,7 @@ use crate::ports::ServiceManager;
 /// A console of its own that is never shown. Without a console at all
 /// (`DETACHED_PROCESS`), each console program the daemon runs, a hook's
 /// `cmd` say, would open a console window of its own.
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+pub const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 /// The variable that hands `Start-Process` the program to run, so its path
 /// needs no quoting inside the script.

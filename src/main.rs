@@ -27,7 +27,6 @@ use crate::adapters::control_socket::Address;
 use crate::adapters::service_systemd::SystemdUser as PlatformService;
 #[cfg(windows)]
 use crate::adapters::service_windows::BackgroundProcess as PlatformService;
-use crate::ports::DesktopIntegration;
 
 #[derive(Debug, Parser)]
 #[command(
@@ -646,17 +645,22 @@ async fn set_up(harnesses: Vec<String>) -> Result<()> {
     for done in setup::run().await? {
         println!("eco: {done}");
     }
-    let desktop = setup::desktop().integrate();
-    match &desktop {
-        Ok(done) => println!("eco: {done}"),
-        Err(warning) => eprintln!("eco: warning: {warning}"),
+    let mut tied = true;
+    for desktop in setup::desktop() {
+        match desktop.integrate() {
+            Ok(done) => println!("eco: {done}"),
+            Err(warning) => {
+                eprintln!("eco: warning: {warning}");
+                tied = false;
+            }
+        }
     }
     let home = paths::home();
     for harness in skill_targets(&home, harnesses) {
         println!("eco: {}", skill::install(&home, &harness)?);
     }
     // The rest of setup ran; the exit status still says eco is not tied in.
-    if desktop.is_err() {
+    if !tied {
         std::process::exit(1);
     }
     Ok(())

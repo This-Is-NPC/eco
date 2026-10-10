@@ -9,8 +9,8 @@ On Windows: dist/eco-<version>-windows-x86_64.zip of the working tree, one
 folder eco/ laid out as the daemon looks for what it ships (docs/design.md
 §13), staged by scripts/lib/windows.py as scripts/install-windows installs it:
 bin/eco.exe, the window program and its Qt runtime in lib/eco (built by
-scripts/window-build), the overlay in share/eco/overlay, the icon, the licence
-and README.txt."""
+scripts/window-build, the icon inside it), the overlay in share/eco/overlay,
+the licence and README.txt."""
 
 import hashlib
 import os

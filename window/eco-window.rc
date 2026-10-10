@@ -1,0 +1,2 @@
+// The icon of eco-window.exe, which Qt also gives its windows (IDI_ICON1).
+IDI_ICON1 ICON "../packaging/windows/eco.ico"
