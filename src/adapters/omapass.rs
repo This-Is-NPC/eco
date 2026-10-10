@@ -101,21 +101,12 @@ async fn secret_of(program: Option<PathBuf>, account: &str) -> Result<String, St
 
 #[cfg(test)]
 mod tests {
-    use std::os::unix::fs::PermissionsExt;
-
     use super::*;
+    use crate::adapters::fake_program::fake_program;
 
     /// A stand-in omapass in `directory` that runs `body` for every command.
     fn scripted(directory: &Path, body: &str) -> Option<PathBuf> {
-        let path = directory.join("omapass");
-        std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
-        // A process another test forked while the file was open for writing
-        // holds it so until that process execs; running it fails until then.
-        let busy = |e: &std::io::Error| e.kind() == std::io::ErrorKind::ExecutableFileBusy;
-        let _ran = std::iter::repeat_with(|| std::process::Command::new(&path).output())
-            .find(|run| !run.as_ref().is_err_and(busy));
-        Some(path)
+        Some(fake_program(directory, "omapass", body))
     }
 
     /// A stand-in omapass that knows two passwords and a Nostr key.
