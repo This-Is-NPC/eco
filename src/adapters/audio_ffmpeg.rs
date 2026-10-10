@@ -118,6 +118,7 @@ fn read_probe(json: &[u8]) -> Option<Probe> {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
     use futures::StreamExt;
 
     use super::*;
