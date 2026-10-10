@@ -475,7 +475,13 @@ impl Client {
             Window::Action { name } => format!("action {name}"),
             Window::Toggle => "session.toggle".into(),
         };
-        self.send(&command).await?;
+        self.shortcut(&command).await
+    }
+
+    /// Send a shortcut's `command`, returning once the daemon has read it.
+    #[cfg(unix)]
+    async fn shortcut(&mut self, command: &str) -> Result<Value, Failure> {
+        self.send(command).await?;
         // The daemon stops serving a client it can no longer write to, maybe
         // before reading its line: close only our writing half, and return
         // once the daemon has read to its end and closed.
@@ -485,6 +491,16 @@ impl Client {
             .map_err(|e| Failure::new("daemon.closed", e.to_string()))?;
         while let Ok(Some(_)) = self.lines.next_line().await {}
         Ok(Value::Null)
+    }
+
+    /// A shortcut's command, which a named pipe cannot send so as to know
+    /// when the daemon has read it: it has no writing half to close alone.
+    #[cfg(windows)]
+    async fn shortcut(&mut self, _: &str) -> Result<Value, Failure> {
+        Err(Failure::new(
+            "window.unsupported",
+            "`eco window` is not supported on Windows yet",
+        ))
     }
 
     /// List the tags, tag or untag a session, or rename or delete a tag everywhere.
@@ -989,7 +1005,7 @@ mod tests {
 
     /// `conversing`, with the daemon greeting the client with `greeting`.
     fn greeted(greeting: Value, turns: Vec<(&'static str, Vec<Value>)>) -> Client {
-        let (ours, theirs) = Stream::pair().unwrap();
+        let (ours, theirs) = local_socket::pair();
         tokio::spawn(daemon(theirs, greeting, turns));
         Client::over(ours)
     }
@@ -1019,7 +1035,7 @@ mod tests {
     /// A client wired to a fake daemon that checks the command it receives,
     /// writes `lines` as they are, and closes the connection.
     fn closing_after(expected: &'static str, lines: &'static [&'static str]) -> Client {
-        let (ours, theirs) = Stream::pair().unwrap();
+        let (ours, theirs) = local_socket::pair();
         tokio::spawn(async move {
             let (reader, mut writer) = local_socket::split(theirs);
             let mut commands = BufReader::new(reader).lines();
@@ -1326,7 +1342,7 @@ mod tests {
         speakers: Value,
         steps: Vec<(&'static str, Vec<Value>)>,
     ) -> Client {
-        let (ours, theirs) = Stream::pair().unwrap();
+        let (ours, theirs) = local_socket::pair();
         tokio::spawn(async move {
             let (reader, mut writer) = local_socket::split(theirs);
             let mut lines = BufReader::new(reader).lines();
@@ -1458,7 +1474,7 @@ mod tests {
     #[tokio::test]
     async fn an_argument_with_a_line_break_is_never_sent() {
         for id in ["x\nconfig.set {}", "x\rstop"] {
-            let (ours, mut theirs) = Stream::pair().unwrap();
+            let (ours, mut theirs) = local_socket::pair();
             let mut client = Client::over(ours);
             let failure = client.show(id).await.err().unwrap();
             assert_eq!(failure.code, "argument.invalid");
@@ -1485,6 +1501,7 @@ mod tests {
         assert_eq!(kept["text"], "a\nb");
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn window_commands_send_what_a_shortcut_asks() {
         let asks = [
@@ -1506,7 +1523,7 @@ mod tests {
             (Window::Toggle, "session.toggle"),
         ];
         for (window, expected) in asks {
-            let (ours, mut theirs) = Stream::pair().unwrap();
+            let (ours, mut theirs) = local_socket::pair();
             let mut client = Client::over(ours);
             let mut asked = Box::pin(client.window(window));
             // Not done while the daemon may still be reading the line.
@@ -1523,13 +1540,14 @@ mod tests {
     #[tokio::test]
     async fn a_daemon_that_is_not_running_is_reported() {
         let directory = tempfile::tempdir().unwrap();
-        let failure = Client::connect(&directory.path().join("eco.sock"))
+        let failure = Client::connect(&local_socket::scratch(directory.path()))
             .await
             .err()
             .unwrap();
         assert_eq!(failure.code, "daemon.offline");
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn a_socket_path_the_system_refuses_is_unavailable() {
         let file = tempfile::NamedTempFile::new().unwrap();
@@ -1543,7 +1561,7 @@ mod tests {
     /// A socket at a fresh path whose daemon answers one connection.
     async fn listening(turns: Vec<(&'static str, Vec<Value>)>) -> (tempfile::TempDir, PathBuf) {
         let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("eco.sock");
+        let path = local_socket::scratch(directory.path());
         let listener = local_socket::Listener::bind(&path).await.unwrap();
         tokio::spawn(async move {
             let stream = listener.accept().await.unwrap();
@@ -1580,7 +1598,7 @@ mod tests {
         assert_eq!(run(&socket, Request::Delete { id: "n9".into() }).await, 1);
 
         let directory = tempfile::tempdir().unwrap();
-        let offline = directory.path().join("eco.sock");
+        let offline = local_socket::scratch(directory.path());
         assert_eq!(run(&offline, Request::Show { id: "n1".into() }).await, 1);
     }
 
@@ -1601,7 +1619,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_command_to_a_gone_daemon_is_a_failure() {
-        let (ours, theirs) = Stream::pair().unwrap();
+        let (ours, theirs) = local_socket::pair();
         drop(theirs);
         let mut client = Client::over(ours);
         assert_eq!(client.delete("n1").await.unwrap_err().code, "daemon.closed");
@@ -2024,6 +2042,15 @@ mod tests {
         );
     }
 
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn a_window_command_is_not_supported_on_windows() {
+        let (ours, _theirs) = local_socket::pair();
+        let failure = Client::over(ours).window(Window::Toggle).await.unwrap_err();
+        assert_eq!(failure.code, "window.unsupported");
+    }
+
+    #[cfg(unix)]
     #[tokio::test]
     async fn a_window_command_returns_once_the_daemon_closes() {
         let mut client = talking_to(r#"window.call {"call":"focus"}"#, vec![]);

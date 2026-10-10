@@ -2,6 +2,9 @@
 //! §3). These tests run it on a temp copy of `overlay/` so a bad import or a
 //! Kit component missing from the control lab can be injected without
 //! touching the checkout, and prove it passes on the real tree untouched.
+//! They run the script through its shebang and copy with `cp`, as on Linux:
+//! on Windows they are left out.
+#![cfg(unix)]
 
 use std::fs;
 use std::path::{Path, PathBuf};

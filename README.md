@@ -164,8 +164,8 @@ daemon. Every screen the window draws is in
 ## What it does not do
 
 **It is not a bot that joins the meeting.** It hears what the laptop plays and
-what its microphone hears, and nothing else. Linux only — Omarchy, Hyprland,
-PipeWire; nothing special-cases macOS or Windows.
+what its microphone hears, and nothing else. It is released for Linux only —
+Omarchy, Hyprland, PipeWire.
 
 **It does not answer on its own.** Every answer is asked for: a question, a
 skill, a key. An automatic trigger on a question heard is an open question in

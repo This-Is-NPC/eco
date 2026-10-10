@@ -156,6 +156,7 @@ fn serve_on(model: &Path, input: impl Read, mut out: impl Write) -> anyhow::Resu
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
     use std::fs;
 
     use super::*;
@@ -193,6 +194,7 @@ mod tests {
         assert_eq!(parse("oops"), None);
     }
 
+    #[cfg(unix)]
     /// A child that keeps its arguments, environment and input in `dir`, then
     /// runs `reply`.
     fn child(dir: &Path, reply: &str) -> PathBuf {
@@ -225,6 +227,7 @@ cat > input
         told.recv().unwrap()
     }
 
+    #[cfg(unix)]
     #[test]
     fn the_child_gets_the_regions_and_its_reply_is_read() {
         let dir = tempfile::tempdir().unwrap();
@@ -257,6 +260,7 @@ cat > input
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_child_that_fails_or_says_nonsense_is_an_error() {
         let dir = tempfile::tempdir().unwrap();
@@ -271,6 +275,7 @@ cat > input
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_child_that_stops_reading_ends_the_diarization() {
         let dir = tempfile::tempdir().unwrap();
@@ -290,7 +295,8 @@ cat > input
     fn a_child_that_cannot_start_is_an_error() {
         let dir = tempfile::tempdir().unwrap();
         let missing = found(Ok(dir.path().join("eco")), &[]).unwrap_err();
-        assert!(missing.starts_with("No such file"), "{missing}");
+        // The system's "file not found", error 2 on Linux and on Windows.
+        assert_eq!(missing, std::io::Error::from_raw_os_error(2).to_string());
         let unknown = found(Err(std::io::Error::other("no exe")), &[]);
         assert_eq!(unknown, Err("no exe".into()));
     }

@@ -1,27 +1,58 @@
 //! Every filesystem path eco builds, in one place (docs/design.md §15).
 //! On Linux they sit under the home, the XDG base directories and
-//! `/run/user/<uid>`.
+//! `/run/user/<uid>`; on Windows under `%APPDATA%` and `%LOCALAPPDATA%`,
+//! with the daemon's named pipe at `\\.\pipe\eco-<user>`.
 
+use std::env;
 use std::ffi::OsString;
-use std::path::PathBuf;
-use std::{env, fs};
+use std::path::{Path, PathBuf};
 
 /// The paths, built from the environment variables `var` reads.
 struct Layout<V> {
     var: V,
 }
 
+/// Paths built the same way on every platform, below the home and the data directory.
 impl<V: Fn(&str) -> Option<OsString>> Layout<V> {
-    fn home(&self) -> PathBuf {
-        (self.var)("HOME").map(PathBuf::from).unwrap_or_default()
-    }
-
     /// The directory `variable` names, or `fallback` under the home when it is unset or empty.
     fn base(&self, variable: &str, fallback: &str) -> PathBuf {
         (self.var)(variable)
             .filter(|value| !value.is_empty())
             .map(PathBuf::from)
             .unwrap_or_else(|| self.home().join(fallback))
+    }
+
+    fn vad_model(&self) -> PathBuf {
+        self.data_dir().join("models").join("silero_vad.onnx")
+    }
+
+    fn speaker_model(&self) -> PathBuf {
+        self.data_dir()
+            .join("models")
+            .join("wespeaker_campplus.onnx")
+    }
+
+    fn people_dir(&self) -> PathBuf {
+        self.data_dir().join("people")
+    }
+
+    fn sessions_dir(&self) -> PathBuf {
+        self.data_dir().join("sessions")
+    }
+
+    fn expand(&self, path: &str) -> PathBuf {
+        match path.strip_prefix("~/") {
+            Some(rest) => self.home().join(rest),
+            None => PathBuf::from(path),
+        }
+    }
+}
+
+/// Linux: the home, the XDG base directories and `/run/user/<uid>`.
+#[cfg(unix)]
+impl<V: Fn(&str) -> Option<OsString>> Layout<V> {
+    fn home(&self) -> PathBuf {
+        (self.var)("HOME").map(PathBuf::from).unwrap_or_default()
     }
 
     fn config_home(&self) -> PathBuf {
@@ -47,24 +78,6 @@ impl<V: Fn(&str) -> Option<OsString>> Layout<V> {
         self.config_home().join("hypr/bindings.lua")
     }
 
-    fn vad_model(&self) -> PathBuf {
-        self.data_dir().join("models").join("silero_vad.onnx")
-    }
-
-    fn speaker_model(&self) -> PathBuf {
-        self.data_dir()
-            .join("models")
-            .join("wespeaker_campplus.onnx")
-    }
-
-    fn people_dir(&self) -> PathBuf {
-        self.data_dir().join("people")
-    }
-
-    fn sessions_dir(&self) -> PathBuf {
-        self.data_dir().join("sessions")
-    }
-
     fn socket_path(&self) -> PathBuf {
         self.runtime_dir().join("eco.sock")
     }
@@ -88,12 +101,37 @@ impl<V: Fn(&str) -> Option<OsString>> Layout<V> {
         self.home()
             .join(".config/omarchy/plugins/io.github.this-is-npc.omapass/bin/omapass")
     }
+}
 
-    fn expand(&self, path: &str) -> PathBuf {
-        match path.strip_prefix("~/") {
-            Some(rest) => self.home().join(rest),
-            None => PathBuf::from(path),
-        }
+/// Windows: the user profile, the roaming and local application data, and a
+/// named pipe per user.
+#[cfg(windows)]
+impl<V: Fn(&str) -> Option<OsString>> Layout<V> {
+    fn home(&self) -> PathBuf {
+        (self.var)("USERPROFILE")
+            .map(PathBuf::from)
+            .unwrap_or_default()
+    }
+
+    fn data_dir(&self) -> PathBuf {
+        self.base("LOCALAPPDATA", r"AppData\Local").join("eco")
+    }
+
+    fn config_file(&self) -> PathBuf {
+        self.base("APPDATA", r"AppData\Roaming")
+            .join("eco")
+            .join("config.toml")
+    }
+
+    fn socket_path(&self) -> PathBuf {
+        let user = (self.var)("USERNAME").unwrap_or_default();
+        let mut name = OsString::from(r"\\.\pipe\eco-");
+        name.push(user);
+        PathBuf::from(name)
+    }
+
+    fn token_path(&self) -> PathBuf {
+        self.data_dir().join("eco.token")
     }
 }
 
@@ -103,8 +141,9 @@ fn layout() -> Layout<impl Fn(&str) -> Option<OsString>> {
     }
 }
 
+#[cfg(unix)]
 fn users_uid() -> u32 {
-    fs::metadata("/proc/self")
+    std::fs::metadata("/proc/self")
         .map(|m| std::os::unix::fs::MetadataExt::uid(&m))
         .unwrap_or(0)
 }
@@ -136,6 +175,7 @@ pub fn config_file() -> PathBuf {
 }
 
 /// The Hyprland file that holds the user's key bindings.
+#[cfg(unix)]
 pub fn hypr_bindings() -> PathBuf {
     layout().hypr_bindings()
 }
@@ -166,11 +206,13 @@ pub fn token_path() -> PathBuf {
 }
 
 /// The socket where the running Hyprland tells its events, when eco runs under one.
+#[cfg(unix)]
 pub fn hypr_events() -> Option<PathBuf> {
     layout().hypr_events()
 }
 
 /// Where Omarchy installs the omapass plugin's CLI.
+#[cfg(unix)]
 pub fn omapass_plugin() -> PathBuf {
     layout().omapass_plugin()
 }
@@ -178,6 +220,25 @@ pub fn omapass_plugin() -> PathBuf {
 /// `path` with a leading `~/` replaced by the home.
 pub fn expand(path: &str) -> PathBuf {
     layout().expand(path)
+}
+
+/// The real file `path` names, through every link, absolute.
+#[cfg(unix)]
+pub fn real(path: &Path) -> std::io::Result<PathBuf> {
+    path.canonicalize()
+}
+
+/// The real file `path` names, through every link, absolute and written as
+/// the user writes it: Windows names a disk `\\?\C:\…` there, the user `C:\…`.
+#[cfg(windows)]
+pub fn real(path: &Path) -> std::io::Result<PathBuf> {
+    let real = path.canonicalize()?;
+    let plain = real
+        .to_str()
+        .and_then(|text| text.strip_prefix(r"\\?\"))
+        .filter(|rest| rest.as_bytes().get(1) == Some(&b':'))
+        .map(PathBuf::from);
+    Ok(plain.unwrap_or(real))
 }
 
 #[cfg(test)]
@@ -198,6 +259,7 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
     fn all(layout: &Layout<impl Fn(&str) -> Option<OsString>>) -> Vec<PathBuf> {
         vec![
             layout.config_file(),
@@ -214,6 +276,7 @@ mod tests {
         ]
     }
 
+    #[cfg(unix)]
     #[test]
     fn paths_follow_the_xdg_variables_when_set() {
         let layout = with(&[
@@ -238,6 +301,7 @@ mod tests {
         assert_eq!(all(&layout), expected.map(PathBuf::from));
     }
 
+    #[cfg(unix)]
     #[test]
     fn unset_or_empty_xdg_variables_fall_back_under_the_home() {
         let runtime = format!("/run/user/{}", users_uid());
@@ -266,6 +330,7 @@ mod tests {
         assert_eq!(all(&empty), expected);
     }
 
+    #[cfg(unix)]
     #[test]
     fn without_a_home_paths_are_relative() {
         let layout = with(&[]);
@@ -276,6 +341,7 @@ mod tests {
         assert_eq!(layout.expand("~/cv.md"), PathBuf::from("cv.md"));
     }
 
+    #[cfg(unix)]
     #[test]
     fn hyprland_events_are_in_its_instance_directory_and_only_under_it() {
         let under = with(&[
@@ -290,5 +356,64 @@ mod tests {
         assert_eq!(without.hypr_events(), None);
         let empty = with(&[("HYPRLAND_INSTANCE_SIGNATURE", "")]);
         assert_eq!(empty.hypr_events(), None);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_paths_follow_the_application_data_variables() {
+        let layout = with(&[
+            ("USERPROFILE", r"C:\Users\you"),
+            ("APPDATA", r"C:\Users\you\AppData\Roaming"),
+            ("LOCALAPPDATA", r"C:\Users\you\AppData\Local"),
+            ("USERNAME", "you"),
+        ]);
+        let found = [
+            layout.config_file(),
+            layout.vad_model(),
+            layout.speaker_model(),
+            layout.people_dir(),
+            layout.sessions_dir(),
+            layout.socket_path(),
+            layout.token_path(),
+            layout.expand("~/cv.md"),
+        ];
+        let expected = [
+            r"C:\Users\you\AppData\Roaming\eco\config.toml",
+            r"C:\Users\you\AppData\Local\eco\models\silero_vad.onnx",
+            r"C:\Users\you\AppData\Local\eco\models\wespeaker_campplus.onnx",
+            r"C:\Users\you\AppData\Local\eco\people",
+            r"C:\Users\you\AppData\Local\eco\sessions",
+            r"\\.\pipe\eco-you",
+            r"C:\Users\you\AppData\Local\eco\eco.token",
+            r"C:\Users\you\cv.md",
+        ];
+        assert_eq!(found, expected.map(PathBuf::from));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn unset_application_data_falls_back_under_the_profile() {
+        let layout = with(&[("USERPROFILE", r"C:\Users\you"), ("APPDATA", "")]);
+        assert_eq!(
+            layout.config_file(),
+            PathBuf::from(r"C:\Users\you\AppData\Roaming\eco\config.toml")
+        );
+        assert_eq!(
+            layout.sessions_dir(),
+            PathBuf::from(r"C:\Users\you\AppData\Local\eco\sessions")
+        );
+    }
+
+    #[test]
+    fn the_real_file_is_absolute_and_plain() {
+        let directory = tempfile::tempdir().unwrap();
+        let file = directory.path().join("a.jsonl");
+        std::fs::write(&file, "").unwrap();
+        let relative = directory.path().join(".").join("a.jsonl");
+        let found = real(&relative).unwrap();
+        assert!(found.is_absolute());
+        assert!(!found.to_string_lossy().starts_with(r"\\?\"), "{found:?}");
+        assert_eq!(found.file_name(), file.file_name());
+        assert!(real(&directory.path().join("none")).is_err());
     }
 }

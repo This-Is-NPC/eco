@@ -355,11 +355,16 @@ without a test). Before: 81.12% for the whole crate. Files not named below
 are at 100%, or miss a line the report counts without naming it (an
 artefact of counting each compiled copy of generic code).
 
+Coverage is measured on Linux, so the Windows adapters' lines
+(`#[cfg(windows)]`) are not counted; their tests run on the Windows machine.
+The rows for `src/session.rs` and `src/paths.rs` were measured again when
+those adapters came in.
+
 | File | Lines | Left without a test, and why |
 |---|---|---|
-| `src/session.rs` | 95.89% | `run()` (1976–2076 at measurement): builds the real VAD model, PipeWire, Hyprland, `eco-window`, the user's socket and signals; `impl Overlay for overlay::Windows`: hands each call to real windows; the omapass key source and the `omapass` command's task: run the user's keyring (what they return is tested through `omapass_listed`); the closing brace of `pipeline()`, which only ends by being aborted. |
+| `src/session.rs` | 96.10% | `run()` (1949–2042 at measurement): builds the real VAD model, the platform's audio and window control (PipeWire, Hyprland), `eco-window` and the user's socket; the Ctrl-C arm of `stop_signal()`, which a test cannot press; `impl Overlay for overlay::Windows`: hands each call to real windows; the omapass key source and the `omapass` command's task: run the user's keyring (what they return is tested through `omapass_listed`); the closing brace of `pipeline()`, which only ends by being aborted. |
 | `src/main.rs` | 89.22% | the body of `main()` (tokio runtime, each command's call, `process::exit`) and `set_up`'s I/O; `panic!` arms of tests, which run only when a test fails. |
-| `src/paths.rs` | 87.84% | the public wrappers that read the real environment and home (112–171); the layout behind them is tested with a fixed environment. |
+| `src/paths.rs` | 88.56% | the public wrappers that read the real environment and home (151–212); the layout behind them is tested with a fixed environment. |
 | `src/adapters/audio_pipewire.rs` | 79.27% | the trait methods that start the real `pw-record` and `pw-dump` (21–40); the arguments they build are tested. |
 | `src/import.rs` | 97.09% | the Silero and speaker-model closures in `run` and `diarizing()`, which start the real `eco diarize` child from the current executable. |
 | `src/setup.rs` | 90.62% | `run()` over the production model URLs and the user's paths; `desktop()`, one composition line. `fetch` is at 100%. |

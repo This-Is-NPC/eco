@@ -5117,12 +5117,8 @@ mod tests {
         let detail = events.lock().unwrap().last().unwrap().clone();
         assert_eq!(detail["type"], "session_detail");
         assert!(detail["session"]["bytes"].as_u64().unwrap() > 0);
-        assert!(
-            detail["session"]["path"]
-                .as_str()
-                .unwrap()
-                .contains("/sessions/")
-        );
+        let path = std::path::PathBuf::from(detail["session"]["path"].as_str().unwrap());
+        assert!(path.parent().unwrap().ends_with("sessions"), "{path:?}");
 
         assistant.delete_session(&id);
         assert!(log.read(&id).is_none());

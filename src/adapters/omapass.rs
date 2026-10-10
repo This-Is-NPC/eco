@@ -2,14 +2,13 @@
 //! their secrets) for the config window, and one account's secret as a
 //! provider's key.
 
+#[cfg(unix)]
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
 use serde_json::Value;
 use tokio::process::Command;
-
-use crate::paths;
 
 /// One login omapass keeps.
 #[derive(Debug, Clone, PartialEq)]
@@ -19,11 +18,20 @@ pub struct Account {
 }
 
 /// The omapass CLI: on PATH, or where Omarchy installs the plugin.
+#[cfg(unix)]
 fn program() -> Option<PathBuf> {
-    find(std::env::var_os("PATH"), paths::omapass_plugin())
+    find(std::env::var_os("PATH"), crate::paths::omapass_plugin())
+}
+
+/// The omapass CLI: none, for omapass keeps its secrets in gnome-keyring,
+/// which Windows does not have.
+#[cfg(windows)]
+fn program() -> Option<PathBuf> {
+    None
 }
 
 /// `omapass` in the first directory of `path` that has it, else `plugin` if it is a file.
+#[cfg(unix)]
 fn find(path: Option<OsString>, plugin: PathBuf) -> Option<PathBuf> {
     path.into_iter()
         .flat_map(|path| std::env::split_paths(&path).collect::<Vec<_>>())
@@ -40,8 +48,14 @@ pub fn installed() -> bool {
     program().is_some()
 }
 
+#[cfg(unix)]
 fn missing() -> String {
     format!("omapass is not installed ({PAGE})")
+}
+
+#[cfg(windows)]
+fn missing() -> String {
+    "omapass is not available on Windows".into()
 }
 
 /// Run omapass with `args`; its stdout, or the last line it wrote to stderr.
@@ -99,7 +113,20 @@ async fn secret_of(program: Option<PathBuf>, account: &str) -> Result<String, St
     Ok(secret.into())
 }
 
-#[cfg(test)]
+#[cfg(all(test, windows))]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn on_windows_omapass_is_never_there() {
+        assert!(!installed());
+        let missing = "omapass is not available on Windows";
+        assert_eq!(accounts().await.unwrap_err(), missing);
+        assert_eq!(secret("deepgram").await.unwrap_err(), missing);
+    }
+}
+
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
     use crate::adapters::fake_program::fake_program;

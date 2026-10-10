@@ -2,12 +2,15 @@
 
 pub mod audio_ffmpeg;
 pub mod audio_file;
+#[cfg(unix)]
 pub mod audio_pipewire;
 pub mod control_socket;
+#[cfg(unix)]
 pub mod desktop_hyprland;
 pub mod diarizer_process;
+#[cfg(unix)]
 pub mod echo_cancel;
-#[cfg(test)]
+#[cfg(all(test, unix))]
 pub mod fake_program;
 pub mod fbank;
 pub mod hook_shell;
@@ -18,7 +21,9 @@ pub mod omapass;
 pub mod overlay;
 pub mod people_files;
 pub mod pipe;
+#[cfg(unix)]
 pub mod pipewire_devices;
+#[cfg(unix)]
 pub mod service_systemd;
 pub mod session_files;
 pub mod speaker_tract;
@@ -26,7 +31,10 @@ pub mod stt_deepgram;
 pub mod stt_elevenlabs;
 pub mod stt_openai;
 pub mod terminal;
+#[cfg(windows)]
+pub mod unsupported;
 pub mod vad_silero;
 pub mod websocket;
 pub mod webvtt;
+#[cfg(unix)]
 pub mod window_hyprland;

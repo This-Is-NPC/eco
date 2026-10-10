@@ -8,6 +8,7 @@ use anyhow::{Context, Result, bail};
 use reqwest::Client;
 use sha2::{Digest, Sha256};
 
+#[cfg(unix)]
 use crate::adapters::desktop_hyprland::Hyprland;
 use crate::adapters::http;
 use crate::config;
@@ -87,9 +88,16 @@ async fn fetch(
     Ok(format!("saved {}", target.display()))
 }
 
-/// The desktop `eco setup` loads eco's rules into.
+/// The desktop `eco setup` loads eco's rules into: Hyprland.
+#[cfg(unix)]
 pub fn desktop() -> impl DesktopIntegration {
     Hyprland::new(paths::hypr_bindings(), paths::shipped("hypr/eco.lua"))
+}
+
+/// The desktop `eco setup` loads eco's rules into: none yet on Windows.
+#[cfg(windows)]
+pub fn desktop() -> impl DesktopIntegration {
+    crate::adapters::unsupported::Unsupported
 }
 
 #[cfg(test)]

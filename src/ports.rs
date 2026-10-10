@@ -35,6 +35,8 @@ pub struct Device {
 }
 
 impl Device {
+    // Only the Linux audio adapter lists devices so far.
+    #[cfg_attr(windows, allow(dead_code))]
     pub fn new(id: &str, label: &str, kind: &str) -> Self {
         Self {
             id: id.into(),

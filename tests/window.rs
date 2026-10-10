@@ -1,7 +1,9 @@
 //! eco-window's bridge, as the overlay uses it: the daemon connection (lines
 //! each way, connected again after the daemon goes), the environment and a
 //! watched file, run offscreen against
-//! `tests/window/bridge.qml`. Needs `mise run window:build`.
+//! `tests/window/bridge.qml`. Needs `mise run window:build`, which builds
+//! eco-window on Linux only so far: on Windows these tests are left out.
+#![cfg(unix)]
 
 use std::io::{BufRead, BufReader, ErrorKind, Write};
 use std::os::unix::net::{UnixListener, UnixStream};

@@ -13,7 +13,7 @@ on the machine.
 ## What it needs
 
 - **Omarchy**, or Arch with Hyprland, PipeWire and a systemd user session. eco is
-  Linux only. The Hyprland config it ships is Lua (`o.bind`, `o.window`).
+  released for Linux only. The Hyprland config it ships is Lua (`o.bind`, `o.window`).
 - **PipeWire's tools**: `pw-record` captures, `pw-dump` lists the devices.
 - **Qt 6** (`qt6-base`, `qt6-declarative`), which draws the window. Omarchy
   already has it, and the package depends on it.

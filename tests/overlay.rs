@@ -1,5 +1,7 @@
 //! The overlay's JavaScript modules pass the QML test cases in
-//! `tests/overlay/`, run offscreen by Qt's own test runner.
+//! `tests/overlay/`, run offscreen by Qt's own test runner. Qt is found on
+//! Linux only so far: on Windows these tests are left out.
+#![cfg(unix)]
 
 use std::path::Path;
 use std::process::Command;

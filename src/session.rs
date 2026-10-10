@@ -16,7 +16,6 @@ use tokio::sync::{OnceCell, Semaphore, mpsc, watch};
 use tokio::task::{JoinHandle, JoinSet};
 
 use crate::adapters::audio_file::WavFileSource;
-use crate::adapters::audio_pipewire::PipeWire;
 use crate::adapters::control_socket::{Clients, ControlSocket, Greeting};
 use crate::adapters::diarizer_process;
 use crate::adapters::hook_shell::ShellHooks;
@@ -32,7 +31,6 @@ use crate::adapters::stt_openai::OpenAITranscriber;
 use crate::adapters::terminal::terminal;
 use crate::adapters::vad_silero::{SileroModel, SileroVad};
 use crate::adapters::webvtt;
-use crate::adapters::window_hyprland::HyprlandWindows;
 use crate::config::{self, Config, ConfigError, Key, ModelConfig, ModelType};
 use crate::domain::assistant::{Assistant, ContextSlot, Emit, Model, Reviewer, Setup, Translating};
 use crate::domain::channel::{
@@ -50,6 +48,16 @@ use crate::ports::{
     AudioDevices, AudioError, AudioSource, Device, LanguageModel, PeopleStore, SessionLog,
     SpeechToText, StreamingSpeechToText, TranscriptionBilling,
 };
+
+// The platform's audio and window control: Linux's, or Windows' (docs/design.md §15).
+#[cfg(unix)]
+use crate::adapters::audio_pipewire::PipeWire as PlatformAudio;
+#[cfg(windows)]
+use crate::adapters::unsupported::Unsupported as PlatformAudio;
+#[cfg(windows)]
+use crate::adapters::unsupported::Unsupported as PlatformWindows;
+#[cfg(unix)]
+use crate::adapters::window_hyprland::HyprlandWindows as PlatformWindows;
 
 /// The longest the assistant's model may send nothing before the request fails.
 const LLM_SILENCE: Duration = Duration::from_secs(120);
@@ -1098,6 +1106,7 @@ fn greeting(
             "type": "daemon",
             "version": env!("CARGO_PKG_VERSION"),
             "pid": std::process::id(),
+            "exe": std::env::current_exe().ok().map(|exe| exe.to_string_lossy().into_owned()),
             "overlay": overlay_open.load(Ordering::Relaxed),
         })];
         events.extend(assistant.snapshot());
@@ -1992,7 +2001,7 @@ pub async fn run(
     let token = uuid::Uuid::new_v4().simple().to_string();
     let mut windows = overlay::Windows::new(
         token.clone(),
-        Arc::new(HyprlandWindows::default()),
+        Arc::new(PlatformWindows::default()),
         current.hide_from_share,
     )?;
     if !headless {
@@ -2012,7 +2021,7 @@ pub async fn run(
         pending,
         rig: Rig {
             replay,
-            audio: Arc::new(PipeWire),
+            audio: Arc::new(PlatformAudio),
             vad,
             diarizer,
             outages,
@@ -2028,15 +2037,37 @@ pub async fn run(
         overlay_open,
     };
     session.restart().await;
-    let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
-    let signalled = async move {
+    session.serve(received, stop_signal()?).await;
+    Ok(())
+}
+
+/// Resolves when the daemon is asked to stop: Ctrl-C or SIGTERM.
+#[cfg(unix)]
+fn stop_signal() -> io::Result<impl Future<Output = ()>> {
+    use tokio::signal::unix::{SignalKind, signal};
+    let mut terminate = signal(SignalKind::terminate())?;
+    Ok(async move {
         tokio::select! {
             _ = tokio::signal::ctrl_c() => {}
             _ = terminate.recv() => {}
         }
-    };
-    session.serve(received, signalled).await;
-    Ok(())
+    })
+}
+
+/// Resolves when the daemon is asked to stop: Ctrl-C or Ctrl-Break, its
+/// console closing, or Windows shutting down.
+#[cfg(windows)]
+fn stop_signal() -> io::Result<impl Future<Output = ()>> {
+    use tokio::signal::windows::{ctrl_break, ctrl_close, ctrl_shutdown};
+    let (mut cancel, mut close, mut shutdown) = (ctrl_break()?, ctrl_close()?, ctrl_shutdown()?);
+    Ok(async move {
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {}
+            _ = cancel.recv() => {}
+            _ = close.recv() => {}
+            _ = shutdown.recv() => {}
+        }
+    })
 }
 
 #[cfg(test)]
@@ -3646,6 +3677,17 @@ mod tests {
         assert_ne!(first, second);
     }
 
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_terminate_signal_stops_the_daemon() {
+        use rustix::process::{Signal, getpid, kill_process};
+        let stopped = stop_signal().unwrap();
+        kill_process(getpid(), Signal::TERM).unwrap();
+        tokio::time::timeout(Duration::from_secs(5), stopped)
+            .await
+            .unwrap();
+    }
+
     #[tokio::test]
     async fn the_daemon_greets_a_client_with_what_it_needs_first() {
         let d = daemon(raw());
@@ -3660,6 +3702,8 @@ mod tests {
         assert_eq!(said(&events), ["daemon", "snapshot"]);
         assert_eq!(events[0]["overlay"], true);
         assert_eq!(events[0]["version"], env!("CARGO_PKG_VERSION"));
+        let exe = std::env::current_exe().unwrap();
+        assert_eq!(events[0]["exe"], *exe.to_string_lossy());
         let held = hold(&mut d.session.pending.lock().unwrap(), "notify-send done");
         assert_eq!(greeting()[2], held);
     }
@@ -3679,9 +3723,11 @@ mod tests {
         let opened = || open.load(Ordering::Relaxed);
         eventually(opened).await;
         // A window that exits is no longer open.
-        exits
-            .send(std::os::unix::process::ExitStatusExt::from_raw(256))
-            .unwrap();
+        #[cfg(unix)]
+        let failed = std::os::unix::process::ExitStatusExt::from_raw(256);
+        #[cfg(windows)]
+        let failed = std::os::windows::process::ExitStatusExt::from_raw(1);
+        exits.send(failed).unwrap();
         eventually(|| !opened()).await;
         lines.send("stop".into()).unwrap();
         served.await.unwrap();

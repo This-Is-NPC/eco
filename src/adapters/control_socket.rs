@@ -181,7 +181,7 @@ mod tests {
     #[tokio::test]
     async fn receives_commands_and_broadcasts_events() {
         let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("eco.sock");
+        let path = local_socket::scratch(directory.path());
         let greeting = vec![json!({"type": "snapshot", "actions": ["ask"]})];
         let (socket, clients, mut commands) = bound(&path, greeting.clone()).await;
         let stream = connect(&path).await;
@@ -197,13 +197,15 @@ mod tests {
         assert_eq!(hello, greeting[0]);
         assert_eq!(event, json!({"type": "suggestion_delta", "text": "olá"}));
         drop(socket);
+        // The socket file goes with it; a named pipe has none.
+        #[cfg(unix)]
         assert!(!path.exists());
     }
 
     #[tokio::test]
     async fn a_line_past_the_cap_ends_the_connection() {
         let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("eco.sock");
+        let path = local_socket::scratch(directory.path());
         let (_socket, _, mut commands) = bound(&path, Vec::new()).await;
         let mut fits = connect(&path).await;
         let mut largest = vec![b'a'; MAX_LINE];
@@ -229,7 +231,7 @@ mod tests {
     #[tokio::test]
     async fn a_client_that_does_not_read_is_dropped() {
         let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("eco.sock");
+        let path = local_socket::scratch(directory.path());
         let (_socket, clients, _commands) = bound(&path, Vec::new()).await;
         let mut stalled = connect(&path).await;
         let reading = connect(&path).await;
@@ -264,7 +266,7 @@ mod tests {
     #[tokio::test]
     async fn a_client_that_does_not_read_skips_signals_and_is_dropped_for_the_rest() {
         let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("eco.sock");
+        let path = local_socket::scratch(directory.path());
         let (_socket, clients, _commands) = bound(&path, Vec::new()).await;
         let _stalled = connect(&path).await;
         while clients.0.lock().unwrap().is_empty() {
@@ -288,6 +290,7 @@ mod tests {
     }
 
     /// Emit an event until the clients that left are dropped; five seconds at most.
+    #[cfg(unix)]
     async fn emit_until_alone(clients: &Clients) -> usize {
         let started = std::time::Instant::now();
         loop {
@@ -300,10 +303,12 @@ mod tests {
         }
     }
 
+    // A named pipe has no half to shut: these two run where a socket has.
+    #[cfg(unix)]
     #[tokio::test]
     async fn a_client_that_stops_writing_is_dropped() {
         let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("eco.sock");
+        let path = local_socket::scratch(directory.path());
         let (_socket, clients, mut commands) = bound(&path, Vec::new()).await;
         let mut client = connect(&path).await;
         client.write_all(b"one\n").await.unwrap();
@@ -314,10 +319,11 @@ mod tests {
         assert_eq!(emit_until_alone(&clients).await, 0);
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn a_client_that_stops_reading_is_dropped() {
         let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("eco.sock");
+        let path = local_socket::scratch(directory.path());
         let (_socket, clients, mut commands) = bound(&path, Vec::new()).await;
         let mut client = connect(&path).await;
         client.write_all(b"ready\n").await.unwrap();
@@ -331,7 +337,7 @@ mod tests {
     /// The connection is closed after `line`, and no command came of it.
     async fn ends_the_connection(line: &[u8], keep_commands: bool) {
         let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("eco.sock");
+        let path = local_socket::scratch(directory.path());
         let (_socket, _, mut commands) = bound(&path, Vec::new()).await;
         if !keep_commands {
             commands.close();

@@ -19,7 +19,12 @@ use std::path::{Path, PathBuf};
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 
-use crate::adapters::service_systemd::SystemdUser;
+// What runs the daemon in the background: the systemd user service, or on
+// Windows nothing yet (docs/design.md §15).
+#[cfg(unix)]
+use crate::adapters::service_systemd::SystemdUser as PlatformService;
+#[cfg(windows)]
+use crate::adapters::unsupported::Unsupported as PlatformService;
 use crate::ports::DesktopIntegration;
 
 #[derive(Debug, Parser)]
@@ -570,10 +575,10 @@ async fn main() -> Result<()> {
     let ran = match Run::from(Cli::parse().command) {
         Run::SetUp { harnesses } => set_up(harnesses).await,
         Run::Start { show_window } => {
-            lifecycle::start(&SystemdUser, &paths::socket_path(), show_window).await
+            lifecycle::start(&PlatformService, &paths::socket_path(), show_window).await
         }
         Run::Stop => lifecycle::stop(&paths::socket_path()).await,
-        Run::Restart => lifecycle::restart(&SystemdUser, &paths::socket_path()).await,
+        Run::Restart => lifecycle::restart(&PlatformService, &paths::socket_path()).await,
         Run::Status {
             expect_current_exe,
             window_open,

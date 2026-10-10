@@ -350,23 +350,27 @@ async fn media(
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
+    #[cfg(unix)]
     use std::time::{Duration, SystemTime};
 
+    #[cfg(unix)]
     use futures::StreamExt;
     use futures::future::BoxFuture;
+    #[cfg(unix)]
     use futures::stream::{self, BoxStream};
     use serde_json::Value;
     use tokio::sync::Notify;
 
     use super::*;
+    #[cfg(unix)]
     use crate::adapters::audio_file::tests::write_wav;
     use crate::adapters::people_files::PeopleFiles;
     use crate::adapters::session_files::SessionFiles;
+    #[cfg(unix)]
     use crate::domain::diarization::Turn;
-    use crate::ports::{
-        Frame, Heard, Phrase, SAMPLE_RATE, SpeechToText, StreamingSpeechToText, Transcript,
-        TranscriptionError,
-    };
+    #[cfg(unix)]
+    use crate::ports::{Frame, Heard, StreamingSpeechToText};
+    use crate::ports::{Phrase, SAMPLE_RATE, SpeechToText, Transcript, TranscriptionError};
 
     const RATE: usize = SAMPLE_RATE as usize;
     /// When the recordings the tests import began, as the user gives it.
@@ -418,10 +422,12 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
     /// A streaming STT that hears the whole stream, then names its request,
     /// says words as they come, and finishes one phrase from 1 s to `.0` s.
     struct Streamed(f64);
 
+    #[cfg(unix)]
     impl StreamingSpeechToText for Streamed {
         fn transcribe<'a>(
             &'a self,
@@ -451,6 +457,7 @@ mod tests {
         Ok(if speech { 1.0 } else { 0.0 })
     }
 
+    #[cfg(unix)]
     /// Five seconds: a second of silence, a second of a 400 Hz tone, twice, and silence.
     fn two_phrases(directory: &Path) -> PathBuf {
         let silence = vec![0; RATE];
@@ -463,6 +470,9 @@ mod tests {
         path
     }
 
+    // Importing audio runs ffmpeg and ffprobe, a requirement of the Linux
+    // package only so far: the tests that import a recording run on Linux.
+    #[cfg(unix)]
     /// `wav` made into `name` beside it by ffmpeg, with `arguments` before the output.
     fn convert(wav: &Path, name: &str, arguments: &[&str]) -> PathBuf {
         let converted = wav.with_file_name(name);
@@ -577,6 +587,7 @@ mod tests {
             .collect()
     }
 
+    #[cfg(unix)]
     /// A diarizer that answers what `answer` makes of the regions it was
     /// sent, or stops without a word when it makes nothing.
     fn diarizer(
@@ -594,6 +605,7 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
     /// Each region said by one of `voices` voices, taking turns region by region.
     fn turns(voices: usize) -> impl FnOnce(Vec<Segment>) -> Option<Result<Diarization, String>> {
         move |regions| {
@@ -612,6 +624,7 @@ mod tests {
 
     /// Audio is transcribed phrase by phrase, its progress told as it goes,
     /// into a session with the request's title, kind, language and date.
+    #[cfg(unix)]
     #[tokio::test]
     async fn imports_audio_line_by_line() {
         let stores = stores();
@@ -675,6 +688,7 @@ mod tests {
     }
 
     /// A video's sound track is what is transcribed.
+    #[cfg(unix)]
     #[tokio::test]
     async fn imports_the_sound_of_a_video() {
         let stores = stores();
@@ -693,6 +707,7 @@ mod tests {
 
     /// A streaming STT's finished phrases are the lines; its words so far and
     /// its request are not kept.
+    #[cfg(unix)]
     #[tokio::test]
     async fn imports_through_a_streaming_transcriber() {
         let stores = stores();
@@ -714,6 +729,7 @@ mod tests {
     }
 
     /// A phrase that ends past the file, from padding, reports the file done.
+    #[cfg(unix)]
     #[tokio::test]
     async fn progress_never_passes_the_end_of_the_file() {
         let stores = stores();
@@ -737,6 +753,7 @@ mod tests {
 
     /// Diarization says who spoke each line once the file is done, and keeps
     /// the session's voices.
+    #[cfg(unix)]
     #[tokio::test]
     async fn the_speakers_found_say_the_lines() {
         let stores = stores();
@@ -760,6 +777,7 @@ mod tests {
     }
 
     /// One voice saying every line leaves them the participant's.
+    #[cfg(unix)]
     #[tokio::test]
     async fn one_voice_keeps_the_participant() {
         let stores = stores();
@@ -775,6 +793,7 @@ mod tests {
     }
 
     /// A diarizer that fails is told; the import is still whole.
+    #[cfg(unix)]
     #[tokio::test]
     async fn a_failing_diarizer_is_told() {
         let stores = stores();
@@ -790,6 +809,7 @@ mod tests {
     }
 
     /// A diarizer that stops without a word says nothing more.
+    #[cfg(unix)]
     #[tokio::test]
     async fn a_silent_diarizer_says_nothing() {
         let stores = stores();
@@ -804,6 +824,7 @@ mod tests {
     }
 
     /// Voices that cannot be kept are an error; the lines still say who spoke.
+    #[cfg(unix)]
     #[tokio::test]
     async fn voices_that_cannot_be_kept_are_told() {
         let mut stores = stores();
@@ -823,6 +844,7 @@ mod tests {
 
     /// A segment the STT keeps failing is tried four times, then lost and
     /// told; the import still reaches the end of the file.
+    #[cfg(unix)]
     #[tokio::test(start_paused = true)]
     async fn a_failing_stt_loses_each_segment_after_its_retries() {
         let stores = stores();
@@ -846,6 +868,7 @@ mod tests {
 
     /// Media whose audio cannot be decoded fails once its session has begun:
     /// the session ends, not whole.
+    #[cfg(unix)]
     #[tokio::test]
     async fn media_without_sound_fails_and_ends_its_session() {
         let stores = stores();
@@ -872,6 +895,7 @@ mod tests {
 
     /// An import dropped midway — the user cancelled it — ends its session
     /// and tells clients it is not whole.
+    #[cfg(unix)]
     #[tokio::test]
     async fn a_cancelled_import_ends_its_session() {
         let stores = stores();
@@ -898,6 +922,7 @@ mod tests {
         assert_eq!(of_type(&records, "state").last().unwrap()["state"], "ended");
     }
 
+    #[cfg(unix)]
     /// A streaming STT that refuses its first connection and leaves every
     /// later one open, hearing nothing; `reopened` is told the second.
     #[derive(Default)]
@@ -906,6 +931,7 @@ mod tests {
         reopened: Notify,
     }
 
+    #[cfg(unix)]
     impl StreamingSpeechToText for DownOnce {
         fn transcribe<'a>(
             &'a self,
@@ -922,6 +948,7 @@ mod tests {
 
     /// A client that connects while an import's transcription is down is told,
     /// until the import stops.
+    #[cfg(unix)]
     #[tokio::test(start_paused = true)]
     async fn an_import_down_is_kept_for_later_clients_until_it_stops() {
         let stores = stores();
@@ -1014,6 +1041,7 @@ mod tests {
 
     /// A file that is missing, a directory, or neither transcript nor media
     /// fails before any session exists.
+    #[cfg(unix)]
     #[tokio::test]
     async fn what_is_not_a_recording_fails_before_a_session() {
         let stores = stores();
@@ -1047,11 +1075,13 @@ mod tests {
         assert!(stores.log.all().is_empty());
     }
 
+    #[cfg(unix)]
     /// The date a file was recorded with, in ISO 8601, as ffmpeg tags it.
     const TAGGED: [&str; 2] = ["-metadata", "creation_time=2026-09-30T09:15:00Z"];
 
     /// A file's date is the one media was recorded with, else when the file
     /// last changed; none when it cannot be imported.
+    #[cfg(unix)]
     #[tokio::test]
     async fn dates_a_file_as_an_import_would() {
         let directory = tempfile::tempdir().unwrap();
@@ -1076,6 +1106,7 @@ mod tests {
     }
 
     /// A date the user gives wins over the one the file was recorded with.
+    #[cfg(unix)]
     #[tokio::test]
     async fn the_date_given_wins() {
         let stores = stores();

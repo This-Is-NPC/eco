@@ -84,10 +84,16 @@ mod tests {
     use futures::StreamExt;
 
     use super::*;
+    #[cfg(unix)]
     use crate::adapters::audio_file::tests::write_wav;
+    #[cfg(unix)]
     use crate::ports::FRAME_SAMPLES;
 
+    // ffmpeg is a requirement of the Linux package only so far: the tests
+    // that run it to make or read a file run on Linux.
+
     /// A WAV at another rate and in stereo comes out as 16 kHz mono frames.
+    #[cfg(unix)]
     #[tokio::test]
     async fn decodes_any_file_to_frames() {
         let directory = tempfile::tempdir().unwrap();
@@ -122,6 +128,7 @@ mod tests {
     }
 
     /// A file's `creation_time` tag is when it was recorded.
+    #[cfg(unix)]
     #[tokio::test]
     async fn reads_when_a_file_was_recorded() {
         let directory = tempfile::tempdir().unwrap();
@@ -143,6 +150,7 @@ mod tests {
     }
 
     /// A relative name that begins with `-` reaches ffmpeg and ffprobe as a file.
+    #[cfg(unix)]
     #[tokio::test]
     async fn a_name_like_an_option_is_a_file() {
         let directory = tempfile::tempdir().unwrap();

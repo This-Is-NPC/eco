@@ -1,17 +1,16 @@
 //! The overlay windows, each an `eco-window` process running the QML in
 //! `overlay/`, for as long as the session holds them (docs/design.md §3).
 
-use std::fs::{self, OpenOptions};
+use std::fs;
 use std::io::{self, Write};
-use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{ExitStatus, Stdio};
 use std::sync::Arc;
 use std::time::Duration;
 
-use rustix::process::{Pid, Signal, kill_process};
 use tokio::process::{Child, Command};
 
+use crate::config::{private_dir, private_file};
 use crate::paths;
 use crate::ports::WindowControl;
 
@@ -188,13 +187,26 @@ impl Windows {
     /// Terminate every window and wait for them to exit.
     pub async fn close(self) {
         for mut window in self.open {
-            let running = window.child.id().and_then(|id| Pid::from_raw(id as i32));
-            if let Some(pid) = running {
-                let _ = kill_process(pid, Signal::TERM);
-            }
+            terminate(&mut window.child);
             let _ = window.child.wait().await;
         }
     }
+}
+
+/// Ask `child` to exit: SIGTERM, so the window closes cleanly.
+#[cfg(unix)]
+fn terminate(child: &mut Child) {
+    use rustix::process::{Pid, Signal, kill_process};
+    if let Some(pid) = child.id().and_then(|id| Pid::from_raw(id as i32)) {
+        let _ = kill_process(pid, Signal::TERM);
+    }
+}
+
+/// Ask `child` to exit: Windows has no signal a window process hears, so it is
+/// terminated.
+#[cfg(windows)]
+fn terminate(child: &mut Child) {
+    let _ = child.start_kill();
 }
 
 /// The token in a file only its user reads; dropping it removes the file.
@@ -207,10 +219,12 @@ impl TokenFile {
             Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error),
             _ => {}
         }
-        OpenOptions::new()
+        if let Some(parent) = path.parent() {
+            private_dir(parent)?;
+        }
+        private_file()
             .write(true)
             .create_new(true)
-            .mode(0o600)
             .open(path)?
             .write_all(token.as_bytes())?;
         Ok(Self(path.into()))
@@ -225,7 +239,58 @@ impl Drop for TokenFile {
 
 #[cfg(test)]
 mod tests {
-    use std::os::unix::fs::PermissionsExt;
+    use super::*;
+
+    #[test]
+    fn the_token_file_is_the_users_alone_and_goes_with_the_daemon() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("eco.token");
+        fs::write(&path, "stale").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+        }
+        let file = TokenFile::write(&path, "secret").unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "secret");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = fs::metadata(&path).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o600);
+        }
+        drop(file);
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn the_token_file_makes_its_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("eco").join("eco.token");
+        let _file = TokenFile::write(&path, "secret").unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "secret");
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn a_window_process_that_is_terminated_exits() {
+        let mut child = Command::new("ping")
+            .args(["-n", "30", "127.0.0.1"])
+            .stdout(Stdio::null())
+            .spawn()
+            .unwrap();
+        terminate(&mut child);
+        let status = tokio::time::timeout(Duration::from_secs(5), child.wait())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(!status.success());
+    }
+}
+
+/// The windows, each run by a stand-in shell script.
+#[cfg(all(test, unix))]
+mod programs {
     use std::sync::Mutex;
 
     use futures::FutureExt;
@@ -234,20 +299,6 @@ mod tests {
     use super::*;
     use crate::adapters::fake_program::fake_program;
     use crate::ports::WindowError;
-
-    #[test]
-    fn the_token_file_is_the_users_alone_and_goes_with_the_daemon() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("eco.token");
-        fs::write(&path, "stale").unwrap();
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
-        let file = TokenFile::write(&path, "secret").unwrap();
-        assert_eq!(fs::read_to_string(&path).unwrap(), "secret");
-        let mode = fs::metadata(&path).unwrap().permissions().mode();
-        assert_eq!(mode & 0o777, 0o600);
-        drop(file);
-        assert!(!path.exists());
-    }
 
     /// A WindowControl that notes what it is asked.
     #[derive(Default)]

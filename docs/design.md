@@ -168,12 +168,12 @@ composition happens in `src/session.rs` from `config.toml`. The crate forbids
 | Port | Adapters | Why |
 |---|---|---|
 | `AudioSource` | `pw-record` (any input, or what any sink plays), **WAV file** | The file adapter replays recorded meetings (`--replay <file.wav>`) to tune prompt and trigger and for automated tests. |
-| `AudioDevices` | PipeWire (`pw-dump`, `pw-record`, echo cancellation through `pw-cli`) | A platform seam (§15): it lists the devices, builds an `AudioSource` for one, and runs echo cancellation on a microphone. Tests compose inputs with a fake. |
+| `AudioDevices` | PipeWire (`pw-dump`, `pw-record`, echo cancellation through `pw-cli`); on Windows none yet | A platform seam (§15): it lists the devices, builds an `AudioSource` for one, and runs echo cancellation on a microphone. Tests compose inputs with a fake. |
 | `STT` | Deepgram (streaming), ElevenLabs Scribe (streaming), OpenAI-compatible transcription (`/v1/audio/transcriptions`: LAN whisper.cpp server, Groq, OpenAI) | There is no common real-time STT standard: each protocol needs its own adapter. |
 | `LLM` | a single OpenAI-compatible adapter | Covers OpenRouter, OpenAI, Groq, Ollama, llama.cpp — switching = `base_url` + key + model. |
 | `EventSink` | Unix socket (overlay), text on stdout | stdout is written only when it is a terminal (`mise run start`); under the user service it is the journal, which never gets transcript, note or answer text. |
 | `TranscriptStore` | file in `~/.local/share/eco/`, null (`--no-save`) | |
-| `WindowControl` | Hyprland (`hyprctl dispatch`, its event socket) | A platform seam (§15): it focuses a window process's window and leaves its windows out of screen sharing, both by pid. Tests open windows with a fake. |
+| `WindowControl` | Hyprland (`hyprctl dispatch`, its event socket); on Windows none yet | A platform seam (§15): it focuses a window process's window and leaves its windows out of screen sharing, both by pid. Tests open windows with a fake. |
 
 Rule: only add a port when two real implementations exist or a test clearly
 benefits.
@@ -722,6 +722,17 @@ their files `0600` and the directories it makes for them `0700`. A file eco
 rewrites (the config, a person, a session's voices) comes back `0600` on its next
 save; a session log made before keeps the mode it had.
 
+On Windows the same files sit elsewhere, and have no modes: under the user
+profile, each inherits an access list that admits only the user, the system
+and administrators (§15).
+
+| On Linux | On Windows |
+|---|---|
+| `~/.config/eco/config.toml` | `%APPDATA%\eco\config.toml` |
+| `~/.local/share/eco/` (sessions, people, voices, models) | `%LOCALAPPDATA%\eco\` |
+| `$XDG_RUNTIME_DIR/eco.sock` | the named pipe `\\.\pipe\eco-<user>`, no file |
+| `$XDG_RUNTIME_DIR/eco.token` | `%LOCALAPPDATA%\eco\eco.token` |
+
 A session log holds `session`, `state`, `speech`, `suggestion`, `removed`,
 `meta`, `speaker`, `diarized`, `person`, `attendee`, `unheard`, `edited`,
 `line_person`, `transcriber`, `listening`, `billed`, `spent`, `tags` records, and also
@@ -921,9 +932,11 @@ custom URL and a key, or an omapass key, lists once it is saved.
 
 ## 10. The socket
 
-The daemon listens on `$XDG_RUNTIME_DIR/eco.sock`. Every client receives all
-events as JSON lines and may send commands, one per line. The first event on
-every connection is `daemon` with `pid`, `version`, and `overlay` fields. A
+The daemon listens on `$XDG_RUNTIME_DIR/eco.sock`, on Windows on the named pipe
+`\\.\pipe\eco-<user>` (§15). Every client receives all events as JSON lines and
+may send commands, one per line. The first event on every connection is
+`daemon` with `pid`, `exe` (the path of the executable it runs), `version`, and
+`overlay` fields. A
 daemon error carries a `code`, which the overlay translates as `error.<code>`.
 
 Two limits keep one client from growing the daemon's memory. A command line
@@ -1107,7 +1120,8 @@ How the commands are built:
   `session.not_found`, `session.delete_failed`, `action.unknown`,
   `completion.failed`, `suggestion.removed` (replaced by a newer request), `import.busy`,
   `import.failed`, `person.not_found`, `person.invalid`, `person.exists`,
-  `people.failed`, `line.not_found`, `tag.invalid`, `tag.not_found`. They read
+  `people.failed`, `line.not_found`, `tag.invalid`, `tag.not_found`,
+  `window.unsupported` (`eco window` on Windows, §15). They read
   the broadcast for their own reply, so they work beside the overlay. `export`
   prints the document itself, to pipe or redirect.
 - `window` sends what a global shortcut asks — `window.call` (`focus`,
@@ -1596,9 +1610,10 @@ leaves sessions, config, models and the agent skill.
 - It is not a bot that joins the meeting, and it does not record raw audio:
   audio is never written to disk, imports are decoded through a pipe, and voices
   are kept only as embeddings.
-- It is Linux only (Omarchy, Hyprland, PipeWire); nothing special-cases macOS or
-  Windows. The Windows machine on the LAN only serves models over HTTP and is
-  reached through the same adapters as any provider.
+- It is released for Linux only (Omarchy, Hyprland, PipeWire). It builds and
+  passes its tests on Windows, where several platform seams have no adapter
+  yet (§15); macOS is not supported. A Windows machine on the LAN that serves
+  models over HTTP is reached through the same adapters as any provider.
 - Transcripts stay local in `~/.local/share/eco/`; `--no-save` keeps a session
   in memory only. Secrets are never logged, nor transcript text at info level.
   No telemetry.
@@ -1729,7 +1744,8 @@ regenerates `docs/img` from the real overlay against an isolated daemon.
 - **Default trigger:** manual.
 - **GPU:** no dedicated GPU on the laptop; Radeon 860M iGPU.
 - **Interface:** QML overlay instead of a TUI.
-- **Development:** on the laptop; the Windows machine only serves models.
+- **Development:** on the laptop; Windows is built and tested by hand on a
+  Windows machine, which can also serve models.
 - **Screen sharing:** a setting, off by default — `no_screen_share` also blacks
   out screenshots.
 - **Sessions:** transcription and storage only inside a session (outside,
@@ -1757,22 +1773,30 @@ regenerates `docs/img` from the real overlay against an isolated daemon.
 
 ## 15. Platform seams
 
-A *platform seam* is a port in `src/ports.rs`, or the window host's
-bridge, with one Linux adapter. AGENTS.md's rule — add a port only
-when two real adapters exist or a test needs the seam — makes an
-explicit exception for these seams, so each exists with a single
-adapter. Each seam's adapter is chosen in one place: the composition
-in `src/session.rs`, or the module that owns the seam.
+A *platform seam* is a port in `src/ports.rs`, the window host's bridge, or a
+function, with a Linux and a Windows adapter. AGENTS.md's rule — add a port
+only when two real adapters exist or a test needs the seam — makes an
+explicit exception for these seams. Each seam's adapter is chosen with
+`#[cfg]` in one place: the composition in `src/session.rs`, or the module
+that owns the seam; nothing else names a platform.
 
-This section names the seams. The table says where each one's Linux
-adapter lives today.
+eco builds and passes its tests on Windows, but the Windows side of several
+seams is not written yet: `src/adapters/unsupported.rs` stands in for each of
+them and says it is not supported on Windows, so the daemon starts and the
+command line works without them. The table says where each seam's adapter
+lives on each platform today.
 
-| Seam | Linux adapter today | File(s) |
-|---|---|---|
-| Paths | the home and the XDG base directories (`HOME`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_RUNTIME_DIR`, else `/run/user/<uid>`), and Hyprland's event socket under the runtime directory (`HYPRLAND_INSTANCE_SIGNATURE`) | `src/paths.rs` |
-| The daemon socket | a Unix domain socket at `$XDG_RUNTIME_DIR/eco.sock`, in `src/adapters/local_socket.rs`; the protocol (`src/adapters/control_socket.rs`), the CLI client (`src/cli.rs`) and the service commands (`src/lifecycle.rs`) reach it only through that module | `src/adapters/local_socket.rs` |
-| Audio devices and capture | the `AudioDevices` port, adapter `PipeWire`: devices from `pw-dump`, an `AudioSource` per device through `pw-record`, echo cancellation by `libpipewire-module-echo-cancel` loaded through `pw-cli`; composed in `src/session.rs` | `src/ports.rs`, `src/adapters/audio_pipewire.rs`, `src/adapters/pipewire_devices.rs`, `src/adapters/echo_cancel.rs` |
-| Service lifecycle and desktop setup | `ServiceManager`: the systemd user service (`systemctl --user`), chosen in `src/main.rs`; `DesktopIntegration`: the line loaded into the Hyprland Lua config (`~/.config/hypr/bindings.lua`), chosen in `src/setup.rs` | `src/adapters/service_systemd.rs`, `src/adapters/desktop_hyprland.rs` |
-| Window control | the `WindowControl` port, adapter `HyprlandWindows`: giving a window process's overlay (its window titled `eco`, never the settings window) the keyboard and raising it above the settings, so a dialog the shortcut opens shows and setting `no_screen_share` on its windows through `hyprctl dispatch`, by pid, again on Hyprland's `openwindow` events while they are hidden; composed in `src/session.rs`, used by `src/adapters/overlay.rs`, which launches `eco-window`. The window rules in `packaging/hypr/eco.lua` centering the config window stay compositor config | `src/ports.rs`, `src/adapters/window_hyprland.rs`, `src/adapters/overlay.rs`, `packaging/hypr/eco.lua` |
-| The window host's bridge | `eco-window`'s `EcoHost` module: `Host` gives the QML its environment and copies to the Wayland clipboard through `wl-copy`; `LineSocket` is a `QLocalSocket` to the daemon socket, whose path `overlay/Eco/Core/Eco.qml` builds from `XDG_RUNTIME_DIR`; `TextFile` reads and watches files, such as the Omarchy theme under `XDG_STATE_HOME` that `overlay/Eco/Core/Theme.qml` follows | `window/main.cpp`, `window/host.h`, `window/line_socket.h`, `window/text_file.h` |
-| Shortcuts | a global Hyprland bind that runs an `eco window` command, which sends one line to the socket and returns once the daemon has read it: `window.call` for those that open a view, the daemon giving that window the keyboard | `packaging/hypr/eco.lua`, `src/cli.rs` |
+| Seam | Linux | Windows | File(s) |
+|---|---|---|---|
+| Paths | the home and the XDG base directories (`HOME`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_RUNTIME_DIR`, else `/run/user/<uid>`), and Hyprland's event socket under the runtime directory (`HYPRLAND_INSTANCE_SIGNATURE`) | the user profile (`USERPROFILE`), the config under `%APPDATA%\eco`, the data and the windows' token under `%LOCALAPPDATA%\eco`, each else under the profile's `AppData`, and the pipe `\\.\pipe\eco-<USERNAME>` | `src/paths.rs` |
+| Private files | files `0600` and directories `0700` | plain files and directories: under the user profile they inherit an access list that admits only the user, the system and administrators | `src/config.rs` |
+| The daemon socket | a Unix domain socket at `$XDG_RUNTIME_DIR/eco.sock`, `0600`; a socket file a crashed daemon left is replaced | a named pipe that refuses clients on other machines; its first instance is created as the first, so a second daemon is refused while one runs, and the pipe goes with its last handle; a new instance waits for the next client before each accepted one is handed out, and a client finding every instance taken tries again for two seconds. The pipe keeps Windows' default access list for pipes, which lets every local account open it for reading: setting its own takes a call tokio offers only as `unsafe` | `src/adapters/local_socket.rs`; the protocol (`src/adapters/control_socket.rs`), the CLI client (`src/cli.rs`) and the service commands (`src/lifecycle.rs`) reach it only through it |
+| Audio devices and capture | the `AudioDevices` port, adapter `PipeWire`: devices from `pw-dump`, an `AudioSource` per device through `pw-record`, echo cancellation by `libpipewire-module-echo-cancel` loaded through `pw-cli` | `Unsupported`: no device, and capture and echo cancellation fail as not supported on Windows | `src/session.rs` composes it; `src/adapters/audio_pipewire.rs`, `src/adapters/pipewire_devices.rs`, `src/adapters/echo_cancel.rs`, `src/adapters/unsupported.rs` |
+| Service lifecycle and desktop setup | `ServiceManager`: the systemd user service (`systemctl --user`), chosen in `src/main.rs`; `DesktopIntegration`: the line loaded into the Hyprland Lua config (`~/.config/hypr/bindings.lua`), chosen in `src/setup.rs` | `Unsupported`: `eco start` fails and says to run `eco daemon` in a terminal; `eco setup` loads no rules and says so | `src/adapters/service_systemd.rs`, `src/adapters/desktop_hyprland.rs`, `src/adapters/unsupported.rs` |
+| Stopping the daemon and its windows | the daemon stops on Ctrl-C or `SIGTERM`; a window process is sent `SIGTERM` | the daemon stops on Ctrl-C, Ctrl-Break, its console closing or Windows shutting down; a window process is terminated | `src/session.rs`, `src/adapters/overlay.rs` |
+| The running executable | `eco status --expect-current-exe` compares the daemon's `/proc/<pid>/exe` with this executable by device and inode | it compares the `exe` the daemon's greeting names with this executable's path; Windows lets no one overwrite a running executable | `src/lifecycle.rs` |
+| Window control | the `WindowControl` port, adapter `HyprlandWindows`: giving a window process's overlay (its window titled `eco`, never the settings window) the keyboard and raising it above the settings, so a dialog the shortcut opens shows and setting `no_screen_share` on its windows through `hyprctl dispatch`, by pid, again on Hyprland's `openwindow` events while they are hidden; composed in `src/session.rs`, used by `src/adapters/overlay.rs`, which launches `eco-window`. The window rules in `packaging/hypr/eco.lua` centering the config window stay compositor config | `Unsupported`: focusing and hiding from screen sharing fail as not supported, and the window stays open | `src/ports.rs`, `src/adapters/window_hyprland.rs`, `src/adapters/overlay.rs`, `src/adapters/unsupported.rs`, `packaging/hypr/eco.lua` |
+| The window host's bridge | `eco-window`'s `EcoHost` module: `Host` gives the QML its environment and copies to the Wayland clipboard through `wl-copy`; `LineSocket` is a `QLocalSocket` to the daemon socket, whose path `overlay/Eco/Core/Eco.qml` builds from `XDG_RUNTIME_DIR`; `TextFile` reads and watches files, such as the Omarchy theme under `XDG_STATE_HOME` that `overlay/Eco/Core/Theme.qml` follows | not built: `eco-window` is not built on Windows, so `tests/window.rs` and `tests/overlay.rs` run on Linux only | `window/main.cpp`, `window/host.h`, `window/line_socket.h`, `window/text_file.h` |
+| Shortcuts | a global Hyprland bind that runs an `eco window` command, which sends one line to the socket and returns once the daemon has read it: `window.call` for those that open a view, the daemon giving that window the keyboard | none: `eco window` fails with `window.unsupported`, for a named pipe has no writing half to close alone, which is how the command knows the daemon has read its line | `packaging/hypr/eco.lua`, `src/cli.rs` |
+| The hook shell | `ShellHooks` runs each hook with `sh -c` | the same `sh -c`, which fails unless an `sh` is on `PATH` | `src/adapters/hook_shell.rs` |
+| The omapass keyring | `api_key_omapass` reads a key through the omapass CLI | omapass does not exist: it is never installed, and a key from it fails | `src/adapters/omapass.rs` |

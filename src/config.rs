@@ -665,6 +665,7 @@ pub fn load(path: &Path) -> Result<Config, ConfigError> {
 }
 
 /// Options that create a file only its owner may read or write (0600).
+#[cfg(unix)]
 pub fn private_file() -> fs::OpenOptions {
     use std::os::unix::fs::OpenOptionsExt;
     let mut options = fs::OpenOptions::new();
@@ -672,13 +673,29 @@ pub fn private_file() -> fs::OpenOptions {
     options
 }
 
+/// Options that create a file only its owner may read or write: under the
+/// user's profile, a new file inherits an access list that admits only the
+/// user, the system and administrators.
+#[cfg(windows)]
+pub fn private_file() -> fs::OpenOptions {
+    fs::OpenOptions::new()
+}
+
 /// Create `path` and its missing parents, each only its owner may enter (0700).
+#[cfg(unix)]
 pub fn private_dir(path: &Path) -> std::io::Result<()> {
     use std::os::unix::fs::DirBuilderExt;
     fs::DirBuilder::new()
         .recursive(true)
         .mode(0o700)
         .create(path)
+}
+
+/// Create `path` and its missing parents, each only its owner may enter: under
+/// the user's profile, through the access list it inherits.
+#[cfg(windows)]
+pub fn private_dir(path: &Path) -> std::io::Result<()> {
+    fs::create_dir_all(path)
 }
 
 /// Replace `path` with `bytes` through a new private temporary file, so a crash
@@ -690,11 +707,34 @@ pub fn write_atomically(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     replace_file(path, bytes, 0o600)
 }
 
+/// Create `path`, which must not exist, with `mode`.
+#[cfg(unix)]
+fn create_new(path: &Path, mode: u32) -> std::io::Result<fs::File> {
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+    let file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(mode)
+        .open(path)?;
+    // The umask may have cleared bits of `mode`.
+    file.set_permissions(fs::Permissions::from_mode(mode))?;
+    Ok(file)
+}
+
+/// Create `path`, which must not exist; Windows has no modes, and the file
+/// takes the access list of its directory.
+#[cfg(windows)]
+fn create_new(path: &Path, _mode: u32) -> std::io::Result<fs::File> {
+    fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+}
+
 /// Replace `path` with `bytes` through `<name>.tmp` beside it, created with
 /// `mode` and synced before the rename, so a crash never leaves half a file.
 pub fn replace_file(path: &Path, bytes: &[u8], mode: u32) -> std::io::Result<()> {
     use std::io::Write;
-    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
     let mut name = path.file_name().unwrap_or_default().to_os_string();
     name.push(".tmp");
     let temporary = path.with_file_name(name);
@@ -704,13 +744,7 @@ pub fn replace_file(path: &Path, bytes: &[u8], mode: u32) -> std::io::Result<()>
         _ => {}
     }
     let written = (|| {
-        let mut file = fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(mode)
-            .open(&temporary)?;
-        // The umask may have cleared bits of `mode`.
-        file.set_permissions(fs::Permissions::from_mode(mode))?;
+        let mut file = create_new(&temporary, mode)?;
         file.write_all(bytes)?;
         file.sync_all()?;
         fs::rename(&temporary, path)

@@ -1,8 +1,9 @@
 //! Start, stop and check the daemon over its socket; the caller names the
 //! socket and the service manager that starts the daemon.
 
-use std::os::unix::fs::MetadataExt;
 use std::path::Path;
+#[cfg(windows)]
+use std::path::PathBuf;
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
@@ -20,6 +21,9 @@ struct Daemon {
     overlay: bool,
     pid: u32,
     version: String,
+    /// The executable the daemon says it runs.
+    #[cfg(windows)]
+    exe: Option<PathBuf>,
 }
 
 async fn socket(path: &Path) -> Result<Option<Stream>> {
@@ -55,6 +59,8 @@ async fn connect(path: &Path) -> Result<Option<Daemon>> {
             .as_str()
             .context("daemon response has no version")?
             .into(),
+        #[cfg(windows)]
+        exe: status["exe"].as_str().map(PathBuf::from),
     }))
 }
 
@@ -170,21 +176,34 @@ pub async fn status(
     if window_open && !daemon.overlay {
         return Ok(3);
     }
-    if expect_current_exe {
-        let running = std::fs::metadata(format!("/proc/{}/exe", daemon.pid))?;
-        let current = std::fs::metadata(std::env::current_exe()?)?;
-        if (running.dev(), running.ino()) != (current.dev(), current.ino()) {
-            bail!(
-                "daemon pid {} is running a different eco executable",
-                daemon.pid
-            );
-        }
+    if expect_current_exe && !runs_this_executable(&daemon)? {
+        bail!(
+            "daemon pid {} is running a different eco executable",
+            daemon.pid
+        );
     }
     println!(
         "eco: daemon running (pid {}, version {})",
         daemon.pid, daemon.version
     );
     Ok(0)
+}
+
+/// Whether `daemon` runs this very executable file, by device and inode, so
+/// an executable replaced since the daemon started is another.
+#[cfg(unix)]
+fn runs_this_executable(daemon: &Daemon) -> Result<bool> {
+    use std::os::unix::fs::MetadataExt;
+    let running = std::fs::metadata(format!("/proc/{}/exe", daemon.pid))?;
+    let current = std::fs::metadata(std::env::current_exe()?)?;
+    Ok((running.dev(), running.ino()) == (current.dev(), current.ino()))
+}
+
+/// Whether `daemon` runs this very executable, by the path it says it runs:
+/// Windows lets no one overwrite or delete an executable while it runs.
+#[cfg(windows)]
+fn runs_this_executable(daemon: &Daemon) -> Result<bool> {
+    Ok(daemon.exe.as_deref() == Some(std::env::current_exe()?.as_path()))
 }
 
 #[cfg(test)]
@@ -195,13 +214,20 @@ mod tests {
     use super::*;
 
     fn socket_in(directory: &tempfile::TempDir) -> PathBuf {
-        directory.path().join("eco.sock")
+        local_socket::scratch(directory.path())
     }
 
+    /// A daemon's greeting as `pid`, which runs this test's executable when
+    /// it is this process.
     fn greeting(pid: u32, overlay: bool) -> String {
-        format!(
-            "{{\"type\":\"daemon\",\"pid\":{pid},\"version\":\"test\",\"overlay\":{overlay}}}\n"
-        )
+        let exe = if pid == std::process::id() {
+            std::env::current_exe().unwrap()
+        } else {
+            PathBuf::from("/elsewhere/eco")
+        };
+        let greeting = serde_json::json!({"type": "daemon", "pid": pid, "version": "test",
+                                          "exe": exe, "overlay": overlay});
+        format!("{greeting}\n")
     }
 
     /// Whether the fake daemon goes away on `stop`.
@@ -213,28 +239,40 @@ mod tests {
 
     /// A daemon on `socket` that greets every client as `pid`, opens its
     /// window on `overlay.open` and goes away on `stop` unless it ignores it.
+    /// Like the real one, it serves each client on its own while it listens,
+    /// and its clients go with it.
     async fn fake_daemon(socket: &Path, pid: u32, overlay: bool, on_stop: OnStop) {
         let listener = local_socket::Listener::bind(socket).await.unwrap();
         tokio::spawn(async move {
-            while let Ok(stream) = listener.accept().await {
-                let mut stream = BufReader::new(stream);
-                let _ = stream
-                    .get_mut()
-                    .write_all(greeting(pid, overlay).as_bytes())
-                    .await;
-                let mut line = String::new();
-                while matches!(stream.read_line(&mut line).await, Ok(1..)) {
-                    if line == "stop\n" && on_stop == OnStop::Exit {
-                        return;
+            let (stopped, mut stop) = tokio::sync::mpsc::channel::<()>(1);
+            let mut clients = tokio::task::JoinSet::new();
+            loop {
+                let stream = tokio::select! {
+                    accepted = listener.accept() => accepted.unwrap(),
+                    _ = stop.recv() => break,
+                };
+                let stopped = stopped.clone();
+                clients.spawn(async move {
+                    let mut stream = BufReader::new(stream);
+                    let _ = stream
+                        .get_mut()
+                        .write_all(greeting(pid, overlay).as_bytes())
+                        .await;
+                    let mut line = String::new();
+                    while matches!(stream.read_line(&mut line).await, Ok(1..)) {
+                        if line == "stop\n" && on_stop == OnStop::Exit {
+                            let _ = stopped.send(()).await;
+                            return;
+                        }
+                        if line == "overlay.open\n" {
+                            let _ = stream
+                                .get_mut()
+                                .write_all(b"{\"type\":\"overlay_status\",\"open\":true}\n")
+                                .await;
+                        }
+                        line.clear();
                     }
-                    if line == "overlay.open\n" {
-                        let _ = stream
-                            .get_mut()
-                            .write_all(b"{\"type\":\"overlay_status\",\"open\":true}\n")
-                            .await;
-                    }
-                    line.clear();
-                }
+                });
             }
         });
     }
@@ -547,6 +585,20 @@ mod tests {
         assert_eq!(status(&path, true, false).await.unwrap(), 0);
     }
 
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn status_rejects_a_daemon_running_another_executable() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = socket_in(&directory);
+        fake_daemon(&path, 1, false, OnStop::Exit).await;
+        let error = status(&path, true, false).await.unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "daemon pid 1 is running a different eco executable"
+        );
+    }
+
+    #[cfg(unix)]
     #[tokio::test]
     async fn status_rejects_a_daemon_running_another_executable() {
         let directory = tempfile::tempdir().unwrap();

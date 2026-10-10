@@ -75,8 +75,10 @@ fn samples(bytes: &[u8]) -> Frame {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
     use crate::ports::FRAME_SAMPLES;
 
+    #[cfg(unix)]
     fn shell(script: &str) -> Command {
         let mut command = Command::new("sh");
         command.args(["-c", script]);
@@ -91,6 +93,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn pads_the_last_frame_and_ends_with_the_output() {
         let frames: Vec<_> = frames(shell("head -c 1500 /dev/zero | tr '\\0' '\\1'"))
@@ -103,6 +106,7 @@ mod tests {
         assert_eq!(last[(1500 - FRAME_BYTES) / 2], 0);
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn a_failing_process_ends_with_its_last_error_line() {
         let frames: Vec<_> = frames(shell("echo noise >&2; echo 'bad input' >&2; exit 3"))
