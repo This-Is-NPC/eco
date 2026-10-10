@@ -79,6 +79,10 @@ enum Command {
         #[arg(long)]
         no_save: bool,
     },
+    /// Start the daemon in the background, its output in the daemon log, and return (run by `eco start`).
+    #[cfg(windows)]
+    #[command(hide = true)]
+    Detach,
     /// Tell the speakers of the regions on stdin apart (run by the daemon on import).
     #[command(hide = true)]
     Diarize { model: PathBuf },
@@ -366,6 +370,8 @@ enum Run {
         headless: bool,
         save_sessions: bool,
     },
+    #[cfg(windows)]
+    Detach,
     Diarize {
         model: PathBuf,
     },
@@ -411,6 +417,8 @@ impl From<Command> for Run {
                     save_sessions: !no_save,
                 };
             }
+            #[cfg(windows)]
+            Command::Detach => return Run::Detach,
             Command::Diarize { model } => return Run::Diarize { model },
             Command::Usage => return Run::Usage,
             Command::Bench { target } => {
@@ -592,6 +600,8 @@ async fn main() -> Result<()> {
             headless,
             save_sessions,
         } => session::run(&paths::config_file(), replay, headless, save_sessions).await,
+        #[cfg(windows)]
+        Run::Detach => adapters::service_windows::detach(),
         Run::Diarize { model } => adapters::diarizer_process::serve(&model),
         Run::Usage => {
             print!("{}", usage_spec());
@@ -817,6 +827,12 @@ mod tests {
             Run::Diarize { model } if model == Path::new("embed.onnx")
         ));
         assert_eq!(rejected(&["diarize"]), ErrorKind::MissingRequiredArgument);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn detach_starts_the_daemon_in_the_background() {
+        assert!(matches!(run(&["detach"]), Run::Detach));
     }
 
     #[test]
