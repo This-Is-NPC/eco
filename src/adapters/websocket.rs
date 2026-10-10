@@ -215,26 +215,34 @@ mod tests {
         heard_within: Duration::from_secs(1),
     };
 
+    /// Audio as silence of its length, [`FINISH`] once it is over, and each
+    /// text message the provider sends read by `read`.
+    fn protocol<Read>(read: Read) -> Protocol<impl Fn(&[i16]) -> Message + Send + Sync, Read> {
+        Protocol {
+            audio: |pcm: &[i16]| Message::Binary(vec![0; pcm.len() * 2].into()),
+            finish: vec![Message::Text(FINISH.into())],
+            quiet: Duration::from_secs(30),
+            read,
+            request: None,
+        }
+    }
+
+    /// A text message as one phrase.
+    fn phrase(text: &str) -> Result<Reading, String> {
+        Ok(Reading::Phrases(vec![Phrase {
+            start: 0.0,
+            end: 1.0,
+            text: text.into(),
+        }]))
+    }
+
     /// `frames` streamed to `url` within [`BRIEF`], each text message the
     /// provider sends read as one phrase.
     fn alive(
         url: String,
         frames: BoxStream<'static, Frame>,
     ) -> BoxStream<'static, Result<Heard, TranscriptionError>> {
-        let protocol = Protocol {
-            audio: |pcm: &[i16]| Message::Binary(vec![0; pcm.len() * 2].into()),
-            finish: vec![Message::Text(FINISH.into())],
-            quiet: Duration::from_secs(30),
-            read: |text: &str| {
-                Ok(Reading::Phrases(vec![Phrase {
-                    start: 0.0,
-                    end: 1.0,
-                    text: text.into(),
-                }]))
-            },
-            request: None,
-        };
-        stream_alive(url, Vec::new(), protocol, frames, BRIEF)
+        stream_alive(url, Vec::new(), protocol(phrase), frames, BRIEF)
     }
 
     /// `frames` frames, one each 32 ms as capture hands them.
@@ -246,29 +254,37 @@ mod tests {
         .boxed()
     }
 
-    /// A provider that takes the connection, then neither reads nor answers.
-    async fn stalled() -> String {
+    /// What a server holds open while the test runs.
+    type Held<T> = std::sync::mpsc::Receiver<T>;
+
+    /// A provider that takes the connection, then neither reads nor answers
+    /// while the connection it hands back is held.
+    async fn stalled() -> (String, Held<impl Send>) {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
+        let (hold, held) = std::sync::mpsc::channel();
         tokio::spawn(async move {
             let (socket, _) = listener.accept().await.unwrap();
-            let _held = tokio_tungstenite::accept_async(socket).await.unwrap();
-            std::future::pending::<()>().await;
+            let socket = tokio_tungstenite::accept_async(socket).await.unwrap();
+            hold.send(socket).unwrap();
         });
-        format!("ws://{address}")
+        (format!("ws://{address}"), held)
+    }
+
+    /// The error a stream ended with.
+    fn last_error(heard: &[Result<Heard, TranscriptionError>]) -> &str {
+        &heard.last().expect("a result").as_ref().unwrap_err().0
     }
 
     #[tokio::test]
     async fn a_provider_that_stops_answering_ends_the_stream_with_an_error() {
-        let url = stalled().await;
+        let (url, _held) = stalled().await;
         let began = Instant::now();
         let heard = alive(url, live(usize::MAX));
         let heard: Vec<_> = tokio::time::timeout(10 * BRIEF.heard_within, heard.collect())
             .await
             .expect("a stalled stream ends");
-        let Some(Err(TranscriptionError(why))) = heard.last() else {
-            panic!("an error, not {} results", heard.len())
-        };
+        let why = last_error(&heard);
         assert!(why.starts_with("stalled"), "{why}");
         assert!(began.elapsed() >= BRIEF.heard_within);
     }
@@ -278,17 +294,16 @@ mod tests {
     async fn a_handshake_that_never_completes_ends_the_stream_with_an_error() {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
+        let (hold, _held) = std::sync::mpsc::channel();
         tokio::spawn(async move {
-            let (_socket, _) = listener.accept().await.unwrap();
-            std::future::pending::<()>().await;
+            let (socket, _) = listener.accept().await.unwrap();
+            hold.send(socket).unwrap();
         });
         let heard = alive(format!("ws://{address}"), live(usize::MAX));
         let heard: Vec<_> = tokio::time::timeout(10 * BRIEF.heard_within, heard.collect())
             .await
             .expect("a stalled handshake ends");
-        let Some(Err(TranscriptionError(why))) = heard.last() else {
-            panic!("an error, not {} results", heard.len())
-        };
+        let why = last_error(&heard);
         assert!(why.starts_with("stalled: no handshake"), "{why}");
     }
 
@@ -296,15 +311,13 @@ mod tests {
     /// that cannot complete is cut too.
     #[tokio::test]
     async fn a_write_that_never_completes_ends_the_stream_with_an_error() {
-        let url = stalled().await;
+        let (url, _held) = stalled().await;
         let flood = stream::repeat(vec![0i16; 16_000]).boxed();
         let heard = alive(url, flood);
         let heard: Vec<_> = tokio::time::timeout(10 * BRIEF.heard_within, heard.collect())
             .await
             .expect("a blocked write ends");
-        let Some(Err(TranscriptionError(why))) = heard.last() else {
-            panic!("an error, not {} results", heard.len())
-        };
+        let why = last_error(&heard);
         assert!(why.starts_with("stalled"), "{why}");
     }
 
@@ -337,17 +350,123 @@ mod tests {
             }))
             .boxed();
         let heard: Vec<_> = alive(format!("ws://{address}"), frames).collect().await;
-        let said: Vec<_> = heard
-            .iter()
-            .map(|heard| match heard {
-                Ok(Heard::Phrase(phrase)) => phrase.text.clone(),
-                other => panic!("only the phrase, not {other:?}"),
-            })
-            .collect();
-        assert_eq!(said, ["done"]);
+        assert_eq!(said(&heard), ["done"]);
         let pings = server.await.unwrap();
         // At least half the pings due over the gap, for a busy machine.
         let due = gap.as_millis() / BRIEF.ping_every.as_millis();
         assert!(pings >= due / 2, "{pings} pings");
+    }
+
+    /// What a stream says, its texts and errors in order.
+    fn said(heard: &[Result<Heard, TranscriptionError>]) -> Vec<String> {
+        heard
+            .iter()
+            .map(|heard| match heard {
+                Ok(Heard::Phrase(phrase)) => phrase.text.clone(),
+                Ok(other) => format!("{other:?}"),
+                Err(TranscriptionError(why)) => format!("error: {why}"),
+            })
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn an_address_or_header_that_cannot_be_sent_is_an_error() {
+        let heard: Vec<_> = alive("not a url".into(), live(1)).collect().await;
+        assert!(said(&heard)[0].starts_with("error: "), "{heard:?}");
+        let headers = vec![("authorization", "Token \n".to_string())];
+        let url = "ws://127.0.0.1:9".to_string();
+        let heard: Vec<_> = stream_alive(url, headers, protocol(phrase), live(1), BRIEF)
+            .collect()
+            .await;
+        assert_eq!(said(&heard), ["error: failed to parse header value"]);
+    }
+
+    /// A `wss` address is opened over TLS: a server that does not speak it fails the stream.
+    #[tokio::test]
+    async fn a_secure_address_that_does_not_speak_tls_is_an_error() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            use tokio::io::AsyncWriteExt;
+            let _ = socket.write_all(b"HTTP/1.1 400 X\r\n\r\n").await;
+        });
+        let heard: Vec<_> = alive(format!("wss://{address}"), live(1)).collect().await;
+        assert_eq!(heard.len(), 1, "{heard:?}");
+        let why = last_error(&heard);
+        assert!(!why.starts_with("stalled"), "{why}");
+    }
+
+    /// A provider that answers in binary and pings, says one thing, and closes
+    /// while audio still goes: the stream ends with what it said.
+    #[tokio::test]
+    async fn a_provider_that_closes_first_ends_the_stream() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.unwrap();
+            let mut socket = tokio_tungstenite::accept_async(socket).await.unwrap();
+            socket.next().await;
+            for message in [
+                Message::Binary(vec![1, 2].into()),
+                Message::Ping(Default::default()),
+                Message::Text("bye".into()),
+            ] {
+                socket.send(message).await.unwrap();
+            }
+            socket.close(None).await.unwrap();
+            while let Some(Ok(_)) = socket.next().await {}
+        });
+        let heard: Vec<_> = alive(format!("ws://{address}"), live(usize::MAX))
+            .collect()
+            .await;
+        assert_eq!(said(&heard), ["bye"]);
+        server.await.unwrap();
+    }
+
+    /// A provider whose connection drops without a closing handshake.
+    #[tokio::test]
+    async fn a_connection_that_drops_ends_the_stream_with_an_error() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.unwrap();
+            let mut socket = tokio_tungstenite::accept_async(socket).await.unwrap();
+            socket.send(Message::Text("first".into())).await.unwrap();
+            drop(socket);
+        });
+        let heard: Vec<_> = alive(format!("ws://{address}"), live(usize::MAX))
+            .collect()
+            .await;
+        let said = said(&heard);
+        assert_eq!(said[0], "first");
+        assert!(said[1].starts_with("error: "), "{said:?}");
+    }
+
+    /// A provider error read from its message ends the stream with it.
+    #[tokio::test]
+    async fn a_provider_error_ends_the_stream() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.unwrap();
+            let mut socket = tokio_tungstenite::accept_async(socket).await.unwrap();
+            socket.send(Message::Text("partial".into())).await.unwrap();
+            socket.send(Message::Text("refused".into())).await.unwrap();
+            while let Some(Ok(_)) = socket.next().await {}
+        });
+        let read = |text: &str| match text {
+            "partial" => Ok(Reading::Partial("so far".into())),
+            _ => Err(format!("provider: {text}")),
+        };
+        let url = format!("ws://{address}");
+        let heard: Vec<_> = stream_alive(url, Vec::new(), protocol(read), live(usize::MAX), BRIEF)
+            .collect()
+            .await;
+        assert_eq!(
+            said(&heard),
+            ["Partial(\"so far\")", "error: provider: refused"]
+        );
+        server.await.unwrap();
     }
 }
