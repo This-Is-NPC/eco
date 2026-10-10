@@ -5,11 +5,12 @@
 #include <QString>
 #include <QUrl>
 
+#include <QGuiApplication>
+#include <QWindow>
+
 #ifdef Q_OS_WIN
 #include <QClipboard>
 #include <QEvent>
-#include <QGuiApplication>
-#include <QWindow>
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
@@ -22,8 +23,9 @@
 #include <QStringList>
 #endif
 
-// Host is the process as QML sees it: its pid, its environment, local paths and
-// the clipboard; on Windows also leaving its windows out of screen capture.
+// Host is the process as QML sees it: its pid, its environment, local paths,
+// the clipboard and raising a window; on Windows also leaving its windows out of
+// screen capture.
 class Host : public QObject {
   Q_OBJECT
   Q_PROPERTY(qint64 pid READ pid CONSTANT)
@@ -52,6 +54,34 @@ public:
 #else
     QProcess::startDetached(QStringLiteral("wl-copy"), {QStringLiteral("--"), text});
 #endif
+  }
+
+  // Brings `window` to the front with the keyboard, as the daemon's window
+  // control asks (docs/design.md §15).
+  Q_INVOKABLE void raise(QWindow *window) const {
+    if (!window)
+      return;
+#ifdef Q_OS_WIN
+    // Windows hands the foreground only to the process that has it or had the
+    // last input, and this one, started by the daemon in the background, has
+    // neither: SetForegroundWindow alone flashes the taskbar button. Attached
+    // to the input of the foreground window's thread, this thread may take it,
+    // the workaround Qt itself applies under AlwaysActivateWindow. A hung
+    // foreground thread would hang this one once attached, so it is asked first.
+    const HWND own = reinterpret_cast<HWND>(window->winId());
+    const HWND front = GetForegroundWindow();
+    if (front && front != own &&
+        SendMessageTimeoutW(front, WM_NULL, 0, 0, SMTO_BLOCK | SMTO_ABORTIFHUNG, 1000, nullptr)) {
+      const DWORD theirs = GetWindowThreadProcessId(front, nullptr);
+      const DWORD ours = GetCurrentThreadId();
+      AttachThreadInput(theirs, ours, TRUE);
+      BringWindowToTop(own);
+      SetForegroundWindow(own);
+      AttachThreadInput(theirs, ours, FALSE);
+    }
+#endif
+    window->raise();
+    window->requestActivate();
   }
 
 #ifdef Q_OS_WIN

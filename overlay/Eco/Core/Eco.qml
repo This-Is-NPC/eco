@@ -234,6 +234,9 @@ Singleton {
   signal tagRenamed(string from, string to)
   // Asks the eco window to come to the front with the keyboard.
   signal raiseRequested()
+  // Brings `window` to the front with the keyboard, which the host does on
+  // Windows over another program's foreground.
+  function raise(window) { Host.raise(window) }
 
   // act does what a shortcut asks of this window (a `window_call` event, see
   // docs/design.md §10): "config" opens or closes the settings, "new_session" the

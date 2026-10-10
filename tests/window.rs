@@ -1,7 +1,7 @@
 //! eco-window's bridge, as the overlay uses it: the daemon connection (lines
 //! each way, on Windows `auth <token>` first on every connection, connected
-//! again after the daemon goes), the process id, the environment, a local path
-//! and a watched file, run offscreen against `tests/window/bridge.qml`. Needs
+//! again after the daemon goes), the process id, the environment, a local path,
+//! a watched file and raising a window, run offscreen against `tests/window/bridge.qml`. Needs
 //! `mise run window:build`.
 
 use std::path::Path;
@@ -166,6 +166,7 @@ async fn the_bridge_carries_lines_reconnects_reads_files_and_exits_cleanly() {
     assert_eq!(answer["text"], "first");
     assert_eq!(answer["pid"], window.id().unwrap());
     assert_eq!(Path::new(answer["path"].as_str().unwrap()), file);
+    assert_eq!(ask(&mut first, "raise").await["line"], "raise");
 
     std::fs::write(&file, "second").unwrap();
     let start = Instant::now();

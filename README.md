@@ -198,9 +198,10 @@ again on the page where you meet it.
 - **Some providers report no cost.** A transcription provider other than
   Deepgram, or an answer provider that sends token counts and no cost, leaves
   that part unknown; the total then says it is a floor.
-- **On Windows a window may open behind the others.** Windows brings a window
-  to the front only for a program that has the foreground, and eco's daemon
-  runs in the background; the window then flashes in the taskbar
+- **On Windows a window may still open behind the others.** Windows brings a
+  window to the front only for a program that has the foreground, and eco's
+  daemon runs in the background; eco's window works around it, but if Windows
+  refuses, the window flashes in the taskbar instead
   ([how to install and remove eco](docs/how-to-install-and-remove.md#on-windows)).
 - **No echo cancellation on Windows.** Windows offers eco none: with ECHO
   CANCELLATION on, a session says so and records the raw microphone

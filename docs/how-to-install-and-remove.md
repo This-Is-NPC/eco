@@ -326,12 +326,12 @@ without asking. These outputs are from the machine eco was built on; the
 delete was run with `APPDATA` and `LOCALAPPDATA` pointing at folders of its
 own.
 
-**The window may open behind the others.** Windows brings a window to the
-front only for a program that has the foreground or was given it, and the
-daemon runs in the background, so a window it opens or focuses may stay behind
-and flash in the taskbar instead; click it there. This is read in Windows'
-rules, not seen: the machine eco was built on is reached over ssh, with no
-desktop.
+**The window may still open behind the others.** Windows brings a window to
+the front only for a program that has the foreground or was given it, and the
+daemon runs in the background. When a shortcut or `eco window` asks for eco,
+its window joins the input of the program in front for a moment and takes the
+foreground from it; if Windows refuses even so, the window stays behind and
+flashes in the taskbar: click it there.
 
 **Global shortcuts.** There is no Hyprland on Windows: the daemon registers
 the keys itself, those of Linux with the Windows key for SUPER. None is a key

@@ -1,9 +1,12 @@
 import QtQuick
+import QtQuick.Window
 import EcoHost
 
 // The bridge eco-window gives the overlay, driven by tests/window.rs: each
-// line the test sends comes back with what the bridge sees; "quit" ends it.
+// line the test sends comes back with what the bridge sees; "raise" raises its
+// window first; "quit" ends it.
 QtObject {
+  property Window shown: Window { visible: true }
   property TextFile file: TextFile {
     path: Host.env("ECO_TEST_FILE")
     onChanged: reload()
@@ -14,9 +17,12 @@ QtObject {
     onReceived: line => {
       if (line === "quit")
         Qt.quit()
-      else
+      else {
+        if (line === "raise")
+          Host.raise(shown)
         send(JSON.stringify({ line: line, value: Host.env("ECO_TEST_VALUE"), text: file.text, pid: Host.pid,
           path: Host.localPath(Host.env("ECO_TEST_URL")) }))
+      }
     }
   }
 }
