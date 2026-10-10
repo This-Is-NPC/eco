@@ -234,7 +234,8 @@ eco/
 - **Errors show:** a failed transcription or a capture that stops mid-session
   reaches the overlay's status line, and the terminal when the daemon runs in
   one. A streaming transcription down, and back, is not an error: it is a
-  `transcription` event (§10.1), printed in the terminal.
+  `transcription` event (§10.1), shown under the session capsule (§12.2) and
+  printed in the terminal.
 
 ---
 
@@ -1160,7 +1161,11 @@ reconnects to the socket on its own.
   of every input running through it, a warning only for an input that sends no
   audio while recording (its name on hover, the settings on click), and the
   pause/resume and end segments; clicking the state pauses or resumes, and end
-  fills red asking once more —; the timeline — others' speech in a
+  fills red asking once more —; under it, a line per source whose streaming
+  transcription is down (amber, the provider's reason on hover) or just back
+  (green, with the audio lost, until its next line or ten seconds on), the
+  kit's `TranscriptionStrip`, also under the import strip while a file is
+  imported; the timeline — others' speech in a
   block tinted with their colour, the user's in a faint block on the right, every
   line at full brightness (only words still being said are dim), no side rules;
   a speaker's name and time head each turn and repeat after two minutes of

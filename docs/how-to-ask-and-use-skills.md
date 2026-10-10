@@ -34,7 +34,7 @@ socket and the command line call a skill an **action**.
 
 Type in **Ask about the session, or /skill** and press Enter, or **SEND**.
 
-![A stored session: named speakers' lines in tinted boxes, and an answer card headed ASK with the model "google/gemini-2.5-flash", the question in quotes, "What did we agree on the deadline?", and the answer, "The first export arrives on the 21st; the rest one week later." with copy, translate and remove buttons on its heading.](img/17-session.png)
+![A stored session: named speakers' lines in tinted boxes, and an answer card headed ASK with the model "google/gemini-2.5-flash", the question in quotes, "What did we agree on the deadline?", and the answer, "The first export arrives on the 21st; the rest one week later." with copy, translate and remove buttons on its heading.](img/18-session.png)
 
 The card shows the question asked, and then the answer as it arrives. Until the
 first word it counts the seconds — `WAITING FOR THE MODEL · 3 S` — and, if the
@@ -141,7 +141,7 @@ A **context slot** is a name and some files — a résumé for interviews, a
 project's notes for its meetings. A kind can start with slots on; in a session,
 the **CONTEXT** line of its details turns them on and off:
 
-![A session's details panel: the session's state, start, length and counts; its path with COPY PATH; PEOPLE; SPEAKERS; TAGS #Acme and #Q2; CONTEXT with a chip "resume"; TRANSLATION: OFF; and COST, COPY VTT and DELETE.](img/19-session-details.png)
+![A session's details panel: the session's state, start, length and counts; its path with COPY PATH; PEOPLE; SPEAKERS; TAGS #Acme and #Q2; CONTEXT with a chip "resume"; TRANSLATION: OFF; and COST, COPY VTT and DELETE.](img/20-session-details.png)
 
 From the command line:
 

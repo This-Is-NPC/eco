@@ -136,11 +136,16 @@ Window {
           readonly property real buttonWidth: Math.min(260, panel.width - 40)
 
           ImportStrip { id: importStrip; anchors { left: parent.left; right: parent.right; top: parent.top } }
+          TranscriptionStrip {
+            id: importLinks
+            anchors { left: parent.left; right: parent.right; top: importStrip.bottom; topMargin: 8 }
+            sources: Eco.importing !== null ? Eco.outages : []
+          }
 
           // Below the import, the buttons, scrolling when the window is too short for them.
           ScrollPage {
             id: field
-            anchors { left: parent.left; right: parent.right; bottom: parent.bottom; top: importStrip.visible ? importStrip.bottom : parent.top; topMargin: importStrip.visible ? 8 : 0 }
+            anchors { left: parent.left; right: parent.right; bottom: parent.bottom; top: importLinks.visible ? importLinks.bottom : importStrip.visible ? importStrip.bottom : parent.top; topMargin: importStrip.visible ? 8 : 0 }
             contentHeight: Math.max(height, startColumn.height)
 
             // Whole pixels, or the first button's top hairline is not drawn;

@@ -92,6 +92,16 @@ Singleton {
   // What each speaker of the open session is saying right now, not yet a line:
   // [{who, name, text}], from a streaming STT.
   property var partials: []
+  // Who -> its streaming transcription while down or just back: {state, code,
+  // detail, dropped_s, at}. Back goes with its next line, or ten seconds on.
+  property var links: ({})
+  // The sources to tell about, for TranscriptionStrip: {who, color, state, …}.
+  readonly property var outages: Object.keys(links)
+    .filter(who => links[who].state === "down" || clock - links[who].at < 10)
+    .map(who => {
+      const input = inputs.find(item => item.participant === who)
+      return Object.assign({ who: who, color: input ? inputColor(input.id) : Theme.dim }, links[who])
+    })
   // Session id -> its speakers as the daemon last said: {label, name, person, voice, suggestions, guess}.
   property var sessionSpeakers: ({})
   // The people linked to sessions ({id, name, voices, sessions}), by name.
@@ -655,6 +665,13 @@ Singleton {
   }
 
   // speaking keeps what `who` is saying now; an empty text drops it.
+  // settleLinks forgets every source's transcription once nothing transcribes:
+  // no session records and no file is imported.
+  function settleLinks() {
+    if (importing === null && !live.some(item => item.state === "recording") && Object.keys(links).length > 0)
+      links = ({})
+  }
+
   function speaking(who, name, text) {
     const others = partials.filter(partial => partial.who !== who)
     partials = text ? others.concat([{ who: who, name: name, text: text }]) : others
@@ -745,6 +762,7 @@ Singleton {
       // Nothing is being said into a session that does not record.
       if (session !== null && session.state !== "recording")
         partials = []
+      settleLinks()
       break
     case "session_opened":
       if (event.window === window)
@@ -782,6 +800,7 @@ Singleton {
       break
     case "import_done":
       importing = null
+      settleLinks()
       // A session read back while it was imported has now ended.
       if (stored !== null && stored.id === event.id)
         stored = Object.assign({}, stored, { state: "ended" })
@@ -887,8 +906,18 @@ Singleton {
         addSpeech(event.who, event.name, event.text, event.at, list, event.translation)
       if (session !== null && event.session === session.id)
         speaking(event.who, "", "")
+      // A source back is settled once it is heard again.
+      const heard = event.who.split("#")[0]
+      if (links[heard] && links[heard].state === "back")
+        links = Object.fromEntries(Object.entries(links).filter(([who]) => who !== heard))
       break
     }
+    case "transcription":
+      links = Object.assign({}, links, { [event.who]: {
+        state: event.state, code: event.code || "", detail: event.detail || "",
+        dropped_s: event.dropped_s || 0, at: Date.now() / 1000
+      } })
+      break
     case "transcript_partial":
       if (session !== null && event.session === session.id)
         speaking(event.who, event.name, event.text)

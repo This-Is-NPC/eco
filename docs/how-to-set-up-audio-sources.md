@@ -30,7 +30,7 @@ audio source is a `[[participants]]` entry.
 `SUPER+ALT+C`, or the settings button at the top right of the window. Audio is
 the first tab (`Ctrl+1`).
 
-![The Audio tab of the settings: under AUDIO SOURCES, a card "Me" marked YOU holding "MIC Default microphone", a card "Them" with a dim THIS IS ME button holding "OUT Default output", each with ADD DEVICE; a field "new audio source, e.g. Recruiter" with a + button; and under YOUR MICROPHONE the switches DROP ECHOES (on) and ECHO CANCELLATION (off), each with what it does.](img/38-settings-audio.png)
+![The Audio tab of the settings: under AUDIO SOURCES, a card "Me" marked YOU holding "MIC Default microphone", a card "Them" with a dim THIS IS ME button holding "OUT Default output", each with ADD DEVICE; a field "new audio source, e.g. Recruiter" with a + button; and under YOUR MICROPHONE the switches DROP ECHOES (on) and ECHO CANCELLATION (off), each with what it does.](img/39-settings-audio.png)
 
 A first config written by hand may already have both cards. Then check them
 against the steps below and skip to step 4.
@@ -44,7 +44,7 @@ On the new card, **ADD DEVICE** lists every microphone (`MIC`) and output
 It follows whatever microphone the system uses, so plugging in a headset needs
 no change here.
 
-![The ADD DEVICE menu open under a source "Them": "MIC Default microphone · Me" (held by Me), then "MIC H390 headset microphone", "OUT H390 headset" and "MIC Built-in microphone".](img/39-settings-audio-device.png)
+![The ADD DEVICE menu open under a source "Them": "MIC Default microphone · Me" (held by Me), then "MIC H390 headset microphone", "OUT H390 headset" and "MIC Built-in microphone".](img/40-settings-audio-device.png)
 
 Picking a device another source holds moves it here: a device has one owner.
 

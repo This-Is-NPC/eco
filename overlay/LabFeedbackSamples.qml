@@ -6,6 +6,7 @@ Column {
   property bool showError: false
   property bool advanced: false
   property int unseen: 2
+  property bool linkBack: false
 
   spacing: 14
 
@@ -59,6 +60,25 @@ Column {
         anchors.fill: parent
         cursorShape: Qt.PointingHandCursor
         onClicked: samples.advanced = !samples.advanced
+      }
+    }
+  }
+
+  ControlLabRow {
+    width: parent.width
+    title: I18n.t("lab.transcription_strip")
+    Column {
+      spacing: 10
+      Chip {
+        text: I18n.t("lab.toggle_transcription")
+        onClicked: samples.linkBack = !samples.linkBack
+      }
+      TranscriptionStrip {
+        width: Math.min(420, samples.width - 210)
+        sources: [
+          { who: I18n.t("lab.sample_speaker"), color: Theme.inputPalette[0], state: samples.linkBack ? "back" : "down", code: "stt.down", detail: I18n.t("lab.sample_outage"), dropped_s: 0 },
+          { who: I18n.t("lab.sample_person"), color: Theme.inputPalette[1], state: samples.linkBack ? "down" : "back", code: "stt.down", detail: I18n.t("lab.sample_outage"), dropped_s: 31 }
+        ]
       }
     }
   }

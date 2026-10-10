@@ -9,8 +9,8 @@ minutes, one fact — while it happens or a month later. The session is a text
 log on the laptop; the audio is heard and never kept.
 
 ![a live session: its capsule recording, an answer, a note, and the conversation](docs/img/05-live.png)
-![the sessions list, searched and filtered by kind and tag](docs/img/11-sessions.png)
-![what one session cost, charge by charge](docs/img/27-session-cost.png)
+![the sessions list, searched and filtered by kind and tag](docs/img/12-sessions.png)
+![what one session cost, charge by charge](docs/img/28-session-cost.png)
 
 Two processes. The daemon (`src/`, Rust) captures, transcribes, keeps the
 sessions and calls the models; the window (`overlay/`, QML on Qt 6, run by
@@ -154,7 +154,7 @@ where they work:
   `SUPER+ALT+E` bring eco to the front · `SUPER+ALT+1` / `2` the skills bound
   there
 
-![the keyboard shortcuts dialog over the sessions list](docs/img/36-shortcuts.png)
+![the keyboard shortcuts dialog over the sessions list](docs/img/37-shortcuts.png)
 
 The Hyprland keys run `eco window …` (listed in [the commands](docs/cli.md)),
 which hands one line to the running daemon; none of them starts a second

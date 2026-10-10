@@ -27,16 +27,16 @@ line say **action** (`[[actions]]`, `action <name>`, `eco action`).
 
 Open the settings (`SUPER+ALT+C`), then **Skills** (`Ctrl+5`).
 
-![The Skills tab: three closed cards — reply ("default · gemini-flash · HOOK · ON SEND"), minutes ("claude-haiku") and explain ("default · gemini-flash") — each with move up, move down and remove buttons, and ADD SKILL below them.](img/45-settings-skills.png)
+![The Skills tab: three closed cards — reply ("default · gemini-flash · HOOK · ON SEND"), minutes ("claude-haiku") and explain ("default · gemini-flash") — each with move up, move down and remove buttons, and ADD SKILL below them.](img/46-settings-skills.png)
 
 **ADD SKILL** opens a new card, with the fields an open card has:
 
-![The reply card open: NAME "reply"; PROMPT and OUTPUT FORMAT as text areas holding its prompt and format; MODEL "default · gemini-flash"; HOOK "~/bin/post-to-notes", with what the command is run with under it; SEND ON ITS OWN, off.](img/46-settings-skill.png)
+![The reply card open: NAME "reply"; PROMPT and OUTPUT FORMAT as text areas holding its prompt and format; MODEL "default · gemini-flash"; HOOK "~/bin/post-to-notes", with what the command is run with under it; SEND ON ITS OWN, off.](img/47-settings-skill.png)
 
 - **NAME** — one word, no spaces: shortcuts and `/name` call a skill by it.
   `minutes`. A space is flagged as you type it, and the draft cannot be saved:
 
-  ![A skill renamed "weekly minutes": its NAME field outlined in red with "No spaces: shortcuts call a skill by its name." under it, a dot after "05 SKILLS", and "1 field needs fixing before saving." above the buttons.](img/50-settings-errors.png)
+  ![A skill renamed "weekly minutes": its NAME field outlined in red with "No spaces: shortcuts call a skill by its name." under it, a dot after "05 SKILLS", and "1 field needs fixing before saving." above the buttons.](img/51-settings-errors.png)
 
 - **PROMPT** — what to do.
 - **OUTPUT FORMAT** — what the answer looks like.

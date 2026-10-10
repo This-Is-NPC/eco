@@ -119,6 +119,13 @@ ColumnLayout {
     }
   }
 
+  // A source whose transcription is down, or just back, while this session
+  // records or its file is imported.
+  TranscriptionStrip {
+    Layout.fillWidth: true
+    sources: view.live || (Eco.stored !== null && Eco.stored.state === "importing") ? Eco.outages : []
+  }
+
   GuessStrip {
     Layout.fillWidth: true
     visible: !view.short && count > 0
