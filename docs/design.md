@@ -685,7 +685,7 @@ below is built in `src/paths.rs` (§15).
 | Path | Holds | Written by |
 |---|---|---|
 | `~/.config/eco/config.toml` | the configuration (§9) | the daemon, from the config window's draft; hand edits work too, but comments are not kept |
-| `~/.local/share/eco/sessions/<start>-<title or kind>.jsonl` | one session, append-only JSON Lines | the daemon |
+| `~/.local/share/eco/sessions/<start>-<title or kind>.jsonl` | one session, append-only JSON Lines; a second session with the same start second and title gets `-2`, then `-3`, before `.jsonl` | the daemon |
 | `~/.local/share/eco/people/<id>.json` | a person: name, color, voiceprints (§7.4) | the daemon |
 | `~/.local/share/eco/people/voices/<session>.json` | the voices of a session's diarized speakers (§7.3) | the daemon |
 | `~/.local/share/eco/models/` | the Silero VAD and WeSpeaker CAM++ models | `eco setup` |
