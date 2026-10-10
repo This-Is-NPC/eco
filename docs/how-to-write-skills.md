@@ -112,6 +112,13 @@ pick it up — a CRM, a notes folder, a chat. It runs with `sh -c`, for at most 
 seconds, with only the session in its environment: `ECO_SESSION`, the session's
 id, and `ECO_TITLE`. Everything else it reads with `eco show "$ECO_SESSION"`.
 
+On Windows it runs with `cmd /S /C` instead, so it reads the same variables as
+`%ECO_SESSION%` and `%ECO_TITLE%`:
+
+```bat
+echo %ECO_SESSION%  %ECO_TITLE%>> "%TEMP%\eco-minutes.log"
+```
+
 In the skill's card, **HOOK**:
 
 ```sh
