@@ -1,10 +1,11 @@
 //! eco-window's bridge, as the overlay uses it: the daemon connection (lines
 //! each way, on Windows `auth <token>` first on every connection, connected
 //! again after the daemon goes), the process id, the environment, a local path,
-//! a watched file and raising a window, run offscreen against `tests/window/bridge.qml`. Needs
-//! `mise run window:build`.
+//! a watched file and raising a window, run offscreen against `tests/window/bridge.qml`;
+//! and the overlay's views driven as the daemon drives them, in
+//! `tests/window/views.qml`. Needs `mise run window:build`.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::{Duration, Instant};
 
@@ -126,8 +127,8 @@ fn url(path: &Path) -> String {
     }
 }
 
-#[tokio::test]
-async fn the_bridge_carries_lines_reconnects_reads_files_and_exits_cleanly() {
+/// The eco-window `mise run window:build` built.
+fn program() -> PathBuf {
     let program = Path::new(ROOT).join(format!(
         "target/window/eco-window{}",
         std::env::consts::EXE_SUFFIX
@@ -137,6 +138,38 @@ async fn the_bridge_carries_lines_reconnects_reads_files_and_exits_cleanly() {
         "{} is missing; run `mise run window:build`",
         program.display()
     );
+    program
+}
+
+#[tokio::test]
+async fn the_overlay_views_pass_their_checks() {
+    let dir = tempfile::tempdir().unwrap();
+    let run = Command::new(program())
+        .arg(Path::new(ROOT).join("tests/window/views.qml"))
+        .env_remove("WAYLAND_DISPLAY")
+        .env_remove("DISPLAY")
+        .env("QML_IMPORT_PATH", Path::new(ROOT).join("overlay"))
+        .env("QT_QPA_PLATFORM", "offscreen")
+        .env("QT_QPA_PLATFORMTHEME", "")
+        .env("XDG_RUNTIME_DIR", dir.path())
+        .env("XDG_CACHE_HOME", dir.path().join("cache"))
+        .env("ECO_SOCKET", dir.path().join("no-daemon"))
+        .kill_on_drop(true)
+        .output();
+    let output = tokio::time::timeout(Duration::from_secs(30), run)
+        .await
+        .expect("the views did not finish")
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[tokio::test]
+async fn the_bridge_carries_lines_reconnects_reads_files_and_exits_cleanly() {
+    let program = program();
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("a note.txt");
     std::fs::write(&file, "first").unwrap();

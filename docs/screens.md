@@ -199,7 +199,8 @@ From the top:
 
 An answer waiting for its first word draws a loading trace and counts seconds,
 `WAITING FOR THE MODEL · n S`, or `THINKING · n S` with the model's reasoning
-under it while it reasons. A failed one stays, in red, saying why, until it is
+under it while it reasons; the count goes with the first word, as the trace
+reaches its end. A failed one stays, in red, saying why, until it is
 removed. A skill with a hook has a send button on its card, and the card says
 how sending went: SENDING…, SENT or NOT SENT.
 
