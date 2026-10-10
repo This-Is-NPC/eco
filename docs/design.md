@@ -1684,6 +1684,7 @@ mise run start -- --no-save              # keep sessions in memory only
 mise run overlay            # only the window; start it after the daemon
 mise watch overlay -o restart   # the same, run again on every save under overlay/
 mise run window:build       # eco-window, into target/window (the tasks that run it build it first)
+mise run qt:install         # Windows only: the Qt eco-window builds with, into .qt
 mise run check              # the gate: lint, test, cli:check, docs:check
 mise run lint               # cargo fmt and clippy, every warning fatal
 mise run test               # the domain tests, i18n, VAD and speaker parity
@@ -1747,8 +1748,21 @@ pull request, which no hook ran on, is merged. To gate it instead, check its
 branch out and run `mise run local-check`, which gates that commit and posts the
 status. `ECO_SKIP_LOCAL_CHECK=1` or `git push --no-verify` skips the hook.
 
-mise pins CMake, Ninja and watchexec too; the C++ compiler and Qt 6 are the
-system's, the ones Arch builds Qt with. Recorded audio replays with
+mise pins CMake, Ninja and watchexec too; on Linux the C++ compiler and Qt 6
+are the system's, the ones Arch builds Qt with.
+
+**On Windows** a checkout builds and tests the daemon and its window, with
+the MSVC Build Tools 2022 (the C++ workload) installed; CMake finds them
+through its Visual Studio generator, with no developer shell. `mise install`
+also pins uv and aqt there, aqt at a commit, for no release of it reads Qt
+6.11's repository layout. `mise run window:build` first runs `mise run
+qt:install`, which installs Qt 6.11.2 for MSVC 2022 (`qtbase` and
+`qtdeclarative`, which hold every module the overlay imports) under `.qt` in
+the checkout: about 2 GB with Qt's debug libraries, in a minute on the
+machine it was measured on. It survives `cargo clean`; deleting `.qt` takes it
+back. The other tasks run bash scripts, which Windows does not; run the tests
+and lints there with `mise exec -- cargo test` and `mise exec -- cargo clippy
+--all-targets -- -D warnings`. Recorded audio replays with
 `--replay <file.wav>` instead of joining a call.
 `mise run preview:controls` opens the control lab, and `mise run shots`
 regenerates `docs/img` from the real overlay against an isolated daemon.
