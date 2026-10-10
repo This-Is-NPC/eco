@@ -2071,10 +2071,10 @@ mod tests {
         assert!(matches!(session.remove(&dropped.id), Some(Entry::Note(_))));
         let records = records.lock().unwrap().clone();
         let restored = Session::restore(&records, Box::new(|_| {})).unwrap();
-        let [Entry::Speech(_), Entry::Note(note)] = restored.timeline.as_slice() else {
-            panic!()
-        };
-        assert_eq!(note, &kept);
+        assert!(matches!(
+            restored.timeline.as_slice(),
+            [Entry::Speech(_), Entry::Note(note)] if note == &kept
+        ));
     }
 
     #[test]
@@ -2087,10 +2087,8 @@ mod tests {
             session.extend(&suggestion.id, text);
             session.finish(&suggestion.id);
         }
-        let Entry::Suggestion(first) = session.timeline[1].clone() else {
-            panic!()
-        };
-        session.remove(&first.id);
+        let first = session.timeline[1].id().unwrap().to_string();
+        session.remove(&first);
         session.set_state(PAUSED);
 
         let records = records.lock().unwrap().clone();
@@ -2101,18 +2099,13 @@ mod tests {
             (session.id.as_str(), "Entrevista")
         );
         assert_eq!(restored.state, PAUSED);
-        let [Entry::Speech(speech), Entry::Suggestion(kept)] = restored.timeline.as_slice() else {
-            panic!()
-        };
-        assert_eq!(
-            (speech.who.as_str(), speech.text.as_str()),
-            ("Recrutador", "Oi.")
-        );
-        assert_eq!((kept.text.as_str(), kept.done), ("Segunda.", true));
-        assert_eq!(
-            (kept.prompt.as_str(), kept.request.as_str()),
-            ("ask", "Pedido: x")
-        );
+        assert!(matches!(
+            restored.timeline.as_slice(),
+            [Entry::Speech(speech), Entry::Suggestion(kept)]
+                if (speech.who.as_str(), speech.text.as_str()) == ("Recrutador", "Oi.")
+                    && (kept.text.as_str(), kept.done) == ("Segunda.", true)
+                    && (kept.prompt.as_str(), kept.request.as_str()) == ("ask", "Pedido: x")
+        ));
         restored.hear_at("Eu", "Voltei.", now());
         let later = later.lock().unwrap();
         assert_eq!(
@@ -2569,15 +2562,11 @@ mod tests {
         session.rename_speaker("Sérgio Figorelle", "Sérgio"); // no change, no record
         session.rename_speaker("Eles", "Ana"); // merged with Ana
         assert_eq!(session.speakers(), ["Sérgio", "Ana"]);
-        let context: Vec<String> = session
-            .context(10_000)
-            .iter()
-            .map(|e| match e {
-                Entry::Speech(s) => s.who.clone(),
-                Entry::Note(_) | Entry::Suggestion(_) => unreachable!(),
-            })
-            .collect();
-        assert_eq!(context, ["Sérgio", "Ana", "Ana"]);
+        assert!(matches!(
+            session.context(10_000).as_slice(),
+            [Entry::Speech(a), Entry::Speech(b), Entry::Speech(c)]
+                if [a.who.as_str(), b.who.as_str(), c.who.as_str()] == ["Sérgio", "Ana", "Ana"]
+        ));
         assert_eq!(session.name_of("Eles"), "Ana");
 
         let records = records.lock().unwrap().clone();
@@ -2689,10 +2678,10 @@ mod tests {
         assert!(!session.edit_line("Eles", 99.0, "nada"));
         let records = records.lock().unwrap().clone();
         let restored = Session::restore(&records, Box::new(|_| {})).unwrap();
-        let Entry::Speech(line) = &restored.timeline[0] else {
-            panic!("a line")
-        };
-        assert_eq!(line.text, "O Windhawk chegou.");
+        assert!(matches!(
+            &restored.timeline[0],
+            Entry::Speech(line) if line.text == "O Windhawk chegou."
+        ));
     }
 
     #[test]
@@ -2751,5 +2740,102 @@ mod tests {
         let context = restored.context(1000);
         assert!(matches!(&context[0], Entry::Speech(speech) if speech.who == "Ij"));
         assert!(matches!(&context[1], Entry::Speech(speech) if speech.who == "Eles"));
+    }
+
+    #[test]
+    fn assigning_a_speakers_only_line_retires_its_label() {
+        let (sink, _) = collecting();
+        let mut session = Session::begin("Call", "meeting", LIVE, "pt", sink);
+        session.hear_at("Eles", "Única fala", 10.0);
+        session.set_speaker_color("Eles", "#ffb000");
+        let ij = Person::new("Ij");
+        let (label, retired) = session.assign_line("Eles", 10.0, &ij).unwrap();
+        assert!(retired);
+        assert_eq!(session.labels(), [label.as_str()]);
+        assert_eq!(session.color_of("Eles"), "");
+        let ana = Person::new("Ana");
+        let (again, retired) = session.assign_line(&label, 10.0, &ana).unwrap();
+        assert_eq!((again.as_str(), retired), (label.as_str(), false));
+        assert_eq!(session.person_of(&label), Some(ana.id.as_str()));
+    }
+
+    #[test]
+    fn a_language_change_and_a_cleared_color_survive_restore() {
+        let (sink, records) = collecting();
+        let mut session = Session::begin("Talk", "meeting", LIVE, "pt", sink);
+        session.hear_at("Speaker 1", "Hello.", now());
+        session.set_language("en");
+        session.set_language("en");
+        session.set_speaker_color("Speaker 1", "#ffb000");
+        session.set_speaker_color("Speaker 1", "");
+        let records = records.lock().unwrap().clone();
+        assert_eq!(
+            types(&records).iter().filter(|t| **t == "language").count(),
+            1
+        );
+        let restored = Session::restore(&records, Box::new(|_| {})).unwrap();
+        assert_eq!(restored.language, "en");
+        assert_eq!(restored.color_of("Speaker 1"), "");
+    }
+
+    #[test]
+    fn notes_are_passed_over_by_speaker_and_translation_work() {
+        let (sink, _) = collecting();
+        let mut session = Session::begin("Call", "meeting", LIVE, "pt", sink);
+        session.hear_at("Eles", "Oi.", 10.0);
+        session.note("Lembrar.");
+        session.hear_at("Eles", "Tchau.", 11.0);
+        session.assign_speakers(&["A".into(), "B".into()]);
+        assert_eq!(session.labels(), ["A", "B"]);
+        assert_eq!(
+            session.split_speaker("A", &[(10.0, "C".into())]),
+            ["C", "B"]
+        );
+        let untranslated: Vec<String> = session
+            .untranslated("en")
+            .into_iter()
+            .map(|(_, text)| text)
+            .collect();
+        assert_eq!(untranslated, ["Oi.", "Tchau."]);
+        assert!(!session.translated(Source::Line(99.0), "en", "Hi."));
+    }
+
+    #[test]
+    fn an_answer_is_found_by_its_question() {
+        let (sink, _) = collecting();
+        let mut session = Session::begin("Call", "meeting", LIVE, "pt", sink);
+        let answer = session.suggest("ask", "m", "Qual é o prazo?", "Pedido");
+        session.finish(&answer.id);
+        assert!(session.mentions(&folded("prazo")));
+        assert!(!session.mentions(&folded("orçamento")));
+    }
+
+    #[test]
+    fn a_log_names_what_it_cannot_apply_and_skips_what_it_does_not_know() {
+        let records = logged(&[
+            json!({"type": "speech", "who": "Eles", "text": "Oi.", "at": 101.0}),
+            json!({"type": "line_person", "who": "Eles", "at": 999.0, "label": "Eles#1",
+                "person": "p", "name": "Ana"}),
+            json!({"type": "from_a_later_eco", "at": 102.0}),
+        ]);
+        let restored = Session::restore(&records, Box::new(|_| {})).unwrap();
+        assert_eq!(restored.labels(), ["Eles"]);
+        assert_eq!(restored.person_of("Eles#1"), None);
+    }
+
+    #[test]
+    fn an_unrecorded_transcriber_is_never_written() {
+        let (sink, records) = collecting();
+        let mut session = Session::begin("Call", "meeting", LIVE, "pt", sink);
+        session.transcribe_with(HeardBy::Nothing);
+        session.transcribe_with(HeardBy::Unrecorded);
+        let records = records.lock().unwrap().clone();
+        assert_eq!(
+            types(&records)
+                .iter()
+                .filter(|t| **t == "transcriber")
+                .count(),
+            1
+        );
     }
 }
