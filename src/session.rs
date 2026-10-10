@@ -70,6 +70,40 @@ fn window_control(emit: &Emit) -> Arc<dyn WindowControl> {
     )))
 }
 
+/// The global shortcuts (docs/design.md §15): on Linux Hyprland binds the keys,
+/// so the daemon registers none.
+#[cfg(unix)]
+fn shortcuts(_: &Config, _: &mpsc::UnboundedSender<String>) -> Vec<Value> {
+    Vec::new()
+}
+
+/// The global shortcuts (docs/design.md §15): on Windows the daemon registers
+/// them, each pressed one handing `lines` what `eco window` would send; an
+/// error for each the system refused, written to the log too.
+#[cfg(windows)]
+fn shortcuts(config: &Config, lines: &mpsc::UnboundedSender<String>) -> Vec<Value> {
+    let bindings = crate::shortcuts::bindings(config.shortcuts.as_ref())
+        .expect("a valid config has valid shortcuts");
+    crate::adapters::shortcuts_windows::register(bindings, lines.clone())
+        .iter()
+        .map(|refused| {
+            let error = shortcut_refused(&refused.written);
+            eprintln!("eco: {}", error["message"].as_str().unwrap_or_default());
+            error
+        })
+        .collect()
+}
+
+/// The error a shortcut on `keys` the system refused makes.
+#[cfg(windows)]
+fn shortcut_refused(keys: &str) -> Value {
+    error(
+        "shortcut.unavailable",
+        format!("cannot register the shortcut {keys}: another program may hold these keys"),
+        json!({"keys": keys}),
+    )
+}
+
 /// The longest the assistant's model may send nothing before the request fails.
 const LLM_SILENCE: Duration = Duration::from_secs(120);
 
@@ -1121,6 +1155,7 @@ fn greeting(
     outages: Outages,
     pending: Arc<Mutex<Pending>>,
     control: Arc<dyn WindowControl>,
+    refused: Vec<Value>,
 ) -> Greeting {
     Arc::new(move || {
         let mut events = vec![json!({
@@ -1134,6 +1169,7 @@ fn greeting(
         events.extend(outages.events());
         events.extend(pending.lock().expect("not poisoned").event());
         events.extend(control.greeting());
+        events.extend(refused.iter().cloned());
         events
     })
 }
@@ -2014,12 +2050,14 @@ pub async fn run(
     let pending: Arc<Mutex<Pending>> = Arc::default();
     let outages = Outages::default();
     let control = window_control(&emit);
+    let refused = shortcuts(&current, &commands);
     let greeting = greeting(
         assistant.clone(),
         Arc::clone(&overlay_open),
         outages.clone(),
         Arc::clone(&pending),
         Arc::clone(&control),
+        refused,
     );
     let token = uuid::Uuid::new_v4().simple().to_string();
     let address = Address::user();
@@ -2803,6 +2841,7 @@ mod tests {
             outages.clone(),
             Arc::default(),
             windows_told(),
+            Vec::new(),
         );
         let down = Arc::new(AtomicBool::new(true));
         let stt = Stt::Stream(Box::new(Flaky(Arc::clone(&down))));
@@ -2834,6 +2873,7 @@ mod tests {
             outages.clone(),
             Arc::default(),
             windows_told(),
+            Vec::new(),
         );
         let stt = Stt::Stream(Box::new(Flaky(Arc::new(AtomicBool::new(true)))));
         let (_capture, running) = transcribing(stt, &assistant, &emit, &outages);
@@ -3728,6 +3768,22 @@ mod tests {
             .unwrap();
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn on_linux_the_daemon_registers_no_shortcut() {
+        let (lines, _) = mpsc::unbounded_channel();
+        let config = Config::from_value(raw()).unwrap();
+        assert_eq!(shortcuts(&config, &lines), [] as [Value; 0]);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_refused_shortcut_is_a_coded_error_naming_its_keys() {
+        let refused = shortcut_refused("Win+Alt+1");
+        assert_eq!(refused["code"], "shortcut.unavailable");
+        assert_eq!(refused["params"], json!({"keys": "Win+Alt+1"}));
+    }
+
     #[tokio::test]
     async fn the_daemon_greets_a_client_with_what_it_needs_first() {
         let d = daemon(raw());
@@ -3739,9 +3795,13 @@ mod tests {
             Outages::default(),
             Arc::clone(&d.session.pending),
             windows.clone(),
+            vec![json!({"type": "error", "code": "shortcut.unavailable"})],
         );
         let events = greeting();
-        assert_eq!(said(&events), ["daemon", "snapshot"]);
+        assert_eq!(
+            said(&events),
+            ["daemon", "snapshot", "shortcut.unavailable"]
+        );
         assert_eq!(events[0]["overlay"], true);
         assert_eq!(events[0]["version"], env!("CARGO_PKG_VERSION"));
         let exe = std::env::current_exe().unwrap();
@@ -3751,7 +3811,13 @@ mod tests {
         windows.focus(42).await.unwrap();
         assert_eq!(
             said(&greeting()),
-            ["daemon", "snapshot", "config_pending", "window_focus"]
+            [
+                "daemon",
+                "snapshot",
+                "config_pending",
+                "window_focus",
+                "shortcut.unavailable"
+            ]
         );
     }
 

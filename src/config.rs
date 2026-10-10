@@ -321,6 +321,8 @@ struct Raw {
     audio: AudioConfig,
     #[serde(default)]
     ui: UiTable,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    shortcuts: Option<BTreeMap<String, String>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -347,6 +349,9 @@ pub struct Config {
     pub ui_language: String,
     /// eco's windows are left out of screen sharing (and so of screenshots and recordings).
     pub hide_from_share: bool,
+    /// Keys -> the `eco window` command they run, registered on Windows;
+    /// `None` keeps the defaults of `shortcuts::DEFAULT`.
+    pub shortcuts: Option<BTreeMap<String, String>>,
 }
 
 impl Config {
@@ -426,6 +431,7 @@ impl Config {
             audio: raw.audio,
             ui_language: raw.ui.language,
             hide_from_share: raw.ui.hide_from_share,
+            shortcuts: raw.shortcuts,
         };
         config.validate()?;
         Ok(config)
@@ -452,6 +458,7 @@ impl Config {
                 language: self.ui_language.clone(),
                 hide_from_share: self.hide_from_share,
             },
+            shortcuts: self.shortcuts.clone(),
         }
     }
 
@@ -610,6 +617,7 @@ impl Config {
         if !distinct(&actions) {
             return fail("action names must be unique");
         }
+        crate::shortcuts::bindings(self.shortcuts.as_ref()).map_err(ConfigError)?;
         Ok(())
     }
 }
@@ -1156,6 +1164,24 @@ mod tests {
                 .hide_from_share
         );
         assert!(error_of(with("ui", json!({"hide_from_share": "yes"}))).contains("invalid config"));
+    }
+
+    #[test]
+    fn shortcuts_keep_the_defaults_until_written_and_must_be_valid() {
+        let config = Config::from_value(raw()).unwrap();
+        assert_eq!(config.shortcuts, None);
+        assert!(config.to_value().get("shortcuts").is_none());
+        let config =
+            Config::from_value(with("shortcuts", json!({"Ctrl+Alt+M": "sessions"}))).unwrap();
+        assert_eq!(
+            config.shortcuts,
+            Some(BTreeMap::from([("Ctrl+Alt+M".into(), "sessions".into())]))
+        );
+        assert_eq!(Config::from_value(config.to_value()).unwrap(), config);
+        assert_eq!(
+            error_of(with("shortcuts", json!({"M": "sessions"}))),
+            "shortcut \"M\": needs Ctrl, Alt, Shift or Win with the key"
+        );
     }
 
     #[test]

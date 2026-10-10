@@ -481,16 +481,18 @@ as in a live session (section 3):
 
 `?` or `F1` lists every key, by where it works:
 
-![The keyboard shortcuts dialog over the sessions list: EVERYWHERE (Tab · Shift+Tab, Enter · Space, Esc, ? · F1), GLOBAL (HYPRLAND) (SUPER+ALT+N new session, SUPER+ALT+H sessions, SUPER+ALT+C settings, SUPER+ALT+P pause or resume, SUPER+ALT+E bring eco to the front, SUPER+ALT+1 · 2 run the skills bound in Hyprland), START SCREEN (N, H, I, P), SESSIONS AND PEOPLE (↑ · ↓, Enter, Delete, I, /) and the top of TAG CHIP IN SESSIONS (F2 rename the tag in every session), cut at the bottom edge.](img/37-shortcuts.png)
+![The keyboard shortcuts dialog over the sessions list: EVERYWHERE (Tab · Shift+Tab, Enter · Space, Esc, ? · F1), GLOBAL (SUPER+ALT+N new session, SUPER+ALT+H sessions, SUPER+ALT+C settings, SUPER+ALT+P pause or resume, SUPER+ALT+E bring eco to the front, SUPER+ALT+1 · 2 run the skills bound to these keys), START SCREEN (N, H, I, P), SESSIONS AND PEOPLE (↑ · ↓, Enter, Delete, I, /) and the top of TAG CHIP IN SESSIONS (F2 rename the tag in every session), cut at the bottom edge.](img/37-shortcuts.png)
 
 The dialog scrolls (arrows, `PgUp`, `PgDn`). Its end:
 
 ![The keyboard shortcuts dialog scrolled to its end: the rest of PEOPLE SCREEN (F2 rename, M merge), STORED SESSION (R resume or reopen, E edit title and kind), CONVERSATION (↑ · ↓ · PgUp · PgDn, Home · End, N, Tab), QUESTION BOX (Enter, Shift+Enter, / with ↑ · ↓, Tab and Enter, Alt+1…9), MENUS AND OPTION LISTS (↑ · ↓ · Home · End, Enter · Space, Esc) and SETTINGS (Ctrl+1…8, Ctrl+S, Alt+↑ · Alt+↓, Esc).](img/38-shortcuts-end.png)
 
 The GLOBAL keys are not the window's: `packaging/hypr/eco.lua` binds them in
-Hyprland to `eco window` commands; those that open a view ask the daemon to
-hand them to the newest window and give it the keyboard (`window.call`), so
-they work with eco in the background.
+Hyprland to `eco window` commands, and on Windows the daemon registers them
+itself, with `Win` for SUPER, from `[shortcuts]` in the config; those that
+open a view ask the daemon to hand them to the newest window and give it the
+keyboard (`window.call`), so they work with eco in the background. The dialog
+lists the default keys, not keys changed in either place.
 
 Everything the pointer does, the keyboard does: `Tab` reaches every control,
 with a focus ring apart from its hover, and a control's hint shows on focus as
@@ -564,7 +566,7 @@ prompt, the format, the model and its hook:
 
 ![The reply card open: NAME "reply"; PROMPT and OUTPUT FORMAT as text areas; MODEL "default · gemini-flash"; HOOK "~/bin/post-to-notes" with what the command is run with; SEND ON ITS OWN, off.](img/47-settings-skill.png)
 
-Renaming or removing one warns that Hyprland shortcuts call skills by name.
+Renaming or removing one warns that global shortcuts call skills by name.
 
 **Translation** — only the model:
 
@@ -593,7 +595,7 @@ error colour and the reason under it, and a dot on the tab that holds it. A
 repeated name or a space in a skill's name shows as it is typed; a missing value
 once a save is tried. The line above the buttons only counts them:
 
-![The Skills tab with a dot after "05 SKILLS"; the minutes card open and renamed "weekly minutes", its NAME field outlined in red with "No spaces: shortcuts call a skill by its name." under it, and in amber the warning that Hyprland shortcuts call a skill by its name; above CLOSE, in amber, "1 field needs fixing before saving."](img/51-settings-errors.png)
+![The Skills tab with a dot after "05 SKILLS"; the minutes card open and renamed "weekly minutes", its NAME field outlined in red with "No spaces: shortcuts call a skill by its name." under it, and in amber the warning that global shortcuts call a skill by its name; above CLOSE, in amber, "1 field needs fixing before saving."](img/51-settings-errors.png)
 
 **Closing with unsaved changes** asks:
 
@@ -644,9 +646,10 @@ it.
 `eco stop` and `eco restart`; the window shows only whether it can reach the
 daemon. Its errors go to `journalctl --user -u eco.service`.
 
-**Hyprland's shortcuts.** The window lists them (section 11) but does not
-change them: they are in `packaging/hypr/eco.lua`, and the skills they call by
-name are the config's.
+**The global shortcuts.** The window lists them (section 11) but does not
+change them: they are in `packaging/hypr/eco.lua`, or on Windows under
+`[shortcuts]` in the config, and the skills they call by name are the
+config's.
 
 **Measurements.** `eco bench` and `mise run bench` print to the terminal; see
 [benchmarks.md](benchmarks.md).

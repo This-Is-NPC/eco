@@ -36,6 +36,8 @@ pub mod service_systemd;
 #[cfg(windows)]
 pub mod service_windows;
 pub mod session_files;
+#[cfg(windows)]
+pub mod shortcuts_windows;
 pub mod speaker_tract;
 pub mod stt_deepgram;
 pub mod stt_elevenlabs;

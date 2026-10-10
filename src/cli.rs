@@ -154,6 +154,24 @@ pub enum Window {
     Toggle,
 }
 
+impl Window {
+    /// The line the daemon reads for it, from `eco window` or a global shortcut.
+    pub fn line(self) -> String {
+        match self {
+            Window::Call { call, path } => {
+                let mut fields = json!({"call": call});
+                if let Some(path) = path {
+                    // The daemon resolves paths from its own directory, not ours.
+                    fields["path"] = json!(std::path::absolute(&path).unwrap_or(path));
+                }
+                format!("window.call {fields}")
+            }
+            Window::Action { name } => format!("action {name}"),
+            Window::Toggle => "session.toggle".into(),
+        }
+    }
+}
+
 /// The tags that group sessions.
 pub enum Tag {
     List,
@@ -464,19 +482,7 @@ impl Client {
 
     /// Send what a shortcut asks and return: what follows shows in the window.
     async fn window(&mut self, window: Window) -> Result<Value, Failure> {
-        let command = match window {
-            Window::Call { call, path } => {
-                let mut fields = json!({"call": call});
-                if let Some(path) = path {
-                    // The daemon resolves paths from its own directory, not ours.
-                    fields["path"] = json!(std::path::absolute(&path).unwrap_or(path));
-                }
-                format!("window.call {fields}")
-            }
-            Window::Action { name } => format!("action {name}"),
-            Window::Toggle => "session.toggle".into(),
-        };
-        self.shortcut(&command).await
+        self.shortcut(&window.line()).await
     }
 
     /// Send a shortcut's `command`, returning once the daemon has read it.

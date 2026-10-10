@@ -246,6 +246,40 @@ and flash in the taskbar instead; click it there. This is read in Windows'
 rules, not seen: the machine eco was built on is reached over ssh, with no
 desktop.
 
+**Global shortcuts.** There is no Hyprland on Windows: the daemon registers
+the keys itself, those of Linux with the Windows key for SUPER:
+
+| Keys | What they do |
+|---|---|
+| `Win+Alt+N` | open the dialog that starts a session |
+| `Win+Alt+H` | the sessions |
+| `Win+Alt+C` | the settings |
+| `Win+Alt+P` | pause or resume the session shown |
+| `Win+Alt+E` | bring eco to the front |
+| `Win+Alt+1`, `Win+Alt+2` | run the skills `ask` and `probe` |
+
+Other keys go under `[shortcuts]` in `%APPDATA%\eco\config.toml`, each the
+keys and the `eco window` command they run; the table replaces the defaults,
+and an empty one binds none ([the configuration](design.md#9-configuration)):
+
+```toml
+[shortcuts]
+"Win+Alt+1" = "action ask"
+"Ctrl+Alt+M" = "sessions"
+```
+
+The keys are read when the daemon starts: `eco restart` after a change. Keys
+another program holds are not taken from it; the window says so as it
+connects, and the daemon's log too:
+
+```
+eco: cannot register the shortcut Win+Alt+1: another program may hold these keys
+```
+
+A daemon started where there is no desktop, over ssh say, has every key
+refused and says so for each. Pressing a key on a desktop was not seen: the
+machine eco was built on is reached over ssh.
+
 **Hiding from screen sharing** (**Settings › Interface › HIDE FROM SCREEN
 SHARING**) leaves eco's windows out of every capture on Windows 10 2004 or
 later, your own screenshots and recordings too (read, not seen).

@@ -12,6 +12,7 @@ mod paths;
 mod ports;
 mod session;
 mod setup;
+mod shortcuts;
 mod skill;
 
 use std::path::{Path, PathBuf};
@@ -624,6 +625,17 @@ async fn main() -> Result<()> {
         std::process::exit(1);
     }
     ran
+}
+
+/// What `eco window <words>` asks, as a global shortcut's command runs it.
+fn window_request(words: &str) -> Option<cli::Window> {
+    let args = ["eco", "window"]
+        .into_iter()
+        .chain(words.split_whitespace());
+    match Run::from(Cli::try_parse_from(args).ok()?.command) {
+        Run::Client(cli::Request::Window(window)) => Some(window),
+        _ => None,
+    }
 }
 
 /// Download the models, load eco's rules into the desktop, then publish the

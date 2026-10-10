@@ -149,7 +149,8 @@ where they work:
   skills · `Alt+1…9` run the skill with that number
 - settings: `Ctrl+1…8` tab · `Ctrl+S` save · `Alt+↑` / `Alt+↓` move a skill ·
   `Esc` close
-- anywhere, through Hyprland: `SUPER+ALT+N` new session · `SUPER+ALT+H`
+- anywhere, through Hyprland, or eco itself on Windows with `Win` for
+  `SUPER`: `SUPER+ALT+N` new session · `SUPER+ALT+H`
   sessions · `SUPER+ALT+C` settings · `SUPER+ALT+P` pause or resume ·
   `SUPER+ALT+E` bring eco to the front · `SUPER+ALT+1` / `2` the skills bound
   there
@@ -157,8 +158,8 @@ where they work:
 ![the keyboard shortcuts dialog over the sessions list](docs/img/37-shortcuts.png)
 
 The Hyprland keys run `eco window …` (listed in [the commands](docs/cli.md)),
-which hands one line to the running daemon; none of them starts a second
-daemon. Every screen the window draws is in
+which hands one line to the running daemon; on Windows the daemon registers
+the same keys and reads the same lines. None of them starts a second daemon. Every screen the window draws is in
 [the walk through it](docs/screens.md), in the order somebody meets them.
 
 ## What it does not do
