@@ -19,6 +19,7 @@ use std::path::{Path, PathBuf};
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 
+use crate::adapters::service_systemd::SystemdUser;
 use crate::ports::DesktopIntegration;
 
 #[derive(Debug, Parser)]
@@ -568,13 +569,19 @@ impl From<Command> for Run {
 async fn main() -> Result<()> {
     let ran = match Run::from(Cli::parse().command) {
         Run::SetUp { harnesses } => set_up(harnesses).await,
-        Run::Start { show_window } => lifecycle::start(show_window).await,
-        Run::Stop => lifecycle::stop().await,
-        Run::Restart => lifecycle::restart().await,
+        Run::Start { show_window } => {
+            lifecycle::start(&SystemdUser, &paths::socket_path(), show_window).await
+        }
+        Run::Stop => lifecycle::stop(&paths::socket_path()).await,
+        Run::Restart => lifecycle::restart(&SystemdUser, &paths::socket_path()).await,
         Run::Status {
             expect_current_exe,
             window_open,
-        } => lifecycle::status(expect_current_exe, window_open).await,
+        } => match lifecycle::status(&paths::socket_path(), expect_current_exe, window_open).await?
+        {
+            0 => Ok(()),
+            code => std::process::exit(code),
+        },
         Run::Daemon {
             replay,
             headless,

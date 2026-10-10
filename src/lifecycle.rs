@@ -1,5 +1,5 @@
-//! Start, stop and check the daemon over its socket; the service manager that
-//! starts it is chosen here.
+//! Start, stop and check the daemon over its socket; the caller names the
+//! socket and the service manager that starts the daemon.
 
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
@@ -11,8 +11,6 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::time::{sleep, timeout};
 
 use crate::adapters::local_socket::{self, Stream};
-use crate::adapters::service_systemd::SystemdUser;
-use crate::paths;
 use crate::ports::ServiceManager;
 
 const READY_TIMEOUT: Duration = Duration::from_secs(10);
@@ -24,20 +22,12 @@ struct Daemon {
     version: String,
 }
 
-async fn socket() -> Result<Option<Stream>> {
-    socket_at(&paths::socket_path()).await
-}
-
-async fn socket_at(path: &Path) -> Result<Option<Stream>> {
+async fn socket(path: &Path) -> Result<Option<Stream>> {
     Ok(local_socket::connect(path).await?)
 }
 
-async fn connect() -> Result<Option<Daemon>> {
-    connect_at(&paths::socket_path()).await
-}
-
-async fn connect_at(path: &Path) -> Result<Option<Daemon>> {
-    let Some(stream) = socket_at(path).await? else {
+async fn connect(path: &Path) -> Result<Option<Daemon>> {
+    let Some(stream) = socket(path).await? else {
         return Ok(None);
     };
     let mut stream = BufReader::new(stream);
@@ -71,7 +61,7 @@ async fn connect_at(path: &Path) -> Result<Option<Daemon>> {
 async fn ready(socket: &Path) -> Result<Daemon> {
     let until = tokio::time::Instant::now() + READY_TIMEOUT;
     loop {
-        if let Some(daemon) = connect_at(socket).await? {
+        if let Some(daemon) = connect(socket).await? {
             return Ok(daemon);
         }
         if tokio::time::Instant::now() >= until {
@@ -106,13 +96,9 @@ async fn open(mut daemon: Daemon) -> Result<()> {
     }
 }
 
-pub async fn start(show_window: bool) -> Result<()> {
-    launch(&SystemdUser, &paths::socket_path(), show_window).await
-}
-
 /// Reach the daemon on `socket`, started through `service` when nothing answers.
-async fn launch(service: &dyn ServiceManager, socket: &Path, show_window: bool) -> Result<()> {
-    let daemon = match connect_at(socket).await? {
+pub async fn start(service: &dyn ServiceManager, socket: &Path, show_window: bool) -> Result<()> {
+    let daemon = match connect(socket).await? {
         Some(daemon) => daemon,
         None => {
             service.start().await?;
@@ -127,15 +113,15 @@ async fn launch(service: &dyn ServiceManager, socket: &Path, show_window: bool) 
     }
 }
 
-pub async fn stop() -> Result<()> {
-    let Some(mut stream) = socket().await? else {
+pub async fn stop(socket_path: &Path) -> Result<()> {
+    let Some(mut stream) = socket(socket_path).await? else {
         println!("eco: daemon already stopped");
         return Ok(());
     };
     stream.write_all(b"stop\n").await?;
     let until = tokio::time::Instant::now() + READY_TIMEOUT;
     loop {
-        if socket().await?.is_none() {
+        if socket(socket_path).await?.is_none() {
             println!("eco: daemon stopped");
             return Ok(());
         }
@@ -146,9 +132,11 @@ pub async fn stop() -> Result<()> {
     }
 }
 
-pub async fn restart() -> Result<()> {
-    let show_window = if socket().await?.is_some() {
-        connect()
+/// Stop the daemon on `socket` and start it again through `service`, with its
+/// window open unless the running daemon had it closed.
+pub async fn restart(service: &dyn ServiceManager, socket_path: &Path) -> Result<()> {
+    let show_window = if socket(socket_path).await?.is_some() {
+        connect(socket_path)
             .await
             .ok()
             .flatten()
@@ -156,25 +144,31 @@ pub async fn restart() -> Result<()> {
     } else {
         true
     };
-    stop().await?;
-    start(show_window).await
+    stop(socket_path).await?;
+    start(service, socket_path, show_window).await
 }
 
-pub async fn status(expect_current_exe: bool, window_open: bool) -> Result<()> {
-    let Some(_) = socket().await? else {
+/// Report the daemon on `socket` and return the exit status: 0 when it runs,
+/// 3 when it is stopped or `window_open` asks for a window it has closed.
+pub async fn status(
+    socket_path: &Path,
+    expect_current_exe: bool,
+    window_open: bool,
+) -> Result<i32> {
+    let Some(_) = socket(socket_path).await? else {
         println!("eco: daemon stopped");
-        std::process::exit(3);
+        return Ok(3);
     };
-    let daemon = match connect().await {
+    let daemon = match connect(socket_path).await {
         Ok(Some(daemon)) => daemon,
         Err(error) if !expect_current_exe => {
             println!("eco: daemon running ({error})");
-            return Ok(());
+            return Ok(0);
         }
         result => result?.context("the daemon stopped")?,
     };
     if window_open && !daemon.overlay {
-        std::process::exit(3);
+        return Ok(3);
     }
     if expect_current_exe {
         let running = std::fs::metadata(format!("/proc/{}/exe", daemon.pid))?;
@@ -190,7 +184,7 @@ pub async fn status(expect_current_exe: bool, window_open: bool) -> Result<()> {
         "eco: daemon running (pid {}, version {})",
         daemon.pid, daemon.version
     );
-    Ok(())
+    Ok(0)
 }
 
 #[cfg(test)]
@@ -221,7 +215,7 @@ mod tests {
                 .await
                 .unwrap();
         });
-        let daemon = connect_at(&path).await.unwrap().unwrap();
+        let daemon = connect(&path).await.unwrap().unwrap();
         open(daemon).await.unwrap();
         server.await.unwrap();
     }
@@ -263,7 +257,7 @@ mod tests {
     async fn start_starts_the_service_when_nothing_answers() {
         let directory = tempfile::tempdir().unwrap();
         let service = fake_service(&directory);
-        launch(&service, &service.socket, false).await.unwrap();
+        start(&service, &service.socket, false).await.unwrap();
         assert_eq!(service.starts.into_inner(), 1);
     }
 
@@ -272,7 +266,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let service = fake_service(&directory);
         service.start().await.unwrap();
-        launch(&service, &service.socket, false).await.unwrap();
+        start(&service, &service.socket, false).await.unwrap();
         assert_eq!(service.starts.into_inner(), 1);
     }
 
@@ -285,7 +279,7 @@ mod tests {
             }
         }
         let directory = tempfile::tempdir().unwrap();
-        let error = launch(&Broken, &directory.path().join("eco.sock"), false)
+        let error = start(&Broken, &directory.path().join("eco.sock"), false)
             .await
             .unwrap_err();
         assert_eq!(
@@ -304,7 +298,7 @@ mod tests {
             stream.write_all(b"{\"type\":\"session\"}\n").await.unwrap();
         });
         assert!(
-            connect_at(&path)
+            connect(&path)
                 .await
                 .err()
                 .unwrap()
