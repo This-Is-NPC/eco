@@ -2788,8 +2788,8 @@ mod tests {
         session.assign_speakers(&["A".into(), "B".into()]);
         assert_eq!(session.labels(), ["A", "B"]);
         assert_eq!(
-            session.split_speaker("A", &[(10.0, "C".into())]),
-            ["C", "B"]
+            session.split_speaker("B", &[(11.0, "C".into())]),
+            ["A", "C"]
         );
         let untranslated: Vec<String> = session
             .untranslated("en")
