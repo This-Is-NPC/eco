@@ -1,6 +1,8 @@
 //! The platform's audio on PipeWire: devices from `pw-dump`, capture through
 //! `pw-record`, echo cancellation through `pw-cli`.
 
+use std::path::PathBuf;
+
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use futures::stream::BoxStream;
@@ -25,8 +27,7 @@ impl AudioDevices for PipeWire {
     }
 
     fn capture_cancelled(&self) -> Box<dyn AudioSource> {
-        let node = Device::new(&echo_cancel::source_node(), "eco", "input");
-        Box::new(PipeWireSource::new(&node))
+        Box::new(PipeWireSource::cancelled())
     }
 
     fn cancel_echo(&self, mic: &str) -> BoxFuture<'static, Result<EchoCancelling, AudioError>> {
@@ -44,10 +45,16 @@ const CAPTURE_SINK: [&str; 2] = ["--properties", "{ stream.capture.sink = true }
 /// Mono s16le at 16 kHz from one device, through a `pw-record` that lives as long
 /// as the stream of frames.
 struct PipeWireSource {
+    program: PathBuf,
     args: Vec<String>,
 }
 
 impl PipeWireSource {
+    /// The echo-cancelled microphone of this process.
+    fn cancelled() -> Self {
+        Self::new(&Device::new(&echo_cancel::source_node(), "eco", "input"))
+    }
+
     fn new(device: &Device) -> Self {
         let mut args = Vec::new();
         if device.id != DEFAULT_INPUT && device.id != DEFAULT_OUTPUT {
@@ -56,13 +63,16 @@ impl PipeWireSource {
         if device.kind == "output" {
             args.extend(CAPTURE_SINK.map(String::from));
         }
-        Self { args }
+        Self {
+            program: "pw-record".into(),
+            args,
+        }
     }
 }
 
 impl AudioSource for PipeWireSource {
     fn frames(&mut self) -> BoxStream<'_, Result<Frame, AudioError>> {
-        let mut command = Command::new("pw-record");
+        let mut command = Command::new(&self.program);
         command
             .args([
                 "--raw",
@@ -98,6 +108,36 @@ mod tests {
         assert_eq!(
             PipeWireSource::new(&Device::new("spk", "", "output")).args,
             speaker
+        );
+        let pid = std::process::id();
+        assert_eq!(
+            PipeWireSource::cancelled().args,
+            ["--target".to_string(), format!("eco.aec.source.{pid}")]
+        );
+    }
+
+    #[tokio::test]
+    async fn frames_come_from_pw_record_as_mono_s16_at_16_khz() {
+        use futures::StreamExt;
+
+        use crate::adapters::fake_program::fake_program;
+        use crate::ports::FRAME_SAMPLES;
+
+        let dir = tempfile::tempdir().unwrap();
+        let args = dir.path().join("args");
+        let mut source = PipeWireSource::new(&Device::new("mic", "", "input"));
+        source.program = fake_program(
+            dir.path(),
+            "pw-record",
+            &format!(r"echo $* > '{}'; printf '\001\000\377\377'", args.display()),
+        );
+        let frames: Vec<Frame> = source.frames().map(Result::unwrap).collect().await;
+        let mut expected = vec![0; FRAME_SAMPLES];
+        expected[..2].copy_from_slice(&[1, -1]);
+        assert_eq!(frames, [expected]);
+        assert_eq!(
+            std::fs::read_to_string(args).unwrap(),
+            "--raw --rate=16000 --channels=1 --format=s16 --target mic -\n"
         );
     }
 }

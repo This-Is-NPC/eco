@@ -1,5 +1,7 @@
 //! What eco can listen to, read from `pw-dump`.
 
+use std::path::Path;
+
 use serde_json::Value;
 use tokio::process::Command;
 
@@ -50,7 +52,12 @@ pub fn parse_dump(objects: &[Value]) -> Vec<Device> {
 }
 
 pub async fn list_devices() -> Vec<Device> {
-    let output = Command::new("pw-dump")
+    devices_of(Path::new("pw-dump")).await
+}
+
+/// The devices the program `pw_dump` lists; the defaults alone when it cannot.
+async fn devices_of(pw_dump: &Path) -> Vec<Device> {
+    let output = Command::new(pw_dump)
         .stderr(std::process::Stdio::null())
         .output()
         .await;
@@ -104,5 +111,24 @@ mod tests {
             Device::new("alsa_output.speaker", "Speaker", "output"),
         ]);
         assert_eq!(devices, expected);
+    }
+
+    #[tokio::test]
+    async fn devices_are_read_from_pw_dump() {
+        use crate::adapters::fake_program::fake_program;
+
+        let dir = tempfile::tempdir().unwrap();
+        let dump = fake_program(
+            dir.path(),
+            "pw-dump",
+            r#"echo '[{"info":{"props":{"media.class":"Audio/Source","node.name":"mic"}}}]'"#,
+        );
+        let mut expected = defaults();
+        expected.push(Device::new("mic", "mic", "input"));
+        assert_eq!(devices_of(&dump).await, expected);
+
+        let broken = fake_program(dir.path(), "broken", "echo 'not json'; exit 1");
+        assert_eq!(devices_of(&broken).await, defaults());
+        assert_eq!(devices_of(&dir.path().join("gone")).await, defaults());
     }
 }
