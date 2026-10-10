@@ -340,6 +340,10 @@ mod tests {
         assert!(text.starts_with("WEBVTT\n\n00:00:03.675 --> 00:00:05.075\n<v Álvaro Vinícius>Front &amp; back &lt;ok&gt;</v>\n"));
         assert!(text.contains("01:02:05.004 --> 01:02:06.004"));
         assert_eq!(parse(&text).unwrap(), written);
+        let unnamed = cue(1.0, 2.0, None, "Oi.");
+        let text = write(std::slice::from_ref(&unnamed));
+        assert_eq!(text, "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nOi.\n");
+        assert_eq!(parse(&text).unwrap(), [unnamed]);
     }
 
     #[test]
@@ -347,6 +351,11 @@ mod tests {
         assert!(parse("1\n00:00:01,000 --> 00:00:02,000\nSRT\n").is_err());
         assert!(parse("WEBVTT\n\n00:00:01,000 --> 00:00:02,000\nComma\n").is_err());
         assert!(parse("WEBVTT\n\nSESSION nothing else\n").is_err());
+        assert_eq!(
+            parse("WEBVTT\n\n1:00:00:01.000 --> 00:00:02.000\nToo many\n"),
+            Err("bad timestamp \"1:00:00:01.000\"".into())
+        );
+        assert!(parse("WEBVTT\n\n00:01.0 --> 00:02.000\nShort\n").is_err());
         assert_eq!(
             decode("&#xC1;&bogus; & &#99999999;"),
             "Á&bogus; & &#99999999;"
