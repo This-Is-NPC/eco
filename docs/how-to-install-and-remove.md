@@ -239,6 +239,17 @@ eco stop               # "eco: daemon stopped"
 Without the window built, `eco start` starts the daemon, then fails to open
 the window with `Error: eco window failed:` and the path it looked for.
 
+**The window may open behind the others.** Windows brings a window to the
+front only for a program that has the foreground or was given it, and the
+daemon runs in the background, so a window it opens or focuses may stay behind
+and flash in the taskbar instead; click it there. This is read in Windows'
+rules, not seen: the machine eco was built on is reached over ssh, with no
+desktop.
+
+**Hiding from screen sharing** (**Settings › Interface › HIDE FROM SCREEN
+SHARING**) leaves eco's windows out of every capture on Windows 10 2004 or
+later, your own screenshots and recordings too (read, not seen).
+
 **The daemon's output** goes to `%LOCALAPPDATA%\eco\daemon.log`, emptied each
 time `eco start` starts it. A daemon that will not start says why there; `eco
 start` itself only says:

@@ -41,10 +41,11 @@ pub mod stt_deepgram;
 pub mod stt_elevenlabs;
 pub mod stt_openai;
 pub mod terminal;
-#[cfg(windows)]
-pub mod unsupported;
 pub mod vad_silero;
 pub mod websocket;
 pub mod webvtt;
+// Platform-neutral; only Windows controls its windows by it outside the tests.
+#[cfg(any(windows, test))]
+pub mod window_host;
 #[cfg(unix)]
 pub mod window_hyprland;

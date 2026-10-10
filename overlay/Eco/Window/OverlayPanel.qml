@@ -38,6 +38,10 @@ Window {
   Connections {
     target: Eco
     function onShownChanged() { panel.details = false }
+    function onRaiseRequested() {
+      panel.raise()
+      panel.requestActivate()
+    }
   }
 
   // A session on screen shows itself, or its cost once the user asked for it.

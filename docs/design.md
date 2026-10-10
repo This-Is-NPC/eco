@@ -110,7 +110,7 @@ bridge it hands QML as the module `EcoHost`:
 
 | Type | What QML gets |
 |---|---|
-| `Host` (singleton) | `env(name)` (an environment variable, or `""`), `localPath(url)` (the local path a `file:` URL names, as file dialogs and drops give them), `copy(text)` (the clipboard: on Linux through `wl-copy` started detached, which keeps serving it after the window exits; on Windows through Qt, which hands it to Windows to keep when the window exits — read in Qt's sources, not seen: the Windows machine is reached over ssh, with no desktop) |
+| `Host` (singleton) | `pid` (the window's process id), `env(name)` (an environment variable, or `""`), `localPath(url)` (the local path a `file:` URL names, as file dialogs and drops give them), `copy(text)` (the clipboard: on Linux through `wl-copy` started detached, which keeps serving it after the window exits; on Windows through Qt, which hands it to Windows to keep when the window exits — read in Qt's sources, not seen: the Windows machine is reached over ssh, with no desktop); on Windows only, `hideFromCapture(hidden)` (every window of the process left out of screen capture, `SetWindowDisplayAffinity` with `WDA_EXCLUDEFROMCAPTURE`, now and as each later one shows; `false` shows them again) |
 | `LineSocket` | the daemon's socket at `path` — a Unix socket, or on Windows a named pipe — one line per message each way: `send(line)`, `received(line)`, `connected`; it connects again every second while down, and an empty path closes it. On Windows its first line on every connection is `auth <token>`, with its `token` (§10) |
 | `TextFile` | the file or directory at `path`, watched: `text` (the file as last read), `changed()` (it changed on disk), `reload()` |
 
@@ -178,7 +178,7 @@ composition happens in `src/session.rs` from `config.toml`. The crate forbids
 | `LLM` | a single OpenAI-compatible adapter | Covers OpenRouter, OpenAI, Groq, Ollama, llama.cpp — switching = `base_url` + key + model. |
 | `EventSink` | Unix socket (overlay), text on stdout | stdout is written only when it is a terminal (`mise run start`); under the user service it is the journal, which never gets transcript, note or answer text. |
 | `TranscriptStore` | file in `~/.local/share/eco/`, null (`--no-save`) | |
-| `WindowControl` | Hyprland (`hyprctl dispatch`, its event socket); on Windows none yet | A platform seam (§15): it focuses a window process's window and leaves its windows out of screen sharing, both by pid. Tests open windows with a fake. |
+| `WindowControl` | Hyprland (`hyprctl dispatch`, its event socket); on Windows the windows themselves, told by events on the socket (`HostWindows`) | A platform seam (§15): it focuses a window process's window and leaves its windows out of screen sharing, both by pid. Tests open windows with a fake. |
 
 Rule: only add a port when two real implementations exist or a test clearly
 benefits.
@@ -988,6 +988,8 @@ session it shows:
 {"type":"session","session":{…} or null,"live":[{…} for each live session],"transcribers":[{"model":"deepgram","language":"pt","sessions":2}]}
 {"type":"session_opened","id":"…","window":2}
 {"type":"window_call","window":2,"call":"import","path":"/home/me/retro.mp4"}
+{"type":"window_focus","pid":10872}
+{"type":"window_share","pids":[10872,11240],"hidden":true}
 {"type":"session_timeline","session":"…","timeline":[{"type":"transcript",…},{"type":"note",…},{"type":"suggestion",…}]}
 {"type":"transcript","session":"…","who":"Eles","name":"Ana","text":"...","at":1791083840.1,"latency_ms":990}
 {"type":"transcript_partial","session":"…","who":"Eles","name":"Ana","text":"so the next…"}
@@ -1027,6 +1029,13 @@ session it shows:
 {"type":"models","target":"llm","models":["..."],"error":"..."}
 {"type":"error","code":"session.none","params":{},"message":"start a session first"}
 ```
+
+`window_focus` and `window_share` are window control on Windows (§15), sent
+only there: the window whose process is `pid` comes to the front with the
+keyboard, and the windows of the processes in `pids` leave screen capture
+while `hidden`, or come back to it. A client that connects is greeted, after
+the rest, with the last `window_focus` and, while windows are hidden, the
+last `window_share`, so a window that connects just after it opens hears both.
 
 `transcription` is a streaming transcriber's connection, for the source `who`
 (a participant), whichever sessions listen to it: `down` once per outage, with
@@ -1740,7 +1749,7 @@ That is the whole gate. It runs:
 | step | what it refuses |
 |---|---|
 | `lint` | Rust not formatted by `cargo fmt`, any clippy warning (`-D warnings`, all targets) |
-| `test` | `eco-window` that does not build without a warning (`window:build`), a failing `cargo test`: the domain tests, the i18n checks (`tests/i18n.rs`), the answer Markdown (`overlay/Eco/Core/markdown.js`) against its QML test case (`tests/overlay.rs`, run offscreen by Qt's `qmltestrunner`), eco-window's bridge offscreen (`tests/window.rs`: lines each way, on Windows the `auth` line first, the reconnect, a local path, a watched file, a clean exit) and the VAD and speaker parity tests against the Python fixtures (these need the models from `mise run setup`) |
+| `test` | `eco-window` that does not build without a warning (`window:build`), a failing `cargo test`: the domain tests, the i18n checks (`tests/i18n.rs`), the answer Markdown (`overlay/Eco/Core/markdown.js`) against its QML test case (`tests/overlay.rs`, run offscreen by Qt's `qmltestrunner`), eco-window's bridge offscreen (`tests/window.rs`: lines each way, on Windows the `auth` line first, the reconnect, the pid, a local path, a watched file, a clean exit) and the VAD and speaker parity tests against the Python fixtures (these need the models from `mise run setup`) |
 | `cli:check` | a `docs/cli.md` that is not what the binary's usage spec generates |
 | `docs:check` | a relative link or image in `README.md` or `docs/*.md` whose file, or whose heading for an `#anchor`, is missing |
 
@@ -1823,11 +1832,8 @@ explicit exception for these seams. Each seam's adapter is chosen with
 `#[cfg]` in one place: the composition in `src/session.rs`, or the module
 that owns the seam; nothing else names a platform.
 
-eco builds and passes its tests on Windows, but the Windows side of window
-control is not written yet: `src/adapters/unsupported.rs` stands in for it and
-says it is not supported on Windows, so the daemon starts and the command line
-works without it. The table says where each seam's adapter
-lives on each platform today.
+eco builds and passes its tests on Windows. The table says where each seam's
+adapter lives on each platform today.
 
 | Seam | Linux | Windows | File(s) |
 |---|---|---|---|
@@ -1838,8 +1844,8 @@ lives on each platform today.
 | Service lifecycle and desktop setup | `ServiceManager`: the systemd user service (`systemctl --user`), chosen in `src/main.rs`; `DesktopIntegration`: the line loaded into the Hyprland Lua config (`~/.config/hypr/bindings.lua`), chosen in `src/setup.rs` | `ServiceManager`, adapter `BackgroundProcess`: `eco start` runs `eco daemon --headless` from the same executable as a process of the user's own, with `CREATE_NO_WINDOW` (a console of its own that is never shown, which the programs it runs, a hook's `cmd` say, share instead of each opening one; `DETACHED_PROCESS` would leave it none, and Windows ignores `CREATE_NO_WINDOW` beside it) and `CREATE_NEW_PROCESS_GROUP` (a Ctrl-C in the terminal that ran `eco start` does not reach it); its output goes to `%LOCALAPPDATA%\eco\daemon.log`, emptied at each start, and `eco start` waits for the pipe as on Linux; stop, status and restart go through the pipe. `DesktopIntegration`, adapter `StartupFolder`: `eco setup` writes `eco.cmd` into the user's Startup folder, running `eco start --headless` for the eco that wrote it; a rerun leaves a current script alone and rewrites one naming another eco. A script needs no COM, which a shortcut (`.lnk`) would; cmd runs it in a console window while `eco start` waits for the daemon (read, not seen: the Windows machine is reached over ssh, with no desktop) | `src/adapters/service_systemd.rs`, `src/adapters/desktop_hyprland.rs`, `src/adapters/service_windows.rs`, `src/adapters/desktop_windows.rs` |
 | Stopping the daemon and its windows | the daemon stops on Ctrl-C or `SIGTERM`; a window process is sent `SIGTERM` | the daemon stops on Ctrl-C, Ctrl-Break, its console closing or Windows shutting down; a window process is terminated | `src/session.rs`, `src/adapters/overlay.rs` |
 | The running executable | `eco status --expect-current-exe` compares the daemon's `/proc/<pid>/exe` with this executable by device and inode | it compares the `exe` the daemon's greeting names with this executable's path; Windows lets no one overwrite a running executable | `src/lifecycle.rs` |
-| Window control | the `WindowControl` port, adapter `HyprlandWindows`: giving a window process's overlay (its window titled `eco`, never the settings window) the keyboard and raising it above the settings, so a dialog the shortcut opens shows and setting `no_screen_share` on its windows through `hyprctl dispatch`, by pid, again on Hyprland's `openwindow` events while they are hidden; composed in `src/session.rs`, used by `src/adapters/overlay.rs`, which launches `eco-window`. The window rules in `packaging/hypr/eco.lua` centering the config window stay compositor config | `Unsupported`: focusing and hiding from screen sharing fail as not supported, and the window stays open | `src/ports.rs`, `src/adapters/window_hyprland.rs`, `src/adapters/overlay.rs`, `src/adapters/unsupported.rs`, `packaging/hypr/eco.lua` |
-| The window host's bridge | `eco-window`'s `EcoHost` module, built with the system's compiler and Qt by Ninja: `Host` gives the QML its environment and local paths, and copies to the Wayland clipboard through `wl-copy`; `LineSocket` is a `QLocalSocket` to the daemon socket the daemon names in `ECO_SOCKET`; `TextFile` reads and watches files, such as the Omarchy theme under `XDG_STATE_HOME` that `overlay/Eco/Core/Theme.qml` follows | the same module, built with MSVC through CMake's Visual Studio generator against the Qt `scripts/qt-install` puts under `.qt`, with Qt's libraries copied beside `eco-window.exe` by `windeployqt`; `src/adapters/overlay.rs` runs `<prefix>\lib\eco\eco-window.exe` beside an installed `eco`, else the checkout's `target\window\eco-window.exe`. `Host.copy` puts the text on the clipboard through Qt, and `LineSocket` connects to the named pipe and sends `auth <token>` first. `tests/window.rs` and `tests/overlay.rs` run there too, the second with the `qmltestrunner` under `.qt`. There is no Omarchy theme, so the window keeps its own colours | `window/main.cpp`, `window/host.h`, `window/line_socket.h`, `window/text_file.h`, `scripts/window-build`, `scripts/qt-install` |
+| Window control | the `WindowControl` port, adapter `HyprlandWindows`: giving a window process's overlay (its window titled `eco`, never the settings window) the keyboard and raising it above the settings, so a dialog the shortcut opens shows and setting `no_screen_share` on its windows through `hyprctl dispatch`, by pid, again on Hyprland's `openwindow` events while they are hidden; composed in `src/session.rs`, used by `src/adapters/overlay.rs`, which launches `eco-window`. The window rules in `packaging/hypr/eco.lua` centering the config window stay compositor config | adapter `HostWindows`: the windows control themselves. Focusing sends `window_focus` with the pid and hiding sends `window_share` with the pids (§10.1), to every client; the window of that process answers through its host, `raise()` and `requestActivate()` on its eco window, or `Host.hideFromCapture`, and the last of each is told again to a client that connects, as a window does just after it opens. Windows may refuse to bring a window to the front: it gives the foreground only to a process that has it or was given it, and the daemon, in the background, has neither, so the window may stay behind and flash in the taskbar instead (read in Windows' rules for `SetForegroundWindow`, not seen: the machine is reached over ssh, with no desktop). A shortcut's command reaches the daemon from a process that has just had input, which could pass the right on with `AllowSetForegroundWindow`; nothing does so yet. Leaving out of capture needs Windows 10 2004 or later, and leaves the windows out of the user's own screenshots and recordings too | `src/ports.rs`, `src/adapters/window_hyprland.rs`, `src/adapters/window_host.rs`, `src/adapters/overlay.rs`, `packaging/hypr/eco.lua` |
+| The window host's bridge | `eco-window`'s `EcoHost` module, built with the system's compiler and Qt by Ninja: `Host` gives the QML its pid, its environment and local paths, and copies to the Wayland clipboard through `wl-copy`; `LineSocket` is a `QLocalSocket` to the daemon socket the daemon names in `ECO_SOCKET`; `TextFile` reads and watches files, such as the Omarchy theme under `XDG_STATE_HOME` that `overlay/Eco/Core/Theme.qml` follows | the same module, built with MSVC through CMake's Visual Studio generator against the Qt `scripts/qt-install` puts under `.qt`, with Qt's libraries copied beside `eco-window.exe` by `windeployqt`; `src/adapters/overlay.rs` runs `<prefix>\lib\eco\eco-window.exe` beside an installed `eco`, else the checkout's `target\window\eco-window.exe`. `Host.copy` puts the text on the clipboard through Qt, `Host.hideFromCapture` sets the windows' display affinity, and `LineSocket` connects to the named pipe and sends `auth <token>` first. `tests/window.rs` and `tests/overlay.rs` run there too, the second with the `qmltestrunner` under `.qt`. There is no Omarchy theme, so the window keeps its own colours | `window/main.cpp`, `window/host.h`, `window/line_socket.h`, `window/text_file.h`, `scripts/window-build`, `scripts/qt-install` |
 | Shortcuts | a global Hyprland bind that runs an `eco window` command, which sends one line to the socket and returns once the daemon has read it: `window.call` for those that open a view, the daemon giving that window the keyboard | none: `eco window` fails with `window.unsupported`, for a named pipe has no writing half to close alone, which is how the command knows the daemon has read its line | `packaging/hypr/eco.lua`, `src/cli.rs` |
 | The hook shell | `shell()` runs each hook with `sh -c` | `shell()` runs each hook with `cmd /S /C "<command>"`, the command handed over as written, for cmd does not read its line by the quoting rules other programs use; a hook reads `%ECO_SESSION%` and `%ECO_TITLE%`. cmd is on every Windows | `src/adapters/hook_shell.rs` |
 | The omapass keyring | `api_key_omapass` reads a key through the omapass CLI | omapass does not exist: it is never installed, and a key from it fails | `src/adapters/omapass.rs` |

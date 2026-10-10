@@ -46,18 +46,29 @@ use crate::import;
 use crate::paths;
 use crate::ports::{
     AudioDevices, AudioError, AudioSource, Device, EchoError, LanguageModel, PeopleStore,
-    SessionLog, SpeechToText, StreamingSpeechToText, TranscriptionBilling,
+    SessionLog, SpeechToText, StreamingSpeechToText, TranscriptionBilling, WindowControl,
 };
 
-// The platform's audio and window control: Linux's, or Windows' (docs/design.md §15).
+// The platform's audio: Linux's, or Windows' (docs/design.md §15).
 #[cfg(unix)]
 use crate::adapters::audio_pipewire::PipeWire as PlatformAudio;
 #[cfg(windows)]
 use crate::adapters::audio_wasapi::Wasapi as PlatformAudio;
-#[cfg(windows)]
-use crate::adapters::unsupported::Unsupported as PlatformWindows;
+
+/// The platform's window control (docs/design.md §15): Hyprland's on Linux.
 #[cfg(unix)]
-use crate::adapters::window_hyprland::HyprlandWindows as PlatformWindows;
+fn window_control(_: &Emit) -> Arc<dyn WindowControl> {
+    Arc::new(crate::adapters::window_hyprland::HyprlandWindows::default())
+}
+
+/// The platform's window control (docs/design.md §15): on Windows the windows'
+/// own, told through `emit`.
+#[cfg(windows)]
+fn window_control(emit: &Emit) -> Arc<dyn WindowControl> {
+    Arc::new(crate::adapters::window_host::HostWindows::new(Arc::clone(
+        emit,
+    )))
+}
 
 /// The longest the assistant's model may send nothing before the request fails.
 const LLM_SILENCE: Duration = Duration::from_secs(120);
@@ -1102,12 +1113,14 @@ impl Pending {
 }
 
 /// What a client that connects is told first: the daemon, the snapshot, the
-/// sources whose transcription is down, and the change held for the user, if any.
+/// sources whose transcription is down, the change held for the user, if any,
+/// and what the windows' `control` tells them.
 fn greeting(
     assistant: Assistant,
     overlay_open: Arc<AtomicBool>,
     outages: Outages,
     pending: Arc<Mutex<Pending>>,
+    control: Arc<dyn WindowControl>,
 ) -> Greeting {
     Arc::new(move || {
         let mut events = vec![json!({
@@ -1120,6 +1133,7 @@ fn greeting(
         events.extend(assistant.snapshot());
         events.extend(outages.events());
         events.extend(pending.lock().expect("not poisoned").event());
+        events.extend(control.greeting());
         events
     })
 }
@@ -1999,11 +2013,13 @@ pub async fn run(
     let overlay_open = Arc::new(AtomicBool::new(false));
     let pending: Arc<Mutex<Pending>> = Arc::default();
     let outages = Outages::default();
+    let control = window_control(&emit);
     let greeting = greeting(
         assistant.clone(),
         Arc::clone(&overlay_open),
         outages.clone(),
         Arc::clone(&pending),
+        Arc::clone(&control),
     );
     let token = uuid::Uuid::new_v4().simple().to_string();
     let address = Address::user();
@@ -2012,7 +2028,7 @@ pub async fn run(
     let mut windows = overlay::Windows::new(
         address.socket,
         token.clone(),
-        Arc::<PlatformWindows>::default(),
+        control,
         current.hide_from_share,
     );
     if !headless {
@@ -2091,6 +2107,7 @@ mod tests {
     use super::*;
     use crate::adapters::http;
     use crate::adapters::session_files::SessionFiles;
+    use crate::adapters::window_host::HostWindows;
     use crate::ports::{EchoCancelling, FRAME_SAMPLES, Frame, Heard, TranscriptionError};
 
     fn raw() -> Value {
@@ -2761,6 +2778,11 @@ mod tests {
         (capture, running)
     }
 
+    /// Window control through events, which tells nobody.
+    fn windows_told() -> Arc<HostWindows> {
+        Arc::new(HostWindows::new(Arc::new(|_| {})))
+    }
+
     fn told(greeting: &Greeting) -> Vec<Value> {
         let events = greeting();
         events
@@ -2780,6 +2802,7 @@ mod tests {
             Arc::default(),
             outages.clone(),
             Arc::default(),
+            windows_told(),
         );
         let down = Arc::new(AtomicBool::new(true));
         let stt = Stt::Stream(Box::new(Flaky(Arc::clone(&down))));
@@ -2810,6 +2833,7 @@ mod tests {
             Arc::default(),
             outages.clone(),
             Arc::default(),
+            windows_told(),
         );
         let stt = Stt::Stream(Box::new(Flaky(Arc::new(AtomicBool::new(true)))));
         let (_capture, running) = transcribing(stt, &assistant, &emit, &outages);
@@ -3708,11 +3732,13 @@ mod tests {
     async fn the_daemon_greets_a_client_with_what_it_needs_first() {
         let d = daemon(raw());
         d.session.overlay_open.store(true, Ordering::Relaxed);
+        let windows = windows_told();
         let greeting = greeting(
             d.session.assistant.clone(),
             Arc::clone(&d.session.overlay_open),
             Outages::default(),
             Arc::clone(&d.session.pending),
+            windows.clone(),
         );
         let events = greeting();
         assert_eq!(said(&events), ["daemon", "snapshot"]);
@@ -3722,6 +3748,11 @@ mod tests {
         assert_eq!(events[0]["exe"], *exe.to_string_lossy());
         let held = hold(&mut d.session.pending.lock().unwrap(), "notify-send done");
         assert_eq!(greeting()[2], held);
+        windows.focus(42).await.unwrap();
+        assert_eq!(
+            said(&greeting()),
+            ["daemon", "snapshot", "config_pending", "window_focus"]
+        );
     }
 
     #[tokio::test]

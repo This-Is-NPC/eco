@@ -232,6 +232,8 @@ Singleton {
   signal importRequested(string path)
   // A tag every session now carries under another name.
   signal tagRenamed(string from, string to)
+  // Asks the eco window to come to the front with the keyboard.
+  signal raiseRequested()
 
   // act does what a shortcut asks of this window (a `window_call` event, see
   // docs/design.md §10): "config" opens or closes the settings, "new_session" the
@@ -773,6 +775,16 @@ Singleton {
     case "window_call":
       if (event.window === window)
         act(event)
+      break
+    // The daemon's window control on Windows (docs/design.md §15) names this
+    // window's process to raise it or to leave it out of screen capture.
+    case "window_focus":
+      if (event.pid === Host.pid)
+        raiseRequested()
+      break
+    case "window_share":
+      if (event.pids.indexOf(Host.pid) >= 0)
+        Host.hideFromCapture(event.hidden)
       break
     case "session_timeline":
       if (session !== null && event.session === session.id) {

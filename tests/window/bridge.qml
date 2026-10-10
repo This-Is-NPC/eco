@@ -15,7 +15,7 @@ QtObject {
       if (line === "quit")
         Qt.quit()
       else
-        send(JSON.stringify({ line: line, value: Host.env("ECO_TEST_VALUE"), text: file.text,
+        send(JSON.stringify({ line: line, value: Host.env("ECO_TEST_VALUE"), text: file.text, pid: Host.pid,
           path: Host.localPath(Host.env("ECO_TEST_URL")) }))
     }
   }

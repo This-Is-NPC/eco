@@ -273,4 +273,9 @@ pub trait WindowControl: Send + Sync {
         pids: Vec<u32>,
         hidden: bool,
     ) -> BoxFuture<'static, Result<(), WindowError>>;
+    /// What a client that connects is told of the windows: nothing, unless
+    /// the windows are controlled through events they read on the socket.
+    fn greeting(&self) -> Vec<Value> {
+        Vec::new()
+    }
 }
