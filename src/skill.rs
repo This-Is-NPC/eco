@@ -110,4 +110,14 @@ mod tests {
         );
         assert!(install(home, "cursor").is_err());
     }
+
+    #[test]
+    fn a_skill_it_cannot_read_is_an_error() {
+        let home = tempfile::tempdir().unwrap();
+        let home = home.path();
+        let claude = home.join(".claude/skills/eco/SKILL.md");
+        fs::create_dir_all(&claude).unwrap();
+        assert!(install(home, "claude-code").is_err());
+        assert!(claude.is_dir(), "left as it is");
+    }
 }
