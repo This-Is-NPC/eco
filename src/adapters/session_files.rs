@@ -340,8 +340,13 @@ pub(crate) mod tests {
         )
         .unwrap();
         fs::write(directory.path().join("2026-01-02-000000-vazia.jsonl"), "").unwrap();
+        fs::write(
+            directory.path().join("2026-01-03-000000-binaria.jsonl"),
+            [0xff, 0xfe],
+        )
+        .unwrap();
         let all = SessionFiles::new(directory.path().into()).all();
-        assert_eq!(all, vec![Vec::<Record>::new()]);
+        assert_eq!(all, vec![Vec::<Record>::new(); 2]);
     }
 
     #[test]
@@ -349,5 +354,23 @@ pub(crate) mod tests {
         let mut sink = NoSessionFiles.writer();
         sink(Record::new());
         assert!(NoSessionFiles.all().is_empty() && NoSessionFiles.read("x").is_none());
+        assert!(NoSessionFiles.append_to("x").is_none() && NoSessionFiles.storage("x").is_none());
+        assert!(!NoSessionFiles.delete("x").unwrap());
+    }
+
+    #[test]
+    fn a_directory_that_cannot_be_made_loses_the_session_without_failing() {
+        let directory = tempfile::tempdir().unwrap();
+        let blocked = directory.path().join("sessions");
+        fs::write(&blocked, "a file where the directory goes").unwrap();
+        let files = SessionFiles::new(blocked);
+        let mut sink = files.writer();
+        sink(
+            json!({"type": "session", "id": "s"})
+                .as_object()
+                .unwrap()
+                .clone(),
+        );
+        assert!(files.all().is_empty());
     }
 }
