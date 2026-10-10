@@ -13,6 +13,8 @@ find_package(Qt6 6.5 REQUIRED COMPONENTS Gui Network Qml Quick)
 add_executable(eco-window main.cpp host.h line_socket.h text_file.h)
 if(WIN32)
   target_sources(eco-window PRIVATE eco-window.rc)
+  # OleFlushClipboard, which leaves a copied text on the clipboard.
+  target_link_libraries(eco-window PRIVATE ole32)
 endif()
 if(MSVC)
   target_compile_options(eco-window PRIVATE /W4 /utf-8)

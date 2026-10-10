@@ -2,6 +2,7 @@
 //! each way, on Windows `auth <token>` first on every connection, connected
 //! again after the daemon goes), the process id, the environment, a local path,
 //! a watched file and raising a window, run offscreen against `tests/window/bridge.qml`;
+//! on Windows, a copied text that outlives the window, on the real platform;
 //! and the overlay's views driven as the daemon drives them, in
 //! `tests/window/views.qml`. Needs `mise run window:build`.
 
@@ -167,30 +168,35 @@ async fn the_overlay_views_pass_their_checks() {
     );
 }
 
-#[tokio::test]
-async fn the_bridge_carries_lines_reconnects_reads_files_and_exits_cleanly() {
-    let program = program();
-    let dir = tempfile::tempdir().unwrap();
-    let file = dir.path().join("a note.txt");
-    std::fs::write(&file, "first").unwrap();
-    let mut listener = Listener::bind(dir.path());
-    let mut window = Command::new(&program)
+/// eco-window running `tests/window/bridge.qml` on the Qt `platform`,
+/// connecting to `listener`, its runtime in `dir` and its watched file `file`.
+fn bridge(platform: &str, dir: &Path, listener: &Listener, file: &Path) -> Child {
+    Command::new(program())
         .arg(Path::new(ROOT).join("tests/window/bridge.qml"))
         .env_remove("WAYLAND_DISPLAY")
         .env_remove("DISPLAY")
-        .env("QT_QPA_PLATFORM", "offscreen")
+        .env("QT_QPA_PLATFORM", platform)
         .env("QT_QPA_PLATFORMTHEME", "")
-        .env("XDG_RUNTIME_DIR", dir.path())
-        .env("XDG_CACHE_HOME", dir.path().join("cache"))
+        .env("XDG_RUNTIME_DIR", dir)
+        .env("XDG_CACHE_HOME", dir.join("cache"))
         .env("ECO_TEST_SOCKET", listener.name())
         .env("ECO_TEST_TOKEN", "secret")
-        .env("ECO_TEST_FILE", &file)
-        .env("ECO_TEST_URL", url(&file))
+        .env("ECO_TEST_FILE", file)
+        .env("ECO_TEST_URL", url(file))
         .env("ECO_TEST_VALUE", "olá")
         .stdout(Stdio::null())
         .kill_on_drop(true)
         .spawn()
-        .unwrap();
+        .unwrap()
+}
+
+#[tokio::test]
+async fn the_bridge_carries_lines_reconnects_reads_files_and_exits_cleanly() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("a note.txt");
+    std::fs::write(&file, "first").unwrap();
+    let mut listener = Listener::bind(dir.path());
+    let mut window = bridge("offscreen", dir.path(), &listener, &file);
 
     let mut first = accept(&mut listener, &mut window).await;
     let answer = ask(&mut first, "ping").await;
@@ -222,4 +228,28 @@ async fn the_bridge_carries_lines_reconnects_reads_files_and_exits_cleanly() {
         .expect("eco-window did not exit")
         .unwrap();
     assert!(status.success(), "eco-window exited with {status}");
+}
+
+/// A text copied on Windows stays on the clipboard once the window is killed,
+/// as `eco stop` kills it. Offscreen, Qt keeps a clipboard of its own.
+#[cfg(windows)]
+#[tokio::test]
+async fn a_copied_text_outlives_the_window() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("note.txt");
+    std::fs::write(&file, "").unwrap();
+    let mut listener = Listener::bind(dir.path());
+    let mut window = bridge("windows", dir.path(), &listener, &file);
+    let mut link = accept(&mut listener, &mut window).await;
+    assert_eq!(ask(&mut link, "copy").await["line"], "copy");
+    window.kill().await.unwrap();
+    let read = std::process::Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-Command",
+            "[Console]::OutputEncoding = [Text.Encoding]::UTF8; Get-Clipboard",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(String::from_utf8_lossy(&read.stdout).trim(), "olá");
 }

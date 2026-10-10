@@ -4,7 +4,7 @@ import EcoHost
 
 // The bridge eco-window gives the overlay, driven by tests/window.rs: each
 // line the test sends comes back with what the bridge sees; "raise" raises its
-// window first; "quit" ends it.
+// window first, "copy" copies ECO_TEST_VALUE first; "quit" ends it.
 QtObject {
   property Window shown: Window { visible: true }
   property TextFile file: TextFile {
@@ -20,6 +20,8 @@ QtObject {
       else {
         if (line === "raise")
           Host.raise(shown)
+        if (line === "copy")
+          Host.copy(Host.env("ECO_TEST_VALUE"))
         send(JSON.stringify({ line: line, value: Host.env("ECO_TEST_VALUE"), text: file.text, pid: Host.pid,
           path: Host.localPath(Host.env("ECO_TEST_URL")) }))
       }

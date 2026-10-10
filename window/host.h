@@ -18,6 +18,7 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
+#include <ole2.h>
 #else
 #include <QProcess>
 #include <QStringList>
@@ -46,11 +47,13 @@ public:
   Q_INVOKABLE QString localPath(const QUrl &url) const { return url.toLocalFile(); }
 
   // Puts `text` on the clipboard so that it stays there after this process
-  // exits: on Windows through Qt, which hands it to the system as the process
-  // exits; elsewhere through wl-copy, which keeps serving it.
+  // exits: on Windows through Qt, its data handed to the system at once, so
+  // that it survives even a process killed; elsewhere through wl-copy, which
+  // keeps serving it.
   Q_INVOKABLE void copy(const QString &text) const {
 #ifdef Q_OS_WIN
     QGuiApplication::clipboard()->setText(text);
+    OleFlushClipboard();
 #else
     QProcess::startDetached(QStringLiteral("wl-copy"), {QStringLiteral("--"), text});
 #endif
