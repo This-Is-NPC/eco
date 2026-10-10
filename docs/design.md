@@ -1564,7 +1564,11 @@ overlay, past the screen's edge).
 It edits a draft and saves it whole (SAVE, or `Ctrl+S`, named in its tooltip);
 the daemon validates it and saves it (§9). Unsaved changes are marked;
 discarding a changed draft asks first, and closing one offers SAVE AND CLOSE,
-KEEP EDITING or DISCARD CHANGES. What keeps a draft from saving shows on its own
+KEEP EDITING or DISCARD CHANGES. Closing the eco window ends its process, the
+settings with it, without asking: unsaved changes are dropped. Leaving is what
+the user asked for, and Qt's own quit, which asks every window first, would
+stop at the kept settings window, which never closes, and leave the process
+running unseen. What keeps a draft from saving shows on its own
 field — an outline in the error colour and the reason under it — with a dot on
 the tab that holds it; a repeated name or a space in a skill's name shows as it
 is typed, a missing value once a save is tried, which opens the first one's tab

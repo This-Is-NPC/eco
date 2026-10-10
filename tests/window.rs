@@ -3,8 +3,9 @@
 //! again after the daemon goes), the process id, the environment, a local path,
 //! a watched file and raising a window, run offscreen against `tests/window/bridge.qml`;
 //! on Windows, a copied text that outlives the window, on the real platform;
-//! and the overlay's views driven as the daemon drives them, in
-//! `tests/window/views.qml`. Needs `mise run window:build`.
+//! the overlay's views driven as the daemon drives them, in
+//! `tests/window/views.qml`; and the eco window closed with the settings open,
+//! in `tests/window/close.qml`. Needs `mise run window:build`.
 
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -166,6 +167,46 @@ async fn the_overlay_views_pass_their_checks() {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
+}
+
+/// Closing the eco window ends its process even with the settings open and
+/// unsaved: Qt's quit asks every window to close, and the settings refuse.
+#[tokio::test]
+async fn closing_the_window_ends_the_process_with_the_settings_open() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut window = Command::new(program())
+        .arg(Path::new(ROOT).join("tests/window/close.qml"))
+        .env_remove("WAYLAND_DISPLAY")
+        .env_remove("DISPLAY")
+        .env("QML_IMPORT_PATH", Path::new(ROOT).join("overlay"))
+        .env("QT_QPA_PLATFORM", "offscreen")
+        .env("QT_QPA_PLATFORMTHEME", "")
+        .env("XDG_RUNTIME_DIR", dir.path())
+        .env("XDG_CACHE_HOME", dir.path().join("cache"))
+        .env("ECO_SOCKET", dir.path().join("no-daemon"))
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .unwrap();
+    let mut stderr = BufReader::new(window.stderr.take().unwrap()).lines();
+    let closing = async {
+        while let Some(line) = stderr.next_line().await.unwrap() {
+            if line.contains("closing") {
+                return;
+            }
+        }
+    };
+    tokio::select! {
+        () = closing => {}
+        status = window.wait() => panic!("eco-window exited with {} before closing", status.unwrap()),
+        _ = tokio::time::sleep(Duration::from_secs(30)) => panic!("the window never closed"),
+    }
+    let status = tokio::time::timeout(Duration::from_secs(2), window.wait())
+        .await
+        .expect("eco-window still runs 2 s after its window closed")
+        .unwrap();
+    assert!(status.success(), "eco-window exited with {status}");
 }
 
 /// eco-window running `tests/window/bridge.qml` on the Qt `platform`,

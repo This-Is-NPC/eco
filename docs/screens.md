@@ -615,6 +615,9 @@ one. The line above the buttons only counts them:
 
 ![The UNSAVED CHANGES dialog over the dimmed settings: "Your settings have unsaved changes. Save them before closing?" with SAVE AND CLOSE, KEEP EDITING and, filled red, DISCARD CHANGES.](img/52-settings-unsaved.png)
 
+Closing the eco window itself closes the settings with it and does not ask:
+unsaved changes there are dropped.
+
 **A change another program asked for.** Only this window's own SAVE writes at
 once a new or changed skill hook, a new context file, or a new model or a
 model's new address or key source. When another program on the socket sends a
