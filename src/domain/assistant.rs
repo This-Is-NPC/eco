@@ -3060,6 +3060,8 @@ mod tests {
 
     #[derive(Clone, Default)]
     struct FakeLlm {
+        /// Reasoning sent before the answer, when any.
+        thinking: Option<&'static str>,
         deltas: Vec<&'static str>,
         fail: bool,
         delay: Duration,
@@ -3075,10 +3077,10 @@ mod tests {
         ) -> BoxStream<'static, Result<Chunk, CompletionError>> {
             self.calls.lock().unwrap().push((model.into(), messages));
             let delay = self.delay;
-            let mut items: Vec<Result<Chunk, CompletionError>> = self
-                .deltas
-                .iter()
-                .map(|d| Ok(Chunk::Text((*d).into())))
+            let thinking = self.thinking.map(|t| Ok(Chunk::Thinking(t.into())));
+            let mut items: Vec<Result<Chunk, CompletionError>> = thinking
+                .into_iter()
+                .chain(self.deltas.iter().map(|d| Ok(Chunk::Text((*d).into()))))
                 .collect();
             if let Some(usage) = self.usage.clone() {
                 items.push(Ok(Chunk::Usage(usage)));
@@ -3353,16 +3355,12 @@ mod tests {
         assistant.trigger(None, "ask");
         settle().await;
         assert!(hooks.ran.lock().unwrap().is_empty());
-        let answers: Vec<String> = assistant
-            .state()
-            .session()
+        let answers: Vec<String> = events
+            .lock()
             .unwrap()
-            .timeline
             .iter()
-            .filter_map(|entry| match entry {
-                Entry::Suggestion(s) => Some(s.id.clone()),
-                _ => None,
-            })
+            .filter(|e| e["type"] == "suggestion_start")
+            .map(|e| e["id"].as_str().unwrap().to_string())
             .collect();
         assistant.end(None);
         let last = || events.lock().unwrap().last().unwrap().clone();
@@ -3702,9 +3700,8 @@ mod tests {
         assistant.trigger(None, "probe");
         settle().await;
         let calls = fake.calls.lock().unwrap();
-        let [(model, messages)] = calls.as_slice() else {
-            panic!("one call")
-        };
+        assert_eq!(calls.len(), 1, "one call");
+        let (model, messages) = &calls[0];
         assert_eq!(model, "cheap/model");
         assert!(
             messages[0]
@@ -4890,9 +4887,8 @@ mod tests {
         assistant.ask(None, "   ");
         settle().await;
         let events = events.lock().unwrap();
-        let [start, _, end, cost] = events.as_slice() else {
-            panic!("{events:?}")
-        };
+        assert_eq!(events.len(), 4, "{events:?}");
+        let (start, end, cost) = (&events[0], &events[2], &events[3]);
         assert_eq!(cost["cost"]["llm_usd"], 0.0004);
         assert_eq!(
             (start["action"].as_str(), start["prompt"].as_str()),
@@ -5785,7 +5781,9 @@ mod tests {
         assistant.end(None);
         events.lock().unwrap().clear();
         assistant.sessions();
+        assistant.people();
         let events = events.lock().unwrap();
+        assert_eq!(events[2]["people"], json!([]));
         let titles: Vec<&str> = events[0]["sessions"]
             .as_array()
             .unwrap()
@@ -5797,5 +5795,757 @@ mod tests {
             (events[1]["code"].as_str(), &events[1]["params"]),
             (Some("session.unreadable"), &json!({"count": 1}))
         );
+    }
+
+    /// The last event of type `kind`.
+    fn last_of(events: &Events, kind: &str) -> Value {
+        let events = events.lock().unwrap();
+        events
+            .iter()
+            .rev()
+            .find(|e| e["type"] == kind)
+            .cloned()
+            .unwrap()
+    }
+
+    /// The code of the last event.
+    fn last_code(events: &Events) -> Value {
+        events.lock().unwrap().last().unwrap()["code"].clone()
+    }
+
+    fn count(events: &Events, kind: &str) -> usize {
+        kinds(events).iter().filter(|k| *k == kind).count()
+    }
+
+    /// An assistant over sessions kept in `directory/sessions` and `people`.
+    fn stored_with(
+        directory: &std::path::Path,
+        people: Arc<dyn PeopleStore>,
+    ) -> (Assistant, Events, Arc<SessionFiles>) {
+        stored_in(
+            Arc::new(SessionFiles::new(directory.join("sessions"))),
+            people,
+        )
+    }
+
+    fn stored_in<L: SessionLog + 'static>(
+        log: Arc<L>,
+        people: Arc<dyn PeopleStore>,
+    ) -> (Assistant, Events, Arc<L>) {
+        let events: Events = Arc::default();
+        let sink = Arc::clone(&events);
+        let emit: Emit = Arc::new(move |event| sink.lock().unwrap().push(event));
+        let assistant = Assistant::new(emit, log.clone(), people, no_hooks());
+        assistant.configure(setup(&llm(&["Tradução."])));
+        events.lock().unwrap().clear();
+        (assistant, events, log)
+    }
+
+    fn people_in(directory: &std::path::Path) -> Arc<PeopleFiles> {
+        Arc::new(PeopleFiles::new(directory.join("people")))
+    }
+
+    /// A people store that refuses every write once told to.
+    struct Refusing {
+        files: PeopleFiles,
+        refusing: std::sync::atomic::AtomicBool,
+    }
+
+    impl Refusing {
+        fn refuse(&self) {
+            self.refusing
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+
+        fn write(&self) -> Result<(), crate::ports::StoreError> {
+            match self.refusing.load(std::sync::atomic::Ordering::SeqCst) {
+                true => Err(crate::ports::StoreError("disk full".into())),
+                false => Ok(()),
+            }
+        }
+    }
+
+    impl PeopleStore for Refusing {
+        fn people(&self) -> Vec<Person> {
+            self.files.people()
+        }
+
+        fn save(&self, person: &Person) -> Result<(), crate::ports::StoreError> {
+            self.write().and_then(|()| self.files.save(person))
+        }
+
+        fn forget(&self, person_id: &str) -> Result<(), crate::ports::StoreError> {
+            self.write().and_then(|()| self.files.forget(person_id))
+        }
+
+        fn voices(&self, session_id: &str) -> BTreeMap<String, Vec<f32>> {
+            self.files.voices(session_id)
+        }
+
+        fn keep_voices(
+            &self,
+            session_id: &str,
+            voices: &BTreeMap<String, Vec<f32>>,
+        ) -> Result<(), crate::ports::StoreError> {
+            self.write()
+                .and_then(|()| self.files.keep_voices(session_id, voices))
+        }
+    }
+
+    /// A session log that cannot delete.
+    struct Undeletable(SessionFiles);
+
+    impl SessionLog for Undeletable {
+        fn writer(&self) -> crate::ports::RecordSink {
+            self.0.writer()
+        }
+
+        fn all(&self) -> Vec<Vec<Record>> {
+            self.0.all()
+        }
+
+        fn read(&self, session_id: &str) -> Option<Vec<Record>> {
+            self.0.read(session_id)
+        }
+
+        fn append_to(&self, session_id: &str) -> Option<crate::ports::RecordSink> {
+            self.0.append_to(session_id)
+        }
+
+        fn storage(&self, session_id: &str) -> Option<crate::ports::SessionStorage> {
+            self.0.storage(session_id)
+        }
+
+        fn delete(&self, _: &str) -> Result<bool, crate::ports::StoreError> {
+            Err(crate::ports::StoreError("read-only file system".into()))
+        }
+    }
+
+    fn voice(of: &[f32]) -> BTreeMap<String, Vec<f32>> {
+        BTreeMap::from([("Eles".to_string(), of.to_vec())])
+    }
+
+    fn alone(voice: &[f32]) -> Diarization {
+        Diarization {
+            turns: vec![crate::domain::diarization::Turn {
+                start: 0.0,
+                end: 2.0,
+                speaker: 0,
+            }],
+            voices: vec![voice.to_vec()],
+        }
+    }
+
+    #[tokio::test]
+    async fn a_session_language_is_one_the_setup_offers() {
+        let directory = tempfile::tempdir().unwrap();
+        let (assistant, events, _) = stored_with(directory.path(), people_in(directory.path()));
+        let id = assistant.start("Call", "meeting", "pt", None);
+        assistant.set_language(&id, "fr");
+        assert_eq!(last_code(&events), "session.invalid");
+        assistant.set_language("nope", "ja");
+        assert_eq!(last_code(&events), "session.not_found");
+
+        assistant.set_language(&id, "ja");
+        assert_eq!(last_of(&events, "session")["session"]["language"], "ja");
+        let listening = assistant.listening().borrow().clone();
+        assert_eq!(listening.first().unwrap().language, "ja");
+
+        assistant.end(None);
+        events.lock().unwrap().clear();
+        assistant.set_language(&id, "pt");
+        assert!(
+            events.lock().unwrap().is_empty(),
+            "a stored one changes quietly"
+        );
+        assistant.show(&id);
+        assert_eq!(
+            last_of(&events, "session_detail")["session"]["language"],
+            "pt"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_known_speaker_gets_a_valid_color() {
+        let (assistant, events) = make(&llm(&[]), true);
+        assistant.hear(&heard(), &utterance("Eles", "Oi."));
+        let id = assistant.live()[0].clone();
+        assistant.set_speaker_color(&id, "Eles", "red");
+        assert_eq!(last_code(&events), "color.invalid");
+        assistant.set_speaker_color(&id, "Ninguém", "#ffb000");
+        assert_eq!(last_code(&events), "speaker.invalid");
+        assistant.set_speaker_color("nope", "Eles", "#ffb000");
+        assert_eq!(last_code(&events), "session.not_found");
+        assistant.set_speaker_color(&id, "Eles", "#FFB000");
+        let speakers = last_of(&events, "session_speakers")["speakers"].clone();
+        assert_eq!(speakers[0]["color"], "#ffb000");
+    }
+
+    #[test]
+    fn one_line_goes_to_a_person_with_the_voice_it_held() {
+        let directory = tempfile::tempdir().unwrap();
+        let people = people_in(directory.path());
+        let (assistant, events, log) = stored_with(directory.path(), people.clone());
+        let mut call = Session::begin("Call", "meeting", LIVE, "pt", log.writer());
+        call.hear_at("Eles", "Oi.", 10.0);
+        people.keep_voices(&call.id, &voice(&[1.0, 0.0])).unwrap();
+        assistant.assign_person(&call.id, "Eles", None, "Ana", None);
+        assert_eq!(people.people()[0].voiceprints.len(), 1);
+
+        assistant.assign_line(&call.id, "Eles", 10.0, None, "Bruno");
+        let moved = last_of(&events, "transcript_reassigned");
+        let label = moved["label"].as_str().unwrap().to_string();
+        assert!(label.starts_with("Eles#"), "{label}");
+        assert_eq!(moved["name"], "Bruno");
+        let everyone = people.people();
+        assert_eq!(
+            (everyone[0].name.as_str(), everyone[0].voiceprints.len()),
+            ("Ana", 0),
+            "the line's voice leaves the person it was"
+        );
+        assert_eq!(everyone[1].voiceprints[0].label, label);
+        assert_eq!(
+            people.voices(&call.id).into_keys().collect::<Vec<_>>(),
+            [label.as_str()]
+        );
+
+        assistant.assign_line(&call.id, "Eles", 99.0, None, "Bruno");
+        assert_eq!(last_code(&events), "line.not_found");
+        assistant.assign_line("nope", "Eles", 10.0, None, "Bruno");
+        assert_eq!(last_code(&events), "session.not_found");
+        assistant.assign_line(&call.id, &label, 10.0, None, " ");
+        assert_eq!(last_code(&events), "person.invalid");
+    }
+
+    #[test]
+    fn people_and_speakers_are_checked_before_a_session_changes() {
+        let directory = tempfile::tempdir().unwrap();
+        let people = people_in(directory.path());
+        let (assistant, events, log) = stored_with(directory.path(), people.clone());
+        let mut call = Session::begin("Call", "meeting", LIVE, "pt", log.writer());
+        call.hear_at("Eles", "Oi.", 10.0);
+        let id = call.id.clone();
+
+        assistant.assign_person(&id, "Eles", None, "Ana", Some("red"));
+        assert_eq!(last_code(&events), "color.invalid");
+        assistant.assign_person("nope", "Eles", None, "Ana", None);
+        assert_eq!(last_code(&events), "session.not_found");
+        assistant.assign_person(&id, "Ninguém", None, "Ana", None);
+        assert_eq!(last_code(&events), "speaker.invalid");
+        assistant.assign_person(&id, "Eles", None, "Ana", Some("#FFB000"));
+        let ana = people.people()[0].clone();
+        assert_eq!(ana.color, "#ffb000");
+        assistant.assign_person(&id, "Eles", None, "Bruno", None);
+        assert_eq!(assistant.transcript(&id).unwrap()[0].1, "Bruno");
+
+        assistant.set_attendee(&id, None, "Caio", false);
+        assert_eq!(last_code(&events), "person.invalid");
+        assistant.set_attendee(&id, None, " ", true);
+        assert_eq!(last_code(&events), "person.invalid");
+        assistant.set_attendee("nope", None, "Caio", true);
+        assert_eq!(last_code(&events), "session.not_found");
+        assistant.unassign_person("nope", "Eles");
+        assert_eq!(last_code(&events), "session.not_found");
+
+        // An attendee merged into someone else leaves that person attending.
+        assistant.set_attendee(&id, None, "Caio", true);
+        let caio = people
+            .people()
+            .into_iter()
+            .find(|p| p.name == "Caio")
+            .unwrap();
+        assistant.merge_people(&ana.id, &caio.id);
+        let attending = last_of(&events, "attendees_changed")["attendees"].clone();
+        assert_eq!(attending, json!([ana.id]));
+
+        assistant.rename_person("nobody", "X");
+        assert_eq!(last_code(&events), "person.not_found");
+        assistant.set_person_color(&ana.id, "red");
+        assert_eq!(last_code(&events), "color.invalid");
+        assistant.set_person_color("nobody", "#ffb000");
+        assert_eq!(last_code(&events), "person.not_found");
+        let before = events.lock().unwrap().len();
+        assistant.merge_people(&ana.id, &ana.id);
+        assert_eq!(
+            events.lock().unwrap().len(),
+            before,
+            "one person is not merged"
+        );
+        assistant.merge_people(&ana.id, "nobody");
+        assert_eq!(last_code(&events), "person.not_found");
+    }
+
+    #[test]
+    fn a_people_store_that_refuses_writes_is_reported() {
+        let directory = tempfile::tempdir().unwrap();
+        let people = Arc::new(Refusing {
+            files: PeopleFiles::new(directory.path().join("people")),
+            refusing: Default::default(),
+        });
+        let (assistant, events, log) = stored_with(directory.path(), people.clone());
+        let mut call = Session::begin("Call", "meeting", LIVE, "pt", log.writer());
+        call.hear_at("Eles", "Oi.", 10.0);
+        call.hear_at("Eu", "Olá.", 11.0);
+        let mut other = Session::begin("Other", "meeting", LIVE, "pt", log.writer());
+        other.hear_at("Eles", "Bom dia.", 5.0);
+        people.keep_voices(&call.id, &voice(&[1.0, 0.0])).unwrap();
+        people.keep_voices(&other.id, &voice(&[1.0, 0.0])).unwrap();
+        assistant.assign_person(&call.id, "Eles", None, "Ana", None);
+        assistant.add_person("Bruno");
+        let everyone = people.people();
+        let (ana, bruno) = (everyone[0].id.clone(), everyone[1].id.clone());
+        people.refuse();
+        let failures = || {
+            let events = events.lock().unwrap();
+            let failed = events.iter().filter(|e| e["code"] == "people.failed");
+            failed
+                .inspect(|e| assert_eq!(e["params"]["detail"], "disk full"))
+                .count()
+        };
+        let mut seen = 0;
+        let mut fails = |what: &str| {
+            let now = failures();
+            assert!(now > seen, "{what} reports the store");
+            seen = now;
+        };
+
+        assistant.set_person_color(&ana, "#ffb000");
+        fails("saving a person");
+        assistant.assign_line(&other.id, "Eles", 5.0, Some(&ana), "");
+        fails("moving a line's voice");
+        assistant.remove_line(&call.id, "Eles", 10.0);
+        fails("removing a speaker's last line");
+        assistant.merge_people(&ana, &bruno);
+        fails("merging");
+        assistant.voices_heard(&call.id, "Eu", &[(11.0, 0.0, 2.0)], &alone(&[0.0, 1.0]));
+        fails("keeping voices heard");
+        assistant.forget_person(&ana);
+        fails("forgetting");
+        assistant.delete_session(&call.id);
+        fails("deleting a session");
+        assert_eq!(last_of(&events, "session_deleted")["id"], json!(call.id));
+    }
+
+    #[test]
+    fn a_voice_heard_again_joins_the_one_kept_and_its_person() {
+        let directory = tempfile::tempdir().unwrap();
+        let people = people_in(directory.path());
+        let (assistant, events, log) = stored_with(directory.path(), people.clone());
+        let mut call = Session::begin("Call", "meeting", LIVE, "pt", log.writer());
+        call.hear_at("Eles", "Oi.", 10.0);
+        let line = [(10.0, 0.0, 2.0)];
+        assistant.voices_heard(&call.id, "Eles", &line, &alone(&[1.0, 0.0]));
+        assistant.assign_person(&call.id, "Eles", None, "Ana", None);
+        assistant.voices_heard(&call.id, "Eles", &line, &alone(&[0.8, 0.6]));
+        let merged = normalized(vec![1.8, 0.6]);
+        assert_eq!(people.voices(&call.id)["Eles"], merged);
+        let ana = people.people()[0].clone();
+        assert_eq!(ana.voiceprints.len(), 1);
+        assert_eq!(ana.voiceprints[0].voice, normalized(merged));
+
+        let before = events.lock().unwrap().len();
+        let silent = Diarization {
+            turns: Vec::new(),
+            voices: Vec::new(),
+        };
+        assistant.voices_heard(&call.id, "Eles", &line, &silent);
+        assistant.voices_heard("nope", "Eles", &line, &alone(&[1.0, 0.0]));
+        assert_eq!(
+            events.lock().unwrap().len(),
+            before,
+            "no voice found, or no session, hears nothing"
+        );
+    }
+
+    #[test]
+    fn a_session_the_log_cannot_delete_stays() {
+        let directory = tempfile::tempdir().unwrap();
+        let log = Arc::new(Undeletable(SessionFiles::new(directory.path().into())));
+        let (assistant, events, log) = stored_in(log, people_in(directory.path()));
+        let id = Session::begin("Call", "meeting", LIVE, "pt", log.writer()).id;
+        assistant.delete_session(&id);
+        let failed = events.lock().unwrap().last().unwrap().clone();
+        assert_eq!(
+            (failed["code"].as_str(), failed["params"]["detail"].as_str()),
+            (Some("people.failed"), Some("read-only file system"))
+        );
+        // It stays listed, readable and editable.
+        assistant.sessions();
+        assert_eq!(last_of(&events, "sessions")["sessions"][0]["id"], json!(id));
+        assistant.show(&id);
+        assert_eq!(
+            last_of(&events, "session_detail")["session"]["id"],
+            json!(id)
+        );
+        assistant.rename(&id, "Kept", "meeting");
+        assert_eq!(last_of(&events, "session_renamed")["title"], "Kept");
+    }
+
+    #[test]
+    fn a_line_moves_or_goes_alone_while_its_speaker_has_others() {
+        let directory = tempfile::tempdir().unwrap();
+        let people = people_in(directory.path());
+        let (assistant, events, log) = stored_with(directory.path(), people.clone());
+        let mut call = Session::begin("Call", "meeting", LIVE, "pt", log.writer());
+        for at in [10.0, 11.0, 12.0] {
+            call.hear_at("Eles", "Oi.", at);
+        }
+        assistant.remove_line(&call.id, "Eles", 12.0);
+        assert_eq!(last_of(&events, "transcript_removed")["at"], 12.0);
+        assistant.assign_line(&call.id, "Eles", 10.0, None, "Ana");
+        assistant.assign_line(&call.id, "Eles", 11.0, None, "Ana");
+        let names: Vec<String> = assistant
+            .transcript(&call.id)
+            .unwrap()
+            .into_iter()
+            .map(|(_, name, _)| name)
+            .collect();
+        assert_eq!(names, ["Ana", "Ana"]);
+        assert!(
+            people.people()[0].voiceprints.is_empty(),
+            "no voice was kept"
+        );
+    }
+
+    #[tokio::test]
+    async fn requests_for_what_is_not_there_say_so() {
+        let directory = tempfile::tempdir().unwrap();
+        let (assistant, events, _) = stored_with(directory.path(), people_in(directory.path()));
+        let id = assistant.start("Call", "meeting", "pt", None);
+        let missing: [(&str, &dyn Fn()); 13] = [
+            ("contexts", &|| assistant.set_contexts("nope", &[])),
+            ("focus", &|| assistant.focus("nope")),
+            ("timeline", &|| assistant.timeline("nope")),
+            ("show", &|| assistant.show("nope")),
+            ("guess", &|| assistant.clear_guess("nope", "Eles")),
+            ("speakers", &|| assistant.announce_speakers("nope")),
+            ("edit", &|| assistant.edit_line("nope", "Eles", 1.0, "x")),
+            ("remove line", &|| {
+                assistant.remove_line("nope", "Eles", 1.0)
+            }),
+            ("send", &|| assistant.send("nope", "x")),
+            ("remove", &|| assistant.remove("nope", "x")),
+            ("translate", &|| assistant.set_translation("nope", "en")),
+            ("translate one", &|| {
+                assistant.translate_answer("nope", "x", "en")
+            }),
+            ("reopen", &|| assistant.reopen("0123456789ab")),
+        ];
+        for (what, ask) in missing {
+            ask();
+            assert_eq!(last_code(&events), "session.not_found", "{what}");
+        }
+        assistant.note(Some("nope"), "x");
+        assert_eq!(last_code(&events), "session.not_found");
+        assistant.delete_session("../etc");
+        assert_eq!(last_code(&events), "session.invalid");
+        assistant.delete_session("0123456789ab");
+        assert_eq!(last_code(&events), "session.not_found");
+        assistant.edit_line(&id, "Eles", 99.0, "x");
+        assert_eq!(last_code(&events), "line.not_found");
+        assistant.rename(&id, "Call", "podcast");
+        assert_eq!(last_code(&events), "session.invalid");
+        assistant.rename_tag(" ", "x");
+        assert_eq!(last_code(&events), "tag.invalid");
+        assistant.delete_tag(" ");
+        assert_eq!(last_code(&events), "tag.invalid");
+        assistant.translate_answer(&id, "x", "zz");
+        assert_eq!(last_code(&events), "translation.unknown");
+        events.lock().unwrap().clear();
+        assistant.note(None, "  ");
+        assert!(events.lock().unwrap().is_empty(), "an empty note is none");
+
+        assistant.end(None);
+        events.lock().unwrap().clear();
+        assistant.toggle();
+        assistant.pause(None);
+        assistant.end(None);
+        assert!(
+            events.lock().unwrap().is_empty(),
+            "without a live session these do nothing"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_stored_session_is_read_translated_resumed_and_deleted() {
+        let directory = tempfile::tempdir().unwrap();
+        let (assistant, events, log) = stored_with(directory.path(), people_in(directory.path()));
+        let contexts = ["cv".to_string()];
+        let id = assistant.start("Call", "meeting", "pt", Some(&contexts));
+        assert_eq!(
+            assistant.snapshot()[0]["session"]["contexts"],
+            json!(["cv"])
+        );
+        assistant.hear(&heard(), &utterance("Eles", "Oi."));
+        assistant.note(None, "Ligar amanhã.");
+        assistant.timeline(&id);
+        let timeline = last_of(&events, "session_timeline")["timeline"].clone();
+        assert_eq!(timeline[1]["text"], "Ligar amanhã.");
+        let lines = assistant.transcript(&id).unwrap();
+        assert_eq!(lines.len(), 1, "a note is not speech");
+        assistant.set_translation(&id, "en");
+        settle().await;
+        assert_eq!(count(&events, "translated"), 1, "the line, not the note");
+
+        // A stored session that translates gets what it lacks when shown.
+        let mut kept = Session::begin("Kept", "meeting", LIVE, "pt", log.writer());
+        kept.set_translation("en");
+        kept.hear_at("Eles", "Bom dia.", now());
+        kept.set_state(ENDED);
+        assistant.show(&kept.id);
+        settle().await;
+        assert_eq!(last_of(&events, "translated")["session"], json!(kept.id));
+
+        // An import still running is not resumed.
+        let importing = Session::begin("Import", "meeting", IMPORT, "pt", log.writer());
+        assistant.reopen(&importing.id);
+        assert_eq!(last_code(&events), "session.not_resumable");
+
+        // A stored session loaded to note in leaves memory when deleted.
+        assistant.note(Some(&kept.id), "Lida.");
+        assistant.delete_session(&kept.id);
+        assert_eq!(last_of(&events, "session_deleted")["id"], json!(kept.id));
+        assert!(assistant.transcript(&kept.id).is_none());
+    }
+
+    #[test]
+    fn renaming_a_tag_changes_only_the_sessions_carrying_it() {
+        let directory = tempfile::tempdir().unwrap();
+        let (assistant, events, log) = stored_with(directory.path(), people_in(directory.path()));
+        let ids: Vec<String> = ["x", "y", "z"]
+            .iter()
+            .map(|tag| {
+                // Titles apart: one second and one title name one file.
+                let title = format!("Call {tag}");
+                let id = Session::begin(&title, "meeting", LIVE, "pt", log.writer()).id;
+                assistant.tag(&id, tag, true);
+                id
+            })
+            .collect();
+        assistant.rename_tag("x", "y");
+        assert_eq!(last_of(&events, "tag_renamed")["sessions"], json!([ids[0]]));
+    }
+
+    #[tokio::test]
+    async fn without_a_setup_sessions_keep_but_nothing_listens_or_answers() {
+        let events: Events = Arc::default();
+        let sink = Arc::clone(&events);
+        let assistant = Assistant::new(
+            Arc::new(move |event| sink.lock().unwrap().push(event)),
+            Arc::new(NoSessionFiles),
+            Arc::new(PeopleFiles::new(std::env::temp_dir().join("eco-no-people"))),
+            no_hooks(),
+        );
+        assert_eq!(assistant.snapshot()[0]["transcribers"], json!([]));
+        let id = assistant.start("Call", "meeting", "pt", None);
+        events.lock().unwrap().clear();
+        assert!(
+            assistant
+                .hear(&heard(), &utterance("Eles", "Oi."))
+                .is_empty()
+        );
+        assistant.hear_partial(&heard(), "Eles", "Oi");
+        assistant.set_translation(&id, "en");
+        assistant.translate_answer(&id, "x", "en");
+        assistant.price_unpaid();
+        let bills = assistant.bills(&heard());
+        bills.opened("r1".into());
+        bills.opened("r2".into());
+        drop(bills);
+        assert!(events.lock().unwrap().is_empty());
+        assistant.ask(None, "Resuma.");
+        assert_eq!(last_code(&events), "session.none");
+    }
+
+    #[tokio::test]
+    async fn words_being_said_reach_the_sessions_hearing_them() {
+        let (assistant, events) = make(&llm(&[]), true);
+        let other = Listening {
+            language: "ja".into(),
+            ..heard()
+        };
+        assistant.hear_partial(&other, "Recrutador", "Como");
+        assert!(events.lock().unwrap().is_empty());
+        assistant.hear_partial(&heard(), "Recrutador", "Como");
+        let partial = last_of(&events, "transcript_partial");
+        assert_eq!(
+            (partial["name"].as_str(), partial["text"].as_str()),
+            (Some("Recrutador"), Some("Como"))
+        );
+        // A model without a price opens no request to bill.
+        let bills = assistant.bills(&heard());
+        bills.opened("r1".into());
+        drop(bills);
+        assert_eq!(count(&events, "session_cost"), 0);
+    }
+
+    #[test]
+    fn a_request_closed_outside_a_runtime_is_not_priced_then() {
+        let charges = Arc::new(Charges::default());
+        let (assistant, _) = make(&llm(&[]), true);
+        assistant.configure(billed_by(&llm(&[]), &charges));
+        assistant.billed_segment(&heard(), "req-1", 2.0);
+        assert!(charges.0.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_request_is_priced_once_while_its_price_is_asked() {
+        let charges = Arc::new(Charges::default());
+        let (assistant, _) = make(&llm(&[]), true);
+        assistant.configure(billed_by(&llm(&[]), &charges));
+        assistant.billed_segment(&heard(), "req-1", 2.0);
+        assistant.billed_segment(&heard(), "req-1", 2.0);
+        tokio::time::sleep(Duration::from_secs(6)).await;
+        assert_eq!(*charges.0.lock().unwrap(), ["req-1"]);
+    }
+
+    #[tokio::test]
+    async fn ending_a_session_stops_its_answers_and_removing_one_waiting_drops_it() {
+        let slow = FakeLlm {
+            delay: Duration::from_millis(40),
+            ..llm(&["a", "b", "c"])
+        };
+        let (assistant, events) = make(&slow, true);
+        let id = assistant.live()[0].clone();
+        assistant.trigger(None, "ask");
+        assistant.trigger(None, "probe");
+        let waiting = last_of(&events, "suggestion_start")["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assistant.remove(&id, &waiting);
+        assert_eq!(last_of(&events, "suggestion_removed")["id"], json!(waiting));
+        assistant.trigger(None, "probe");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        assistant.end(None);
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert_eq!(count(&events, "suggestion_removed"), 3);
+        assert_eq!(count(&events, "suggestion_end"), 0);
+    }
+
+    #[tokio::test]
+    async fn releasing_the_setup_stops_the_answers() {
+        let slow = FakeLlm {
+            delay: Duration::from_millis(40),
+            ..llm(&["a", "b", "c"])
+        };
+        let (assistant, events) = make(&slow, true);
+        let current = setup(&slow);
+        assistant.configure(Arc::clone(&current));
+        assistant.trigger(None, "ask");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        assistant.release(&current);
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert_eq!(count(&events, "suggestion_removed"), 1);
+        assert_eq!(count(&events, "suggestion_end"), 0);
+    }
+
+    #[tokio::test]
+    async fn a_new_review_prompt_stops_the_answer_it_reviews() {
+        let draft = FakeLlm {
+            delay: Duration::from_millis(40),
+            ..llm(&["a", "b"])
+        };
+        let reviewer = llm(&["Revisada."]);
+        let (assistant, events) = make(&draft, true);
+        assistant.configure(reviewed(&draft, &reviewer, false));
+        assistant.trigger(None, "ask");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        assistant.configure(reviewed(&draft, &reviewer, false));
+        assert_eq!(count(&events, "suggestion_removed"), 0, "the same review");
+        let mut changed = Arc::into_inner(reviewed(&draft, &reviewer, false)).unwrap();
+        changed.reviewer.as_mut().unwrap().prompt = "Revise mais.".into();
+        assistant.configure(Arc::new(changed));
+        assert_eq!(count(&events, "suggestion_removed"), 1);
+    }
+
+    #[tokio::test]
+    async fn reasoning_is_shown_while_it_lasts_and_never_kept() {
+        let thinking = FakeLlm {
+            thinking: Some("Pensando…"),
+            ..llm(&["Resposta."])
+        };
+        let (assistant, events) = make(&thinking, true);
+        assistant.trigger(None, "ask");
+        settle().await;
+        assert_eq!(count(&events, "suggestion_thinking"), 1);
+        assert_eq!(last_of(&events, "suggestion_thinking")["text"], "Pensando…");
+        assert_eq!(
+            shown_timeline(&assistant).last().unwrap()["text"],
+            "Resposta."
+        );
+
+        assistant.configure(reviewed(&thinking, &llm(&["Revisada."]), false));
+        assistant.trigger(None, "ask");
+        settle().await;
+        assert_eq!(count(&events, "suggestion_thinking"), 2, "the draft's too");
+        assert_eq!(
+            shown_timeline(&assistant).last().unwrap()["text"],
+            "Revisada."
+        );
+    }
+
+    #[tokio::test]
+    async fn an_empty_draft_never_reaches_the_reviewer() {
+        let draft = llm(&["  "]);
+        let reviewer = llm(&["Revisada."]);
+        let (assistant, events) = make(&draft, true);
+        assistant.configure(reviewed(&draft, &reviewer, false));
+        assistant.trigger(None, "ask");
+        settle().await;
+        assert!(reviewer.calls.lock().unwrap().is_empty());
+        let failed = last_of(&events, "error");
+        assert_eq!(
+            (failed["code"].as_str(), failed["params"]["detail"].as_str()),
+            (Some("completion.failed"), Some("the model sent no answer"))
+        );
+    }
+
+    #[tokio::test]
+    async fn a_translation_that_fails_says_why_and_keeps_nothing() {
+        let answers = llm(&[]);
+        let broken = FakeLlm {
+            thinking: Some("Hmm"),
+            fail: true,
+            ..llm(&["Meio"])
+        };
+        let (assistant, events) = make(&answers, false);
+        let mut on = Arc::into_inner(setup(&answers)).expect("only reference");
+        on.translation.model = Model {
+            llm: Arc::new(broken.clone()),
+            id: "translate/model".into(),
+            settings: String::new(),
+        };
+        assistant.configure(Arc::new(on));
+        let id = assistant.start("Daily", "meeting", "pt", None);
+        assistant.set_translation(&id, "en");
+        assistant.hear(&heard(), &utterance("Recrutador", "Bom dia."));
+        settle().await;
+        assert_eq!(broken.calls.lock().unwrap().len(), 1, "the line heard");
+        let failed = last_of(&events, "error");
+        assert_eq!(
+            (failed["code"].as_str(), failed["params"]["detail"].as_str()),
+            (Some("translation.failed"), Some("429: rate limited"))
+        );
+        assert_eq!(count(&events, "translated"), 0);
+    }
+
+    #[tokio::test]
+    async fn an_answer_is_translated_once_while_it_is_asked() {
+        let fake = llm(&["Resposta."]);
+        let (assistant, events) = make(&fake, true);
+        let id = assistant.live()[0].clone();
+        assistant.trigger(None, "ask");
+        settle().await;
+        let answer = last_of(&events, "suggestion_end")["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let asked = fake.calls.lock().unwrap().len();
+        assistant.translate_answer(&id, &answer, "en");
+        assistant.translate_answer(&id, &answer, "en");
+        settle().await;
+        assert_eq!(fake.calls.lock().unwrap().len(), asked + 1);
+        assert_eq!(count(&events, "translated"), 1);
     }
 }
