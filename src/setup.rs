@@ -10,6 +10,7 @@ use sha2::{Digest, Sha256};
 
 use crate::adapters::desktop_hyprland::Hyprland;
 use crate::adapters::http;
+use crate::config;
 use crate::paths;
 use crate::ports::DesktopIntegration;
 
@@ -58,7 +59,8 @@ pub async fn run() -> Result<Vec<String>> {
 }
 
 /// Download `url` to `target` unless `target` already has `sha256`; nothing is
-/// written when the download fails or has another checksum.
+/// written when the download fails or has another checksum, and a crash while
+/// writing leaves the old file or none, never half a model.
 async fn fetch(
     client: &Client,
     name: &str,
@@ -81,7 +83,7 @@ async fn fetch(
         bail!("{name} checksum mismatch: {found}");
     }
     fs::create_dir_all(target.parent().context("model path has a parent")?)?;
-    fs::write(target, &bytes)?;
+    config::replace_file(target, &bytes, 0o644)?;
     Ok(format!("saved {}", target.display()))
 }
 
