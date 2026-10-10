@@ -1,11 +1,12 @@
 //! One audio source, segmented and transcribed — or only measured.
 
+use std::collections::VecDeque;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::task::Poll;
 use std::time::Duration;
 
-use futures::StreamExt;
+use futures::{Stream, StreamExt};
 use tokio::sync::mpsc;
 use tokio::time::{Instant, sleep};
 
@@ -231,17 +232,28 @@ async fn by_segment(
     }
 }
 
-/// Every frame goes to the provider, which says where speech ends. A
-/// connection that drops after working is opened again, its phrases timed
-/// from the first frame it received.
+/// The wait before a stream is opened again after a failure; each failure
+/// that follows doubles it, up to the longest.
+const FIRST_WAIT: Duration = Duration::from_secs(1);
+const LONGEST_WAIT: Duration = Duration::from_secs(30);
+
+/// What a stream that ends before its capture, without an error, reports.
+const CLOSED: &str = "the provider closed the stream";
+
+/// Every frame goes to the provider, which says where speech ends. While the
+/// capture runs, a connection that fails or ends is opened again after a wait
+/// that backs off, and its phrases are timed from the first frame it received.
+/// The first failure of an outage is reported; the rest of it is not.
 async fn streamed(
     who: &str,
     captured: CapturedStream<'_>,
     stt: &dyn StreamingSpeechToText,
     listeners: &Listeners<'_>,
 ) {
-    // Fused: a connection may poll it again after the capture ended, and so does
-    // the drain below.
+    // When the capture's first frame was heard, for the latency of each phrase.
+    let origin: OnceLock<Instant> = OnceLock::new();
+    // Fused: a connection may poll it again after the capture ended, and so
+    // does the wait between connections.
     let mut frames = captured
         .filter_map(|captured| {
             std::future::ready(match captured {
@@ -249,22 +261,32 @@ async fn streamed(
                 Captured::Segment(..) => None,
             })
         })
+        .inspect(|(index, _)| {
+            origin.get_or_init(|| {
+                Instant::now() - Duration::from_secs_f64(seconds(index * FRAME_SAMPLES))
+            });
+        })
         .fuse();
-    // When the capture's first frame was heard, for the latency of each phrase.
-    let origin: OnceLock<Instant> = OnceLock::new();
+    // Frames heard while no connection was open, sent first by the next one.
+    let mut held = VecDeque::new();
     // The number of the first frame the connection received, and whether the
     // capture ended.
     let first = AtomicUsize::new(usize::MAX);
     let ended = AtomicBool::new(false);
+    let mut wait = FIRST_WAIT;
+    // Whether the outage under way was reported, and whether the capture ended
+    // with frames still held.
+    let (mut reported, mut finishing) = (false, false);
     loop {
         first.store(usize::MAX, Ordering::Relaxed);
+        let opened = Instant::now();
         let fed = futures::stream::poll_fn(|context| {
-            let polled = frames.poll_next_unpin(context);
+            let polled = match held.pop_front() {
+                Some(frame) => Poll::Ready(Some(frame)),
+                None => frames.poll_next_unpin(context),
+            };
             match &polled {
                 Poll::Ready(Some((index, _))) => {
-                    origin.get_or_init(|| {
-                        Instant::now() - Duration::from_secs_f64(seconds(index * FRAME_SAMPLES))
-                    });
                     let _ = first.compare_exchange(
                         usize::MAX,
                         *index,
@@ -278,12 +300,16 @@ async fn streamed(
             polled.map(|next| next.map(|(_, frame)| frame))
         });
         let mut heard = stt.transcribe(fed.boxed());
-        let mut failed = false;
+        let (mut failure, mut spoke) = (None, false);
         while let Some(next) = heard.next().await {
             match next {
-                Ok(Heard::Partial(words)) => (listeners.partial)(words),
+                Ok(Heard::Partial(words)) => {
+                    spoke = true;
+                    (listeners.partial)(words);
+                }
                 Ok(Heard::Request(id)) => (listeners.request)(id),
                 Ok(Heard::Phrase(phrase)) => {
+                    spoke = true;
                     let offset = seconds(first.load(Ordering::Relaxed) * FRAME_SAMPLES);
                     let (start, end) = (offset + phrase.start, offset + phrase.end);
                     let spoken = Duration::from_secs_f64(end.max(0.0));
@@ -298,22 +324,48 @@ async fn streamed(
                         latency: since.saturating_sub(spoken),
                     });
                 }
-                Err(error) => {
-                    (listeners.failure)(who, &error.0);
-                    failed = true;
-                }
+                Err(error) => failure = Some(error.0),
             }
         }
         drop(heard);
-        // A connection that never took audio is not tried again.
         let took = first.load(Ordering::Relaxed) != usize::MAX;
-        if !failed || ended.load(Ordering::Relaxed) || !took {
+        if took && (spoke || opened.elapsed() >= LONGEST_WAIT) {
+            wait = FIRST_WAIT;
+            reported = false;
+        }
+        let over = ended.load(Ordering::Relaxed);
+        if !reported && (failure.is_some() || !over) {
+            (listeners.failure)(who, failure.as_deref().unwrap_or(CLOSED));
+            reported = true;
+        }
+        let running = !over && hold(&mut frames, &mut held, wait).await;
+        // Once the capture ended, the frames still held get one connection more.
+        if !running && (held.is_empty() || finishing) {
             break;
         }
-        sleep(Duration::from_secs(1)).await;
+        finishing = !running;
+        wait = (wait * 2).min(LONGEST_WAIT);
     }
-    // Given up on: the rest of the audio is dropped, not kept.
-    while frames.next().await.is_some() {}
+}
+
+/// Wait `wait` before a stream is opened again, holding the frames heard
+/// meanwhile; false as soon as the capture ends.
+async fn hold(
+    frames: &mut (impl Stream<Item = (usize, Frame)> + Unpin),
+    held: &mut VecDeque<(usize, Frame)>,
+    wait: Duration,
+) -> bool {
+    let waited = sleep(wait);
+    tokio::pin!(waited);
+    loop {
+        tokio::select! {
+            () = &mut waited => return true,
+            next = frames.next() => match next {
+                Some(frame) => held.push_back(frame),
+                None => return false,
+            },
+        }
+    }
 }
 
 /// Report one source's signal without transcribing or keeping anything.
@@ -506,13 +558,28 @@ mod tests {
         assert!((0.6..0.8).contains(&run.signals[30].0));
     }
 
-    /// A provider that names each connection's request first, then says one
-    /// phrase per 25 frames it receives (0.8 s), timed from its stream's start,
-    /// with what it has heard so far at the 13th; the first connection drops
-    /// after `drop_after`.
+    /// A provider that refuses its first `refused` connections before taking
+    /// audio; the others name their request first, then say one phrase per
+    /// 25 frames they receive (0.8 s), timed from their stream's start, with
+    /// what was heard so far at the 13th. The first connection it accepts ends
+    /// after `drop_after` frames: with an error, or cleanly when `closes`.
     struct FakeStream {
         connections: Mutex<usize>,
+        refused: usize,
         drop_after: Option<usize>,
+        closes: bool,
+        /// When each connection was opened.
+        opened: Mutex<Vec<Instant>>,
+    }
+
+    fn fake_stream(refused: usize, drop_after: Option<usize>, closes: bool) -> FakeStream {
+        FakeStream {
+            connections: Mutex::new(0),
+            refused,
+            drop_after,
+            closes,
+            opened: Mutex::new(Vec::new()),
+        }
     }
 
     impl StreamingSpeechToText for FakeStream {
@@ -520,12 +587,19 @@ mod tests {
             &'a self,
             frames: BoxStream<'a, Frame>,
         ) -> BoxStream<'a, Result<Heard, TranscriptionError>> {
+            self.opened.lock().unwrap().push(Instant::now());
             let connection = {
                 let mut connections = self.connections.lock().unwrap();
                 *connections += 1;
                 *connections
             };
-            let limit = self.drop_after.filter(|_| connection == 1);
+            if connection <= self.refused {
+                return stream::once(async { Err(TranscriptionError("unreachable".into())) })
+                    .boxed();
+            }
+            let limit = self
+                .drop_after
+                .filter(|_| connection == self.refused.saturating_add(1));
             let counted = frames.enumerate().take_while(move |(index, _)| {
                 std::future::ready(limit.is_none_or(|limit| *index < limit))
             });
@@ -544,12 +618,12 @@ mod tests {
             });
             let phrases = stream::once(async { named }).chain(phrases);
             match limit {
-                Some(_) => phrases
+                Some(_) if !self.closes => phrases
                     .chain(stream::once(async {
                         Err(TranscriptionError("connection reset".into()))
                     }))
                     .boxed(),
-                None => phrases.boxed(),
+                _ => phrases.boxed(),
             }
         }
     }
@@ -602,10 +676,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn a_stream_gets_every_frame_and_its_phrases_in_order() {
-        let stt = FakeStream {
-            connections: Mutex::new(0),
-            drop_after: None,
-        };
+        let stt = fake_stream(0, None, false);
         let run = stream_run(&stt).await;
         // 130 frames: a phrase after each 25, and what was heard on the way.
         let ends: Vec<String> = run
@@ -621,10 +692,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn a_stream_ends_with_its_capture() {
-        let stt = FakeStream {
-            connections: Mutex::new(0),
-            drop_after: None,
-        };
+        let stt = fake_stream(0, None, false);
         let heard = Mutex::new(0);
         let listeners = Listeners {
             utterance: &|_| *heard.lock().unwrap() += 1,
@@ -649,10 +717,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn a_dropped_stream_reconnects_and_keeps_the_time() {
-        let stt = FakeStream {
-            connections: Mutex::new(0),
-            drop_after: Some(60),
-        };
+        let stt = fake_stream(0, Some(60), false);
         let Streamed {
             utterances,
             errors,
@@ -671,6 +736,95 @@ mod tests {
             .collect();
         assert_eq!(ends[..2], ["0.80", "1.60"]);
         assert_eq!(ends[2], format!("{:.2}", (61 + 25) as f64 * 0.032));
+    }
+
+    /// What a paced capture's transcription did: each phrase's end, each
+    /// failure, and when each connection opened and the transcription ended,
+    /// in seconds from its start.
+    struct Paced {
+        ends: Vec<String>,
+        errors: Vec<String>,
+        opened: Vec<f64>,
+        over: f64,
+    }
+
+    /// Transcribe a capture of `frames` silent frames heard one every 32 ms.
+    async fn paced_run(stt: &FakeStream, frames: usize) -> Paced {
+        let (ends, errors) = (Mutex::new(Vec::new()), Mutex::new(Vec::new()));
+        let listeners = Listeners {
+            utterance: &|u| ends.lock().unwrap().push(format!("{:.2}", u.end())),
+            failure: &|who, detail| errors.lock().unwrap().push(format!("{who}: {detail}")),
+            partial: &|_| {},
+            request: &|_| {},
+            billed: &|_, _| {},
+        };
+        let captured = stream::unfold(0, |index| async move {
+            sleep(Duration::from_millis(32)).await;
+            (index < frames).then(|| (Captured::Frame(index, vec![0; FRAME_SAMPLES]), index + 1))
+        });
+        let start = Instant::now();
+        transcribe(
+            "them",
+            captured.boxed(),
+            Transcriber::Stream(stt),
+            &listeners,
+        )
+        .await;
+        let since =
+            |at: &Instant| (at.duration_since(start).as_secs_f64() * 1000.0).round() / 1000.0;
+        let opened = stt.opened.lock().unwrap().iter().map(since).collect();
+        Paced {
+            ends: ends.into_inner().unwrap(),
+            errors: errors.into_inner().unwrap(),
+            opened,
+            over: since(&Instant::now()),
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_refused_stream_backs_off_until_it_is_back() {
+        // Refused three times, then accepted and closed after 60 frames.
+        let stt = fake_stream(3, Some(60), true);
+        let run = paced_run(&stt, 300).await;
+        // Waits of 1, 2 and 4 s; the fourth takes the 61 frames held at once
+        // and closes, and after a connection that worked the wait is 1 s again.
+        assert_eq!(run.opened, [0.0, 1.0, 3.0, 7.0, 8.0]);
+        // One report per outage.
+        assert_eq!(
+            run.errors,
+            ["them: unreachable", "them: the provider closed the stream"]
+        );
+        // The audio heard while down went to the connection that came back,
+        // each phrase timed from the capture's start.
+        assert_eq!(run.ends[..2], ["0.80", "1.60"]);
+        assert_eq!(run.ends[2], format!("{:.2}", (61 + 25) as f64 * 0.032));
+        assert_eq!(run.ends.len(), 2 + (300 - 61) / 25);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_stream_closed_before_its_capture_is_opened_again() {
+        let stt = fake_stream(0, Some(60), true);
+        let run = paced_run(&stt, 300).await;
+        assert_eq!(run.opened.len(), 2);
+        assert_eq!(run.errors, ["them: the provider closed the stream"]);
+        assert_eq!(run.ends[..2], ["0.80", "1.60"]);
+        assert_eq!(run.ends[2], format!("{:.2}", (61 + 25) as f64 * 0.032));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_stream_that_never_comes_back_stops_with_its_capture() {
+        // 3750 frames: two minutes of capture.
+        let stt = fake_stream(usize::MAX, None, false);
+        let run = paced_run(&stt, 3750).await;
+        // Waits double up to 30 s; when the capture ends, the audio held gets
+        // one try more, right away, and nothing waits out the backoff.
+        assert_eq!(
+            run.opened,
+            [0.0, 1.0, 3.0, 7.0, 15.0, 31.0, 61.0, 91.0, 120.032]
+        );
+        assert_eq!(run.over, 120.032);
+        assert_eq!(run.errors, ["them: unreachable"]);
+        assert!(run.ends.is_empty());
     }
 
     #[tokio::test]
