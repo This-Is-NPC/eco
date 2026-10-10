@@ -884,6 +884,12 @@ mod tests {
             config.models[2].request_fields()["reasoning"],
             json!({"effort": "low"})
         );
+        let unchosen = Config::from_value(raw()).unwrap();
+        assert_eq!(
+            unchosen.models[1].request_fields()["reasoning"],
+            json!({"effort": "minimal"}),
+            "extra is sent as written"
+        );
         assert_eq!(Config::from_value(config.to_value()).unwrap(), config);
         value["models"][2]["reasoning"] = json!("max");
         assert!(error_of(value.clone()).contains("reasoning"));
@@ -1003,6 +1009,58 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let error = load(&directory.path().join("nope.toml")).unwrap_err().0;
         assert!(error.contains("no config"));
+    }
+
+    #[test]
+    fn an_unreadable_or_malformed_file_names_itself() {
+        let directory = tempfile::tempdir().unwrap();
+        let shown = directory.path().display();
+        let error = load(directory.path()).unwrap_err().0;
+        assert!(error.starts_with(&format!("{shown}: ")), "{error}");
+
+        let path = directory.path().join("config.toml");
+        fs::write(&path, "stt = ").unwrap();
+        let error = load(&path).unwrap_err().0;
+        assert!(
+            error.starts_with(&format!("{}: ", path.display())),
+            "{error}"
+        );
+
+        fs::write(&path, "[stt]\nmodel = \"whisper\"\n").unwrap();
+        let error = load(&path).unwrap_err().0;
+        assert!(error.starts_with("invalid config: "), "{error}");
+        assert!(error.ends_with("missing field `llm`"), "{error}");
+    }
+
+    #[test]
+    fn the_global_context_joins_its_files() {
+        let directory = tempfile::tempdir().unwrap();
+        let (cv, notes) = (
+            directory.path().join("cv.md"),
+            directory.path().join("notes.md"),
+        );
+        fs::write(&cv, "Currículo").unwrap();
+        fs::write(&notes, "Notas").unwrap();
+        let files = json!([cv.to_string_lossy(), notes.to_string_lossy()]);
+        let config = Config::from_value(with("context", json!({"files": files}))).unwrap();
+        assert_eq!(config.context().unwrap(), "Currículo\n\nNotas");
+        fs::remove_file(&notes).unwrap();
+        assert!(config.context().is_err());
+    }
+
+    #[test]
+    fn kinds_translations_and_actions_must_not_repeat() {
+        for kinds in [json!([]), json!(["meeting", "meeting"]), json!([" idea"])] {
+            assert!(error_of(with("kinds", kinds)).contains("kinds must be unique"));
+        }
+        let mut value = raw();
+        value["models"][1]["translates"] = json!(["meeting"]);
+        value["models"][2]["translates"] = json!(["meeting"]);
+        assert!(error_of(value).contains("at most one translation model"));
+        let mut value = raw();
+        let probe = value["actions"][0].clone();
+        value["actions"].as_array_mut().unwrap().push(probe);
+        assert!(error_of(value).contains("action names must be unique"));
     }
 
     #[test]
