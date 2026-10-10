@@ -256,7 +256,13 @@ machine with a checkout writes `dist\eco-<version>-windows-x86_64.zip`
    Windows does not have, so a model with `api_key_omapass` says `omapass is
    not available on Windows`.
 
-6. **Start it:** open **eco** from the Start menu, or in a terminal:
+6. **To import audio or video,** put `ffmpeg` and `ffprobe` on your `PATH`
+   (the zip does not carry them; [ffmpeg.org](https://ffmpeg.org/download.html)
+   links Windows builds), then `eco restart`: the daemon looks for them on the
+   `PATH` it started with. Without them an import says
+   `import: ffmpeg is not installed: importing audio or video needs ffmpeg and ffprobe`.
+
+7. **Start it:** open **eco** from the Start menu, or in a terminal:
 
    ```powershell
    eco start              # "eco: window opened"

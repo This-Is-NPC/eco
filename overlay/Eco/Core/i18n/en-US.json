@@ -406,6 +406,7 @@
   "error.translation.own": "The session is already in {language}",
   "error.import.failed": "Import failed: {detail}",
   "error.import.busy": "An import is already running",
+  "error.import.no_ffmpeg": "ffmpeg is not installed: importing audio or video needs ffmpeg and ffprobe",
   "error.diarization.failed": "Could not tell the speakers apart: {detail}",
   "error.people.failed": "Could not keep people: {detail}",
   "error.line.not_found": "That line is no longer in the session",

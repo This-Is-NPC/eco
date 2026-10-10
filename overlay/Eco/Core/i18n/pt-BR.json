@@ -406,6 +406,7 @@
   "error.translation.own": "A sessão já está em {language}",
   "error.import.failed": "Falha ao importar: {detail}",
   "error.import.busy": "Já há uma importação em andamento",
+  "error.import.no_ffmpeg": "O ffmpeg não está instalado: importar áudio ou vídeo precisa do ffmpeg e do ffprobe",
   "error.diarization.failed": "Não foi possível separar os falantes: {detail}",
   "error.people.failed": "Não foi possível guardar as pessoas: {detail}",
   "error.line.not_found": "Essa fala não está mais na sessão",

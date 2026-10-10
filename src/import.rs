@@ -10,7 +10,7 @@ use serde_json::json;
 use tokio::io::AsyncReadExt;
 use tokio::sync::oneshot;
 
-use crate::adapters::audio_ffmpeg::{FfmpegSource, Probe, probe};
+use crate::adapters::audio_ffmpeg::{FfmpegSource, Probe, Unprobed, probe};
 use crate::adapters::diarizer_process;
 use crate::adapters::vad_silero::{SileroModel, SileroVad};
 use crate::adapters::webvtt;
@@ -19,7 +19,7 @@ use crate::domain::channel::{
     Listeners, SpeechProbability, Transcriber, Trouble, Utterance, transcribe_channel,
 };
 use crate::domain::diarization::{Diarization, label_lines};
-use crate::domain::events::{Outages, error};
+use crate::domain::events::{Event, Outages, error};
 use crate::domain::segmenter::{Segment, SegmenterConfig};
 use crate::domain::session::{ENDED, HeardBy, IMPORT, Session, now, recorded_at};
 use crate::paths;
@@ -60,11 +60,32 @@ impl Drop for Importing {
 }
 
 fn failed(emit: &Emit, detail: String) {
-    emit(error(
+    emit(failure(detail));
+}
+
+/// The error an import that failed for `detail` is told as.
+fn failure(detail: String) -> Event {
+    error(
         "import.failed",
         format!("import: {detail}"),
         json!({"detail": detail}),
-    ));
+    )
+}
+
+/// What `import` is told when ffprobe, and with it ffmpeg, is not installed.
+const NO_FFMPEG: &str =
+    "ffmpeg is not installed: importing audio or video needs ffmpeg and ffprobe";
+
+/// Why a file cannot be imported, as the error a client is told.
+fn unimportable(path: &Path, why: Unprobed) -> Event {
+    match why {
+        Unprobed::Missing => error(
+            "import.no_ffmpeg",
+            format!("import: {NO_FFMPEG}"),
+            json!({}),
+        ),
+        Unprobed::NotMedia => failure(format!("{} is not audio or video", path.display())),
+    }
 }
 
 /// Open the session a `total_s`-long file recorded at `started_at` becomes,
@@ -107,12 +128,12 @@ enum Content {
 }
 
 /// What the file at `path` holds; neither a WebVTT transcript nor media ffprobe
-/// reads is an error.
-async fn content(path: &Path) -> Result<Content, String> {
+/// reads is the error a client is told.
+async fn content(path: &Path) -> Result<Content, Event> {
     let mut head = [0u8; 16];
     let read = match tokio::fs::File::open(path).await {
         Ok(mut file) => file.read(&mut head).await.unwrap_or(0),
-        Err(e) => return Err(format!("{}: {e}", path.display())),
+        Err(e) => return Err(failure(format!("{}: {e}", path.display()))),
     };
     if webvtt::is_webvtt(&head[..read]) {
         return Ok(Content::Transcript);
@@ -120,7 +141,7 @@ async fn content(path: &Path) -> Result<Content, String> {
     probe(path)
         .await
         .map(Content::Media)
-        .ok_or_else(|| format!("{} is not audio or video", path.display()))
+        .map_err(|why| unimportable(path, why))
 }
 
 /// When the recording in the file at `path` began: `given`, else the date media
@@ -191,7 +212,7 @@ async fn import(
 ) {
     let content = match content(&request.path).await {
         Ok(content) => content,
-        Err(detail) => return failed(&emit, detail),
+        Err(unimportable) => return emit(unimportable),
     };
     let started_at = started(&request.path, &content, request.started_at).await;
     match content {
@@ -1037,6 +1058,21 @@ mod tests {
             assert!(detail.starts_with(&path.display().to_string()), "{detail}");
         }
         assert!(stores.log.all().is_empty());
+    }
+
+    #[test]
+    fn without_ffmpeg_an_import_says_ffmpeg_is_missing() {
+        let told = unimportable(Path::new("talk.mp4"), Unprobed::Missing);
+        assert_eq!(
+            told,
+            error(
+                "import.no_ffmpeg",
+                format!("import: {NO_FFMPEG}"),
+                json!({})
+            )
+        );
+        let told = unimportable(Path::new("notes.txt"), Unprobed::NotMedia);
+        assert_eq!(told["params"]["detail"], "notes.txt is not audio or video");
     }
 
     /// A file that is missing, a directory, or neither transcript nor media

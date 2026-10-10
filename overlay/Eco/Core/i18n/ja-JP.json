@@ -406,6 +406,7 @@
   "error.translation.own": "このセッションはすでに {language} です",
   "error.import.failed": "インポートに失敗しました：{detail}",
   "error.import.busy": "すでにインポート中です",
+  "error.import.no_ffmpeg": "ffmpeg がインストールされていません：音声や動画の取り込みには ffmpeg と ffprobe が必要です",
   "error.diarization.failed": "話者を区別できませんでした：{detail}",
   "error.people.failed": "人物を保存できませんでした：{detail}",
   "error.line.not_found": "その発言はもうセッションにありません",

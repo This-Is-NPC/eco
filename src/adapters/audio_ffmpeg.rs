@@ -58,17 +58,39 @@ pub struct Probe {
     pub recorded: Option<f64>,
 }
 
-/// What ffprobe reads of `path`; none when it is not audio or video.
-pub async fn probe(path: &Path) -> Option<Probe> {
-    let output = Command::new("ffprobe")
+/// Why ffprobe read no media in a file.
+#[derive(Debug, PartialEq)]
+pub enum Unprobed {
+    /// ffprobe is not installed, so neither is ffmpeg.
+    Missing,
+    /// It is not audio or video.
+    NotMedia,
+}
+
+/// What ffprobe reads of `path`.
+pub async fn probe(path: &Path) -> Result<Probe, Unprobed> {
+    probe_with(Path::new("ffprobe"), path).await
+}
+
+/// What the program `ffprobe` reads of `path`.
+async fn probe_with(ffprobe: &Path, path: &Path) -> Result<Probe, Unprobed> {
+    let output = Command::new(ffprobe)
         .args(["-v", "error", "-show_entries"])
         .arg("format=duration:format_tags=creation_time:stream_tags=creation_time")
         .args(["-of", "json"])
         .args(local_input(path))
         .output()
         .await
-        .ok()?;
-    let read: Value = serde_json::from_slice(&output.stdout).ok()?;
+        .map_err(|e| match e.kind() {
+            std::io::ErrorKind::NotFound => Unprobed::Missing,
+            _ => Unprobed::NotMedia,
+        })?;
+    read_probe(&output.stdout).ok_or(Unprobed::NotMedia)
+}
+
+/// The probe in ffprobe's JSON; none without a duration.
+fn read_probe(json: &[u8]) -> Option<Probe> {
+    let read: Value = serde_json::from_slice(json).ok()?;
     let duration = read["format"]["duration"].as_str()?.parse().ok()?;
     let streams = read["streams"].as_array().into_iter().flatten();
     let recorded = std::iter::once(&read["format"])
@@ -122,7 +144,9 @@ mod tests {
             "{} frames, {samples} samples",
             frames.len()
         );
-        let probe = probe(&converted).await.unwrap();
+        let Ok(probe) = probe(&converted).await else {
+            panic!("ffprobe read no media");
+        };
         assert!((0.95..1.1).contains(&probe.duration), "{}", probe.duration);
         assert_eq!(probe.recorded, None);
     }
@@ -143,10 +167,8 @@ mod tests {
             .status()
             .unwrap();
         assert!(status.success());
-        assert_eq!(
-            probe(&tagged).await.unwrap().recorded,
-            Some(1_790_759_700.0)
-        );
+        let recorded = probe(&tagged).await.map(|probe| probe.recorded);
+        assert_eq!(recorded, Ok(Some(1_790_759_700.0)));
     }
 
     /// A relative name that begins with `-` reaches ffmpeg and ffprobe as a file.
@@ -191,6 +213,18 @@ mod tests {
             matches!(frames.as_slice(), [Err(e)] if e.0.starts_with("ffmpeg: ")),
             "{frames:?}"
         );
-        assert!(probe(&broken).await.is_none());
+        assert!(matches!(probe(&broken).await, Err(Unprobed::NotMedia)));
+    }
+
+    #[tokio::test]
+    async fn without_ffprobe_it_is_missing() {
+        let directory = tempfile::tempdir().unwrap();
+        let clip = directory.path().join("clip.mp4");
+        std::fs::write(&clip, b"a video").unwrap();
+        let ffprobe = directory.path().join("no-ffprobe");
+        assert!(matches!(
+            probe_with(&ffprobe, &clip).await,
+            Err(Unprobed::Missing)
+        ));
     }
 }
