@@ -301,13 +301,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_client_that_leaves_is_dropped() {
+    async fn a_client_that_stops_writing_is_dropped() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("eco.sock");
-        let (_socket, clients, _commands) = bound(&path, Vec::new()).await;
+        let (_socket, clients, mut commands) = bound(&path, Vec::new()).await;
         let mut client = connect(&path).await;
         client.write_all(b"one\n").await.unwrap();
-        drop(client);
+        assert_eq!(commands.recv().await.unwrap(), "one");
+        // It could still read what the daemon writes.
+        let client = client.into_std().unwrap();
+        client.shutdown(std::net::Shutdown::Write).unwrap();
         assert_eq!(emit_until_alone(&clients).await, 0);
     }
 
