@@ -143,6 +143,8 @@ Item {
   onMovementEnded: following = atYEnd
   onContentHeightChanged: if (following) Qt.callLater(follow)
   onCountChanged: if (following) Qt.callLater(follow)
+  // A strip appearing above takes room from the view, never the newest entry.
+  onHeightChanged: if (following) Qt.callLater(follow)
 
   // No entry is current until the keyboard comes, so nothing pulls the view.
   currentIndex: -1
