@@ -14,7 +14,7 @@ use crate::domain::loudness::loudness;
 use crate::domain::segmenter::{Segment, Segmenter, SegmenterConfig};
 use crate::ports::{
     AudioError, AudioSource, FRAME_SAMPLES, Frame, Heard, Phrase, SAMPLE_RATE, SpeechToText,
-    StreamingSpeechToText, Transcript,
+    StreamingSpeechToText, Transcript, TranscriptionError,
 };
 
 /// How a channel's speech becomes text: segment by segment, or as one stream
@@ -27,6 +27,18 @@ pub enum Transcriber<'a> {
 
 /// Segments sent to a segment-by-segment STT before the first is answered.
 const SEGMENTS_AT_ONCE: usize = 4;
+
+/// The waits before each new attempt at a segment that failed: four attempts
+/// in all, so a blip of a few seconds loses nothing.
+const RETRY_DELAYS: [Duration; 3] = [
+    Duration::from_secs(1),
+    Duration::from_secs(2),
+    Duration::from_secs(4),
+];
+
+/// No attempt at a segment starts later than this after its first, so a slow
+/// provider does not hold the lines behind it for long.
+const RETRY_WITHIN: Duration = Duration::from_secs(15);
 
 fn seconds(samples: usize) -> f64 {
     samples as f64 / f64::from(SAMPLE_RATE)
@@ -181,8 +193,30 @@ pub async fn transcribe(
     }
 }
 
+/// Send one segment to the STT, trying again after each of `RETRY_DELAYS` while
+/// it fails, within `RETRY_WITHIN`; the clip stays in memory. Every error is
+/// tried again: a `TranscriptionError` is only the provider's text, which does
+/// not tell a refused key from a dropped connection.
+async fn transcribe_segment(
+    stt: &dyn SpeechToText,
+    pcm: &[i16],
+) -> Result<Transcript, TranscriptionError> {
+    let first = Instant::now();
+    let mut delays = RETRY_DELAYS.iter();
+    loop {
+        let error = match stt.transcribe(pcm).await {
+            Ok(transcript) => return Ok(transcript),
+            Err(error) => error,
+        };
+        match delays.next() {
+            Some(&delay) if first.elapsed() + delay <= RETRY_WITHIN => sleep(delay).await,
+            _ => return Err(error),
+        }
+    }
+}
+
 /// Each segment the VAD closes goes to the STT on its own, a few at a time, their
-/// lines kept in order.
+/// lines kept in order: a segment being tried again holds back the lines after it.
 async fn by_segment(
     who: &str,
     captured: CapturedStream<'_>,
@@ -197,7 +231,7 @@ async fn by_segment(
     });
     let mut transcribed = segments
         .map(|(segment, ended)| async move {
-            let result = stt.transcribe(&segment.pcm).await;
+            let result = transcribe_segment(stt, &segment.pcm).await;
             (segment, ended, result)
         })
         .buffered(SEGMENTS_AT_ONCE);
@@ -385,13 +419,13 @@ pub async fn monitor_channel(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
     use std::sync::Mutex;
 
     use futures::future::BoxFuture;
     use futures::stream::{self, BoxStream};
 
     use super::*;
-    use crate::ports::TranscriptionError;
 
     struct Recorded(Vec<i16>);
 
@@ -401,9 +435,14 @@ mod tests {
         }
     }
 
+    /// An STT that says two phrases per segment, numbered by its call, and
+    /// nothing for a silent one. A segment whose first sample is a key of
+    /// `failing` fails that many times first, each failure after `slow`.
+    #[derive(Default)]
     struct FakeStt {
         calls: Mutex<Vec<usize>>,
-        fail_first: bool,
+        failing: Mutex<HashMap<i16, usize>>,
+        slow: Duration,
     }
 
     impl SpeechToText for FakeStt {
@@ -412,23 +451,41 @@ mod tests {
             pcm: &'a [i16],
         ) -> BoxFuture<'a, Result<Transcript, TranscriptionError>> {
             Box::pin(async move {
-                let mut calls = self.calls.lock().unwrap();
-                calls.push(pcm.len());
-                if self.fail_first && calls.len() == 1 {
+                let calls = {
+                    let mut calls = self.calls.lock().unwrap();
+                    calls.push(pcm.len());
+                    calls.len()
+                };
+                let fails = self
+                    .failing
+                    .lock()
+                    .unwrap()
+                    .get_mut(&pcm[0])
+                    .filter(|left| **left > 0)
+                    .map(|left| *left -= 1)
+                    .is_some();
+                if fails {
+                    sleep(self.slow).await;
                     return Err(TranscriptionError("down".into()));
+                }
+                if pcm.iter().all(|&sample| sample == 0) {
+                    return Ok(Transcript {
+                        phrases: Vec::new(),
+                        request: None,
+                    });
                 }
                 let end = pcm.len() as f64 / f64::from(SAMPLE_RATE);
                 let half = |text: &str, start: f64, end: f64| Phrase {
                     start,
                     end,
-                    text: format!("{text} {}", calls.len()),
+                    text: format!("{text} {calls}"),
                 };
                 Ok(Transcript {
                     phrases: vec![
                         half("segment", 0.0, end / 2.0),
                         half("part", end / 2.0, end),
                     ],
-                    request: Some(format!("request {}", calls.len())),
+                    request: Some(format!("request {calls}")),
                 })
             })
         }
@@ -457,61 +514,81 @@ mod tests {
         .concat()
     }
 
-    struct Run {
-        utterances: Vec<Utterance>,
-        signals: Vec<(f64, bool)>,
-        errors: Vec<String>,
-        segments: Vec<usize>,
+    /// What a segment-by-segment transcriber reported, each line and failure
+    /// with when it came.
+    struct Reported {
+        utterances: Vec<(Utterance, Duration)>,
+        errors: Vec<(String, Duration)>,
         billed: Vec<(String, f64)>,
-        calls: Vec<usize>,
     }
 
-    async fn run(fail_first: bool) -> Run {
-        let stt = FakeStt {
-            calls: Mutex::new(Vec::new()),
-            fail_first,
-        };
-        let (utterances, signals, errors, segments, billed) = (
-            Mutex::new(Vec::new()),
-            Mutex::new(Vec::new()),
+    async fn reported(transcribing: impl AsyncFnOnce(&Listeners<'_>)) -> Reported {
+        let began = Instant::now();
+        let (utterances, errors, billed) = (
             Mutex::new(Vec::new()),
             Mutex::new(Vec::new()),
             Mutex::new(Vec::new()),
         );
         let listeners = Listeners {
-            utterance: &|u| utterances.lock().unwrap().push(u),
-            failure: &|who, detail| errors.lock().unwrap().push(format!("{who}: {detail}")),
+            utterance: &|u| utterances.lock().unwrap().push((u, began.elapsed())),
+            failure: &|who, detail| {
+                errors
+                    .lock()
+                    .unwrap()
+                    .push((format!("{who}: {detail}"), began.elapsed()));
+            },
             partial: &|_| {},
             request: &|_| {},
             billed: &|id, seconds| billed.lock().unwrap().push((id, seconds)),
         };
+        transcribing(&listeners).await;
+        Reported {
+            utterances: utterances.into_inner().unwrap(),
+            errors: errors.into_inner().unwrap(),
+            billed: billed.into_inner().unwrap(),
+        }
+    }
+
+    struct Run {
+        utterances: Vec<Utterance>,
+        signals: Vec<(f64, bool)>,
+        segments: Vec<usize>,
+        billed: Vec<(String, f64)>,
+        calls: Vec<usize>,
+    }
+
+    async fn run() -> Run {
+        let stt = FakeStt::default();
+        let (signals, segments) = (Mutex::new(Vec::new()), Mutex::new(Vec::new()));
         let mut source = Recorded(two_utterances());
         let mut probability = loud;
-        transcribe_channel(
-            "them",
-            &mut source,
-            &mut probability,
-            Transcriber::Segments(&stt),
-            &listeners,
-            &|level, speech| signals.lock().unwrap().push((level, speech)),
-            &|s| segments.lock().unwrap().push(s.start),
-            SegmenterConfig::default(),
-        )
-        .await
-        .unwrap();
+        let reported = reported(async |listeners| {
+            transcribe_channel(
+                "them",
+                &mut source,
+                &mut probability,
+                Transcriber::Segments(&stt),
+                listeners,
+                &|level, speech| signals.lock().unwrap().push((level, speech)),
+                &|s| segments.lock().unwrap().push(s.start),
+                SegmenterConfig::default(),
+            )
+            .await
+            .unwrap();
+        })
+        .await;
         Run {
-            utterances: utterances.into_inner().unwrap(),
+            utterances: reported.utterances.into_iter().map(|(u, _)| u).collect(),
             signals: signals.into_inner().unwrap(),
-            errors: errors.into_inner().unwrap(),
             segments: segments.into_inner().unwrap(),
-            billed: billed.into_inner().unwrap(),
+            billed: reported.billed,
             calls: stt.calls.into_inner().unwrap(),
         }
     }
 
     #[tokio::test]
     async fn replays_audio_into_ordered_utterances() {
-        let run = run(false).await;
+        let run = run().await;
         let texts: Vec<String> = run.utterances.iter().map(Utterance::text).collect();
         assert_eq!(texts, ["segment 1 part 1", "segment 2 part 2"]);
         assert!(run.utterances.iter().all(|u| u.who == "them"));
@@ -541,17 +618,120 @@ mod tests {
         assert_eq!(run.billed, lengths);
     }
 
-    #[tokio::test]
-    async fn transcription_failure_skips_only_that_segment_and_reports_it() {
-        let run = run(true).await;
-        let texts: Vec<String> = run.utterances.iter().map(Utterance::text).collect();
-        assert_eq!(texts, ["segment 2 part 2"]);
-        assert_eq!(run.errors, ["them: down"]);
+    /// Transcribe one segment per marker, each a second of the marker's value
+    /// starting at `marker` × 10 s, all closed at once.
+    async fn segments_run(stt: &FakeStt, markers: &[i16]) -> Reported {
+        let rate = SAMPLE_RATE as usize;
+        let closed = Instant::now();
+        let captured: Vec<Captured> = markers
+            .iter()
+            .map(|&marker| {
+                let segment = Segment {
+                    pcm: vec![marker; rate],
+                    start: marker as usize * 10 * rate,
+                };
+                Captured::Segment(segment, closed)
+            })
+            .collect();
+        reported(async |listeners| {
+            let captured = stream::iter(captured).boxed();
+            transcribe("them", captured, Transcriber::Segments(stt), listeners).await;
+        })
+        .await
+    }
+
+    fn failing(marker: i16, times: usize) -> FakeStt {
+        FakeStt {
+            failing: Mutex::new(HashMap::from([(marker, times)])),
+            ..FakeStt::default()
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_failed_segment_is_tried_again_and_keeps_its_time() {
+        let stt = failing(1, 2);
+        let run = segments_run(&stt, &[1]).await;
+        assert!(run.errors.is_empty());
+        assert_eq!(stt.calls.lock().unwrap().len(), 3);
+        // After waits of 1 and 2 s; timed from the segment's start at 10 s.
+        assert_eq!(run.utterances.len(), 1);
+        let (utterance, at) = &run.utterances[0];
+        assert_eq!(*at, Duration::from_secs(3));
+        assert_eq!(utterance.latency, Duration::from_secs(3));
+        assert_eq!(utterance.phrases[0].start, 10.0);
+        assert_eq!(utterance.end(), 11.0);
+        assert_eq!(utterance.text(), "segment 3 part 3");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_segment_that_keeps_failing_is_reported_once_and_the_next_is_heard() {
+        let stt = failing(1, usize::MAX);
+        let run = segments_run(&stt, &[1, 2]).await;
+        // Four attempts, after waits of 1, 2 and 4 s.
+        assert_eq!(
+            run.errors,
+            [("them: down".to_string(), Duration::from_secs(7))]
+        );
+        assert_eq!(stt.calls.lock().unwrap().len(), 5);
+        let starts: Vec<f64> = run
+            .utterances
+            .iter()
+            .map(|(u, _)| u.phrases[0].start)
+            .collect();
+        assert_eq!(starts, [20.0]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_segment_tried_again_keeps_its_place_before_later_ones() {
+        let stt = failing(1, 2);
+        let run = segments_run(&stt, &[1, 2]).await;
+        assert!(run.errors.is_empty());
+        // The second segment, answered at once, waits for the first.
+        let lines: Vec<(f64, Duration)> = run
+            .utterances
+            .iter()
+            .map(|(u, at)| (u.phrases[0].start, *at))
+            .collect();
+        assert_eq!(
+            lines,
+            [
+                (10.0, Duration::from_secs(3)),
+                (20.0, Duration::from_secs(3))
+            ]
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_slow_failing_provider_is_not_tried_past_the_bound() {
+        let stt = FakeStt {
+            slow: Duration::from_secs(6),
+            ..failing(1, usize::MAX)
+        };
+        let run = segments_run(&stt, &[1]).await;
+        // Failures at 6, 13 and 21 s; a wait of 4 s more would start past 15 s.
+        assert_eq!(
+            run.errors,
+            [("them: down".to_string(), Duration::from_secs(21))]
+        );
+        assert_eq!(stt.calls.lock().unwrap().len(), 3);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_segment_without_words_leaves_no_line() {
+        let stt = FakeStt::default();
+        let run = segments_run(&stt, &[0, 2]).await;
+        assert!(run.errors.is_empty());
+        let starts: Vec<f64> = run
+            .utterances
+            .iter()
+            .map(|(u, _)| u.phrases[0].start)
+            .collect();
+        assert_eq!(starts, [20.0]);
     }
 
     #[tokio::test]
     async fn every_frame_reports_its_signal() {
-        let run = run(false).await;
+        let run = run().await;
         assert_eq!(run.signals.len(), two_utterances().len() / FRAME_SAMPLES);
         assert_eq!(run.signals.iter().filter(|(_, speech)| *speech).count(), 40);
         assert_eq!(run.signals[0].0, 0.0);

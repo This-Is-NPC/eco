@@ -251,7 +251,12 @@ eco/
 - **Choice:** the transcription model's `base_url` picks the adapter. An
   `http(s)://` URL is the
   OpenAI-compatible endpoint, segment by segment (up to four segments in
-  flight, lines kept in order). `wss://api.deepgram.com/v1/listen` and
+  flight, lines kept in order). A segment that fails is sent again after 1,
+  2 and 4 s, no attempt starting later than 15 s after its first, its audio
+  held in memory; every error is tried again, since the error carries only
+  the provider's text. Then the failure is reported and the next segment
+  goes on. While one is tried again the lines after it wait, so a session's
+  lines stay in the order they were said. `wss://api.deepgram.com/v1/listen` and
   `wss://api.elevenlabs.io/v1/speech-to-text/realtime` (or a regional host)
   are streaming providers: while a session records, every frame goes to them as
   16 kHz PCM and they decide where a phrase ends (Deepgram: 300 ms of silence,
