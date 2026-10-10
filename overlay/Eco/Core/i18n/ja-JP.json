@@ -393,7 +393,7 @@
   "interface.language": "表示言語",
   "interface.auto": "自動（システム）",
   "interface.hide_from_share": "画面共有で隠す",
-  "interface.hide_from_share_tip": "画面共有を見ている相手には eco のウィンドウが黒く表示されます。あなたのスクリーンショットや録画でも黒くなります：Hyprland はこれらを区別できません",
+  "interface.hide_from_share_tip": "画面共有を見ている相手から eco のウィンドウが隠れます。あなたのスクリーンショットや録画からも隠れます：システムはこれらを区別できません",
   "error.session.none": "先にセッションを開始してください",
   "error.session.not_resumable": "再開できるのは一時停止中か終了したセッションだけです",
   "error.session.not_found": "セッションが見つかりません",

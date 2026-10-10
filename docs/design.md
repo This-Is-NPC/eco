@@ -842,7 +842,7 @@ kinds = ["meeting"]
 
 [ui]
 language = "auto"                           # interface language pack, or auto
-hide_from_share = false                     # eco's windows black in screen shares (and screenshots)
+hide_from_share = false                     # eco's windows hidden from screen shares (and screenshots)
 
 [colors]                                    # trace colour per device (optional)
 "@default-input" = "#ffb000"
@@ -1798,8 +1798,8 @@ regenerates `docs/img` from the real overlay against an isolated daemon.
 - **Interface:** QML overlay instead of a TUI.
 - **Development:** on the laptop; Windows is built and tested by hand on a
   Windows machine, which can also serve models.
-- **Screen sharing:** a setting, off by default — `no_screen_share` also blacks
-  out screenshots.
+- **Screen sharing:** a setting, off by default — Hyprland's `no_screen_share`
+  and Windows' capture exclusion also hide eco from screenshots.
 - **Sessions:** transcription and storage only inside a session (outside,
   inputs are only measured for the live trace); removed suggestions disappear
   and leave the context; an unfinished session is marked paused and shown as

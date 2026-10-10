@@ -582,7 +582,7 @@ keep it.
 **Interface** — the interface language, and whether eco hides from screen
 sharing:
 
-![Settings, 08 INTERFACE: INTERFACE LANGUAGE "English (US)"; below it the unlit chip HIDE FROM SCREEN SHARING and its help: "eco's windows show black to whoever watches your shared screen. They also show black in your screenshots and recordings: Hyprland cannot tell them apart".](img/50-settings-interface.png)
+![Settings, 08 INTERFACE: INTERFACE LANGUAGE "English (US)"; below it the unlit chip HIDE FROM SCREEN SHARING and its help: "eco's windows are hidden from whoever watches your shared screen, and from your own screenshots and recordings too: the system cannot tell them apart".](img/50-settings-interface.png)
 
 English, Brazilian Portuguese or Japanese, or `auto` to follow the system;
 see [i18n.md](i18n.md). HIDE FROM SCREEN SHARING is off by default; on, it

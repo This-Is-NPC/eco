@@ -181,10 +181,10 @@ again on the page where you meet it.
 
 - **The window shows in a shared screen, unless you hide it.** By default,
   sharing the whole screen in a call shows eco's answers. **Settings ›
-  Interface › HIDE FROM SCREEN SHARING** blacks out eco's windows in the
-  share. Hyprland's `no_screen_share` cannot tell a screen share from a
-  screenshot, so it blacks them out in your own screenshots and recordings too.
-  With it off, share a window, not the screen.
+  Interface › HIDE FROM SCREEN SHARING** hides eco's windows in the share:
+  black on Linux, left out on Windows. Neither system can tell a screen share
+  from a screenshot, so they are hidden in your own screenshots and recordings
+  too. With it off, share a window, not the screen.
 - **Transcription cost needs a Deepgram key that may read usage.** Deepgram
   tells a request's cost only to a key with the `usage:read` scope; without it
   the cost reads as unknown, and a price per minute on the model can stand in as

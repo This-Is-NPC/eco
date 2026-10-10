@@ -393,7 +393,7 @@
   "interface.language": "INTERFACE LANGUAGE",
   "interface.auto": "Automatic (system)",
   "interface.hide_from_share": "HIDE FROM SCREEN SHARING",
-  "interface.hide_from_share_tip": "eco's windows show black to whoever watches your shared screen. They also show black in your screenshots and recordings: Hyprland cannot tell them apart",
+  "interface.hide_from_share_tip": "eco's windows are hidden from whoever watches your shared screen, and from your own screenshots and recordings too: the system cannot tell them apart",
   "error.session.none": "Start a session first",
   "error.session.not_resumable": "Only a paused or ended session can be resumed",
   "error.session.not_found": "Session not found",

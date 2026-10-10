@@ -176,10 +176,12 @@ by itself. Reopen it to go on.
 
 **The others see eco in a shared screen.** By default the window is not
 hidden from captures. Turn on **Settings › Interface › HIDE FROM SCREEN
-SHARING**, and eco's windows show black in the share, at once and in every
-window that opens later. Hyprland's `no_screen_share` cannot tell a screen
-share from a screenshot, so they show black in your own screenshots and
-recordings too. With it off, share a window in the call, not the whole screen.
+SHARING**, and eco's windows are hidden in the share, at once and in every
+window that opens later: on Linux they show black, on Windows they are left out
+of the picture. Neither Hyprland's `no_screen_share` nor Windows' capture
+exclusion can tell a screen share from a screenshot, so they are hidden in your
+own screenshots and recordings too. With it off, share a window in the call,
+not the whole screen.
 
 ---
 

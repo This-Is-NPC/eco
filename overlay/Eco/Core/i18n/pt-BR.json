@@ -393,7 +393,7 @@
   "interface.language": "IDIOMA DA INTERFACE",
   "interface.auto": "Automático (sistema)",
   "interface.hide_from_share": "OCULTAR NO COMPARTILHAMENTO DE TELA",
-  "interface.hide_from_share_tip": "As janelas do eco aparecem pretas para quem assiste à sua tela compartilhada. Também aparecem pretas nas suas capturas e gravações de tela: o Hyprland não as distingue",
+  "interface.hide_from_share_tip": "As janelas do eco ficam ocultas para quem assiste à sua tela compartilhada, e também nas suas capturas e gravações de tela: o sistema não as distingue",
   "error.session.none": "Inicie uma sessão primeiro",
   "error.session.not_resumable": "Só uma sessão pausada ou encerrada pode ser retomada",
   "error.session.not_found": "Sessão não encontrada",
