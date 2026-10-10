@@ -15,9 +15,9 @@ use crate::adapters::diarizer_process;
 use crate::adapters::vad_silero::{SileroModel, SileroVad};
 use crate::adapters::webvtt;
 use crate::domain::assistant::Emit;
-use crate::domain::channel::{Listeners, Transcriber, Utterance, transcribe_channel};
+use crate::domain::channel::{Listeners, Transcriber, Trouble, Utterance, transcribe_channel};
 use crate::domain::diarization::{Diarization, label_lines};
-use crate::domain::events::{error, transcription_failed};
+use crate::domain::events::{error, transcription};
 use crate::domain::segmenter::{Segment, SegmenterConfig};
 use crate::domain::session::{ENDED, HeardBy, IMPORT, Session, now, recorded_at};
 use crate::paths;
@@ -245,7 +245,7 @@ async fn media(
         }
         progress(heard.end());
     };
-    let failure = |who: &str, detail: &str| emit(transcription_failed(who, detail));
+    let trouble = |who: &str, trouble: Trouble| emit(transcription(who, &trouble));
     // Each segment is a request of its own, the session's alone.
     let billed = |request_id: String, seconds: f64| {
         let mut session = importing.session.lock().expect("not poisoned");
@@ -258,7 +258,7 @@ async fn media(
     };
     let listeners = Listeners {
         utterance: &utterance,
-        failure: &failure,
+        trouble: &trouble,
         partial: &|_| {},
         request: &|_| {},
         billed: &billed,

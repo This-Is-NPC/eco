@@ -233,7 +233,8 @@ eco/
   session records.
 - **Errors show:** a failed transcription or a capture that stops mid-session
   reaches the overlay's status line, and the terminal when the daemon runs in
-  one.
+  one. A streaming transcription down, and back, is not an error: it is a
+  `transcription` event (§10.1), printed in the terminal.
 
 ---
 
@@ -267,13 +268,19 @@ eco/
   — for 15 s is stalled and counts as dropped. Frames flow without a gap while
   a session records, so Deepgram's `KeepAlive` is never needed. A connection
   that drops, closes or is refused while the session captures is opened
-  again after 1 s, the wait doubling up to 30 s while it keeps failing; the
-  first failure of an outage is reported. The audio heard while no
+  again after 1 s, the wait doubling up to 30 s while it keeps failing. The
+  first failure of an outage is a `transcription` event with `"state":"down"`;
+  the rest of it is not reported. When a connection takes audio again — its
+  handshake done — the outage ends with `"state":"back"`, how long it lasted
+  and the seconds of audio it dropped (§10.1); a connection that fails after
+  that is a new outage. The audio heard while no
   connection takes it — down, waiting or being opened — is kept in memory,
   up to five minutes (about 9.6 MB), and goes first to the next connection,
   whose phrases are timed from the first frame it receives. Past five
-  minutes the oldest audio is dropped, and the seconds dropped are reported
-  once the provider is back or the session ends. An import
+  minutes the oldest audio is dropped, and the seconds dropped are said by
+  `back`; dropped by an outage still under way when the capture ends, they
+  are a `transcription.failed` error. Outages are not written to the session
+  log, which keeps no errors either. An import
   streams to Scribe with waiting frames joined into chunks of up to a second
   (frame by frame it refuses them as too frequent); Deepgram streams only as
   fast as the audio plays, so an import posts each segment to the same path
@@ -916,6 +923,8 @@ session it shows:
 {"type":"session_timeline","session":"…","timeline":[{"type":"transcript",…},{"type":"note",…},{"type":"suggestion",…}]}
 {"type":"transcript","session":"…","who":"Eles","name":"Ana","text":"...","at":1791083840.1,"latency_ms":990}
 {"type":"transcript_partial","session":"…","who":"Eles","name":"Ana","text":"so the next…"}
+{"type":"transcription","who":"Eles","state":"down","code":"stt.down","detail":"stalled: nothing heard for 15s"}
+{"type":"transcription","who":"Eles","state":"back","down_s":318.4,"dropped_s":18.2}
 {"type":"suggestion_start","id":"54401f25","session":"…","action":"chat","model":"google/gemini-3.5-flash-lite","prompt":"Ele citou Kafka?","at":1791083860.0}
 {"type":"suggestion_thinking","id":"54401f25","text":"..."}
 {"type":"suggestion_draft","id":"54401f25","text":"..."}
@@ -950,6 +959,14 @@ session it shows:
 {"type":"models","target":"llm","models":["..."],"error":"..."}
 {"type":"error","code":"session.none","params":{},"message":"start a session first"}
 ```
+
+`transcription` is a streaming transcriber's connection, for the source `who`
+(a participant), whichever sessions listen to it: `down` once per outage, with
+the `code` a window translates as `error.<code>` and the provider's `detail`;
+`back` when a connection takes the audio again, with the seconds it was down
+(`down_s`) and the seconds of audio dropped meanwhile (`dropped_s`, 0 unless
+the outage outlasted the five minutes held, §5). It is told as it happens and
+not repeated to a client that connects later.
 
 ### 10.2 Commands
 

@@ -32,10 +32,10 @@ use crate::adapters::window_hyprland::HyprlandWindows;
 use crate::config::{self, Config, ConfigError, Key, ModelConfig, ModelType};
 use crate::domain::assistant::{Assistant, ContextSlot, Emit, Model, Reviewer, Setup, Translating};
 use crate::domain::channel::{
-    Captured, CapturedStream, Listeners, Transcriber, Utterance, capture_channel, monitor_channel,
-    transcribe,
+    Captured, CapturedStream, Listeners, Transcriber, Trouble, Utterance, capture_channel,
+    monitor_channel, transcribe,
 };
-use crate::domain::events::{error, transcription_failed};
+use crate::domain::events::{error, transcription};
 use crate::domain::hub::{Capture, Hub};
 use crate::domain::segmenter::{Segment, SegmenterConfig};
 use crate::domain::transcribers::{Listening, Transcribers};
@@ -274,14 +274,14 @@ fn transcriber(
                 }
             }
         };
-        let failure = |who: &str, detail: &str| emit(transcription_failed(who, detail));
+        let trouble = |who: &str, trouble: Trouble| emit(transcription(who, &trouble));
         let partial = |words: String| assistant.hear_partial(&from, &who, &words);
         let bills = assistant.bills(&from);
         let request = |id: String| bills.opened(id);
         let billed = |id: String, seconds: f64| assistant.billed_segment(&from, &id, seconds);
         let listeners = Listeners {
             utterance: &utterance,
-            failure: &failure,
+            trouble: &trouble,
             partial: &partial,
             request: &request,
             billed: &billed,

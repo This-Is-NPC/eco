@@ -70,12 +70,27 @@ impl Utterance {
 /// A speech probability for a frame.
 pub type SpeechProbability<'a> = &'a mut (dyn FnMut(&[i16]) -> Result<f32, AudioError> + Send);
 
+/// What went wrong with a transcription, and its recovery.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Trouble {
+    /// Speech lost for good — a segment that could not be transcribed, or
+    /// audio dropped by an outage the capture outlived: why.
+    Failed(String),
+    /// No connection of a streaming transcription takes the audio: why the
+    /// last one failed, closed or stalled.
+    Down(String),
+    /// A connection takes the audio again, after `down`; `dropped` seconds of
+    /// audio heard meanwhile were lost.
+    Back { down: Duration, dropped: f64 },
+}
+
 /// What a transcriber reports as it goes.
 pub struct Listeners<'a> {
     /// A transcript, in the order the speech was heard.
     pub utterance: &'a (dyn Fn(Utterance) + Sync),
-    /// A segment that could not be transcribed: who, and why.
-    pub failure: &'a (dyn Fn(&str, &str) + Sync),
+    /// Speech lost, or a streaming transcription going down and coming back:
+    /// who, and what.
+    pub trouble: &'a (dyn Fn(&str, Trouble) + Sync),
     /// The words of the phrase being spoken so far, from a streaming STT.
     pub partial: &'a (dyn Fn(String) + Sync),
     /// The provider's id for the request a streaming STT bills from now on.
@@ -261,7 +276,7 @@ async fn by_segment(
                 });
             }
             Ok(_) => {}
-            Err(error) => (listeners.failure)(who, &error.0),
+            Err(error) => (listeners.trouble)(who, Trouble::Failed(error.0)),
         }
     }
 }
@@ -313,20 +328,17 @@ impl Held {
     }
 }
 
-/// Report the audio dropped from `held` since the last report, if any.
-fn report_dropped(held: &mut Held, who: &str, listeners: &Listeners<'_>) {
-    let dropped = std::mem::take(&mut held.dropped);
-    if dropped > 0 {
-        let lost = seconds(dropped * FRAME_SAMPLES);
-        let detail = format!("dropped {lost:.0} s of audio while the provider was down");
-        (listeners.failure)(who, &detail);
-    }
+/// The seconds of audio dropped from `held` since they were last taken.
+fn take_dropped(held: &mut Held) -> f64 {
+    seconds(std::mem::take(&mut held.dropped) * FRAME_SAMPLES)
 }
 
 /// Every frame goes to the provider, which says where speech ends. While the
 /// capture runs, a connection that fails or ends is opened again after a wait
 /// that backs off, and its phrases are timed from the first frame it received.
-/// The first failure of an outage is reported; the rest of it is not.
+/// An outage is reported down at its first failure only, and back when a
+/// connection takes audio again, with the audio it dropped; audio dropped by
+/// an outage the capture outlived is a failure.
 ///
 /// The capture is read all along: what no connection has taken yet — while
 /// one is down, waiting or being opened — is held, within `HELD_FRAMES`, and
@@ -359,9 +371,9 @@ async fn streamed(
         // The number of the first frame the connection received.
         let first = AtomicUsize::new(usize::MAX);
         let mut wait = FIRST_WAIT;
-        // Whether the outage under way was reported, and whether the capture
-        // ended with frames still held.
-        let (mut reported, mut finishing) = (false, false);
+        // When the outage under way began, and whether the capture ended with
+        // frames still held.
+        let (mut down, mut finishing) = (None::<Instant>, false);
         loop {
             first.store(usize::MAX, Ordering::Relaxed);
             let opened = Instant::now();
@@ -375,8 +387,14 @@ async fn streamed(
                             Ordering::Relaxed,
                             Ordering::Relaxed,
                         );
-                        if took.is_ok() {
-                            report_dropped(&mut held, who, listeners);
+                        let since = took.ok().and_then(|_| down.take());
+                        if let Some(since) = since {
+                            let dropped = take_dropped(&mut held);
+                            let back = Trouble::Back {
+                                down: since.elapsed(),
+                                dropped,
+                            };
+                            (listeners.trouble)(who, back);
                         }
                         Poll::Ready(Some(frame))
                     }
@@ -419,15 +437,15 @@ async fn streamed(
             let took = first.load(Ordering::Relaxed) != usize::MAX;
             if took && (spoke || opened.elapsed() >= LONGEST_WAIT) {
                 wait = FIRST_WAIT;
-                reported = false;
             }
             let over = {
                 let held = held.lock().unwrap();
                 held.ended && held.frames.is_empty()
             };
-            if !reported && (failure.is_some() || !over) {
-                (listeners.failure)(who, failure.as_deref().unwrap_or(CLOSED));
-                reported = true;
+            if down.is_none() && (failure.is_some() || !over) {
+                let why = failure.unwrap_or_else(|| CLOSED.into());
+                (listeners.trouble)(who, Trouble::Down(why));
+                down = Some(Instant::now());
             }
             let running = !over && pause(&held, wait).await;
             // Once the capture ended, the frames still held get one connection more.
@@ -437,7 +455,11 @@ async fn streamed(
             finishing = !running;
             wait = (wait * 2).min(LONGEST_WAIT);
         }
-        report_dropped(&mut held.lock().unwrap(), who, listeners);
+        let lost = take_dropped(&mut held.lock().unwrap());
+        if lost > 0.0 {
+            let detail = format!("dropped {lost:.0} s of audio while the provider was down");
+            (listeners.trouble)(who, Trouble::Failed(detail));
+        }
     };
     tokio::join!(read, send);
 }
@@ -572,37 +594,54 @@ mod tests {
         .concat()
     }
 
-    /// What a segment-by-segment transcriber reported, each line and failure
-    /// with when it came.
+    /// `who`'s trouble, as a test reads it.
+    fn said(who: &str, trouble: &Trouble) -> String {
+        match trouble {
+            Trouble::Failed(why) => format!("{who}: {why}"),
+            Trouble::Down(why) => format!("{who}: down: {why}"),
+            Trouble::Back { down, dropped } => format!(
+                "{who}: back after {:.3} s, dropped {dropped:.3} s",
+                down.as_secs_f64()
+            ),
+        }
+    }
+
+    /// What a transcriber reported: each line, and each trouble, with when it
+    /// came; what was heard so far, the requests opened and
+    /// those billed.
     struct Reported {
         utterances: Vec<(Utterance, Duration)>,
         errors: Vec<(String, Duration)>,
+        partials: Vec<String>,
+        requests: Vec<String>,
         billed: Vec<(String, f64)>,
     }
 
     async fn reported(transcribing: impl AsyncFnOnce(&Listeners<'_>)) -> Reported {
         let began = Instant::now();
-        let (utterances, errors, billed) = (
+        let (utterances, errors, partials, requests, billed) = (
+            Mutex::new(Vec::new()),
+            Mutex::new(Vec::new()),
             Mutex::new(Vec::new()),
             Mutex::new(Vec::new()),
             Mutex::new(Vec::new()),
         );
         let listeners = Listeners {
             utterance: &|u| utterances.lock().unwrap().push((u, began.elapsed())),
-            failure: &|who, detail| {
-                errors
-                    .lock()
-                    .unwrap()
-                    .push((format!("{who}: {detail}"), began.elapsed()));
+            trouble: &|who, trouble| {
+                let said = said(who, &trouble);
+                errors.lock().unwrap().push((said, began.elapsed()));
             },
-            partial: &|_| {},
-            request: &|_| {},
+            partial: &|words| partials.lock().unwrap().push(words),
+            request: &|id| requests.lock().unwrap().push(id),
             billed: &|id, seconds| billed.lock().unwrap().push((id, seconds)),
         };
         transcribing(&listeners).await;
         Reported {
             utterances: utterances.into_inner().unwrap(),
             errors: errors.into_inner().unwrap(),
+            partials: partials.into_inner().unwrap(),
+            requests: requests.into_inner().unwrap(),
             billed: billed.into_inner().unwrap(),
         }
     }
@@ -884,40 +923,30 @@ mod tests {
     }
 
     async fn stream_run(stt: &FakeStream) -> Streamed {
-        let (utterances, errors, segments, partials, requests) = (
-            Mutex::new(Vec::new()),
-            Mutex::new(Vec::new()),
-            Mutex::new(0),
-            Mutex::new(Vec::new()),
-            Mutex::new(Vec::new()),
-        );
-        let listeners = Listeners {
-            utterance: &|u| utterances.lock().unwrap().push(u),
-            failure: &|who, detail| errors.lock().unwrap().push(format!("{who}: {detail}")),
-            partial: &|words| partials.lock().unwrap().push(words),
-            request: &|id| requests.lock().unwrap().push(id),
-            billed: &|_, _| {},
-        };
+        let segments = Mutex::new(0);
         let mut source = Recorded(two_utterances());
         let mut probability = loud;
-        transcribe_channel(
-            "them",
-            &mut source,
-            &mut probability,
-            Transcriber::Stream(stt),
-            &listeners,
-            &|_, _| {},
-            &|_| *segments.lock().unwrap() += 1,
-            SegmenterConfig::default(),
-        )
-        .await
-        .unwrap();
+        let reported = reported(async |listeners| {
+            transcribe_channel(
+                "them",
+                &mut source,
+                &mut probability,
+                Transcriber::Stream(stt),
+                listeners,
+                &|_, _| {},
+                &|_| *segments.lock().unwrap() += 1,
+                SegmenterConfig::default(),
+            )
+            .await
+            .unwrap();
+        })
+        .await;
         Streamed {
-            utterances: utterances.into_inner().unwrap(),
-            errors: errors.into_inner().unwrap(),
+            utterances: reported.utterances.into_iter().map(|(u, _)| u).collect(),
+            errors: reported.errors.into_iter().map(|(e, _)| e).collect(),
             segments: segments.into_inner().unwrap(),
-            partials: partials.into_inner().unwrap().len(),
-            requests: requests.into_inner().unwrap(),
+            partials: reported.partials.len(),
+            requests: reported.requests,
         }
     }
 
@@ -940,26 +969,22 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn a_stream_ends_with_its_capture() {
         let stt = fake_stream(0, None, false);
-        let heard = Mutex::new(0);
-        let listeners = Listeners {
-            utterance: &|_| *heard.lock().unwrap() += 1,
-            failure: &|_, _| {},
-            partial: &|_| {},
-            request: &|_| {},
-            billed: &|_, _| {},
-        };
         // An unfold, which must not be polled again once it ended.
         let captured = stream::unfold(0, |index| async move {
             (index < 30).then(|| (Captured::Frame(index, vec![0; FRAME_SAMPLES]), index + 1))
         });
-        transcribe(
-            "them",
-            captured.boxed(),
-            Transcriber::Stream(&stt),
-            &listeners,
-        )
+        let run = reported(async |listeners| {
+            transcribe(
+                "them",
+                captured.boxed(),
+                Transcriber::Stream(&stt),
+                listeners,
+            )
+            .await;
+        })
         .await;
-        assert_eq!(*heard.lock().unwrap(), 1);
+        assert_eq!(run.utterances.len(), 1);
+        assert!(run.errors.is_empty());
     }
 
     #[tokio::test(start_paused = true)]
@@ -971,7 +996,13 @@ mod tests {
             requests,
             ..
         } = stream_run(&stt).await;
-        assert_eq!(errors, ["them: connection reset"]);
+        assert_eq!(
+            errors,
+            [
+                "them: down: connection reset",
+                "them: back after 0.000 s, dropped 0.000 s"
+            ]
+        );
         assert_eq!(*stt.connections.lock().unwrap(), 2);
         // Each connection bills its own request.
         assert_eq!(requests, ["request 1", "request 2"]);
@@ -986,8 +1017,8 @@ mod tests {
     }
 
     /// What a paced capture's transcription did: each phrase's end, each
-    /// failure, and when each connection opened and the transcription ended,
-    /// in seconds from its start.
+    /// trouble with when it came, and when each connection opened and the
+    /// transcription ended, in seconds from its start.
     struct Paced {
         ends: Vec<String>,
         errors: Vec<String>,
@@ -998,18 +1029,12 @@ mod tests {
     /// Transcribe a capture of `frames` silent frames heard one every 32 ms,
     /// read through a hub as a session reads it.
     async fn paced_run(stt: &FakeStream, frames: usize) -> Paced {
-        let (ends, errors) = (Mutex::new(Vec::new()), Mutex::new(Vec::new()));
-        let listeners = Listeners {
-            utterance: &|u| ends.lock().unwrap().push(format!("{:.2}", u.end())),
-            failure: &|who, detail| errors.lock().unwrap().push(format!("{who}: {detail}")),
-            partial: &|_| {},
-            request: &|_| {},
-            billed: &|_, _| {},
-        };
+        let start = Instant::now();
+        let since =
+            |at: &Instant| (at.duration_since(start).as_secs_f64() * 1000.0).round() / 1000.0;
         let mut hub = Hub::default();
         let capture = hub.input("them");
         let captured = hub.read("them").unwrap();
-        let start = Instant::now();
         let hear = async move {
             for index in 0..frames {
                 sleep(Duration::from_millis(32)).await;
@@ -1017,14 +1042,23 @@ mod tests {
             }
             sleep(Duration::from_millis(32)).await;
         };
-        let transcribed = transcribe("them", captured, Transcriber::Stream(stt), &listeners);
-        tokio::join!(hear, transcribed);
-        let since =
-            |at: &Instant| (at.duration_since(start).as_secs_f64() * 1000.0).round() / 1000.0;
+        let run = reported(async |listeners| {
+            let transcribed = transcribe("them", captured, Transcriber::Stream(stt), listeners);
+            tokio::join!(hear, transcribed);
+        })
+        .await;
         let opened = stt.opened.lock().unwrap().iter().map(since).collect();
         Paced {
-            ends: ends.into_inner().unwrap(),
-            errors: errors.into_inner().unwrap(),
+            ends: run
+                .utterances
+                .iter()
+                .map(|(u, _)| format!("{:.2}", u.end()))
+                .collect(),
+            errors: run
+                .errors
+                .into_iter()
+                .map(|(what, at)| format!("{:.3} {what}", at.as_secs_f64()))
+                .collect(),
             opened,
             over: since(&Instant::now()),
         }
@@ -1038,10 +1072,15 @@ mod tests {
         // Waits of 1, 2 and 4 s; the fourth takes the 61 frames held at once
         // and closes, and after a connection that worked the wait is 1 s again.
         assert_eq!(run.opened, [0.0, 1.0, 3.0, 7.0, 8.0]);
-        // One report per outage.
+        // Down once per outage, back when a connection takes the audio.
         assert_eq!(
             run.errors,
-            ["them: unreachable", "them: the provider closed the stream"]
+            [
+                "0.000 them: down: unreachable",
+                "7.000 them: back after 7.000 s, dropped 0.000 s",
+                "7.000 them: down: the provider closed the stream",
+                "8.000 them: back after 1.000 s, dropped 0.000 s"
+            ]
         );
         // The audio heard while down went to the connection that came back,
         // each phrase timed from the capture's start.
@@ -1054,8 +1093,14 @@ mod tests {
     async fn a_stream_closed_before_its_capture_is_opened_again() {
         let stt = fake_stream(0, Some(60), true);
         let run = paced_run(&stt, 300).await;
-        assert_eq!(run.opened.len(), 2);
-        assert_eq!(run.errors, ["them: the provider closed the stream"]);
+        assert_eq!(run.opened, [0.0, 2.952]);
+        assert_eq!(
+            run.errors,
+            [
+                "1.952 them: down: the provider closed the stream",
+                "2.952 them: back after 1.000 s, dropped 0.000 s"
+            ]
+        );
         assert_eq!(run.ends[..2], ["0.80", "1.60"]);
         assert_eq!(run.ends[2], format!("{:.2}", (61 + 25) as f64 * 0.032));
     }
@@ -1072,7 +1117,8 @@ mod tests {
             [0.0, 1.0, 3.0, 7.0, 15.0, 31.0, 61.0, 91.0, 120.032]
         );
         assert_eq!(run.over, 120.032);
-        assert_eq!(run.errors, ["them: unreachable"]);
+        // Down once, and never back.
+        assert_eq!(run.errors, ["0.000 them: down: unreachable"]);
         assert!(run.ends.is_empty());
     }
 
@@ -1087,7 +1133,14 @@ mod tests {
         let run = paced_run(&stt, 10_000).await;
         // The drop at the 61st frame, then a wait of 1 s.
         assert_eq!(run.opened, [0.0, 2.952]);
-        assert_eq!(run.errors, ["them: connection reset"]);
+        // Down until the connection opened takes the audio held.
+        assert_eq!(
+            run.errors,
+            [
+                "1.952 them: down: connection reset",
+                "202.952 them: back after 201.000 s, dropped 0.000 s"
+            ]
+        );
         // Every phrase of the outage arrives once it is back, timed from the
         // capture's start: none is lost, none is shifted.
         let expected: Vec<String> = (1..=2)
@@ -1108,11 +1161,12 @@ mod tests {
         assert_eq!(run.opened[15], 331.0);
         // 10343 frames were heard by then; five minutes, 9375, were kept.
         let dropped = 10_343 - 9375;
+        // Back with the audio dropped: 968 frames of 32 ms.
         assert_eq!(
             run.errors,
             [
-                "them: unreachable",
-                "them: dropped 31 s of audio while the provider was down"
+                "0.000 them: down: unreachable",
+                "331.000 them: back after 331.000 s, dropped 30.976 s"
             ]
         );
         // The phrases are timed from the first frame kept.
@@ -1127,11 +1181,12 @@ mod tests {
         // 12000 frames, 384 s; the last five minutes are kept for the last try.
         let stt = fake_stream(usize::MAX, None, false);
         let run = paced_run(&stt, 12_000).await;
+        // Never back: the audio dropped is lost for good.
         assert_eq!(
             run.errors,
             [
-                "them: unreachable",
-                "them: dropped 84 s of audio while the provider was down"
+                "0.000 them: down: unreachable",
+                "384.032 them: dropped 84 s of audio while the provider was down"
             ]
         );
         assert!(run.ends.is_empty());

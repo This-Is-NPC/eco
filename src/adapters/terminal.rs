@@ -67,6 +67,22 @@ fn line(event: &Event) -> Option<String> {
         "suggestion_removed" => format!("\n── sugestão {} removida ──\n", text("id")),
         "note_removed" => format!("\n── nota {} removida ──\n", text("id")),
         "error" => format!("\n!! {}\n", text("message")),
+        "transcription" => {
+            let seconds = |key: &str| event.get(key).and_then(Value::as_f64).unwrap_or(0.0);
+            match text("state") {
+                "down" => format!(
+                    "\n!! {}: transcription down: {}\n",
+                    text("who"),
+                    text("detail")
+                ),
+                _ => format!(
+                    "\n── {}: transcription back after {:.0} s, {:.0} s of audio dropped ──\n",
+                    text("who"),
+                    seconds("down_s"),
+                    seconds("dropped_s")
+                ),
+            }
+        }
         _ => return None,
     };
     Some(line)
@@ -80,5 +96,25 @@ mod tests {
     fn prints_nothing_when_out_is_not_a_terminal() {
         let journal = tempfile::tempfile().unwrap();
         assert!(terminal(journal).is_none());
+    }
+
+    #[test]
+    fn a_transcription_down_and_back_reads_as_a_line_each() {
+        let down = serde_json::json!({
+            "type": "transcription", "who": "Eles", "state": "down",
+            "code": "stt.down", "detail": "connection reset",
+        });
+        assert_eq!(
+            line(&down).unwrap(),
+            "\n!! Eles: transcription down: connection reset\n"
+        );
+        let back = serde_json::json!({
+            "type": "transcription", "who": "Eles", "state": "back",
+            "down_s": 331.0, "dropped_s": 30.976,
+        });
+        assert_eq!(
+            line(&back).unwrap(),
+            "\n── Eles: transcription back after 331 s, 31 s of audio dropped ──\n"
+        );
     }
 }
