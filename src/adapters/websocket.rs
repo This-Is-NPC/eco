@@ -26,7 +26,8 @@ struct Liveness {
     ping_every: Duration,
     /// A connection that brought nothing back — no pong, no message — for this
     /// long is stalled. It also bounds a write that never completes, since no
-    /// ping leaves behind it.
+    /// ping leaves behind it, and opening a connection, whose handshake may
+    /// otherwise wait for the system's TCP timeout.
     heard_within: Duration,
 }
 
@@ -116,8 +117,10 @@ where
             Some("wss") => Some(Connector::Rustls(tls()?)),
             _ => None,
         };
-        let (socket, response) = connect_async_tls_with_config(request, None, false, connector)
+        let opening = connect_async_tls_with_config(request, None, false, connector);
+        let (socket, response) = tokio::time::timeout(heard_within, opening)
             .await
+            .map_err(|_| format!("stalled: no handshake within {heard_within:?}"))?
             .map_err(|e| e.to_string())?;
         let id = billed.and_then(|name| response.headers().get(name)?.to_str().ok());
         if let Some(id) = id {
@@ -268,6 +271,25 @@ mod tests {
         };
         assert!(why.starts_with("stalled"), "{why}");
         assert!(began.elapsed() >= BRIEF.heard_within);
+    }
+
+    /// A provider that takes the connection and never answers the handshake.
+    #[tokio::test]
+    async fn a_handshake_that_never_completes_ends_the_stream_with_an_error() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let (_socket, _) = listener.accept().await.unwrap();
+            std::future::pending::<()>().await;
+        });
+        let heard = alive(format!("ws://{address}"), live(usize::MAX));
+        let heard: Vec<_> = tokio::time::timeout(10 * BRIEF.heard_within, heard.collect())
+            .await
+            .expect("a stalled handshake ends");
+        let Some(Err(TranscriptionError(why))) = heard.last() else {
+            panic!("an error, not {} results", heard.len())
+        };
+        assert!(why.starts_with("stalled: no handshake"), "{why}");
     }
 
     /// Audio that fills every buffer of a provider that never reads: the write
