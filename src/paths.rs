@@ -164,7 +164,16 @@ pub fn home() -> PathBuf {
 /// `<prefix>/<directory>/<path>` for the running `<prefix>/bin/eco`, when it is there.
 fn beside_binary(directory: &str, path: &str) -> Option<PathBuf> {
     let exe = env::current_exe().ok()?;
-    Some(exe.parent()?.parent()?.join(directory).join(path)).filter(|file| file.exists())
+    Some(under(exe.parent()?.parent()?, directory, path)).filter(|file| file.exists())
+}
+
+/// `<prefix>/<directory>/<path>`, each `/`-separated part its own component,
+/// so the path has the platform's separator throughout.
+fn under(prefix: &Path, directory: &str, path: &str) -> PathBuf {
+    directory
+        .split('/')
+        .chain(path.split('/'))
+        .fold(prefix.to_path_buf(), |found, part| found.join(part))
 }
 
 /// A file eco ships beside its binary, `<prefix>/share/eco/<path>` for
@@ -427,6 +436,16 @@ mod tests {
             layout.sessions_dir(),
             PathBuf::from(r"C:\Users\you\AppData\Local\eco\sessions")
         );
+    }
+
+    #[test]
+    fn a_shipped_path_has_the_platforms_separator() {
+        let found = under(Path::new("prefix"), "lib/eco", "overlay/shell.qml");
+        let expected: PathBuf = ["prefix", "lib", "eco", "overlay", "shell.qml"]
+            .iter()
+            .collect();
+        assert_eq!(found, expected);
+        assert_eq!(found.as_os_str(), expected.as_os_str());
     }
 
     #[test]
