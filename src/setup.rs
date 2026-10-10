@@ -93,6 +93,25 @@ pub fn desktop() -> impl DesktopIntegration {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::adapters::http::testing::serve_once;
+
+    /// The SHA-256 of `abc`.
+    const ABC: &str = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+
+    async fn fetch_from(status: u16, body: &[u8], target: &Path) -> (Result<String>, String) {
+        let (base, seen) = serve_once(status, body.to_vec()).await;
+        let client = http::client(None).unwrap();
+        let done = fetch(
+            &client,
+            "Test model",
+            ABC,
+            &format!("{base}/model.onnx"),
+            target,
+        )
+        .await;
+        let head = seen.lock().unwrap().head.clone();
+        (done, head)
+    }
 
     #[test]
     fn digests_are_lowercase_hex() {
@@ -100,5 +119,67 @@ mod tests {
             digest(b""),
             "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
         );
+    }
+
+    #[tokio::test]
+    async fn a_missing_model_is_downloaded_into_a_new_directory() {
+        let directory = tempfile::tempdir().unwrap();
+        let target = directory.path().join("models/model.onnx");
+        let (done, head) = fetch_from(200, b"abc", &target).await;
+        assert_eq!(done.unwrap(), format!("saved {}", target.display()));
+        assert!(head.starts_with("GET /v1/model.onnx "), "{head}");
+        assert_eq!(fs::read(&target).unwrap(), b"abc");
+    }
+
+    #[tokio::test]
+    async fn a_model_with_the_pinned_checksum_is_not_fetched_again() {
+        let directory = tempfile::tempdir().unwrap();
+        let target = directory.path().join("model.onnx");
+        fs::write(&target, b"abc").unwrap();
+        let (done, head) = fetch_from(200, b"abc", &target).await;
+        assert_eq!(done.unwrap(), format!("{} is up to date", target.display()));
+        assert!(head.is_empty(), "requested {head}");
+    }
+
+    #[tokio::test]
+    async fn a_model_with_another_checksum_is_replaced() {
+        let directory = tempfile::tempdir().unwrap();
+        let target = directory.path().join("model.onnx");
+        fs::write(&target, b"old").unwrap();
+        let (done, head) = fetch_from(200, b"abc", &target).await;
+        assert_eq!(done.unwrap(), format!("saved {}", target.display()));
+        assert!(!head.is_empty());
+        assert_eq!(fs::read(&target).unwrap(), b"abc");
+    }
+
+    #[tokio::test]
+    async fn a_download_with_the_wrong_checksum_writes_nothing() {
+        let directory = tempfile::tempdir().unwrap();
+        let missing = directory.path().join("missing.onnx");
+        let (done, _) = fetch_from(200, b"evil", &missing).await;
+        let error = done.unwrap_err().to_string();
+        assert!(
+            error.starts_with("Test model checksum mismatch: "),
+            "{error}"
+        );
+        assert!(!missing.exists());
+
+        let kept = directory.path().join("kept.onnx");
+        fs::write(&kept, b"old").unwrap();
+        let (done, _) = fetch_from(200, b"evil", &kept).await;
+        assert!(done.is_err());
+        assert_eq!(fs::read(&kept).unwrap(), b"old");
+    }
+
+    #[tokio::test]
+    async fn an_http_error_is_reported_and_writes_nothing() {
+        let directory = tempfile::tempdir().unwrap();
+        let target = directory.path().join("model.onnx");
+        for status in [404, 500] {
+            let (done, _) = fetch_from(status, b"abc", &target).await;
+            let error = done.unwrap_err().to_string();
+            assert!(error.contains(&status.to_string()), "{error}");
+            assert!(!target.exists());
+        }
     }
 }
