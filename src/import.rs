@@ -260,7 +260,10 @@ async fn media(
     let mut importing = begin(&request, log, &emit, (started_at, total), heard);
     let id = importing.session.lock().expect("not poisoned").id.clone();
     let progress = |done: f64| {
-        emit(json!({"type": "import_progress", "id": id, "done_s": done, "total_s": total}));
+        // A phrase padded past the last frame still reports the file done, not beyond.
+        emit(
+            json!({"type": "import_progress", "id": id, "done_s": done.min(total), "total_s": total}),
+        );
     };
     let mut source = FfmpegSource::new(request.path.clone());
     let diarization = (hearing.speakers)();
@@ -411,8 +414,8 @@ mod tests {
     }
 
     /// A streaming STT that hears the whole stream, then names its request,
-    /// says words as they come, and finishes one phrase from 1 s to 4 s.
-    struct Streamed;
+    /// says words as they come, and finishes one phrase from 1 s to `.0` s.
+    struct Streamed(f64);
 
     impl StreamingSpeechToText for Streamed {
         fn transcribe<'a>(
@@ -423,7 +426,7 @@ mod tests {
                 frames.count().await;
                 let phrase = Phrase {
                     start: 1.0,
-                    end: 4.0,
+                    end: self.0,
                     text: "all of it".into(),
                 };
                 let heard = [
@@ -689,7 +692,7 @@ mod tests {
         let stores = stores();
         let wav = two_phrases(stores.directory.path());
         let events = stores
-            .hear(request(&wav), Transcriber::Stream(&Streamed), || None)
+            .hear(request(&wav), Transcriber::Stream(&Streamed(4.0)), || None)
             .await;
 
         let done: Vec<&Value> = of_type(&events, "import_progress")
@@ -702,6 +705,21 @@ mod tests {
         assert_eq!(lines(&records), [("Ana".into(), "all of it".into(), 1.0)]);
         assert!(of_type(&records, "listening").is_empty());
         assert!(of_type(&records, "billed").is_empty());
+    }
+
+    /// A phrase that ends past the file, from padding, reports the file done.
+    #[tokio::test]
+    async fn progress_never_passes_the_end_of_the_file() {
+        let stores = stores();
+        let wav = two_phrases(stores.directory.path());
+        let events = stores
+            .hear(request(&wav), Transcriber::Stream(&Streamed(5.3)), || None)
+            .await;
+        let done: Vec<&Value> = of_type(&events, "import_progress")
+            .into_iter()
+            .map(|e| &e["done_s"])
+            .collect();
+        assert_eq!(done, [&json!(5.0), &json!(5.0)]);
     }
 
     /// Without the embedding model, nothing tells speakers apart.
