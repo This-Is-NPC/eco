@@ -6,10 +6,12 @@ use crate::ports::Device;
 pub const DEFAULT_INPUT: &str = "@default-input";
 pub const DEFAULT_OUTPUT: &str = "@default-output";
 
+/// The system defaults, named in English as every daemon message is: the
+/// overlay knows them by id and names them in the interface language.
 pub fn defaults() -> Vec<Device> {
     vec![
-        Device::new(DEFAULT_INPUT, "Microfone padrão", "input"),
-        Device::new(DEFAULT_OUTPUT, "Saída padrão", "output"),
+        Device::new(DEFAULT_INPUT, "Default microphone", "input"),
+        Device::new(DEFAULT_OUTPUT, "Default output", "output"),
     ]
 }
 
@@ -24,6 +26,22 @@ pub fn listed(mut found: Vec<Device>) -> Vec<Device> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_defaults_are_named_by_id_and_in_english() {
+        let defaults = defaults();
+        let named: Vec<(&str, &str)> = defaults
+            .iter()
+            .map(|device| (device.id.as_str(), device.label.as_str()))
+            .collect();
+        assert_eq!(
+            named,
+            [
+                ("@default-input", "Default microphone"),
+                ("@default-output", "Default output")
+            ]
+        );
+    }
 
     #[test]
     fn defaults_come_first_then_inputs_then_outputs_by_label() {
