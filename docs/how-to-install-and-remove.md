@@ -222,7 +222,7 @@ starts it. A crash restarts it (`Restart=on-failure`).
 
 ## On Windows
 
-eco runs on Windows 10 or later, 64-bit, from a zip with the program, its
+eco runs on 64-bit Windows (tested on Windows 11 build 26100) from a zip with the program, its
 window and the Qt it draws with. It needs the Microsoft Visual C++
 Redistributable (x64), which most machines already have. There is no
 installer and no release download yet: `mise run package` on a Windows
@@ -342,8 +342,9 @@ refused and says so for each. Pressing a key on a desktop was not seen: the
 machine eco was built on is reached over ssh.
 
 **Hiding from screen sharing** (**Settings › Interface › HIDE FROM SCREEN
-SHARING**) leaves eco's windows out of every capture on Windows 10 2004 or
-later, your own screenshots and recordings too (read, not seen).
+SHARING**) leaves eco's windows out of every capture, your own screenshots and
+recordings too; Microsoft documents this for Windows 10 2004 and later
+(read, not seen).
 
 **The daemon's output** goes to `%LOCALAPPDATA%\eco\daemon.log`, emptied each
 time `eco start` starts it. A daemon that will not start says why there; `eco

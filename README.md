@@ -223,5 +223,5 @@ has the commands.
 - `wl-copy`, to copy an answer or a transcript
 - `ffmpeg` and `ffprobe`, only to import audio or video
 - a key for each paid provider you use, or a model server of your own
-- on Windows instead: Windows 10 or later, 64-bit, and the Microsoft Visual
-  C++ Redistributable (x64); the zip carries its own Qt
+- on Windows instead: 64-bit Windows (tested on Windows 11) and the
+  Microsoft Visual C++ Redistributable (x64); the zip carries its own Qt

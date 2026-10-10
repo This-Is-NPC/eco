@@ -17,7 +17,7 @@ environment variables, for example:
 
 (<your key> is a placeholder.) Open a new terminal after setx.
 
-Needs Windows 10 or later, 64-bit, with the Microsoft Visual C++
+Needs 64-bit Windows (tested on Windows 11) with the Microsoft Visual C++
 Redistributable (x64).
 
 Docs: https://github.com/This-Is-NPC/eco/blob/master/docs/how-to-install-and-remove.md#on-windows
