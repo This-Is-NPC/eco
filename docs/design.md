@@ -307,8 +307,13 @@ eco/
   segments, for imports' diarization. While audio goes out, a WebSocket ping
   goes every 5 s; a connection that brings nothing back — no pong, no message
   — for 15 s is stalled and counts as dropped. Frames flow without a gap while
-  a session records, so Deepgram's `KeepAlive` is never needed. A connection
-  that drops, closes or is refused while the session captures is opened
+  a source is heard, so Deepgram's `KeepAlive` is never needed. A connection
+  opens at the source's first frame, not before; when the source goes unheard
+  (`capture.down`, §4) its connection is closed once the audio held is sent,
+  and the next opens at its first frame after it is back: a source not heard
+  holds no connection and bills nothing, and its strip says the capture is
+  down, not the transcription. A connection
+  that drops, closes or is refused while the source is heard is opened
   again after 1 s, the wait doubling up to 30 s while it keeps failing. The
   first failure of an outage is a `transcription` event with `"state":"down"`;
   the rest of it is not reported. When a connection takes audio again — its

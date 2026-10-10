@@ -88,6 +88,7 @@ mod tests {
         let one = |captured: &Captured| match captured {
             Captured::Frame(index, _) => format!("frame {index}"),
             Captured::Segment(segment, _) => format!("segment at {}", segment.start),
+            Captured::Unheard => "unheard".into(),
         };
         captured.iter().map(one).collect()
     }
@@ -129,8 +130,12 @@ mod tests {
         capture.send(Captured::Frame(0, vec![0; FRAME_SAMPLES]));
         let late = hub.read("mic").unwrap();
         capture.send(Captured::Frame(1, vec![0; FRAME_SAMPLES]));
+        capture.send(Captured::Unheard);
         drop(capture);
-        assert_eq!(shape(&late.collect::<Vec<_>>().await), ["frame 1"]);
+        assert_eq!(
+            shape(&late.collect::<Vec<_>>().await),
+            ["frame 1", "unheard"]
+        );
     }
 
     #[tokio::test]

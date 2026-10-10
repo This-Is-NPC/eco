@@ -2964,7 +2964,8 @@ mod tests {
             Vec::new(),
         );
         let stt = Stt::Stream(Box::new(Flaky(Arc::new(AtomicBool::new(true)))));
-        let (_capture, running) = transcribing(stt, &assistant, &emit, &outages);
+        let (capture, running) = transcribing(stt, &assistant, &emit, &outages);
+        capture.send(Captured::Frame(0, vec![0; FRAME_SAMPLES]));
         until(&events, |event| event["state"] == "down").await;
         assert_eq!(told(&greeting).len(), 1);
         stop(Some(running)).await;
