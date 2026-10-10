@@ -157,7 +157,7 @@ where they work:
 - anywhere, through Hyprland, or eco itself on Windows with `Win` for
   `SUPER`: `SUPER+ALT+N` new session · `SUPER+ALT+H`
   sessions · `SUPER+ALT+C` settings · `SUPER+ALT+P` pause or resume ·
-  `SUPER+ALT+E` bring eco to the front · `SUPER+ALT+1` / `2` the skills bound
+  `SUPER+ALT+E` bring eco to the front · `SUPER+ALT+A` / `Q` the skills bound
   there
 
 ![the keyboard shortcuts dialog over the sessions list](docs/img/37-shortcuts.png)

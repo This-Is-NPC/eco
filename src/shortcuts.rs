@@ -5,10 +5,11 @@
 use std::collections::BTreeMap;
 
 /// The shortcuts when the config has no `[shortcuts]`: those of
-/// `packaging/hypr/eco.lua`, with the Windows key for SUPER.
+/// `packaging/hypr/eco.lua`, with the Windows key for SUPER. None is a key
+/// Windows documents for itself: Win+Alt+<digit> opens a taskbar jump list.
 pub const DEFAULT: [(&str, &str); 7] = [
-    ("Win+Alt+1", "action ask"),
-    ("Win+Alt+2", "action probe"),
+    ("Win+Alt+A", "action ask"),
+    ("Win+Alt+Q", "action probe"),
     ("Win+Alt+C", "config"),
     ("Win+Alt+N", "new"),
     ("Win+Alt+P", "toggle"),
@@ -205,8 +206,8 @@ mod tests {
             .map(|b| (b.written, b.line))
             .collect();
         let expected = [
-            ("Win+Alt+1", "action ask"),
-            ("Win+Alt+2", "action probe"),
+            ("Win+Alt+A", "action ask"),
+            ("Win+Alt+Q", "action probe"),
             ("Win+Alt+C", r#"window.call {"call":"config"}"#),
             ("Win+Alt+N", r#"window.call {"call":"new_session"}"#),
             ("Win+Alt+P", "session.toggle"),
@@ -215,6 +216,23 @@ mod tests {
         ]
         .map(|(keys, line)| (keys.to_string(), line.to_string()));
         assert_eq!(lines, expected);
+    }
+
+    #[test]
+    fn no_default_is_a_key_windows_keeps_for_itself() {
+        // Win+Alt with a digit (taskbar jump lists), B (HDR), D (date and
+        // time), K (microphone), the arrows and Enter, and the Game Bar's G,
+        // M, R and T, as Microsoft lists them.
+        let reserved: Vec<Keys> = [
+            "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "B", "D", "K", "Up", "Down", "Enter",
+            "G", "M", "R", "T",
+        ]
+        .iter()
+        .map(|key| format!("Win+Alt+{key}").parse().unwrap())
+        .collect();
+        for binding in bindings(None).unwrap() {
+            assert!(!reserved.contains(&binding.keys), "{}", binding.written);
+        }
     }
 
     #[test]

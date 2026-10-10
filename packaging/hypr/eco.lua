@@ -4,8 +4,8 @@
 -- Each key runs the eco CLI, which hands the request to the running daemon. Those
 -- that open a view go to the newest eco window, the daemon opening one when none
 -- is, and give it the keyboard, so typing goes to eco and not to the app that had it.
-o.bind("SUPER + ALT + 1", "eco: ask", "eco window action ask")
-o.bind("SUPER + ALT + 2", "eco: probe", "eco window action probe")
+o.bind("SUPER + ALT + A", "eco: ask", "eco window action ask")
+o.bind("SUPER + ALT + Q", "eco: probe", "eco window action probe")
 o.bind("SUPER + ALT + C", "eco: configuração", "eco window config")
 o.bind("SUPER + ALT + N", "eco: nova nota", "eco window new")
 o.bind("SUPER + ALT + P", "eco: pausar/retomar", "eco window toggle")

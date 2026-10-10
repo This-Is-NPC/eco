@@ -94,11 +94,11 @@ last, without touching eco. Add a line to `~/.config/hypr/bindings.lua`, after
 the line that loads eco's rules (it ends in `-- eco setup`):
 
 ```lua
-o.bind("SUPER + ALT + 3", "eco: minutes", "eco window action minutes")
+o.bind("SUPER + ALT + M", "eco: minutes", "eco window action minutes")
 ```
 
-eco's own rules already bind `SUPER+ALT+1` to `eco window action ask` and
-`SUPER+ALT+2` to `eco window action probe`; a skill named `ask` or `probe` gets those keys for free. Keep
+eco's own rules already bind `SUPER+ALT+A` to `eco window action ask` and
+`SUPER+ALT+Q` to `eco window action probe`; a skill named `ask` or `probe` gets those keys for free. Keep
 your own bindings in your file rather than in eco's: every upgrade of the
 package replaces eco's copy.
 

@@ -73,34 +73,44 @@ fn window_control(emit: &Emit) -> Arc<dyn WindowControl> {
 /// The global shortcuts (docs/design.md §15): on Linux Hyprland binds the keys,
 /// so the daemon registers none.
 #[cfg(unix)]
-fn shortcuts(_: &Config, _: &mpsc::UnboundedSender<String>) -> Vec<Value> {
+fn shortcuts(_: &Config, _: &Path, _: &mpsc::UnboundedSender<String>) -> Vec<Value> {
     Vec::new()
 }
 
 /// The global shortcuts (docs/design.md §15): on Windows the daemon registers
 /// them, each pressed one handing `lines` what `eco window` would send; an
-/// error for each the system refused, written to the log too.
+/// error for each the system refused, naming the config at `config_path` where
+/// others are chosen, written to the log too.
 #[cfg(windows)]
-fn shortcuts(config: &Config, lines: &mpsc::UnboundedSender<String>) -> Vec<Value> {
+fn shortcuts(
+    config: &Config,
+    config_path: &Path,
+    lines: &mpsc::UnboundedSender<String>,
+) -> Vec<Value> {
     let bindings = crate::shortcuts::bindings(config.shortcuts.as_ref())
         .expect("a valid config has valid shortcuts");
     crate::adapters::shortcuts_windows::register(bindings, lines.clone())
         .iter()
         .map(|refused| {
-            let error = shortcut_refused(&refused.written);
+            let error = shortcut_refused(&refused.written, config_path);
             eprintln!("eco: {}", error["message"].as_str().unwrap_or_default());
             error
         })
         .collect()
 }
 
-/// The error a shortcut on `keys` the system refused makes.
+/// The error a shortcut on `keys` the system refused makes: the keys are taken,
+/// and others go under `[shortcuts]` in the config at `config_path`, which may
+/// not exist yet.
 #[cfg(windows)]
-fn shortcut_refused(keys: &str) -> Value {
+fn shortcut_refused(keys: &str, config_path: &Path) -> Value {
+    let path = config_path.display();
     error(
         "shortcut.unavailable",
-        format!("cannot register the shortcut {keys}: another program may hold these keys"),
-        json!({"keys": keys}),
+        format!(
+            "{keys} is taken by another program; choose other keys under [shortcuts] in {path} (create the file if it is missing), then run eco restart"
+        ),
+        json!({"keys": keys, "path": path.to_string()}),
     )
 }
 
@@ -2080,7 +2090,7 @@ pub async fn run(
     let pending: Arc<Mutex<Pending>> = Arc::default();
     let outages = Outages::default();
     let control = window_control(&emit);
-    let refused = shortcuts(&current, &commands);
+    let refused = shortcuts(&current, config_path, &commands);
     let greeting = greeting(
         assistant.clone(),
         Arc::clone(&overlay_open),
@@ -3803,15 +3813,27 @@ mod tests {
     fn on_linux_the_daemon_registers_no_shortcut() {
         let (lines, _) = mpsc::unbounded_channel();
         let config = Config::from_value(raw()).unwrap();
-        assert_eq!(shortcuts(&config, &lines), [] as [Value; 0]);
+        assert_eq!(
+            shortcuts(&config, Path::new("config.toml"), &lines),
+            [] as [Value; 0]
+        );
     }
 
     #[cfg(windows)]
     #[test]
     fn a_refused_shortcut_is_a_coded_error_naming_its_keys() {
-        let refused = shortcut_refused("Win+Alt+1");
+        let refused = shortcut_refused("Win+Alt+A", Path::new(r"C:\eco\config.toml"));
         assert_eq!(refused["code"], "shortcut.unavailable");
-        assert_eq!(refused["params"], json!({"keys": "Win+Alt+1"}));
+        assert_eq!(
+            refused["params"],
+            json!({"keys": "Win+Alt+A", "path": r"C:\eco\config.toml"})
+        );
+        let message = refused["message"].as_str().unwrap();
+        assert!(
+            message
+                .contains(r"[shortcuts] in C:\eco\config.toml (create the file if it is missing)"),
+            "{message}"
+        );
     }
 
     #[tokio::test]

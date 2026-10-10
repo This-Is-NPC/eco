@@ -419,7 +419,7 @@
   "error.tag.invalid": "タグには名前が必要です",
   "error.tag.not_found": "タグ {tag} の付いたセッションはありません",
   "error.action.unknown": "不明なスキル：{name}",
-  "error.shortcut.unavailable": "{keys} はグローバルショートカットにできません：別のプログラムがこのキーを使っている可能性があります。設定の [shortcuts] で別のキーを選んでください。",
+  "error.shortcut.unavailable": "{keys} は別のプログラムが使っています。{path} の [shortcuts] で別のキーを選び（ファイルがなければ作成してください）、eco restart を実行してください。",
   "error.completion.failed": "{action}：モデルの処理に失敗しました — {detail}",
   "error.input.disconnected": "{participant}：{device} が接続されていません",
   "error.transcription.failed": "{who}：文字起こしに失敗しました — {detail}",

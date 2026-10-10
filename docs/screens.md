@@ -481,7 +481,7 @@ as in a live session (section 3):
 
 `?` or `F1` lists every key, by where it works:
 
-![The keyboard shortcuts dialog over the sessions list: EVERYWHERE (Tab · Shift+Tab, Enter · Space, Esc, ? · F1), GLOBAL (SUPER+ALT+N new session, SUPER+ALT+H sessions, SUPER+ALT+C settings, SUPER+ALT+P pause or resume, SUPER+ALT+E bring eco to the front, SUPER+ALT+1 · 2 run the skills bound to these keys), START SCREEN (N, H, I, P), SESSIONS AND PEOPLE (↑ · ↓, Enter, Delete, I, /) and the top of TAG CHIP IN SESSIONS (F2 rename the tag in every session), cut at the bottom edge.](img/37-shortcuts.png)
+![The keyboard shortcuts dialog over the sessions list: EVERYWHERE (Tab · Shift+Tab, Enter · Space, Esc, ? · F1), GLOBAL (SUPER+ALT+N new session, SUPER+ALT+H sessions, SUPER+ALT+C settings, SUPER+ALT+P pause or resume, SUPER+ALT+E bring eco to the front, SUPER+ALT+A · Q run the skills bound to these keys), START SCREEN (N, H, I, P), SESSIONS AND PEOPLE (↑ · ↓, Enter, Delete, I, /) and the top of TAG CHIP IN SESSIONS (F2 rename the tag in every session), cut at the bottom edge.](img/37-shortcuts.png)
 
 The dialog scrolls (arrows, `PgUp`, `PgDn`). Its end:
 

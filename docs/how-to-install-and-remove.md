@@ -142,7 +142,7 @@ window opens centred above it. It also binds the global keys:
 | `SUPER+ALT+H` | the sessions list |
 | `SUPER+ALT+C` | open or close the settings |
 | `SUPER+ALT+E` | bring eco to the front |
-| `SUPER+ALT+1`, `SUPER+ALT+2` | run the skills named `ask` and `probe` |
+| `SUPER+ALT+A`, `SUPER+ALT+Q` | run the skills named `ask` and `probe` |
 
 Each key runs an `eco window` command, which hands one line to the running
 daemon; none of them starts a second daemon. Those that open a view give eco
@@ -334,7 +334,9 @@ rules, not seen: the machine eco was built on is reached over ssh, with no
 desktop.
 
 **Global shortcuts.** There is no Hyprland on Windows: the daemon registers
-the keys itself, those of Linux with the Windows key for SUPER:
+the keys itself, those of Linux with the Windows key for SUPER. None is a key
+Windows keeps for itself: `Win+Alt` with a digit opens a taskbar jump list, and
+the Game Bar holds `Win+Alt+G`, `M`, `R` and `T`.
 
 | Keys | What they do |
 |---|---|
@@ -343,29 +345,32 @@ the keys itself, those of Linux with the Windows key for SUPER:
 | `Win+Alt+C` | the settings |
 | `Win+Alt+P` | pause or resume the session shown |
 | `Win+Alt+E` | bring eco to the front |
-| `Win+Alt+1`, `Win+Alt+2` | run the skills `ask` and `probe` |
+| `Win+Alt+A`, `Win+Alt+Q` | run the skills `ask` and `probe` |
 
-Other keys go under `[shortcuts]` in `%APPDATA%\eco\config.toml`, each the
+Other keys go under `[shortcuts]` in `%APPDATA%\eco\config.toml` (create the
+file if it is missing; the settings window has no place for them), each the
 keys and the `eco window` command they run; the table replaces the defaults,
 and an empty one binds none ([the configuration](design.md#9-configuration)):
 
 ```toml
 [shortcuts]
-"Win+Alt+1" = "action ask"
+"Win+Alt+A" = "action ask"
 "Ctrl+Alt+M" = "sessions"
 ```
 
 The keys are read when the daemon starts: `eco restart` after a change. Keys
 another program holds are not taken from it; the window says so as it
-connects, and the daemon's log too:
+connects, and the daemon's log too, with the config's path in your profile in
+place of `<config>`:
 
 ```
-eco: cannot register the shortcut Win+Alt+1: another program may hold these keys
+eco: Win+Alt+A is taken by another program; choose other keys under [shortcuts] in <config> (create the file if it is missing), then run eco restart
 ```
 
 A daemon started where there is no desktop, over ssh say, has every key
-refused and says so for each. Pressing a key on a desktop was not seen: the
-machine eco was built on is reached over ssh.
+refused and says so for each. On a desktop, `Win+Alt+C`, `N`, `H` and `E`
+were pressed and worked; `Win+Alt+A` and `Q` were chosen after `Win+Alt+1` and
+`2` were refused there, and were not pressed on a desktop yet.
 
 **Hiding from screen sharing** (**Settings › Interface › HIDE FROM SCREEN
 SHARING**) leaves eco's windows out of every capture, your own screenshots and
