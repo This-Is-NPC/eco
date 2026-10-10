@@ -1,12 +1,12 @@
 //! One audio source, segmented and transcribed — or only measured.
 
 use std::collections::VecDeque;
-use std::sync::OnceLock;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::task::Poll;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Mutex, OnceLock};
+use std::task::{Poll, Waker};
 use std::time::Duration;
 
-use futures::{Stream, StreamExt};
+use futures::StreamExt;
 use tokio::sync::mpsc;
 use tokio::time::{Instant, sleep};
 
@@ -274,10 +274,63 @@ const LONGEST_WAIT: Duration = Duration::from_secs(30);
 /// What a stream that ends before its capture, without an error, reports.
 const CLOSED: &str = "the provider closed the stream";
 
+/// The frames kept while no connection takes them: five minutes of 16 kHz
+/// mono, 9375 frames of 1 KiB, about 9.6 MB.
+const HELD_FRAMES: usize = 5 * 60 * SAMPLE_RATE as usize / FRAME_SAMPLES;
+
+/// The frames heard and not yet sent, numbered from the capture's first.
+#[derive(Default)]
+struct Held {
+    frames: VecDeque<(usize, Frame)>,
+    /// Frames dropped to stay within `HELD_FRAMES`, not yet reported.
+    dropped: usize,
+    /// Whether the capture ended.
+    ended: bool,
+    /// The connection waiting for a frame, or the wait between connections.
+    waiting: Option<Waker>,
+}
+
+impl Held {
+    /// Keep `frame`, dropping the oldest beyond `HELD_FRAMES`.
+    fn push(&mut self, frame: (usize, Frame)) {
+        if self.frames.len() == HELD_FRAMES {
+            self.frames.pop_front();
+            self.dropped += 1;
+        }
+        self.frames.push_back(frame);
+        self.wake();
+    }
+
+    fn end(&mut self) {
+        self.ended = true;
+        self.wake();
+    }
+
+    fn wake(&mut self) {
+        if let Some(waker) = self.waiting.take() {
+            waker.wake();
+        }
+    }
+}
+
+/// Report the audio dropped from `held` since the last report, if any.
+fn report_dropped(held: &mut Held, who: &str, listeners: &Listeners<'_>) {
+    let dropped = std::mem::take(&mut held.dropped);
+    if dropped > 0 {
+        let lost = seconds(dropped * FRAME_SAMPLES);
+        let detail = format!("dropped {lost:.0} s of audio while the provider was down");
+        (listeners.failure)(who, &detail);
+    }
+}
+
 /// Every frame goes to the provider, which says where speech ends. While the
 /// capture runs, a connection that fails or ends is opened again after a wait
 /// that backs off, and its phrases are timed from the first frame it received.
 /// The first failure of an outage is reported; the rest of it is not.
+///
+/// The capture is read all along: what no connection has taken yet — while
+/// one is down, waiting or being opened — is held, within `HELD_FRAMES`, and
+/// goes first to the next one.
 async fn streamed(
     who: &str,
     captured: CapturedStream<'_>,
@@ -286,119 +339,124 @@ async fn streamed(
 ) {
     // When the capture's first frame was heard, for the latency of each phrase.
     let origin: OnceLock<Instant> = OnceLock::new();
-    // Fused: a connection may poll it again after the capture ended, and so
-    // does the wait between connections.
-    let mut frames = captured
-        .filter_map(|captured| {
+    let held = Mutex::new(Held::default());
+    let read = async {
+        let mut frames = captured.filter_map(|captured| {
             std::future::ready(match captured {
                 Captured::Frame(index, frame) => Some((index, frame)),
                 Captured::Segment(..) => None,
             })
-        })
-        .inspect(|(index, _)| {
+        });
+        while let Some((index, frame)) = frames.next().await {
             origin.get_or_init(|| {
                 Instant::now() - Duration::from_secs_f64(seconds(index * FRAME_SAMPLES))
             });
-        })
-        .fuse();
-    // Frames heard while no connection was open, sent first by the next one.
-    let mut held = VecDeque::new();
-    // The number of the first frame the connection received, and whether the
-    // capture ended.
-    let first = AtomicUsize::new(usize::MAX);
-    let ended = AtomicBool::new(false);
-    let mut wait = FIRST_WAIT;
-    // Whether the outage under way was reported, and whether the capture ended
-    // with frames still held.
-    let (mut reported, mut finishing) = (false, false);
-    loop {
-        first.store(usize::MAX, Ordering::Relaxed);
-        let opened = Instant::now();
-        let fed = futures::stream::poll_fn(|context| {
-            let polled = match held.pop_front() {
-                Some(frame) => Poll::Ready(Some(frame)),
-                None => frames.poll_next_unpin(context),
+            held.lock().unwrap().push((index, frame));
+        }
+        held.lock().unwrap().end();
+    };
+    let send = async {
+        // The number of the first frame the connection received.
+        let first = AtomicUsize::new(usize::MAX);
+        let mut wait = FIRST_WAIT;
+        // Whether the outage under way was reported, and whether the capture
+        // ended with frames still held.
+        let (mut reported, mut finishing) = (false, false);
+        loop {
+            first.store(usize::MAX, Ordering::Relaxed);
+            let opened = Instant::now();
+            let fed = futures::stream::poll_fn(|context| {
+                let mut held = held.lock().unwrap();
+                match held.frames.pop_front() {
+                    Some((index, frame)) => {
+                        let took = first.compare_exchange(
+                            usize::MAX,
+                            index,
+                            Ordering::Relaxed,
+                            Ordering::Relaxed,
+                        );
+                        if took.is_ok() {
+                            report_dropped(&mut held, who, listeners);
+                        }
+                        Poll::Ready(Some(frame))
+                    }
+                    None if held.ended => Poll::Ready(None),
+                    None => {
+                        held.waiting = Some(context.waker().clone());
+                        Poll::Pending
+                    }
+                }
+            });
+            let mut heard = stt.transcribe(fed.boxed());
+            let (mut failure, mut spoke) = (None, false);
+            while let Some(next) = heard.next().await {
+                match next {
+                    Ok(Heard::Partial(words)) => {
+                        spoke = true;
+                        (listeners.partial)(words);
+                    }
+                    Ok(Heard::Request(id)) => (listeners.request)(id),
+                    Ok(Heard::Phrase(phrase)) => {
+                        spoke = true;
+                        let offset = seconds(first.load(Ordering::Relaxed) * FRAME_SAMPLES);
+                        let (start, end) = (offset + phrase.start, offset + phrase.end);
+                        let spoken = Duration::from_secs_f64(end.max(0.0));
+                        let since = origin.get().map_or(Duration::ZERO, Instant::elapsed);
+                        (listeners.utterance)(Utterance {
+                            who: who.into(),
+                            phrases: vec![Phrase {
+                                start,
+                                end,
+                                text: phrase.text,
+                            }],
+                            latency: since.saturating_sub(spoken),
+                        });
+                    }
+                    Err(error) => failure = Some(error.0),
+                }
+            }
+            drop(heard);
+            let took = first.load(Ordering::Relaxed) != usize::MAX;
+            if took && (spoke || opened.elapsed() >= LONGEST_WAIT) {
+                wait = FIRST_WAIT;
+                reported = false;
+            }
+            let over = {
+                let held = held.lock().unwrap();
+                held.ended && held.frames.is_empty()
             };
-            match &polled {
-                Poll::Ready(Some((index, _))) => {
-                    let _ = first.compare_exchange(
-                        usize::MAX,
-                        *index,
-                        Ordering::Relaxed,
-                        Ordering::Relaxed,
-                    );
-                }
-                Poll::Ready(None) => ended.store(true, Ordering::Relaxed),
-                Poll::Pending => {}
+            if !reported && (failure.is_some() || !over) {
+                (listeners.failure)(who, failure.as_deref().unwrap_or(CLOSED));
+                reported = true;
             }
-            polled.map(|next| next.map(|(_, frame)| frame))
-        });
-        let mut heard = stt.transcribe(fed.boxed());
-        let (mut failure, mut spoke) = (None, false);
-        while let Some(next) = heard.next().await {
-            match next {
-                Ok(Heard::Partial(words)) => {
-                    spoke = true;
-                    (listeners.partial)(words);
-                }
-                Ok(Heard::Request(id)) => (listeners.request)(id),
-                Ok(Heard::Phrase(phrase)) => {
-                    spoke = true;
-                    let offset = seconds(first.load(Ordering::Relaxed) * FRAME_SAMPLES);
-                    let (start, end) = (offset + phrase.start, offset + phrase.end);
-                    let spoken = Duration::from_secs_f64(end.max(0.0));
-                    let since = origin.get().map_or(Duration::ZERO, Instant::elapsed);
-                    (listeners.utterance)(Utterance {
-                        who: who.into(),
-                        phrases: vec![Phrase {
-                            start,
-                            end,
-                            text: phrase.text,
-                        }],
-                        latency: since.saturating_sub(spoken),
-                    });
-                }
-                Err(error) => failure = Some(error.0),
+            let running = !over && pause(&held, wait).await;
+            // Once the capture ended, the frames still held get one connection more.
+            if !running && (held.lock().unwrap().frames.is_empty() || finishing) {
+                break;
             }
+            finishing = !running;
+            wait = (wait * 2).min(LONGEST_WAIT);
         }
-        drop(heard);
-        let took = first.load(Ordering::Relaxed) != usize::MAX;
-        if took && (spoke || opened.elapsed() >= LONGEST_WAIT) {
-            wait = FIRST_WAIT;
-            reported = false;
-        }
-        let over = ended.load(Ordering::Relaxed);
-        if !reported && (failure.is_some() || !over) {
-            (listeners.failure)(who, failure.as_deref().unwrap_or(CLOSED));
-            reported = true;
-        }
-        let running = !over && hold(&mut frames, &mut held, wait).await;
-        // Once the capture ended, the frames still held get one connection more.
-        if !running && (held.is_empty() || finishing) {
-            break;
-        }
-        finishing = !running;
-        wait = (wait * 2).min(LONGEST_WAIT);
-    }
+        report_dropped(&mut held.lock().unwrap(), who, listeners);
+    };
+    tokio::join!(read, send);
 }
 
-/// Wait `wait` before a stream is opened again, holding the frames heard
-/// meanwhile; false as soon as the capture ends.
-async fn hold(
-    frames: &mut (impl Stream<Item = (usize, Frame)> + Unpin),
-    held: &mut VecDeque<(usize, Frame)>,
-    wait: Duration,
-) -> bool {
-    let waited = sleep(wait);
-    tokio::pin!(waited);
-    loop {
-        tokio::select! {
-            () = &mut waited => return true,
-            next = frames.next() => match next {
-                Some(frame) => held.push_back(frame),
-                None => return false,
-            },
+/// Wait `wait` before a stream is opened again; false as soon as the capture
+/// ends.
+async fn pause(held: &Mutex<Held>, wait: Duration) -> bool {
+    let ended = futures::future::poll_fn(|context| {
+        let mut held = held.lock().unwrap();
+        if held.ended {
+            Poll::Ready(())
+        } else {
+            held.waiting = Some(context.waker().clone());
+            Poll::Pending
         }
+    });
+    tokio::select! {
+        () = sleep(wait) => true,
+        () = ended => false,
     }
 }
 
@@ -420,12 +478,12 @@ pub async fn monitor_channel(
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
-    use std::sync::Mutex;
 
     use futures::future::BoxFuture;
     use futures::stream::{self, BoxStream};
 
     use super::*;
+    use crate::domain::hub::Hub;
 
     struct Recorded(Vec<i16>);
 
@@ -743,11 +801,13 @@ mod tests {
     /// 25 frames they receive (0.8 s), timed from their stream's start, with
     /// what was heard so far at the 13th. The first connection it accepts ends
     /// after `drop_after` frames: with an error, or cleanly when `closes`.
+    /// Every connection after the first takes `slow_open` to open.
     struct FakeStream {
         connections: Mutex<usize>,
         refused: usize,
         drop_after: Option<usize>,
         closes: bool,
+        slow_open: Duration,
         /// When each connection was opened.
         opened: Mutex<Vec<Instant>>,
     }
@@ -758,6 +818,7 @@ mod tests {
             refused,
             drop_after,
             closes,
+            slow_open: Duration::ZERO,
             opened: Mutex::new(Vec::new()),
         }
     }
@@ -796,7 +857,13 @@ mod tests {
                     _ => None,
                 }
             });
-            let phrases = stream::once(async { named }).chain(phrases);
+            let wait = if connection > 1 {
+                self.slow_open
+            } else {
+                Duration::ZERO
+            };
+            let opening = stream::once(sleep(wait)).filter_map(|()| async { None });
+            let phrases = opening.chain(stream::once(async { named })).chain(phrases);
             match limit {
                 Some(_) if !self.closes => phrases
                     .chain(stream::once(async {
@@ -928,7 +995,8 @@ mod tests {
         over: f64,
     }
 
-    /// Transcribe a capture of `frames` silent frames heard one every 32 ms.
+    /// Transcribe a capture of `frames` silent frames heard one every 32 ms,
+    /// read through a hub as a session reads it.
     async fn paced_run(stt: &FakeStream, frames: usize) -> Paced {
         let (ends, errors) = (Mutex::new(Vec::new()), Mutex::new(Vec::new()));
         let listeners = Listeners {
@@ -938,18 +1006,19 @@ mod tests {
             request: &|_| {},
             billed: &|_, _| {},
         };
-        let captured = stream::unfold(0, |index| async move {
-            sleep(Duration::from_millis(32)).await;
-            (index < frames).then(|| (Captured::Frame(index, vec![0; FRAME_SAMPLES]), index + 1))
-        });
+        let mut hub = Hub::default();
+        let capture = hub.input("them");
+        let captured = hub.read("them").unwrap();
         let start = Instant::now();
-        transcribe(
-            "them",
-            captured.boxed(),
-            Transcriber::Stream(stt),
-            &listeners,
-        )
-        .await;
+        let hear = async move {
+            for index in 0..frames {
+                sleep(Duration::from_millis(32)).await;
+                capture.send(Captured::Frame(index, vec![0; FRAME_SAMPLES]));
+            }
+            sleep(Duration::from_millis(32)).await;
+        };
+        let transcribed = transcribe("them", captured, Transcriber::Stream(stt), &listeners);
+        tokio::join!(hear, transcribed);
         let since =
             |at: &Instant| (at.duration_since(start).as_secs_f64() * 1000.0).round() / 1000.0;
         let opened = stt.opened.lock().unwrap().iter().map(since).collect();
@@ -1004,6 +1073,67 @@ mod tests {
         );
         assert_eq!(run.over, 120.032);
         assert_eq!(run.errors, ["them: unreachable"]);
+        assert!(run.ends.is_empty());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn audio_heard_while_a_stream_opens_is_kept_and_keeps_its_time() {
+        // Dropped after 60 frames; the next connection takes 200 s to open,
+        // longer than the hub keeps audio for a reader that does not read.
+        let stt = FakeStream {
+            slow_open: Duration::from_secs(200),
+            ..fake_stream(0, Some(60), false)
+        };
+        let run = paced_run(&stt, 10_000).await;
+        // The drop at the 61st frame, then a wait of 1 s.
+        assert_eq!(run.opened, [0.0, 2.952]);
+        assert_eq!(run.errors, ["them: connection reset"]);
+        // Every phrase of the outage arrives once it is back, timed from the
+        // capture's start: none is lost, none is shifted.
+        let expected: Vec<String> = (1..=2)
+            .map(|n| n * 25)
+            .chain((1..=(10_000 - 61) / 25).map(|n| 61 + n * 25))
+            .map(|frames| format!("{:.2}", frames as f64 * 0.032))
+            .collect();
+        assert_eq!(run.ends, expected);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn an_outage_longer_than_the_bound_drops_the_oldest_and_says_so() {
+        // Refused for 331 s: connections at 0, 1, 3, 7, 15, 31, 61, then every
+        // 30 s; the sixteenth is taken.
+        let stt = fake_stream(15, None, false);
+        let run = paced_run(&stt, 15_000).await;
+        assert_eq!(run.opened.len(), 16);
+        assert_eq!(run.opened[15], 331.0);
+        // 10343 frames were heard by then; five minutes, 9375, were kept.
+        let dropped = 10_343 - 9375;
+        assert_eq!(
+            run.errors,
+            [
+                "them: unreachable",
+                "them: dropped 31 s of audio while the provider was down"
+            ]
+        );
+        // The phrases are timed from the first frame kept.
+        let expected: Vec<String> = (1..=(15_000 - dropped) / 25)
+            .map(|n| format!("{:.2}", (dropped + n * 25) as f64 * 0.032))
+            .collect();
+        assert_eq!(run.ends, expected);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn audio_dropped_by_an_outage_that_never_ends_is_reported() {
+        // 12000 frames, 384 s; the last five minutes are kept for the last try.
+        let stt = fake_stream(usize::MAX, None, false);
+        let run = paced_run(&stt, 12_000).await;
+        assert_eq!(
+            run.errors,
+            [
+                "them: unreachable",
+                "them: dropped 84 s of audio while the provider was down"
+            ]
+        );
         assert!(run.ends.is_empty());
     }
 

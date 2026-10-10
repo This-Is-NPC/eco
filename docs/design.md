@@ -265,9 +265,15 @@ eco/
   segments, for imports' diarization. While audio goes out, a WebSocket ping
   goes every 5 s; a connection that brings nothing back — no pong, no message
   — for 15 s is stalled and counts as dropped. Frames flow without a gap while
-  a session records, so Deepgram's `KeepAlive` is never needed. A dropped connection that had worked is
-  opened again after a second, its phrases timed after the audio sent
-  before; one that never took audio is reported and not retried. An import
+  a session records, so Deepgram's `KeepAlive` is never needed. A connection
+  that drops, closes or is refused while the session captures is opened
+  again after 1 s, the wait doubling up to 30 s while it keeps failing; the
+  first failure of an outage is reported. The audio heard while no
+  connection takes it — down, waiting or being opened — is kept in memory,
+  up to five minutes (about 9.6 MB), and goes first to the next connection,
+  whose phrases are timed from the first frame it receives. Past five
+  minutes the oldest audio is dropped, and the seconds dropped are reported
+  once the provider is back or the session ends. An import
   streams to Scribe with waiting frames joined into chunks of up to a second
   (frame by frame it refuses them as too frequent); Deepgram streams only as
   fast as the audio plays, so an import posts each segment to the same path
