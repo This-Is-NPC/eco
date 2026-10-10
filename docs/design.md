@@ -1142,7 +1142,9 @@ it records beside the live ones and is shown; with `"window"`, `session_opened`
 tells that window to show it), `session.timeline <id>` (`session_timeline` of a
 live session),
 `window.show <json>` (`{"window","session"}`: the session a window shows now, or
-`""`), `window.call <json>` (`{"call","path"}`, what a shortcut asks of a
+`""`), `window.closed <json>` (`{"window"}`: the window is closing and its
+process exiting; it is no longer open, so `overlay.open` opens a new one, and a
+process still running 2 s later is ended), `window.call <json>` (`{"call","path"}`, what a shortcut asks of a
 window: `focus` only gives it the keyboard, `config` opens or closes the
 settings, `new_session` the start dialog, `sessions` the sessions list when no
 session is on screen, `import` the import dialog with `path`, the only call

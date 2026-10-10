@@ -175,6 +175,23 @@ impl Windows {
         }
     }
 
+    /// The window `number` said it closes: it leaves the set at once, and its
+    /// process, when it still runs `LINGER` later, is ended.
+    pub fn closed(&mut self, number: u32) {
+        let Some(at) = self.open.iter().position(|w| w.number == number) else {
+            return;
+        };
+        let mut window = self.open.remove(at);
+        tokio::spawn(async move {
+            if tokio::time::timeout(LINGER, window.child.wait())
+                .await
+                .is_err()
+            {
+                let _ = window.child.kill().await;
+            }
+        });
+    }
+
     /// Resolves when a window exits, which leaves the set; never, without one.
     /// `None` when its status could not be read.
     pub async fn exited(&mut self) -> Option<ExitStatus> {
@@ -199,6 +216,9 @@ impl Windows {
         }
     }
 }
+
+/// How long a window that said it closes may take to exit before it is ended.
+const LINGER: Duration = Duration::from_secs(2);
 
 /// Ask `child` to exit: SIGTERM, so the window closes cleanly.
 #[cfg(unix)]
@@ -370,6 +390,43 @@ exec sleep 30"#,
         assert_eq!(status.code(), Some(2));
         assert_eq!(windows.newest(), Some(1));
         assert_eq!(control.take(), [format!("hide [{first}] true")]);
+        windows.close().await;
+    }
+
+    /// Whether the process `pid` is gone or only waits to be reaped.
+    fn ended(pid: u32) -> bool {
+        fs::read_to_string(format!("/proc/{pid}/stat")).map_or(true, |stat| {
+            stat.rsplit(')')
+                .next()
+                .unwrap()
+                .trim_start()
+                .starts_with('Z')
+        })
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_window_that_says_it_closed_and_stays_is_ended() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut windows = windows(dir.path(), Arc::new(Noted::default()), false);
+        windows.open(None, None).await.unwrap();
+        windows.open(None, None).await.unwrap();
+        let [first, second]: [u32; 2] = pids(&windows).try_into().unwrap();
+        windows.closed(1);
+        windows.closed(7);
+        assert_eq!(pids(&windows), [second]);
+        assert_eq!(windows.newest(), Some(2));
+        tokio::time::sleep(LINGER - Duration::from_millis(100)).await;
+        assert!(!ended(first));
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        let start = std::time::Instant::now();
+        while !ended(first) {
+            assert!(
+                start.elapsed() < Duration::from_secs(5),
+                "window {first} still runs"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(!ended(second));
         windows.close().await;
     }
 

@@ -268,6 +268,11 @@ Singleton {
       return
     link.send(command)
   }
+  // Tells the daemon this window closes, then ends the process.
+  function quit() {
+    send("window.closed " + JSON.stringify({ window: window }))
+    Qt.exit(0)
+  }
   // sendHook runs the hook of the action that gave answer `id`, in the open session or the one read back.
   function sendHook(id) {
     const found = locate(id)

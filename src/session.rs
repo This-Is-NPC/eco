@@ -1034,6 +1034,12 @@ fn window_shows(payload: &str) -> Option<(u32, String)> {
     Some((number, session))
 }
 
+/// `window.closed {"window"}`: the overlay window `window` is closing.
+fn window_closed(payload: &str) -> Option<u32> {
+    let request = serde_json::from_str::<Value>(payload).ok()?;
+    u32::try_from(request.get("window")?.as_u64()?).ok()
+}
+
 /// `window.call {"call", "path"}`: what a shortcut asks of an overlay window —
 /// "focus", "config", "new_session", "sessions", or "import" with the file's
 /// `path`, which may be left out — as the fields of the `window_call` event;
@@ -1092,6 +1098,8 @@ trait Overlay: Send {
     fn focus(&self, number: u32) -> BoxFuture<'_, io::Result<()>>;
     /// Note the session the window `number` shows now, or none when empty.
     fn shows(&mut self, number: u32, session: &str);
+    /// The window `number` said it closes: it is no longer open.
+    fn closed(&mut self, number: u32);
     /// Leave every window out of screen sharing, or show them in it again.
     fn hide_from_share(&mut self, hidden: bool) -> BoxFuture<'_, ()>;
     /// Resolves when a window exits; never, without one.
@@ -1127,6 +1135,10 @@ impl Overlay for overlay::Windows {
 
     fn shows(&mut self, number: u32, session: &str) {
         overlay::Windows::shows(self, number, session);
+    }
+
+    fn closed(&mut self, number: u32) {
+        overlay::Windows::closed(self, number);
     }
 
     fn hide_from_share(&mut self, hidden: bool) -> BoxFuture<'_, ()> {
@@ -1407,6 +1419,12 @@ impl Session {
                 if !shows.is_empty() {
                     self.assistant.focus(&shows);
                 }
+            }
+        } else if let ("window.closed", Some(payload)) = split(line) {
+            if let Some(number) = window_closed(payload) {
+                self.windows.closed(number);
+                self.overlay_open
+                    .store(self.windows.is_open(), Ordering::Relaxed);
             }
         } else if !self.command(line).await {
             return false;
@@ -3160,6 +3178,12 @@ mod tests {
             }
         }
 
+        fn closed(&mut self, number: u32) {
+            let mut desk = self.desk.lock().unwrap();
+            desk.asked.push(format!("closed {number}"));
+            desk.open.retain(|(open, _)| *open != number);
+        }
+
         fn hide_from_share(&mut self, hidden: bool) -> BoxFuture<'_, ()> {
             self.desk.lock().unwrap().hidden = Some(hidden);
             Box::pin(async {})
@@ -3921,6 +3945,20 @@ mod tests {
             events,
             [json!({"type": "overlay_status", "open": true, "raised": true})]
         );
+    }
+
+    #[tokio::test]
+    async fn a_window_that_says_it_closed_is_no_longer_open() {
+        let mut d = daemon(raw());
+        d.line("overlay.open").await;
+        assert!(d.line("window.closed 1").await.is_empty());
+        assert!(d.session.overlay_open.load(Ordering::Relaxed));
+        assert!(d.line(r#"window.closed {"window": 1}"#).await.is_empty());
+        assert!(!d.session.overlay_open.load(Ordering::Relaxed));
+        // Opening the app again opens a window instead of raising the closed one.
+        let events = d.line("overlay.open").await;
+        assert_eq!(events, [json!({"type": "overlay_status", "open": true})]);
+        assert_eq!(d.asked(), ["open  ", "closed 1", "open  "]);
     }
 
     #[tokio::test]

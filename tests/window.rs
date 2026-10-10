@@ -5,6 +5,7 @@
 //! on Windows, a copied text that outlives the window, on the real platform;
 //! the overlay's views driven as the daemon drives them, in
 //! `tests/window/views.qml`; and the eco window closed with the settings open,
+//! saying so to the daemon before it exits,
 //! in `tests/window/close.qml`. Needs `mise run window:build`.
 
 use std::path::{Path, PathBuf};
@@ -169,11 +170,13 @@ async fn the_overlay_views_pass_their_checks() {
     );
 }
 
-/// Closing the eco window ends its process even with the settings open and
-/// unsaved: Qt's quit asks every window to close, and the settings refuse.
+/// Closing the eco window tells the daemon and ends its process, even with
+/// the settings open and unsaved: Qt's quit asks every window to close, and
+/// the settings refuse.
 #[tokio::test]
-async fn closing_the_window_ends_the_process_with_the_settings_open() {
+async fn closing_the_window_tells_the_daemon_and_ends_the_process() {
     let dir = tempfile::tempdir().unwrap();
+    let mut listener = Listener::bind(dir.path());
     let mut window = Command::new(program())
         .arg(Path::new(ROOT).join("tests/window/close.qml"))
         .env_remove("WAYLAND_DISPLAY")
@@ -183,12 +186,15 @@ async fn closing_the_window_ends_the_process_with_the_settings_open() {
         .env("QT_QPA_PLATFORMTHEME", "")
         .env("XDG_RUNTIME_DIR", dir.path())
         .env("XDG_CACHE_HOME", dir.path().join("cache"))
-        .env("ECO_SOCKET", dir.path().join("no-daemon"))
+        .env("ECO_SOCKET", listener.name())
+        .env("ECO_TOKEN", "secret")
+        .env("ECO_WINDOW", "3")
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .kill_on_drop(true)
         .spawn()
         .unwrap();
+    let mut daemon = accept(&mut listener, &mut window).await;
     let mut stderr = BufReader::new(window.stderr.take().unwrap()).lines();
     let closing = async {
         while let Some(line) = stderr.next_line().await.unwrap() {
@@ -201,6 +207,13 @@ async fn closing_the_window_ends_the_process_with_the_settings_open() {
         () = closing => {}
         status = window.wait() => panic!("eco-window exited with {} before closing", status.unwrap()),
         _ = tokio::time::sleep(Duration::from_secs(30)) => panic!("the window never closed"),
+    }
+    loop {
+        let line = read(&mut daemon).await;
+        assert!(!line.is_empty(), "the window never said it closed");
+        if line == r#"window.closed {"window":3}"# {
+            break;
+        }
     }
     let status = tokio::time::timeout(Duration::from_secs(2), window.wait())
         .await

@@ -48,7 +48,7 @@ Window {
   // unsaved settings dropped; the daemon keeps any session going and opens it
   // again when the app is opened. Not Qt.quit(): it asks every window to close
   // first and gives up when one refuses, as the kept settings window does.
-  onClosing: Qt.exit(0)
+  onClosing: Eco.quit()
 
   Rectangle {
     anchors.fill: parent
