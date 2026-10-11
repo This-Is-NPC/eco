@@ -13,7 +13,7 @@ on the machine.
 ## What it needs
 
 - **Omarchy**, or Arch with Hyprland, PipeWire and a systemd user session. eco is
-  released for Linux only. The Hyprland config it ships is Lua (`o.bind`, `o.window`).
+  released for Linux, and as a zip for Windows ([on Windows](#on-windows)). The Hyprland config it ships is Lua (`o.bind`, `o.window`).
 - **PipeWire's tools**: `pw-record` captures, `pw-dump` lists the devices.
 - **Qt 6** (`qt6-base`, `qt6-declarative`), which draws the window. Omarchy
   already has it, and the package depends on it.
@@ -213,22 +213,43 @@ starts it. A crash restarts it (`Restart=on-failure`).
 
 ## On Windows
 
-eco runs on 64-bit Windows (tested on Windows 11 build 26100) from a zip with the program, its
-window and the Qt it draws with. It needs the Microsoft Visual C++
-Redistributable (x64), which most machines already have. There is no
-installer and no release download yet: `mise run package` on a Windows
-machine with a checkout writes `dist\eco-<version>-windows-x86_64.zip`
-(`<version>` is a placeholder for the version in `Cargo.toml`, `0.2.0` here;
-[how it is built](design.md#13-packaging)).
+eco runs on 64-bit Windows (tested on Windows 11 build 26100) from a zip with
+the program, its window and the Qt it draws with. It needs the Microsoft
+Visual C++ Redistributable (x64), which most machines already have. There is
+no installer: every [GitHub release](https://github.com/This-Is-NPC/eco/releases/latest)
+carries `eco-<version>-windows-x86_64.zip` (`<version>` is a placeholder for
+the release's version, `0.2.0` here) and a `SHA256SUMS` that names it beside
+the Arch package ([how it is built](design.md#13-packaging)).
 
-1. **Unzip it** where programs of your own go. The zip holds one folder,
+1. **Download the zip and check it** against the release's `SHA256SUMS`, in
+   PowerShell, in the folder you download to:
+
+   ```powershell
+   $version = "0.2.0"
+   $zip = "eco-$version-windows-x86_64.zip"
+   $base = "https://github.com/This-Is-NPC/eco/releases/download/v$version"
+   Invoke-WebRequest "$base/$zip" -OutFile $zip
+   Invoke-WebRequest "$base/SHA256SUMS" -OutFile SHA256SUMS
+   $expected = (Select-String -SimpleMatch $zip SHA256SUMS).Line.Split(" ")[0]
+   if ((Get-FileHash $zip -Algorithm SHA256).Hash -eq $expected) { "ok" } else { "does not match; delete $zip" }
+   ```
+
+   `ok` means the zip is the one the release built. Anything else: delete it
+   and download it again. (Written from the release workflow's format, not
+   run against a published release yet.)
+
+2. **Unzip it** where programs of your own go. The zip holds one folder,
    `eco`; keep it whole, the program finds its window and overlay inside it:
 
    ```powershell
-   Expand-Archive eco-0.2.0-windows-x86_64.zip -DestinationPath "$env:LOCALAPPDATA\Programs"
+   Expand-Archive $zip -DestinationPath "$env:LOCALAPPDATA\Programs"
    ```
 
-2. **Put its `bin` folder on your `PATH`,** for your account only, then open a
+   The programs in it are not code-signed, so the first time one runs,
+   SmartScreen may stop it with "Windows protected your PC": **More info ›
+   Run anyway** (read in Microsoft's documentation, not seen).
+
+3. **Put its `bin` folder on your `PATH`,** for your account only, then open a
    new terminal:
 
    ```powershell
@@ -243,7 +264,7 @@ machine with a checkout writes `dist\eco-<version>-windows-x86_64.zip`
    still running from another copy is restarted by the next `eco start` or
    shortcut, as on Linux.
 
-3. **Download the models** and add eco to the Start menu, as step 2 does on
+4. **Download the models** and add eco to the Start menu, as step 2 does on
    Linux:
 
    ```
@@ -256,11 +277,11 @@ machine with a checkout writes `dist\eco-<version>-windows-x86_64.zip`
    (`C:\Users\you` stands for your profile directory.) A first run says
    `saved` and the path for each model instead of `is up to date`.
 
-4. **There is no config to write.** As step 3 says for Linux, eco starts
+5. **There is no config to write.** As step 3 says for Linux, eco starts
    with an empty config, and the settings write `%APPDATA%\eco\config.toml`
    at the first save.
 
-5. **Give it the keys,** in the Windows Credential Manager (below) or as
+6. **Give it the keys,** in the Windows Credential Manager (below) or as
    environment variables of your account. `setx` keeps a variable for
    programs started after it, so open a new terminal, and `eco restart` a
    daemon that was running:
@@ -310,13 +331,13 @@ machine with a checkout writes `dist\eco-<version>-windows-x86_64.zip`
    from the desktop` (seen). A daemon `eco start` started over such a login
    cannot read the keys either; start it from the desktop.
 
-6. **To import audio or video,** put `ffmpeg` and `ffprobe` on your `PATH`
+7. **To import audio or video,** put `ffmpeg` and `ffprobe` on your `PATH`
    (the zip does not carry them; [ffmpeg.org](https://ffmpeg.org/download.html)
    links Windows builds), then `eco restart`: the daemon looks for them on the
    `PATH` it started with. Without them an import says
    `import: ffmpeg is not installed: importing audio or video needs ffmpeg and ffprobe`.
 
-7. **Start it:** open **eco** from the Start menu, or in a terminal:
+8. **Start it:** open **eco** from the Start menu, or in a terminal:
 
    ```powershell
    eco start              # "eco: window opened"
@@ -339,7 +360,7 @@ Qt into the checkout the first time;
 Without the window, `eco start` starts the daemon, then fails to open the
 window with `Error: eco window failed:` and the path it looked for.
 
-**To install from a checkout,** in place of steps 1 to 3, run
+**To install from a checkout,** in place of steps 1 to 4, run
 `mise run install:windows`. It builds eco and its window, puts the same `eco`
 folder the zip holds in `%LOCALAPPDATA%\Programs\eco`, adds its `bin` to your
 `PATH` (your account's, not the machine's) and runs `eco setup`:

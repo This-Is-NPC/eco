@@ -1710,9 +1710,9 @@ their shells' vendor directories. `scripts/completions` writes those with
 dependency to build and to run. Building also needs `cargo`, `cmake`, `ninja`
 and Qt 6 (`qt6-base`, `qt6-declarative`); running needs the two Qt packages.
 `mise run package`
-(`scripts/package`) runs `makepkg` into `target/arch/pkg` and writes the
-`SHA256SUMS` beside the package; `install.sh` downloads both from a GitHub
-release, checks one against the other and runs `pacman -U`.
+(`scripts/package`) runs `makepkg` into `target/arch/pkg`; `install.sh`
+downloads the package and the release's `SHA256SUMS` from a GitHub release,
+checks one against the other and runs `pacman -U`.
 
 **The Windows package.** On Windows, `mise run package` builds `eco-window`
 first (`window:build`), then `scripts/package` builds the release binary from
@@ -1744,17 +1744,35 @@ The Qt runtime is what `windeployqt` copied into `target/window` as
 the machine needs the Microsoft Visual C++ Redistributable (x64), as `eco.exe`
 does. The script is Python, as `scripts/window-build` is, because it runs on
 both systems under mise and its `zipfile` needs nothing more; the `bash` on a
-Windows `PATH` may be WSL's. There is no installer and no release job for
-Windows: the zip is built by hand on a Windows machine.
+Windows `PATH` may be WSL's. There is no installer: the release attaches the
+zip (below). The programs are not code-signed, so SmartScreen may warn the
+first time one runs.
 
 **Releases.** Commits follow Conventional Commits, and release-please reads
 them (`release-please-config.json`, `.release-please-manifest.json`). Every
 pull request merged into `master` runs `.github/workflows/release.yml`, which
 opens or updates a release pull request: it moves the version in `Cargo.toml`,
 `Cargo.lock` and the `PKGBUILD`, and writes `CHANGELOG.md`. Merging that pull
-request tags `v<version>`, and the same workflow builds the package from the
-tag with `scripts/package` in an Arch container and attaches it, with its
-`SHA256SUMS`, to the release. The container is `archlinux:base-devel` pinned
+request tags `v<version>`, and the same workflow builds from the tag, in
+three jobs after release-please:
+
+- `package-linux` builds the Arch package with `scripts/package` in an Arch
+  container and attaches it to the release.
+- `package-windows` runs on GitHub's `windows-2022` image, for the Visual
+  Studio 2022 that `scripts/window-build`'s CMake generator names
+  (`windows-latest` carries Visual Studio 2026). `jdx/mise-action` installs
+  only the tools of `mise.toml` the zip needs (Rust, Python, CMake, uv, aqt),
+  without a cache; `mise run package` installs Qt (`qt:install`), builds
+  `eco-window` and the zip, and the job attaches
+  `eco-<version>-windows-x86_64.zip`.
+- `checksums` downloads the release's `eco-*` assets, writes one
+  `SHA256SUMS` over all of them with `sha256sum` (`<sha256>  <file>`, the
+  format `install.sh` checks) and attaches it. It runs once the Linux package
+  is attached even if the Windows one failed, so `install.sh` keeps working.
+
+Every action is pinned by commit sha. On Windows the tools mise installs are
+pinned, the compiler and Windows SDK are the image's. The Linux job's
+container is `archlinux:base-devel` pinned
 by its multi-arch index digest, so the base image cannot change under a tag;
 the job's `pacman -Syu` still installs the Rust toolchain, CMake, Ninja, Qt
 and the system packages current on the day of the build, so the toolchain
@@ -1817,9 +1835,9 @@ leaves sessions, config, models and the agent skill.
 - It is not a bot that joins the meeting, and it does not record raw audio:
   audio is never written to disk, imports are decoded through a pipe, and voices
   are kept only as embeddings.
-- It is released for Linux only (Omarchy, Hyprland, PipeWire). It builds and
-  passes its tests on Windows, where several platform seams have no adapter
-  yet (§15); macOS is not supported. A Windows machine on the LAN that serves
+- It is released for Linux (Omarchy, Hyprland, PipeWire) and as a zip for
+  Windows, where it builds and passes its tests and several platform seams
+  have no adapter yet (§15); macOS is not supported. A Windows machine on the LAN that serves
   models over HTTP is reached through the same adapters as any provider.
 - Transcripts stay local in `~/.local/share/eco/`; `--no-save` keeps a session
   in memory only. Secrets are never logged, nor transcript text at info level.

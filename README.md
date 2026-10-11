@@ -38,9 +38,11 @@ loads the Hyprland rules, and publishes the `eco` skill for agents. **Removing t
 config, the sessions, the people, the models and the agent skill** — removing
 the program is not a reason to lose a year of meetings.
 
-On Windows, eco comes as a zip to unpack, built by `mise run package` on a
-Windows machine; there is no release download for it yet ([on
-Windows](docs/how-to-install-and-remove.md#on-windows)).
+On Windows, download `eco-<version>-windows-x86_64.zip` (`<version>` stands
+for the release's version) from the [latest
+release](https://github.com/This-Is-NPC/eco/releases/latest), check it
+against the release's `SHA256SUMS`, unzip it and put its `bin` on your `PATH`
+([on Windows](docs/how-to-install-and-remove.md#on-windows)).
 
 Released under the MIT license. [How to install it, and how to take it off
 again](docs/how-to-install-and-remove.md) is the whole of it.
@@ -170,8 +172,8 @@ the same keys and reads the same lines. None of them starts a second daemon. Eve
 ## What it does not do
 
 **It is not a bot that joins the meeting.** It hears what the laptop plays and
-what its microphone hears, and nothing else. It is released for Linux only —
-Omarchy, Hyprland, PipeWire.
+what its microphone hears, and nothing else. It is released for Linux —
+Omarchy, Hyprland, PipeWire — and as a zip for Windows; not for macOS.
 
 **It does not answer on its own.** Every answer is asked for: a question, a
 skill, a key. An automatic trigger on a question heard is an open question in
@@ -203,6 +205,9 @@ again on the page where you meet it.
   daemon runs in the background; eco's window works around it, but if Windows
   refuses, the window flashes in the taskbar instead
   ([how to install and remove eco](docs/how-to-install-and-remove.md#on-windows)).
+- **The Windows programs are not code-signed.** The first time one runs,
+  SmartScreen may say "Windows protected your PC": **More info › Run anyway**
+  ([on Windows](docs/how-to-install-and-remove.md#on-windows)).
 - **No echo cancellation on Windows.** Windows offers eco none: with ECHO
   CANCELLATION on, a session says so and records the raw microphone
   ([how to set up audio sources](docs/how-to-set-up-audio-sources.md)). DROP
