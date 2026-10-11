@@ -24,8 +24,14 @@ int main(int argc, char **argv) {
   }
   // Logs go to stderr, which the daemon passes on, never straight to the journal.
   qputenv("QT_FORCE_STDERR_LOGGING", "1");
+#ifdef Q_OS_WIN
+  // The tray icon is native on Windows, and only a native menu opens on its
+  // right click; a platform chosen from outside (offscreen tests) is kept.
+  if (!qEnvironmentVariableIsSet("QT_QPA_PLATFORM"))
+    qputenv("QT_QPA_PLATFORM", "windows:menus=native");
+#endif
   // A QApplication, not a QGuiApplication: the tray's menu is a widget where
-  // the platform has no native one (Windows).
+  // the platform has no native one.
   QApplication app(argc, argv);
   app.setApplicationName(QStringLiteral("eco"));
   // Hyprland's class for every window, which packaging/hypr/eco.lua matches.
