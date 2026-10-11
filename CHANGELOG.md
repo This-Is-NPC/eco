@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.0](https://github.com/This-Is-NPC/eco/compare/v0.3.0...v0.4.0) (2026-10-11)
+
+
+### Features
+
+* install eco on windows from a link ([c8254e0](https://github.com/This-Is-NPC/eco/commit/c8254e09f2d39129864fdd002ecddd8f201b957f))
+* **install:** install eco on windows from a link ([8203982](https://github.com/This-Is-NPC/eco/commit/8203982360fa049292a24d54d85119d24b5642b0))
+
 ## [0.3.0](https://github.com/This-Is-NPC/eco/compare/v0.2.0...v0.3.0) (2026-10-11)
 
 
