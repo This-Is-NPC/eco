@@ -165,7 +165,9 @@ SurfaceFrame {
     height: visible ? implicitHeight : 0
     visible: card.waiting || trace.visible
     spacing: 6
+    // The wait is told only until the first word: the trace may still be finishing.
     Label {
+      visible: card.waiting
       text: I18n.t(card.thinking ? "card.thinking" : "card.waiting", { seconds: card.waited })
       color: Theme.primary
       font.pixelSize: 10

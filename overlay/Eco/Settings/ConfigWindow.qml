@@ -42,7 +42,7 @@ Window {
   signal committing()
 
   // Fixed, untranslated: packaging/hypr/eco.lua matches the window by this title.
-  title: "eco · configuração"
+  title: "eco · settings"
   // Fits the screen it opens on, with a margin.
   width: Math.min(1040, screen ? screen.width - 96 : 1040)
   height: Math.min(760, screen ? screen.height - 96 : 760)
@@ -329,6 +329,7 @@ Window {
         devices: Eco.devices
         colors: window.draft.colors || {}
         audio: window.draft.audio || {}
+        echoCancelError: Eco.echoCancelError
         errors: window.errors
         onChanged: participants => window.update(d => d.participants = participants)
         onRecolored: colors => window.update(d => d.colors = colors)
@@ -757,22 +758,27 @@ Window {
           onPicked: code => window.update(d => d.ui.language = code)
         }
 
-        RowLayout {
-          Layout.fillWidth: true
-          spacing: 10
-          Chip {
-            readonly property bool on: window.draft.ui.hide_from_share === true
-            text: I18n.t("interface.hide_from_share")
-            checked: on
-            dim: !on
-            onClicked: window.update(d => d.ui.hide_from_share = !on)
-          }
-          Label {
+        // Each switch of the [ui] table, beside what it does.
+        Repeater {
+          model: ["hide_from_share", "tray"]
+          RowLayout {
+            required property string modelData
             Layout.fillWidth: true
-            text: I18n.t("interface.hide_from_share_tip")
-            color: Theme.dim
-            font.pixelSize: 10
-            wrapMode: Text.Wrap
+            spacing: 10
+            Chip {
+              readonly property bool on: window.draft.ui[modelData] === true
+              text: I18n.t("interface." + modelData)
+              checked: on
+              dim: !on
+              onClicked: window.update(d => d.ui[modelData] = !on)
+            }
+            Label {
+              Layout.fillWidth: true
+              text: I18n.t("interface." + modelData + "_tip")
+              color: Theme.dim
+              font.pixelSize: 10
+              wrapMode: Text.Wrap
+            }
           }
         }
 

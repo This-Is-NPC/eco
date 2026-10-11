@@ -11,6 +11,10 @@ ninja = "1.13.2"
 watchexec = "2.8.0"
 "cargo:cargo-llvm-cov" = "0.9.1"
 usage = "5.1.0"
+# Qt for eco-window on Windows (scripts/qt-install): aqt from the commit that
+# reads Qt 6.11's repository layout, which no release does yet, run by uv.
+uv = { version = "0.12.24", os = ["windows"] }
+"pipx:miurahr/aqtinstall" = { version = "076e1659807d0b362a3ed684d54c2e9c775eb9c7", os = ["windows"] }
 
 [env]
 _.file = ".env"
@@ -19,16 +23,45 @@ _.file = ".env"
 description = "Download the Silero VAD and WeSpeaker CAM++ models into the eco data directory"
 run = "scripts/setup"
 
+[tasks."qt:install"]
+description = "Install the Qt eco-window builds with on Windows into .qt (on Linux, nothing: the system's Qt)"
+run = "scripts/qt-install"
+run_windows = "python scripts/qt-install"
+
 [tasks."window:build"]
 description = "Build eco-window, the Qt 6 program that runs the overlay, into target/window"
+depends = ["qt:install"]
 run = "scripts/window-build"
-sources = ["window/**/*"]
-outputs = ["target/window/eco-window"]
+run_windows = "python scripts/window-build"
+sources = ["window/**/*", "packaging/windows/eco.ico"]
+outputs = { auto = true }
 
 [tasks.install]
 description = "Build eco for release and install it under ~/.local (PREFIX overrides): binary, window program, overlay, Hyprland rules, launcher, icon, agent skill"
 depends = ["window:build"]
 run = "scripts/install"
+
+[tasks."install:windows"]
+description = "Windows only: build eco for release and install it for your account in %LOCALAPPDATA%\\Programs\\eco, its bin on your PATH, then eco setup"
+run = "scripts/install-windows"
+run_windows = [{ task = "window:build" }, "python scripts/install-windows"]
+
+[tasks."uninstall:windows"]
+description = "Windows only: stop eco and remove the install, its PATH entry, login script and Start-menu shortcut; asks whether to delete your sessions, config and models too"
+raw = true
+usage = '''
+flag "--keep-data" help="Keep the sessions, config and models without asking"
+flag "--delete-everything" help="Also delete the sessions, config and models without asking"
+'''
+run = "scripts/uninstall-windows"
+run_windows = "python scripts/uninstall-windows"
+
+[tasks.icon]
+description = "Render packaging/windows/eco.ico, the icon eco-window.exe carries on Windows, and the tray icons in overlay/icons from packaging/eco.svg"
+run = "scripts/icon"
+run_windows = "python scripts/icon"
+sources = ["packaging/eco.svg", "scripts/icon"]
+outputs = ["packaging/windows/eco.ico", "overlay/icons/tray.png", "overlay/icons/tray-recording.png"]
 
 [tasks."readme:gif"]
 description = "Render the README's animated GIF from packaging/eco.omapixel (needs omapixel)"
@@ -102,8 +135,9 @@ description = "Install the versioned pre-push hook that runs the gate and posts 
 run = "scripts/hooks-install"
 
 [tasks.package]
-description = "Build the Arch package of the committed HEAD into target/arch/pkg, with its SHA256SUMS"
+description = "Build the release package: on Linux the Arch package of the committed HEAD into target/arch/pkg; on Windows dist/eco-<version>-windows-x86_64.zip"
 run = "scripts/package"
+run_windows = [{ task = "window:build" }, "python scripts/package"]
 
 [tasks."bench:llm"]
 description = "Measure time to first token of candidate models on OpenRouter (needs OPENROUTER_API_KEY)"

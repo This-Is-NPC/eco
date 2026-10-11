@@ -113,8 +113,9 @@ eco start
 ```
 
 `eco start` starts the daemon's user service if nothing answers on the socket
-and opens a window (`--headless` leaves it closed). Opening the app again opens
-another window; each is its own `eco-window` process.
+and opens a window (`--headless` leaves it closed). Opening the app again brings
+the open window forward, or opens another on a live session no window shows;
+each window is its own `eco-window` process.
 
 ![The start screen: the masthead "ECO / READY" with the settings button on the right; a wide input trace swinging in two bursts with a flat stretch between them; four stacked buttons, NEW SESSION lit as the primary one, then SESSIONS, IMPORT and PEOPLE; under them "Outside a session the signal is only measured: nothing is transcribed or recorded."](img/01-start.png)
 
@@ -198,7 +199,8 @@ From the top:
 
 An answer waiting for its first word draws a loading trace and counts seconds,
 `WAITING FOR THE MODEL · n S`, or `THINKING · n S` with the model's reasoning
-under it while it reasons. A failed one stays, in red, saying why, until it is
+under it while it reasons; the count goes with the first word, as the trace
+reaches its end. A failed one stays, in red, saying why, until it is
 removed. A skill with a hook has a send button on its card, and the card says
 how sending went: SENDING…, SENT or NOT SENT.
 
@@ -231,7 +233,13 @@ provider's reason on hover. eco keeps opening the connection and holds what is
 heard meanwhile (design §5). When a connection takes the audio again the line
 turns green, `Transcription back`, with `· N s of audio lost` when an outage
 outlasted the five minutes eco holds; it goes with the source's next line, or
-ten seconds later. Nothing here is a key or a button. The picture is the live
+ten seconds later. A device that cannot be opened, or stops, reads
+`Device not heard · opening it again` on the same line, with why on hover,
+while the other sources go on; eco opens it again until it is heard. An error
+of the capture or its transcription on the status line — a capture that
+stopped, a line that could not be transcribed — goes when the last recording
+session ends or you leave the session, so the sessions list never shows it.
+Nothing here is a key or a button. The picture is the live
 session fed one source down and the other back, from
 `scripts/shots/fixtures/outage.json`: the replay transcribes nothing, so no
 provider went down to take it.
@@ -481,16 +489,18 @@ as in a live session (section 3):
 
 `?` or `F1` lists every key, by where it works:
 
-![The keyboard shortcuts dialog over the sessions list: EVERYWHERE (Tab · Shift+Tab, Enter · Space, Esc, ? · F1), GLOBAL (HYPRLAND) (SUPER+ALT+N new session, SUPER+ALT+H sessions, SUPER+ALT+C settings, SUPER+ALT+P pause or resume, SUPER+ALT+E bring eco to the front, SUPER+ALT+1 · 2 run the skills bound in Hyprland), START SCREEN (N, H, I, P), SESSIONS AND PEOPLE (↑ · ↓, Enter, Delete, I, /) and the top of TAG CHIP IN SESSIONS (F2 rename the tag in every session), cut at the bottom edge.](img/37-shortcuts.png)
+![The keyboard shortcuts dialog over the sessions list: EVERYWHERE (Tab · Shift+Tab, Enter · Space, Esc, ? · F1), GLOBAL (SUPER+ALT+N new session, SUPER+ALT+H sessions, SUPER+ALT+C settings, SUPER+ALT+P pause or resume, SUPER+ALT+E bring eco to the front, SUPER+ALT+A · Q run the skills bound to these keys), START SCREEN (N, H, I, P), SESSIONS AND PEOPLE (↑ · ↓, Enter, Delete, I, /) and the top of TAG CHIP IN SESSIONS (F2 rename the tag in every session), cut at the bottom edge.](img/37-shortcuts.png)
 
 The dialog scrolls (arrows, `PgUp`, `PgDn`). Its end:
 
 ![The keyboard shortcuts dialog scrolled to its end: the rest of PEOPLE SCREEN (F2 rename, M merge), STORED SESSION (R resume or reopen, E edit title and kind), CONVERSATION (↑ · ↓ · PgUp · PgDn, Home · End, N, Tab), QUESTION BOX (Enter, Shift+Enter, / with ↑ · ↓, Tab and Enter, Alt+1…9), MENUS AND OPTION LISTS (↑ · ↓ · Home · End, Enter · Space, Esc) and SETTINGS (Ctrl+1…8, Ctrl+S, Alt+↑ · Alt+↓, Esc).](img/38-shortcuts-end.png)
 
 The GLOBAL keys are not the window's: `packaging/hypr/eco.lua` binds them in
-Hyprland to `eco window` commands; those that open a view ask the daemon to
-hand them to the newest window and give it the keyboard (`window.call`), so
-they work with eco in the background.
+Hyprland to `eco window` commands, and on Windows the daemon registers them
+itself, with `Win` for SUPER, from `[shortcuts]` in the config; those that
+open a view ask the daemon to hand them to the newest window and give it the
+keyboard (`window.call`), so they work with eco in the background. The dialog
+lists the default keys, not keys changed in either place.
 
 Everything the pointer does, the keyboard does: `Tab` reaches every control,
 with a focus ring apart from its hover, and a control's hint shows on focus as
@@ -499,7 +509,7 @@ on hover.
 # 12. Settings
 
 The settings button in any masthead, `SUPER+ALT+C`, opens the config window: a
-second window, `eco · configuração` to Hyprland, 1040×760 or its screen less a
+second window, `eco · settings` to Hyprland, 1040×760 or its screen less a
 96-pixel margin when that is smaller, centred on the screen (the pictures are
 1040×760). It
 edits a draft. **SAVE** (`Ctrl+S`) sends the whole draft to the daemon, which
@@ -532,7 +542,10 @@ A closed card is its type, the provider's id and what uses it. Open, it edits
 the provider, the model, where the key comes from (an environment variable or
 an omapass password), reasoning and extra JSON for chat. Without omapass on the
 machine, as in these pictures, **OMAPASS** is off and an info button beside it
-opens omapass's install page:
+opens omapass's install page. On Windows **CREDENTIAL MANAGER** stands in its
+place: a field for the key's name and, once one is typed, how to store that key
+with `eco key set <name>` or as the generic credential `eco:<name>`. The
+pictures are made on Linux, so none shows it:
 
 ![The gemini-flash card open: "used by ASSISTANT, TRANSLATION, MEETING, MEETING TRANSLATION, …" in full; NAME "gemini-flash"; REASONING with PROVIDER'S, OFF (lit), LOW, MEDIUM, HIGH; PROVIDER with OPENROUTER (lit), GROQ, CUSTOM; MODEL "google/gemini-2.5-flash" with LIST; KEY FROM with ENV (lit) and OMAPASS, and "OPENROUTER_API_KEY"; ADVANCED; the closed claude-haiku card below.](img/42-settings-model.png)
 
@@ -564,7 +577,7 @@ prompt, the format, the model and its hook:
 
 ![The reply card open: NAME "reply"; PROMPT and OUTPUT FORMAT as text areas; MODEL "default · gemini-flash"; HOOK "~/bin/post-to-notes" with what the command is run with; SEND ON ITS OWN, off.](img/47-settings-skill.png)
 
-Renaming or removing one warns that Hyprland shortcuts call skills by name.
+Renaming or removing one warns that global shortcuts call skills by name.
 
 **Translation** — only the model:
 
@@ -579,25 +592,43 @@ card renames the kind, makes it the default, and gives it its own
 transcription, assistant and translation models. Removing one says its sessions
 keep it.
 
-**Interface** — the interface language, and whether eco hides from screen
-sharing:
+**Interface** — the interface language, whether eco hides from screen
+sharing, and whether it shows in the tray:
 
-![Settings, 08 INTERFACE: INTERFACE LANGUAGE "English (US)"; below it the unlit chip HIDE FROM SCREEN SHARING and its help: "eco's windows show black to whoever watches your shared screen. They also show black in your screenshots and recordings: Hyprland cannot tell them apart".](img/50-settings-interface.png)
+![Settings, 08 INTERFACE: INTERFACE LANGUAGE "English (US)"; below it the unlit chip HIDE FROM SCREEN SHARING and its help: "eco's windows are hidden from whoever watches your shared screen, and from your own screenshots and recordings too: the system cannot tell them apart"; below that the unlit chip SHOW ECO IN THE TRAY and its help.](img/50-settings-interface.png)
 
 English, Brazilian Portuguese or Japanese, or `auto` to follow the system;
 see [i18n.md](i18n.md). HIDE FROM SCREEN SHARING is off by default; on, it
 applies to every eco window at once, and to each one that opens later.
 
+SHOW ECO IN THE TRAY is off by default. Saved on, an icon shows in the
+system tray at once — on Omarchy the bar's tray, on Windows the notification
+area — and saved off, it goes; no restart. The icon is eco's bars in white,
+with a red dot while a session records; its tooltip says `eco · idle` or
+`eco · recording · <title>` (`<title>` is a placeholder for the session's
+title). A click opens the eco window, or brings the open one forward, as `eco
+window focus` does. Its menu has no picture here, as the tray is drawn by the
+bar, not by eco; it holds **Open** (the same), **New session** (the start
+dialog), **Settings** (opens or closes them, as `eco window config`) and
+**Stop eco** (as `eco stop`: the windows and the icon go with the daemon). On
+Omarchy the bar may keep tray icons in a drawer behind its `<` arrow.
+
 **What keeps the draft from saving** shows on its own field: an outline in the
 error colour and the reason under it, and a dot on the tab that holds it. A
 repeated name or a space in a skill's name shows as it is typed; a missing value
-once a save is tried. The line above the buttons only counts them:
+once a save is tried. No model is required: before any is registered, the
+draft saves with no default transcription or assistant model, and sessions say
+none is chosen until one is; a default that names a model names a registered
+one. The line above the buttons only counts them:
 
-![The Skills tab with a dot after "05 SKILLS"; the minutes card open and renamed "weekly minutes", its NAME field outlined in red with "No spaces: shortcuts call a skill by its name." under it, and in amber the warning that Hyprland shortcuts call a skill by its name; above CLOSE, in amber, "1 field needs fixing before saving."](img/51-settings-errors.png)
+![The Skills tab with a dot after "05 SKILLS"; the minutes card open and renamed "weekly minutes", its NAME field outlined in red with "No spaces: shortcuts call a skill by its name." under it, and in amber the warning that global shortcuts call a skill by its name; above CLOSE, in amber, "1 field needs fixing before saving."](img/51-settings-errors.png)
 
 **Closing with unsaved changes** asks:
 
 ![The UNSAVED CHANGES dialog over the dimmed settings: "Your settings have unsaved changes. Save them before closing?" with SAVE AND CLOSE, KEEP EDITING and, filled red, DISCARD CHANGES.](img/52-settings-unsaved.png)
+
+Closing the eco window itself closes the settings with it and does not ask:
+unsaved changes there are dropped.
 
 **A change another program asked for.** Only this window's own SAVE writes at
 once a new or changed skill hook, a new context file, or a new model or a
@@ -644,13 +675,14 @@ it.
 `eco stop` and `eco restart`; the window shows only whether it can reach the
 daemon. Its errors go to `journalctl --user -u eco.service`.
 
-**Hyprland's shortcuts.** The window lists them (section 11) but does not
-change them: they are in `packaging/hypr/eco.lua`, and the skills they call by
-name are the config's.
+**The global shortcuts.** The window lists them (section 11) but does not
+change them: they are in `packaging/hypr/eco.lua`, or on Windows under
+`[shortcuts]` in the config, and the skills they call by name are the
+config's.
 
 **Measurements.** `eco bench` and `mise run bench` print to the terminal; see
 [benchmarks.md](benchmarks.md).
 
-**Two sessions in one window.** A window shows one session. Opening the app
-again opens another window to start the next one in, and SESSIONS › LIVE is
-where every live session can be found.
+**Two sessions in one window.** A window shows one session. A session started
+while another records takes the window; the other keeps recording under
+SESSIONS › LIVE, and opening the app again opens a second window on it.

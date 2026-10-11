@@ -339,6 +339,8 @@ struct State {
     answering: HashMap<String, Queue>,
     /// The transcription requests open now, and the sessions each hears.
     requests: Requests,
+    /// The inputs whose source cannot be heard now, by id.
+    unheard: BTreeSet<String>,
 }
 
 /// A session's answers: one streams at a time, so each sees the ones before it.
@@ -1891,16 +1893,7 @@ impl Assistant {
     /// so a running transcriber never restarts.
     fn listen(&self, state: &mut State) {
         let heard = heard(state);
-        // Sessions are heard only under a setup.
-        if let Some(setup) = state.setup.clone() {
-            let inputs = u32::try_from(setup.inputs.len()).unwrap_or(u32::MAX);
-            for (id, listening) in &heard {
-                let session = state.loaded.get_mut(id).expect("a live session is loaded");
-                let model = &listening.model;
-                let per_minute = setup.transcription_prices.get(model).copied();
-                session.transcribe_with(HeardBy::Model(model.clone(), inputs, per_minute));
-            }
-        }
+        log_transcribers(state, &heard);
         let at = now();
         let joined = state.requests.follow(&heard, at);
         self.listened(state, joined, at);
@@ -1909,6 +1902,22 @@ impl Assistant {
         self.inner
             .listening
             .send_if_modified(|current| std::mem::replace(current, wanted.clone()) != wanted);
+    }
+
+    /// The source of the input `input` is heard again, or not: each recording
+    /// session's log counts the inputs heard from now. Capture is not told, so
+    /// a running transcriber never restarts.
+    pub fn input_heard(&self, input: &str, is_heard: bool) {
+        let mut state = self.state();
+        let changed = if is_heard {
+            state.unheard.remove(input)
+        } else {
+            state.unheard.insert(input.into())
+        };
+        if changed {
+            let sessions = heard(&state);
+            log_transcribers(&mut state, &sessions);
+        }
     }
 
     /// The requests the transcriber of `from` bills under, as it opens them.
@@ -2955,6 +2964,31 @@ fn session_json(m: &Session) -> Value {
 }
 
 /// Each recording session, with what it listens with; none without a setup.
+/// Tell the log of each session `heard` which model hears it on how many
+/// inputs: those of the setup whose source is heard.
+fn log_transcribers(state: &mut State, heard: &[(String, Listening)]) {
+    // Sessions are heard only under a setup.
+    let Some(setup) = state.setup.clone() else {
+        return;
+    };
+    let inputs = setup
+        .inputs
+        .iter()
+        .filter(|input| {
+            !input["id"]
+                .as_str()
+                .is_some_and(|id| state.unheard.contains(id))
+        })
+        .count();
+    let inputs = u32::try_from(inputs).unwrap_or(u32::MAX);
+    for (id, listening) in heard {
+        let session = state.loaded.get_mut(id).expect("a live session is loaded");
+        let model = &listening.model;
+        let per_minute = setup.transcription_prices.get(model).copied();
+        session.transcribe_with(HeardBy::Model(model.clone(), inputs, per_minute));
+    }
+}
+
 fn heard(state: &State) -> Vec<(String, Listening)> {
     let Some(setup) = state.setup.as_ref() else {
         return Vec::new();
@@ -4100,6 +4134,103 @@ mod tests {
         );
     }
 
+    /// A session recording on two inputs into `log`, whose transcription is
+    /// priced, with the microphone's source unheard before it starts when
+    /// `unheard`; with its id.
+    fn on_two_inputs(
+        llm: &FakeLlm,
+        log: Arc<dyn SessionLog>,
+        unheard: bool,
+    ) -> (Assistant, String) {
+        let (assistant, _) = with_log(llm, log, false);
+        let mut two = Arc::into_inner(setup(llm)).unwrap();
+        two.inputs
+            .push(json!({"id": "@default-output", "label": "System", "participant": "Eles"}));
+        two.transcription_prices = HashMap::from([("whisper".into(), 0.006)]);
+        assistant.configure(Arc::new(two));
+        if unheard {
+            assistant.input_heard("@default-input", false);
+        }
+        assistant.start("Entrevista", "meeting", "pt", None);
+        let id = assistant.snapshot()[0]["session"]["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        (assistant, id)
+    }
+
+    /// The inputs each `transcriber` record of the log `id` counts, and the
+    /// seconds and the estimate the log comes to with its states and
+    /// transcribers stamped, in order, at `at`.
+    fn counted(log: &SessionFiles, id: &str, at: &[f64]) -> (Vec<Value>, Value, Value) {
+        let mut records = log.read(id).unwrap();
+        let inputs = records
+            .iter()
+            .filter(|r| r["type"] == "transcriber")
+            .map(|r| r["inputs"].clone())
+            .collect();
+        let mut stamps = at.iter();
+        for record in &mut records {
+            if record["type"] == "state" || record["type"] == "transcriber" {
+                record.insert("at".into(), json!(stamps.next().unwrap()));
+            }
+        }
+        assert!(stamps.next().is_none(), "every stamp is used");
+        let rate = |_: &str| Rate {
+            per_minute: Some(0.006),
+            billed: false,
+        };
+        let cost = summarize(&records, rate).unwrap()["cost"].clone();
+        (
+            inputs,
+            cost["transcribed_s"].clone(),
+            cost["transcription_usd"].clone(),
+        )
+    }
+
+    #[tokio::test]
+    async fn an_input_unheard_from_the_start_is_not_counted() {
+        let directory = tempfile::tempdir().unwrap();
+        let log = Arc::new(SessionFiles::new(directory.path().join("sessions")));
+        let (assistant, id) = on_two_inputs(&llm(&[]), log.clone(), true);
+        assistant.end(None);
+
+        let (inputs, seconds, usd) = counted(&log, &id, &[0.0, 0.0, 100.0]);
+        assert_eq!(inputs, [json!(1)]);
+        assert_eq!(seconds, json!({"whisper": 100.0}));
+        assert!((usd.as_f64().unwrap() - 0.01).abs() < 1e-12);
+    }
+
+    #[tokio::test]
+    async fn an_input_counts_while_it_is_heard_and_again_once_it_is_back() {
+        let directory = tempfile::tempdir().unwrap();
+        let log = Arc::new(SessionFiles::new(directory.path().join("sessions")));
+        let (assistant, id) = on_two_inputs(&llm(&[]), log.clone(), false);
+        assistant.input_heard("@default-input", false);
+        // Told twice, it changes nothing.
+        assistant.input_heard("@default-input", false);
+        assistant.input_heard("@default-input", true);
+        // An input no setup has is never counted.
+        assistant.input_heard("@gone", false);
+        assistant.end(None);
+
+        let (inputs, seconds, usd) = counted(&log, &id, &[0.0, 0.0, 40.0, 70.0, 100.0]);
+        assert_eq!(inputs, [json!(2), json!(1), json!(2)]);
+        // 2 x 40 s, 1 x 30 s, 2 x 30 s.
+        assert_eq!(seconds, json!({"whisper": 170.0}));
+        assert!((usd.as_f64().unwrap() - 0.017).abs() < 1e-12);
+    }
+
+    #[tokio::test]
+    async fn an_input_unheard_wakes_no_capture() {
+        let (assistant, _) = make(&llm(&[]), true);
+        let mut listening = assistant.listening();
+        listening.borrow_and_update();
+        assistant.input_heard("@default-input", false);
+        assistant.input_heard("@default-input", true);
+        assert!(!listening.has_changed().unwrap());
+    }
+
     #[tokio::test]
     async fn a_translation_is_paid_in_its_session() {
         let directory = tempfile::tempdir().unwrap();
@@ -5117,12 +5248,8 @@ mod tests {
         let detail = events.lock().unwrap().last().unwrap().clone();
         assert_eq!(detail["type"], "session_detail");
         assert!(detail["session"]["bytes"].as_u64().unwrap() > 0);
-        assert!(
-            detail["session"]["path"]
-                .as_str()
-                .unwrap()
-                .contains("/sessions/")
-        );
+        let path = std::path::PathBuf::from(detail["session"]["path"].as_str().unwrap());
+        assert!(path.parent().unwrap().ends_with("sessions"), "{path:?}");
 
         assistant.delete_session(&id);
         assert!(log.read(&id).is_none());

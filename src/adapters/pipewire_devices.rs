@@ -5,18 +5,9 @@ use std::path::Path;
 use serde_json::Value;
 use tokio::process::Command;
 
+use crate::adapters::devices::listed;
 use crate::adapters::echo_cancel::NODE_PREFIX;
 use crate::ports::Device;
-
-pub const DEFAULT_INPUT: &str = "@default-input";
-pub const DEFAULT_OUTPUT: &str = "@default-output";
-
-pub fn defaults() -> Vec<Device> {
-    vec![
-        Device::new(DEFAULT_INPUT, "Microfone padrão", "input"),
-        Device::new(DEFAULT_OUTPUT, "Saída padrão", "output"),
-    ]
-}
 
 fn kind_of(media_class: &str) -> Option<&'static str> {
     match media_class {
@@ -28,7 +19,7 @@ fn kind_of(media_class: &str) -> Option<&'static str> {
 
 /// Devices in `pw-dump` output, the system defaults first.
 pub fn parse_dump(objects: &[Value]) -> Vec<Device> {
-    let mut found: Vec<Device> = objects
+    let found: Vec<Device> = objects
         .iter()
         .filter_map(|item| {
             let props = item.get("info")?.get("props")?;
@@ -45,10 +36,7 @@ pub fn parse_dump(objects: &[Value]) -> Vec<Device> {
             Some(Device::new(name, label.unwrap_or(name), kind))
         })
         .collect();
-    found.sort_by_key(|device| (device.kind.clone(), device.label.to_lowercase()));
-    let mut devices = defaults();
-    devices.extend(found);
-    devices
+    listed(found)
 }
 
 pub async fn list_devices() -> Vec<Device> {
@@ -73,6 +61,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+    use crate::adapters::devices::defaults;
 
     fn node(media_class: &str, name: Option<&str>, description: Option<&str>) -> Value {
         let mut props = json!({"media.class": media_class});

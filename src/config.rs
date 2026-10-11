@@ -7,8 +7,9 @@ use std::{env, fs};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
+use crate::adapters::credentials;
 use crate::domain::action::Action;
-use crate::domain::prompts::{DEFAULT_REVIEW, DEFAULT_RULES};
+use crate::domain::prompts::{self, DEFAULT_REVIEW, DEFAULT_RULES};
 use crate::paths;
 
 #[derive(Debug, thiserror::Error)]
@@ -49,7 +50,8 @@ fn default_languages() -> Vec<String> {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SttConfig {
-    /// The name of a registered transcription model.
+    /// The name of a registered transcription model; empty when none is chosen.
+    #[serde(default)]
     pub model: String,
     /// Code from `languages` used now; "auto" lets the server detect it.
     #[serde(default = "SttConfig::default_language")]
@@ -66,16 +68,20 @@ pub enum Key<'a> {
     None,
     Env(&'a str),
     Omapass(&'a str),
+    /// The Windows Credential Manager's generic credential `eco:<name>`.
+    Credential(&'a str),
 }
 
 impl<'a> Key<'a> {
-    /// The source `env` and `omapass` name; both set is the caller's to refuse.
-    pub fn of(env: Option<&'a str>, omapass: Option<&'a str>) -> Self {
+    /// The source `env`, `omapass` and `credential` name; more than one set is
+    /// the caller's to refuse.
+    pub fn of(env: Option<&'a str>, omapass: Option<&'a str>, credential: Option<&'a str>) -> Self {
         let given = |name: Option<&'a str>| name.filter(|n| !n.trim().is_empty());
-        match (given(env), given(omapass)) {
-            (_, Some(account)) => Self::Omapass(account),
-            (Some(variable), None) => Self::Env(variable),
-            (None, None) => Self::None,
+        match (given(env), given(omapass), given(credential)) {
+            (_, _, Some(name)) => Self::Credential(name),
+            (_, Some(account), None) => Self::Omapass(account),
+            (Some(variable), None, None) => Self::Env(variable),
+            (None, None, None) => Self::None,
         }
     }
 }
@@ -83,6 +89,16 @@ impl<'a> Key<'a> {
 impl SttConfig {
     fn default_language() -> String {
         "pt".into()
+    }
+}
+
+impl Default for SttConfig {
+    fn default() -> Self {
+        Self {
+            model: String::new(),
+            language: Self::default_language(),
+            languages: default_languages(),
+        }
     }
 }
 
@@ -112,6 +128,10 @@ pub struct ModelConfig {
     /// The omapass account holding the key, instead of a variable.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_key_omapass: Option<String>,
+    /// The name of the Windows Credential Manager's credential `eco:<name>`
+    /// holding the key, instead of a variable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_key_credential: Option<String>,
     /// Provider-specific request fields, sent as-is; chat models only.
     #[serde(default, skip_serializing_if = "Map::is_empty")]
     pub extra: Map<String, Value>,
@@ -133,7 +153,11 @@ pub struct ModelConfig {
 
 impl ModelConfig {
     pub fn key(&self) -> Key<'_> {
-        Key::of(self.api_key_env.as_deref(), self.api_key_omapass.as_deref())
+        Key::of(
+            self.api_key_env.as_deref(),
+            self.api_key_omapass.as_deref(),
+            self.api_key_credential.as_deref(),
+        )
     }
 
     /// The fields sent with every request: `extra`, with the reasoning chosen in
@@ -157,7 +181,8 @@ impl ModelConfig {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LlmConfig {
-    /// The name of a registered model.
+    /// The name of a registered chat model; empty when none is chosen.
+    #[serde(default)]
     pub model: String,
     /// Characters of transcript and earlier answers a request may carry (~4 per token).
     #[serde(default = "LlmConfig::default_max_context_chars")]
@@ -174,6 +199,16 @@ impl LlmConfig {
 
     fn default_concurrency() -> usize {
         8
+    }
+}
+
+impl Default for LlmConfig {
+    fn default() -> Self {
+        Self {
+            model: String::new(),
+            max_context_chars: Self::default_max_context_chars(),
+            concurrency: Self::default_concurrency(),
+        }
     }
 }
 
@@ -274,6 +309,8 @@ struct UiTable {
     language: String,
     #[serde(default)]
     hide_from_share: bool,
+    #[serde(default)]
+    tray: bool,
 }
 
 impl UiTable {
@@ -287,6 +324,7 @@ impl Default for UiTable {
         Self {
             language: Self::auto(),
             hide_from_share: false,
+            tray: false,
         }
     }
 }
@@ -299,7 +337,9 @@ struct Raw {
     kinds: Vec<String>,
     #[serde(default = "default_rules")]
     rules: String,
+    #[serde(default)]
     stt: SttConfig,
+    #[serde(default)]
     llm: LlmConfig,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     reviewer: Option<ReviewerConfig>,
@@ -321,6 +361,8 @@ struct Raw {
     audio: AudioConfig,
     #[serde(default)]
     ui: UiTable,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    shortcuts: Option<BTreeMap<String, String>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -347,6 +389,11 @@ pub struct Config {
     pub ui_language: String,
     /// eco's windows are left out of screen sharing (and so of screenshots and recordings).
     pub hide_from_share: bool,
+    /// eco shows an icon in the system tray, run as its own window process.
+    pub tray: bool,
+    /// Keys -> the `eco window` command they run, registered on Windows;
+    /// `None` keeps the defaults of `shortcuts::DEFAULT`.
+    pub shortcuts: Option<BTreeMap<String, String>>,
 }
 
 impl Config {
@@ -379,22 +426,21 @@ impl Config {
     }
 
     /// The model that translates sessions of `session_kind`: its own, the
-    /// translation default, or the assistant's.
-    pub fn translator(&self, session_kind: &str) -> &ModelConfig {
+    /// translation default, or the assistant's; `None` when there is none.
+    pub fn translator(&self, session_kind: &str) -> Option<&ModelConfig> {
         let own = self
             .models
             .iter()
             .find(|m| m.translates.iter().any(|k| k == session_kind));
         let default = Some(&self.translation.model).filter(|name| !name.is_empty());
         own.or_else(|| self.model(default.unwrap_or(&self.llm.model)))
-            .expect("a valid config names registered chat models")
     }
 
-    /// The model that transcribes sessions of `session_kind`: its own, or the default.
-    pub fn transcriber(&self, session_kind: &str) -> &ModelConfig {
+    /// The model that transcribes sessions of `session_kind`: its own, or the
+    /// default; `None` when there is none.
+    pub fn transcriber(&self, session_kind: &str) -> Option<&ModelConfig> {
         self.model_of_kind(ModelType::Transcription, session_kind)
             .or_else(|| self.model(&self.stt.model))
-            .expect("a valid config names a registered transcription model")
     }
 
     /// Build a Config from its JSON shape (what the overlay sends); validate it.
@@ -426,6 +472,8 @@ impl Config {
             audio: raw.audio,
             ui_language: raw.ui.language,
             hide_from_share: raw.ui.hide_from_share,
+            tray: raw.ui.tray,
+            shortcuts: raw.shortcuts,
         };
         config.validate()?;
         Ok(config)
@@ -451,7 +499,9 @@ impl Config {
             ui: UiTable {
                 language: self.ui_language.clone(),
                 hide_from_share: self.hide_from_share,
+                tray: self.tray,
             },
+            shortcuts: self.shortcuts.clone(),
         }
     }
 
@@ -471,16 +521,26 @@ impl Config {
         if !distinct(&slots) || slots.iter().any(|n| n.trim() != n || n.is_empty()) {
             return fail("context names must be unique, trimmed and not empty");
         }
-        let both = |env: &Option<String>, omapass: &Option<String>| {
-            let set = |value: &Option<String>| value.as_ref().is_some_and(|v| !v.trim().is_empty());
-            set(env) && set(omapass)
+        let set = |value: &Option<String>| value.as_ref().is_some_and(|v| !v.trim().is_empty());
+        let sources = |m: &ModelConfig| {
+            [&m.api_key_env, &m.api_key_omapass, &m.api_key_credential]
+                .into_iter()
+                .filter(|source| set(source))
+                .count()
         };
-        if self
-            .models
-            .iter()
-            .any(|m| both(&m.api_key_env, &m.api_key_omapass))
-        {
-            return fail("a provider's key comes from api_key_env or api_key_omapass, not both");
+        if self.models.iter().any(|m| sources(m) > 1) {
+            return fail(
+                "a provider's key comes from one of api_key_env, api_key_omapass or api_key_credential",
+            );
+        }
+        if self.models.iter().any(|m| {
+            set(&m.api_key_credential)
+                && !m
+                    .api_key_credential
+                    .as_deref()
+                    .is_some_and(credentials::valid_name)
+        }) {
+            return fail("api_key_credential is a word with no spaces, like deepgram");
         }
         let models: Vec<&String> = self.models.iter().map(|m| &m.name).collect();
         if !distinct(&models) || models.iter().any(|n| n.trim() != *n || n.is_empty()) {
@@ -554,13 +614,15 @@ impl Config {
             self.model(name)
                 .is_none_or(|model| model.kind != ModelType::Chat)
         };
-        if self
-            .model(&self.stt.model)
-            .is_none_or(|model| model.kind != ModelType::Transcription)
+        // An empty default names no model: sessions say so until one is chosen.
+        if !self.stt.model.is_empty()
+            && self
+                .model(&self.stt.model)
+                .is_none_or(|model| model.kind != ModelType::Transcription)
         {
             return fail("transcription must name a registered transcription model");
         }
-        if unknown(&self.llm.model) {
+        if !self.llm.model.is_empty() && unknown(&self.llm.model) {
             return fail("the assistant must name a registered chat model");
         }
         if let Some(reviewer) = &self.reviewer
@@ -610,6 +672,7 @@ impl Config {
         if !distinct(&actions) {
             return fail("action names must be unique");
         }
+        crate::shortcuts::bindings(self.shortcuts.as_ref()).map_err(ConfigError)?;
         Ok(())
     }
 }
@@ -645,14 +708,63 @@ pub(crate) fn valid_color(color: &str) -> bool {
     color.len() == 7 && color.starts_with('#') && color[1..].chars().all(|c| c.is_ascii_hexdigit())
 }
 
+/// The interface pack and transcription language a first config starts in, by
+/// the system language: (pack, transcription code). English is the first, for
+/// any language without a pack.
+const FIRST_LANGUAGES: [(&str, &str); 3] = [("en-US", "en"), ("pt-BR", "pt"), ("ja-JP", "ja")];
+
+/// The empty config in the system language `locale` (`pt_BR.UTF-8`, `ja-JP`):
+/// its interface, its transcription language and its rules; English for a
+/// language eco has no pack for, or none.
+fn first_run(locale: Option<&str>) -> Config {
+    let language = locale
+        .map(|locale| locale.split(['_', '-', '.', '@']).next().unwrap_or(""))
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let (pack, code) = FIRST_LANGUAGES
+        .iter()
+        .find(|(_, code)| *code == language)
+        .unwrap_or(&FIRST_LANGUAGES[0]);
+    let languages = ["auto", code]
+        .into_iter()
+        .map(String::from)
+        .chain(
+            default_languages()
+                .into_iter()
+                .filter(|l| l != "auto" && l != code),
+        )
+        .collect();
+    let raw = Raw {
+        rules: prompts::default_rules(code).into(),
+        stt: SttConfig {
+            language: (*code).into(),
+            languages,
+            ..SttConfig::default()
+        },
+        ui: UiTable {
+            language: (*pack).into(),
+            ..UiTable::default()
+        },
+        ..toml::from_str("").expect("the empty file is a config")
+    };
+    Config::from_raw(raw).expect("a first config is valid")
+}
+
+/// The config at `path`; no file there is the empty config in the system
+/// language, which registers no model, until the first save writes it.
 pub fn load(path: &Path) -> Result<Config, ConfigError> {
-    let text = fs::read_to_string(path).map_err(|error| match error.kind() {
-        std::io::ErrorKind::NotFound => ConfigError(format!(
-            "no config at {}; see docs/design.md §9",
-            path.display()
-        )),
-        _ => ConfigError(format!("{}: {error}", path.display())),
-    })?;
+    load_in(path, sys_locale::get_locale().as_deref())
+}
+
+/// `load`, with `locale` as the system language.
+fn load_in(path: &Path, locale: Option<&str>) -> Result<Config, ConfigError> {
+    let text = match fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(first_run(locale));
+        }
+        Err(error) => return Err(ConfigError(format!("{}: {error}", path.display()))),
+    };
     let raw: Raw = toml::from_str(&text).map_err(|error| {
         let message = error.to_string();
         if message.contains("missing field") || message.contains("unknown field") {
@@ -665,6 +777,7 @@ pub fn load(path: &Path) -> Result<Config, ConfigError> {
 }
 
 /// Options that create a file only its owner may read or write (0600).
+#[cfg(unix)]
 pub fn private_file() -> fs::OpenOptions {
     use std::os::unix::fs::OpenOptionsExt;
     let mut options = fs::OpenOptions::new();
@@ -672,13 +785,29 @@ pub fn private_file() -> fs::OpenOptions {
     options
 }
 
+/// Options that create a file only its owner may read or write: under the
+/// user's profile, a new file inherits an access list that admits only the
+/// user, the system and administrators.
+#[cfg(windows)]
+pub fn private_file() -> fs::OpenOptions {
+    fs::OpenOptions::new()
+}
+
 /// Create `path` and its missing parents, each only its owner may enter (0700).
+#[cfg(unix)]
 pub fn private_dir(path: &Path) -> std::io::Result<()> {
     use std::os::unix::fs::DirBuilderExt;
     fs::DirBuilder::new()
         .recursive(true)
         .mode(0o700)
         .create(path)
+}
+
+/// Create `path` and its missing parents, each only its owner may enter: under
+/// the user's profile, through the access list it inherits.
+#[cfg(windows)]
+pub fn private_dir(path: &Path) -> std::io::Result<()> {
+    fs::create_dir_all(path)
 }
 
 /// Replace `path` with `bytes` through a new private temporary file, so a crash
@@ -690,11 +819,34 @@ pub fn write_atomically(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     replace_file(path, bytes, 0o600)
 }
 
+/// Create `path`, which must not exist, with `mode`.
+#[cfg(unix)]
+fn create_new(path: &Path, mode: u32) -> std::io::Result<fs::File> {
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+    let file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(mode)
+        .open(path)?;
+    // The umask may have cleared bits of `mode`.
+    file.set_permissions(fs::Permissions::from_mode(mode))?;
+    Ok(file)
+}
+
+/// Create `path`, which must not exist; Windows has no modes, and the file
+/// takes the access list of its directory.
+#[cfg(windows)]
+fn create_new(path: &Path, _mode: u32) -> std::io::Result<fs::File> {
+    fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+}
+
 /// Replace `path` with `bytes` through `<name>.tmp` beside it, created with
 /// `mode` and synced before the rename, so a crash never leaves half a file.
 pub fn replace_file(path: &Path, bytes: &[u8], mode: u32) -> std::io::Result<()> {
     use std::io::Write;
-    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
     let mut name = path.file_name().unwrap_or_default().to_os_string();
     name.push(".tmp");
     let temporary = path.with_file_name(name);
@@ -704,13 +856,7 @@ pub fn replace_file(path: &Path, bytes: &[u8], mode: u32) -> std::io::Result<()>
         _ => {}
     }
     let written = (|| {
-        let mut file = fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(mode)
-            .open(&temporary)?;
-        // The umask may have cleared bits of `mode`.
-        file.set_permissions(fs::Permissions::from_mode(mode))?;
+        let mut file = create_new(&temporary, mode)?;
         file.write_all(bytes)?;
         file.sync_all()?;
         fs::rename(&temporary, path)
@@ -824,8 +970,8 @@ mod tests {
             .push(json!({"name": "local", "type": "transcription", "base_url": "http://lan:8000/v1", "model": "whisper-large-v3", "kinds": ["idea"]}));
         value["models"][2]["kinds"] = json!(["idea"]);
         let config = Config::from_value(value.clone()).unwrap();
-        assert_eq!(config.transcriber("idea").name, "local");
-        assert_eq!(config.transcriber("meeting").name, "whisper");
+        assert_eq!(config.transcriber("idea").unwrap().name, "local");
+        assert_eq!(config.transcriber("meeting").unwrap().name, "whisper");
         assert_eq!(
             config.model_of_kind(ModelType::Chat, "idea").unwrap().name,
             "grok"
@@ -843,16 +989,17 @@ mod tests {
     #[test]
     fn translation_names_a_chat_model_only() {
         let config = Config::from_value(raw()).unwrap();
-        assert_eq!(config.translator("meeting").name, "gemini");
+        assert_eq!(config.translator("meeting").unwrap().name, "gemini");
         let mut value = with("translation", json!({"model": "grok"}));
         let config = Config::from_value(value.clone()).unwrap();
-        assert_eq!(config.translator("meeting").name, "grok");
+        assert_eq!(config.translator("meeting").unwrap().name, "grok");
         assert_eq!(Config::from_value(config.to_value()).unwrap(), config);
         value["models"][1]["translates"] = json!(["idea"]);
         assert_eq!(
             Config::from_value(value.clone())
                 .unwrap()
                 .translator("idea")
+                .unwrap()
                 .name,
             "gemini"
         );
@@ -1005,10 +1152,91 @@ mod tests {
     }
 
     #[test]
-    fn missing_file_is_a_config_error() {
+    fn a_missing_file_is_the_empty_config() {
         let directory = tempfile::tempdir().unwrap();
-        let error = load(&directory.path().join("nope.toml")).unwrap_err().0;
-        assert!(error.contains("no config"));
+        let empty = load_in(&directory.path().join("nope.toml"), Some("pt_BR.UTF-8")).unwrap();
+        assert!(empty.models.is_empty());
+        assert!(empty.participants.is_empty() && empty.actions.is_empty());
+        assert_eq!(
+            (empty.stt.model.as_str(), empty.llm.model.as_str()),
+            ("", "")
+        );
+        assert_eq!(empty.kinds, default_kinds());
+        assert_eq!(empty.transcriber("meeting"), None);
+        assert_eq!(empty.translator("meeting"), None);
+        let mut written_empty = Config::from_value(json!({})).unwrap();
+        written_empty.ui_language = "pt-BR".into();
+        assert_eq!(written_empty, empty);
+        assert!(!directory.path().join("nope.toml").exists());
+    }
+
+    #[test]
+    fn a_first_config_follows_the_system_language_and_falls_back_to_english() {
+        let directory = tempfile::tempdir().unwrap();
+        let missing = directory.path().join("config.toml");
+        let first = |locale: Option<&str>| {
+            let config = load_in(&missing, locale).unwrap();
+            (
+                config.ui_language,
+                config.stt.language,
+                config.stt.languages,
+                config.rules,
+            )
+        };
+        let (ui, stt, languages, rules) = first(Some("pt_BR.UTF-8"));
+        assert_eq!((ui.as_str(), stt.as_str()), ("pt-BR", "pt"));
+        assert_eq!(languages, ["auto", "pt", "en", "es"]);
+        assert_eq!(rules, DEFAULT_RULES);
+        let (ui, stt, languages, rules) = first(Some("ja-JP"));
+        assert_eq!((ui.as_str(), stt.as_str()), ("ja-JP", "ja"));
+        assert_eq!(languages, ["auto", "ja", "pt", "en", "es"]);
+        assert!(
+            rules.starts_with("- 文字起こしと同じ言語で答えて"),
+            "{rules}"
+        );
+        let english = first(Some("en-GB"));
+        assert_eq!((english.0.as_str(), english.1.as_str()), ("en-US", "en"));
+        assert_eq!(english.2, ["auto", "en", "pt", "es"]);
+        assert!(
+            english
+                .3
+                .starts_with("- Answer in the language of the transcript.")
+        );
+        assert_eq!(first(Some("de-DE")), english);
+        assert_eq!(first(Some("C")), english);
+        assert_eq!(first(None), english);
+        assert!(!missing.exists());
+    }
+
+    #[test]
+    fn an_existing_config_keeps_its_language_whatever_the_system_says() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("config.toml");
+        fs::write(&path, "kinds = [\"meeting\"]\n").unwrap();
+        let config = load_in(&path, Some("ja_JP.UTF-8")).unwrap();
+        assert_eq!(config.ui_language, "auto");
+        assert_eq!(config.stt.language, "pt");
+        assert_eq!(config.rules, DEFAULT_RULES);
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            "kinds = [\"meeting\"]\n"
+        );
+    }
+
+    #[test]
+    fn a_default_names_a_registered_model_or_none() {
+        let only_models = json!({"models": [
+            {"name": "w", "type": "transcription", "base_url": "http://stt", "model": "whisper-1"},
+            {"name": "m", "type": "chat", "base_url": "http://llm", "model": "m"},
+        ]});
+        let config = Config::from_value(only_models.clone()).unwrap();
+        assert_eq!(config.transcriber("meeting"), None);
+        let mut named = only_models;
+        named["stt"] = json!({"model": "m"});
+        assert!(error_of(named.clone()).contains("transcription must name"));
+        named["stt"] = json!({"model": "w"});
+        named["llm"] = json!({"model": "w"});
+        assert!(error_of(named).contains("assistant must name"));
     }
 
     #[test]
@@ -1028,8 +1256,15 @@ mod tests {
 
         fs::write(&path, "[stt]\nmodel = \"whisper\"\n").unwrap();
         let error = load(&path).unwrap_err().0;
+        assert_eq!(
+            error,
+            "transcription must name a registered transcription model"
+        );
+
+        fs::write(&path, "[llm]\nmodle = \"m\"\n").unwrap();
+        let error = load(&path).unwrap_err().0;
         assert!(error.starts_with("invalid config: "), "{error}");
-        assert!(error.ends_with("missing field `llm`"), "{error}");
+        assert!(error.contains("unknown field `modle`"), "{error}");
     }
 
     #[test]
@@ -1125,14 +1360,63 @@ mod tests {
     }
 
     #[test]
+    fn the_tray_defaults_to_off_and_round_trips() {
+        assert!(!Config::from_value(raw()).unwrap().tray);
+        let config = Config::from_value(with("ui", json!({"tray": true}))).unwrap();
+        assert!(config.tray);
+        assert!(!config.hide_from_share);
+        assert!(Config::from_value(config.to_value()).unwrap().tray);
+        assert!(error_of(with("ui", json!({"tray": "yes"}))).contains("invalid config"));
+    }
+
+    #[test]
+    fn shortcuts_keep_the_defaults_until_written_and_must_be_valid() {
+        let config = Config::from_value(raw()).unwrap();
+        assert_eq!(config.shortcuts, None);
+        assert!(config.to_value().get("shortcuts").is_none());
+        let config =
+            Config::from_value(with("shortcuts", json!({"Ctrl+Alt+M": "sessions"}))).unwrap();
+        assert_eq!(
+            config.shortcuts,
+            Some(BTreeMap::from([("Ctrl+Alt+M".into(), "sessions".into())]))
+        );
+        assert_eq!(Config::from_value(config.to_value()).unwrap(), config);
+        assert_eq!(
+            error_of(with("shortcuts", json!({"M": "sessions"}))),
+            "shortcut \"M\": needs Ctrl, Alt, Shift or Win with the key"
+        );
+    }
+
+    #[test]
     fn a_key_comes_from_one_place() {
         let mut value = raw();
         let config = Config::from_value(value.clone()).unwrap();
         assert_eq!(config.models[2].key(), Key::Omapass("openrouter"));
         assert_eq!(config.models[0].key(), Key::None);
         value["models"][2]["api_key_env"] = json!("OPENROUTER_API_KEY");
-        assert!(Config::from_value(value).is_err());
-        assert_eq!(Key::of(Some("X"), Some(" ")), Key::Env("X"));
+        assert!(error_of(value.clone()).contains("one of api_key_env, api_key_omapass"));
+        assert_eq!(Key::of(Some("X"), Some(" "), None), Key::Env("X"));
+        assert_eq!(Key::of(None, None, Some(" ")), Key::None);
+    }
+
+    #[test]
+    fn a_key_may_come_from_the_windows_credential_manager() {
+        let mut value = raw();
+        value["models"][2]["api_key_omapass"] = Value::Null;
+        value["models"][2]["api_key_credential"] = json!("openrouter");
+        let config = Config::from_value(value.clone()).unwrap();
+        assert_eq!(config.models[2].key(), Key::Credential("openrouter"));
+        assert_eq!(Config::from_value(config.to_value()).unwrap(), config);
+        let written = toml::to_string(&config.to_raw()).unwrap();
+        assert!(
+            written.contains("api_key_credential = \"openrouter\""),
+            "{written}"
+        );
+        value["models"][2]["api_key_omapass"] = json!("openrouter");
+        assert!(error_of(value.clone()).contains("one of api_key_env"));
+        value["models"][2]["api_key_omapass"] = Value::Null;
+        value["models"][2]["api_key_credential"] = json!("open router");
+        assert!(error_of(value).contains("api_key_credential is a word"));
     }
 
     #[test]

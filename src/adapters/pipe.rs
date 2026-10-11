@@ -75,13 +75,9 @@ fn samples(bytes: &[u8]) -> Frame {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::adapters::hook_shell::shell;
+    #[cfg(unix)]
     use crate::ports::FRAME_SAMPLES;
-
-    fn shell(script: &str) -> Command {
-        let mut command = Command::new("sh");
-        command.args(["-c", script]);
-        command
-    }
 
     #[test]
     fn samples_are_little_endian() {
@@ -91,6 +87,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn pads_the_last_frame_and_ends_with_the_output() {
         let frames: Vec<_> = frames(shell("head -c 1500 /dev/zero | tr '\\0' '\\1'"))
@@ -105,11 +102,19 @@ mod tests {
 
     #[tokio::test]
     async fn a_failing_process_ends_with_its_last_error_line() {
-        let frames: Vec<_> = frames(shell("echo noise >&2; echo 'bad input' >&2; exit 3"))
-            .collect()
-            .await;
+        #[cfg(unix)]
+        let (script, expected) = (
+            "echo noise >&2; echo 'bad input' >&2; exit 3",
+            "sh: bad input",
+        );
+        #[cfg(windows)]
+        let (script, expected) = (
+            ">&2 echo noise& >&2 echo bad input& exit /b 3",
+            "cmd: bad input",
+        );
+        let frames: Vec<_> = frames(shell(script)).collect().await;
         assert!(
-            matches!(frames.as_slice(), [Err(error)] if error.0 == "sh: bad input"),
+            matches!(frames.as_slice(), [Err(error)] if error.0 == expected),
             "{frames:?}"
         );
     }

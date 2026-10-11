@@ -18,6 +18,8 @@ ColumnLayout {
   required property var colors
   // How the user's microphone is kept apart from the others ({echo_cancel, drop_echoes}).
   required property var audio
+  // The error code that says why echo cancellation cannot run here, or "".
+  property string echoCancelError: ""
   // Messages by field path ("participants.<index>"), as the settings window shows them.
   property var errors: ({})
 
@@ -285,7 +287,8 @@ ColumnLayout {
           }
           Label {
             Layout.fillWidth: true
-            text: I18n.t("audio." + option.modelData[0] + "_tip")
+            text: option.modelData[0] === "echo_cancel" && page.echoCancelError
+              ? I18n.t("error." + page.echoCancelError) : I18n.t("audio." + option.modelData[0] + "_tip")
             color: Theme.dim
             font.pixelSize: 10
             wrapMode: Text.Wrap

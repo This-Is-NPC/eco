@@ -16,8 +16,8 @@ use tokio::sync::{OnceCell, Semaphore, mpsc, watch};
 use tokio::task::{JoinHandle, JoinSet};
 
 use crate::adapters::audio_file::WavFileSource;
-use crate::adapters::audio_pipewire::PipeWire;
-use crate::adapters::control_socket::{Clients, ControlSocket, Greeting};
+use crate::adapters::control_socket::{Address, Clients, ControlSocket, Greeting};
+use crate::adapters::credentials::{self, CredentialError};
 use crate::adapters::diarizer_process;
 use crate::adapters::hook_shell::ShellHooks;
 use crate::adapters::http::Endpoint;
@@ -32,11 +32,10 @@ use crate::adapters::stt_openai::OpenAITranscriber;
 use crate::adapters::terminal::terminal;
 use crate::adapters::vad_silero::{SileroModel, SileroVad};
 use crate::adapters::webvtt;
-use crate::adapters::window_hyprland::HyprlandWindows;
 use crate::config::{self, Config, ConfigError, Key, ModelConfig, ModelType};
 use crate::domain::assistant::{Assistant, ContextSlot, Emit, Model, Reviewer, Setup, Translating};
 use crate::domain::channel::{
-    Captured, CapturedStream, Listeners, Transcriber, Trouble, Utterance, capture_channel,
+    Captured, CapturedStream, Listeners, Reopen, Transcriber, Trouble, Utterance, capture_channel,
     monitor_channel, transcribe,
 };
 use crate::domain::diarization::Diarization;
@@ -47,9 +46,74 @@ use crate::domain::transcribers::{Listening, Transcribers};
 use crate::import;
 use crate::paths;
 use crate::ports::{
-    AudioDevices, AudioError, AudioSource, Device, LanguageModel, PeopleStore, SessionLog,
-    SpeechToText, StreamingSpeechToText, TranscriptionBilling,
+    AudioDevices, AudioError, AudioSource, Device, EchoError, LanguageModel, PeopleStore,
+    SessionLog, SpeechToText, StreamingSpeechToText, TranscriptionBilling, WindowControl,
 };
+
+// The platform's audio: Linux's, or Windows' (docs/design.md §15).
+#[cfg(unix)]
+use crate::adapters::audio_pipewire::PipeWire as PlatformAudio;
+#[cfg(windows)]
+use crate::adapters::audio_wasapi::Wasapi as PlatformAudio;
+
+/// The platform's window control (docs/design.md §15): Hyprland's on Linux.
+#[cfg(unix)]
+fn window_control(_: &Emit) -> Arc<dyn WindowControl> {
+    Arc::new(crate::adapters::window_hyprland::HyprlandWindows::default())
+}
+
+/// The platform's window control (docs/design.md §15): on Windows the windows'
+/// own, told through `emit`.
+#[cfg(windows)]
+fn window_control(emit: &Emit) -> Arc<dyn WindowControl> {
+    Arc::new(crate::adapters::window_host::HostWindows::new(Arc::clone(
+        emit,
+    )))
+}
+
+/// The global shortcuts (docs/design.md §15): on Linux Hyprland binds the keys,
+/// so the daemon registers none.
+#[cfg(unix)]
+fn shortcuts(_: &Config, _: &Path, _: &mpsc::UnboundedSender<String>) -> Vec<Value> {
+    Vec::new()
+}
+
+/// The global shortcuts (docs/design.md §15): on Windows the daemon registers
+/// them, each pressed one handing `lines` what `eco window` would send; an
+/// error for each the system refused, naming the config at `config_path` where
+/// others are chosen, written to the log too.
+#[cfg(windows)]
+fn shortcuts(
+    config: &Config,
+    config_path: &Path,
+    lines: &mpsc::UnboundedSender<String>,
+) -> Vec<Value> {
+    let bindings = crate::shortcuts::bindings(config.shortcuts.as_ref())
+        .expect("a valid config has valid shortcuts");
+    crate::adapters::shortcuts_windows::register(bindings, lines.clone())
+        .iter()
+        .map(|refused| {
+            let error = shortcut_refused(&refused.written, config_path);
+            eprintln!("eco: {}", error["message"].as_str().unwrap_or_default());
+            error
+        })
+        .collect()
+}
+
+/// The error a shortcut on `keys` the system refused makes: the keys are taken,
+/// and others go under `[shortcuts]` in the config at `config_path`, which may
+/// not exist yet.
+#[cfg(windows)]
+fn shortcut_refused(keys: &str, config_path: &Path) -> Value {
+    let path = config_path.display();
+    error(
+        "shortcut.unavailable",
+        format!(
+            "{keys} is taken by another program; choose other keys under [shortcuts] in {path} (create the file if it is missing), then run eco restart"
+        ),
+        json!({"keys": keys, "path": path.to_string()}),
+    )
+}
 
 /// The longest the assistant's model may send nothing before the request fails.
 const LLM_SILENCE: Duration = Duration::from_secs(120);
@@ -63,6 +127,9 @@ pub struct Input {
     pub user: bool,
     pub color: Option<String>,
     pub source: Box<dyn AudioSource>,
+    /// A device, opened again while it fails, for it may appear later; a file
+    /// replayed ends its capture with its failure.
+    pub reopens: bool,
     /// The same microphone with the others' audio cancelled, used while a session
     /// records when echo cancellation is on.
     pub cancelled: Option<Box<dyn AudioSource>>,
@@ -90,6 +157,7 @@ pub fn inputs(
             user: false,
             color: None,
             source: Box::new(WavFileSource::new(replay.into(), true)),
+            reopens: false,
             cancelled: None,
         }];
     }
@@ -111,6 +179,7 @@ pub fn inputs(
                         user: participant.user,
                         color: config.colors.get(&device.id).cloned(),
                         source: audio.capture(device),
+                        reopens: true,
                         cancelled,
                     });
                 }
@@ -141,19 +210,107 @@ pub enum Stt {
     Stream(Box<dyn StreamingSpeechToText>),
 }
 
-/// A provider's key from where its section says: a variable, or omapass.
-async fn api_key(key: Key<'_>) -> Result<Option<String>, String> {
+/// Why a provider could not be built: what to say, and, when its key is a
+/// credential the Windows Credential Manager does not hold, that credential's
+/// name, so the window says how to add it.
+#[derive(Debug, Clone, PartialEq)]
+struct Unbuilt {
+    detail: String,
+    credential: Option<String>,
+}
+
+impl From<String> for Unbuilt {
+    fn from(detail: String) -> Self {
+        Self {
+            detail,
+            credential: None,
+        }
+    }
+}
+
+impl From<&str> for Unbuilt {
+    fn from(detail: &str) -> Self {
+        detail.to_string().into()
+    }
+}
+
+impl std::fmt::Display for Unbuilt {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.detail)
+    }
+}
+
+impl Unbuilt {
+    /// The error the transcription model `name` that could not be built is
+    /// told by; a missing credential is named, so the window says how to add it.
+    fn stt_unavailable(&self, name: &str) -> Value {
+        let message = format!("transcription: {self}");
+        match &self.credential {
+            Some(credential) => error(
+                "stt.credential_missing",
+                message,
+                json!({"name": name, "credential": credential}),
+            ),
+            None => error(
+                "stt.unavailable",
+                message,
+                json!({"name": name, "detail": self.detail}),
+            ),
+        }
+    }
+
+    /// The `models` event for `target` when the models could not be listed.
+    fn unlisted(self, target: Value) -> Value {
+        let mut event =
+            json!({"type": "models", "target": target, "models": [], "error": self.detail});
+        if let Some(credential) = self.credential {
+            let missing = error(
+                "models.credential_missing",
+                self.detail,
+                json!({"credential": credential}),
+            );
+            event["code"] = missing["code"].clone();
+            event["params"] = missing["params"].clone();
+        }
+        event
+    }
+
+    /// The error the chat model `name` that could not be built is told by.
+    fn model_unavailable(&self, name: &str) -> Value {
+        let message = format!("model {name}: {self}");
+        match &self.credential {
+            Some(credential) => error(
+                "model.credential_missing",
+                message,
+                json!({"name": name, "credential": credential}),
+            ),
+            None => error(
+                "model.unavailable",
+                message,
+                json!({"name": name, "detail": self.detail}),
+            ),
+        }
+    }
+}
+
+/// A provider's key from where its section says: a variable, omapass, or the
+/// Windows Credential Manager.
+async fn api_key(key: Key<'_>) -> Result<Option<String>, Unbuilt> {
     match key {
         Key::None => Ok(None),
-        Key::Env(name) => config::env_key(name).map(Some).map_err(|e| e.0),
-        Key::Omapass(account) => omapass::secret(account).await.map(Some),
+        Key::Env(name) => Ok(config::env_key(name).map(Some).map_err(|e| e.0)?),
+        Key::Omapass(account) => Ok(omapass::secret(account).await.map(Some)?),
+        Key::Credential(name) => credentials::read(name).map(Some).map_err(|e| Unbuilt {
+            detail: e.to_string(),
+            credential: matches!(e, CredentialError::Missing(_)).then(|| name.to_string()),
+        }),
     }
 }
 
 impl Stt {
     /// The transcriber for live audio, or for a `file` — Deepgram streams only
     /// as fast as the audio plays, so a file goes to it segment by segment.
-    async fn build(stt: &ModelConfig, language: &str, file: bool) -> Result<Self, String> {
+    async fn build(stt: &ModelConfig, language: &str, file: bool) -> Result<Self, Unbuilt> {
         let key = api_key(stt.key()).await?;
         let base = stt.base_url.trim_end_matches('/');
         if !(base.starts_with("ws://") || base.starts_with("wss://")) {
@@ -174,7 +331,7 @@ impl Stt {
             let scribe = ElevenLabsTranscriber::new(base, &stt.model, language, key);
             return Ok(Self::Stream(Box::new(scribe)));
         }
-        Err(format!("no streaming transcription known at {base}"))
+        Err(format!("no streaming transcription known at {base}").into())
     }
 
     fn transcriber(&self) -> Transcriber<'_> {
@@ -198,7 +355,7 @@ async fn billing(stt: &ModelConfig) -> Option<Arc<dyn TranscriptionBilling>> {
 
 /// A transcription model in one language, built the first time it is needed —
 /// or why it could not be had.
-type Ready = Arc<OnceCell<Result<Stt, String>>>;
+type Ready = Arc<OnceCell<Result<Stt, Unbuilt>>>;
 
 /// Every transcription model in every language asked for so far: each built
 /// once, for the pipeline's life.
@@ -215,14 +372,33 @@ impl Built {
 /// The registered transcription models, by name.
 type Models = Arc<HashMap<String, ModelConfig>>;
 
+/// What a session that needs a model is told while the config names none.
+const NO_TRANSCRIPTION_MODEL: &str = "no transcription model is chosen";
+const NO_CHAT_MODEL: &str = "no chat model is chosen";
+
 /// The model `listening` names, built in its language.
-async fn build(models: &Models, listening: &Listening) -> Result<Stt, String> {
+async fn build(models: &Models, listening: &Listening) -> Result<Stt, Unbuilt> {
     let name = &listening.model;
+    if name.is_empty() {
+        return Err(NO_TRANSCRIPTION_MODEL.into());
+    }
     let stt = match models.get(name) {
         Some(model) => Stt::build(model, &listening.language, false).await,
         None => Err("not a registered transcription model".into()),
     };
-    stt.map_err(|reason| format!("{name}: {reason}"))
+    stt.map_err(|why| Unbuilt {
+        detail: format!("{name}: {}", why.detail),
+        ..why
+    })
+}
+
+/// Tells the sessions an input is heard again when dropped: its capture stopped.
+struct HeardAgain<'a>(&'a Assistant, &'a str);
+
+impl Drop for HeardAgain<'_> {
+    fn drop(&mut self) {
+        self.0.input_heard(self.1, true);
+    }
 }
 
 struct Channels {
@@ -255,12 +431,8 @@ fn transcriber(
         let _stopped = outages.until_stopped(&who);
         let built = cell.get_or_init(|| async {
             let built = build(&models, &from).await;
-            if let Err(reason) = &built {
-                emit(error(
-                    "stt.unavailable",
-                    format!("transcription: {reason}"),
-                    json!({"detail": reason}),
-                ));
+            if let Err(why) = &built {
+                emit(why.stt_unavailable(&from.model));
             }
             built
         });
@@ -325,7 +497,15 @@ impl Work for Channels {
             let echo = match microphone.filter(|_| recording) {
                 Some(mic) => match audio.cancel_echo(&mic).await {
                     Ok(module) => Some(module),
-                    Err(failure) => {
+                    Err(unavailable @ EchoError::Unavailable) => {
+                        emit(error(
+                            "echo_cancel.unavailable",
+                            unavailable.to_string(),
+                            Value::Null,
+                        ));
+                        None
+                    }
+                    Err(EchoError::Failed(failure)) => {
                         let detail = failure.0;
                         emit(error(
                             "echo_cancel.failed",
@@ -338,7 +518,7 @@ impl Work for Channels {
                 None => None,
             };
             let cancelling = echo.is_some();
-            let (emit, assistant, vad) = (&*emit, &*assistant, &*vad);
+            let (emit, assistant, vad, outages) = (&*emit, &*assistant, &*vad, &*outages);
             // Each input is captured once, into the hub its transcribers read.
             let mut hub = Hub::default();
             let captures: Vec<Capture> = inputs.iter().map(|i| hub.input(&i.id)).collect();
@@ -376,10 +556,24 @@ impl Work for Channels {
                     let signal = move |level: f64, speech: bool| {
                         emit(json!({"type": "signal", "input": id, "level": level, "speech": speech}));
                     };
+                    // A device that fails is told down and opened again; the
+                    // other inputs keep capturing meanwhile.
+                    let who = input.participant.as_str();
+                    let _stopped = outages.until_stopped(who);
+                    // The sessions count the inputs heard; one that stops is heard again.
+                    let _heard = HeardAgain(assistant, &input.id);
+                    // A source is told only unheard, or back.
+                    let trouble = |trouble: Trouble| {
+                        let back = !matches!(trouble, Trouble::Unheard(_));
+                        assistant.input_heard(&input.id, back);
+                        emit(outages.note(who, &trouble));
+                    };
+                    let reopen: Reopen = input.reopens.then_some(&trouble);
                     // Outside a session the audio is only measured, never segmented.
                     if !recording {
                         let threshold = SegmenterConfig::default().threshold;
-                        return monitor_channel(source, &mut probability, &signal, threshold).await;
+                        return monitor_channel(source, reopen, &mut probability, &signal, threshold)
+                            .await;
                     }
                     let regions = voices.as_ref().map(|voices| voices.regions.clone());
                     // The capture goes with this closure, so its readers end when the source does.
@@ -392,7 +586,8 @@ impl Work for Channels {
                         capture.send(captured);
                     };
                     let config = SegmenterConfig::default();
-                    capture_channel(source, &mut probability, &signal, config, &captured).await
+                    capture_channel(source, reopen, &mut probability, &signal, config, &captured)
+                        .await
                 },
             );
             let mut captured = std::pin::pin!(try_join_all(channels));
@@ -586,11 +781,18 @@ async fn pipeline(config: Config, assistant: Assistant, emit: Emit, rig: Rig) {
         error(code, format!("{part}: {reason}"), json!({"detail": reason}))
     };
     // Each kind transcribes with its own model or the default, built in the
-    // configured language now, so a missing key is told with the setup.
+    // configured language now, so a missing key is told with the setup; a
+    // kind with neither has an empty name, and its sessions are told.
     let kind_transcribers: HashMap<String, String> = config
         .kinds
         .iter()
-        .map(|kind| (kind.clone(), config.transcriber(kind).name.clone()))
+        .map(|kind| {
+            let model = config.transcriber(kind);
+            (
+                kind.clone(),
+                model.map_or_else(String::new, |m| m.name.clone()),
+            )
+        })
         .collect();
     let transcription_models: HashMap<String, ModelConfig> = config
         .models
@@ -603,6 +805,7 @@ async fn pipeline(config: Config, assistant: Assistant, emit: Emit, rig: Rig) {
     let defaults: BTreeSet<&String> = kind_transcribers
         .values()
         .chain([&config.stt.model])
+        .filter(|name| !name.is_empty())
         .collect();
     for name in defaults {
         let listening = Listening {
@@ -611,8 +814,8 @@ async fn pipeline(config: Config, assistant: Assistant, emit: Emit, rig: Rig) {
         };
         let cell = built.cell(&listening);
         let ready = cell.get_or_init(|| build(&transcription_models, &listening));
-        if let Err(reason) = ready.await {
-            problems.push(unavailable("stt.unavailable", "transcription", reason));
+        if let Err(why) = ready.await {
+            problems.push(why.stt_unavailable(name));
         }
     }
     let mut transcription_billing = HashMap::new();
@@ -632,9 +835,10 @@ async fn pipeline(config: Config, assistant: Assistant, emit: Emit, rig: Rig) {
             config
                 .kinds
                 .iter()
-                .map(|kind| &config.translator(kind).name),
+                .filter_map(|kind| config.translator(kind))
+                .map(|model| &model.name),
         )
-        .chain([&config.translator("").name]);
+        .chain(config.translator("").map(|model| &model.name));
     let mut models: HashMap<String, Model> = HashMap::new();
     for name in used {
         let Some(registered) = config.model(name).filter(|_| !models.contains_key(name)) else {
@@ -642,14 +846,9 @@ async fn pipeline(config: Config, assistant: Assistant, emit: Emit, rig: Rig) {
         };
         let llm: Arc<dyn LanguageModel> = match chat_model(registered).await {
             Ok(chat) => Arc::new(chat),
-            Err(reason) => {
-                let message = format!("model {name}: {reason}");
-                problems.push(error(
-                    "model.unavailable",
-                    message,
-                    json!({"name": name, "detail": reason}),
-                ));
-                Arc::new(Unavailable(reason))
+            Err(why) => {
+                problems.push(why.model_unavailable(name));
+                Arc::new(Unavailable(why.detail))
             }
         };
         let id = registered.model.clone();
@@ -659,13 +858,19 @@ async fn pipeline(config: Config, assistant: Assistant, emit: Emit, rig: Rig) {
             registered.model,
             registered.api_key_env,
             registered.api_key_omapass,
+            registered.api_key_credential,
             registered.request_fields()
         ]);
         let settings = settings.to_string();
         models.insert(name.clone(), Model { llm, id, settings });
     }
-    // A valid config names a registered assistant model, so it was built.
-    let model = models[&config.llm.model].clone();
+    // A model the config names was built; without one, asking is told so.
+    let none = || Model {
+        llm: Arc::new(Unavailable(NO_CHAT_MODEL.into())),
+        id: String::new(),
+        settings: String::new(),
+    };
+    let model = models.get(&config.llm.model).cloned().unwrap_or_else(none);
     let kind_models: HashMap<String, Model> = config
         .kinds
         .iter()
@@ -719,12 +924,19 @@ async fn pipeline(config: Config, assistant: Assistant, emit: Emit, rig: Rig) {
         })
         .collect();
     let translation = Translating {
-        model: models[&config.translator("").name].clone(),
+        model: config
+            .translator("")
+            .and_then(|translator| models.get(&translator.name))
+            .cloned()
+            .unwrap_or_else(none),
         kind_models: config
             .kinds
             .iter()
             .filter(|kind| config.models.iter().any(|m| m.translates.contains(kind)))
-            .map(|kind| (kind.clone(), models[&config.translator(kind).name].clone()))
+            .filter_map(|kind| {
+                let translator = models.get(&config.translator(kind)?.name)?;
+                Some((kind.clone(), translator.clone()))
+            })
             .collect(),
     };
     let setup = Arc::new(Setup {
@@ -790,7 +1002,7 @@ async fn pipeline(config: Config, assistant: Assistant, emit: Emit, rig: Rig) {
 
 /// A registered chat model, with its key; why not, when it cannot be had. A
 /// local one may read a long context for minutes before its first word.
-async fn chat_model(model: &ModelConfig) -> Result<OpenAIChat, String> {
+async fn chat_model(model: &ModelConfig) -> Result<OpenAIChat, Unbuilt> {
     let key = api_key(model.key()).await?;
     let endpoint = Endpoint::new(&model.base_url, key, LLM_SILENCE).map_err(|e| e.0)?;
     Ok(OpenAIChat::new(endpoint, model.request_fields()))
@@ -820,6 +1032,12 @@ fn window_shows(payload: &str) -> Option<(u32, String)> {
     let number = u32::try_from(request.get("window")?.as_u64()?).ok()?;
     let session = request.get("session")?.as_str()?.to_string();
     Some((number, session))
+}
+
+/// `window.closed {"window"}`: the overlay window `window` is closing.
+fn window_closed(payload: &str) -> Option<u32> {
+    let request = serde_json::from_str::<Value>(payload).ok()?;
+    u32::try_from(request.get("window")?.as_u64()?).ok()
 }
 
 /// `window.call {"call", "path"}`: what a shortcut asks of an overlay window —
@@ -880,8 +1098,12 @@ trait Overlay: Send {
     fn focus(&self, number: u32) -> BoxFuture<'_, io::Result<()>>;
     /// Note the session the window `number` shows now, or none when empty.
     fn shows(&mut self, number: u32, session: &str);
+    /// The window `number` said it closes: it is no longer open.
+    fn closed(&mut self, number: u32);
     /// Leave every window out of screen sharing, or show them in it again.
     fn hide_from_share(&mut self, hidden: bool) -> BoxFuture<'_, ()>;
+    /// Run the tray icon, which is no window, or end it.
+    fn tray(&mut self, on: bool) -> BoxFuture<'_, ()>;
     /// Resolves when a window exits; never, without one.
     fn exited(&mut self) -> BoxFuture<'_, Option<ExitStatus>>;
     /// Terminate every window and wait for them to exit.
@@ -917,8 +1139,16 @@ impl Overlay for overlay::Windows {
         overlay::Windows::shows(self, number, session);
     }
 
+    fn closed(&mut self, number: u32) {
+        overlay::Windows::closed(self, number);
+    }
+
     fn hide_from_share(&mut self, hidden: bool) -> BoxFuture<'_, ()> {
         Box::pin(overlay::Windows::hide_from_share(self, hidden))
+    }
+
+    fn tray(&mut self, on: bool) -> BoxFuture<'_, ()> {
+        Box::pin(overlay::Windows::tray(self, on))
     }
 
     fn exited(&mut self) -> BoxFuture<'_, Option<ExitStatus>> {
@@ -1010,16 +1240,18 @@ fn config_change(current: &Config, token: &str, payload: &str) -> ConfigChange {
             })
         })
         .map(|model| {
-            let (env, omapass) = match model.key() {
-                Key::None => (None, None),
-                Key::Env(name) => (Some(name), None),
-                Key::Omapass(account) => (None, Some(account)),
+            let (env, omapass, credential) = match model.key() {
+                Key::None => (None, None, None),
+                Key::Env(name) => (Some(name), None, None),
+                Key::Omapass(account) => (None, Some(account), None),
+                Key::Credential(name) => (None, None, Some(name)),
             };
             json!({
                 "name": model.name,
                 "base_url": model.base_url,
                 "api_key_env": env,
                 "api_key_omapass": omapass,
+                "api_key_credential": credential,
             })
         })
         .collect();
@@ -1086,23 +1318,29 @@ impl Pending {
 }
 
 /// What a client that connects is told first: the daemon, the snapshot, the
-/// sources whose transcription is down, and the change held for the user, if any.
+/// sources whose transcription is down, the change held for the user, if any,
+/// and what the windows' `control` tells them.
 fn greeting(
     assistant: Assistant,
     overlay_open: Arc<AtomicBool>,
     outages: Outages,
     pending: Arc<Mutex<Pending>>,
+    control: Arc<dyn WindowControl>,
+    refused: Vec<Value>,
 ) -> Greeting {
     Arc::new(move || {
         let mut events = vec![json!({
             "type": "daemon",
             "version": env!("CARGO_PKG_VERSION"),
             "pid": std::process::id(),
+            "exe": std::env::current_exe().ok().map(|exe| exe.to_string_lossy().into_owned()),
             "overlay": overlay_open.load(Ordering::Relaxed),
         })];
         events.extend(assistant.snapshot());
         events.extend(outages.events());
         events.extend(pending.lock().expect("not poisoned").event());
+        events.extend(control.greeting());
+        events.extend(refused.iter().cloned());
         events
     })
 }
@@ -1131,12 +1369,14 @@ struct Session {
 
 impl Session {
     /// Serve the lines `received` until `stop` arrives or `shutdown` resolves,
-    /// then stop capture, the import and the windows.
+    /// then stop capture, the import, the windows and the tray icon, which
+    /// runs meanwhile while the config asks for it.
     async fn serve(
         mut self,
         mut received: mpsc::UnboundedReceiver<String>,
         shutdown: impl Future<Output = ()>,
     ) {
+        self.windows.tray(self.current.tray).await;
         let mut shutdown = std::pin::pin!(shutdown);
         loop {
             tokio::select! {
@@ -1163,9 +1403,8 @@ impl Session {
     /// Handle one line from the socket: the windows' own, or a command; false
     /// once the daemon should stop.
     async fn handle(&mut self, line: &str) -> bool {
-        // Opening the app again opens another window.
         if line.trim() == "overlay.open" {
-            self.open_window(None).await;
+            self.open_app().await;
         } else if let ("window.call", Some(payload)) = split(line)
             && let Some(call) = window_call(payload)
         {
@@ -1189,12 +1428,35 @@ impl Session {
                     self.assistant.focus(&shows);
                 }
             }
+        } else if let ("window.closed", Some(payload)) = split(line) {
+            if let Some(number) = window_closed(payload) {
+                self.windows.closed(number);
+                self.overlay_open
+                    .store(self.windows.is_open(), Ordering::Relaxed);
+            }
         } else if !self.command(line).await {
             return false;
         }
         let hidden = self.current.hide_from_share;
         self.windows.hide_from_share(hidden).await;
+        self.windows.tray(self.current.tray).await;
         true
+    }
+
+    /// Opening the app: a window on a live session no window shows, else the
+    /// open window brought forward, else a window.
+    async fn open_app(&mut self) {
+        let shown = self.windows.shown();
+        let unshown = self.assistant.live().iter().any(|id| !shown.contains(id));
+        match self.windows.newest().filter(|_| !unshown) {
+            Some(number) => {
+                if let Err(error) = self.windows.focus(number).await {
+                    eprintln!("eco: {error}");
+                }
+                (self.emit)(json!({"type": "overlay_status", "open": true, "raised": true}));
+            }
+            None => self.open_window(None).await,
+        }
     }
 
     /// Open another overlay window that shows a live session no window shows,
@@ -1414,7 +1676,9 @@ impl Session {
                 .to_string_lossy()
                 .into_owned()
         });
-        let stt_config = config.transcriber(&kind).clone();
+        let Some(stt_config) = config.transcriber(&kind).cloned() else {
+            return (self.emit)(failed(NO_TRANSCRIPTION_MODEL.into()));
+        };
         let request = import::Request {
             path,
             title,
@@ -1441,7 +1705,7 @@ impl Session {
                     // The requests the file was transcribed under are priced once it is in.
                     assistant.price_unpaid();
                 }
-                Err(e) => emit(failed(e)),
+                Err(e) => emit(failed(e.detail)),
             }
         }));
     }
@@ -1456,10 +1720,13 @@ impl Session {
             ("config", None) => {
                 let config = self.current.to_value();
                 let listed = self.rig.audio.list();
+                // Why echo cancellation cannot run here, as the code a session would say.
+                let echo_cancel =
+                    (!self.rig.audio.cancels_echo()).then_some("echo_cancel.unavailable");
                 self.background.spawn(async move {
                     let devices = serde_json::to_value(listed.await).unwrap_or_default();
                     let omapass = json!({"installed": omapass::installed(), "page": omapass::PAGE});
-                    emit(json!({"type": "config", "config": config, "devices": devices, "omapass": omapass, "presets": presets()}));
+                    emit(json!({"type": "config", "config": config, "devices": devices, "omapass": omapass, "credential_manager": credentials::AVAILABLE, "presets": presets(), "echo_cancel": echo_cancel}));
                 });
             }
             ("devices", None) => {
@@ -1899,7 +2166,11 @@ async fn models(payload: &str, saved: &[ModelConfig]) -> Value {
     let request: Value = serde_json::from_str(payload).unwrap_or_default();
     let target = request.get("target").cloned().unwrap_or(json!(""));
     let field = |key: &str| request.get(key).and_then(Value::as_str);
-    let key = Key::of(field("api_key_env"), field("api_key_omapass"));
+    let key = Key::of(
+        field("api_key_env"),
+        field("api_key_omapass"),
+        field("api_key_credential"),
+    );
     let base_url = field("base_url").unwrap_or_default();
     if !key_allowed(key, base_url, saved) {
         let refused = error(
@@ -1922,16 +2193,14 @@ async fn models(payload: &str, saved: &[ModelConfig]) -> Value {
         }
         let key = api_key(key).await?;
         if base_url.contains("deepgram.com") {
-            return stt_deepgram::models(base_url, key).await;
+            return Ok(stt_deepgram::models(base_url, key).await?);
         }
         let endpoint = Endpoint::new(base_url, key, Duration::from_secs(10)).map_err(|e| e.0)?;
-        list_models(&endpoint).await
+        Ok::<_, Unbuilt>(list_models(&endpoint).await?)
     };
     match found.await {
         Ok(models) => json!({"type": "models", "target": target, "models": models}),
-        Err(failure) => {
-            json!({"type": "models", "target": target, "models": [], "error": failure})
-        }
+        Err(why) => why.unlisted(target),
     }
 }
 
@@ -1982,19 +2251,26 @@ pub async fn run(
     let overlay_open = Arc::new(AtomicBool::new(false));
     let pending: Arc<Mutex<Pending>> = Arc::default();
     let outages = Outages::default();
+    let control = window_control(&emit);
+    let refused = shortcuts(&current, config_path, &commands);
     let greeting = greeting(
         assistant.clone(),
         Arc::clone(&overlay_open),
         outages.clone(),
         Arc::clone(&pending),
+        Arc::clone(&control),
+        refused,
     );
-    let _control = ControlSocket::bind(&paths::socket_path(), clients, greeting, commands).await?;
     let token = uuid::Uuid::new_v4().simple().to_string();
+    let address = Address::user();
+    let _control =
+        ControlSocket::bind(&address, token.clone(), clients, greeting, commands).await?;
     let mut windows = overlay::Windows::new(
+        address.socket,
         token.clone(),
-        Arc::new(HyprlandWindows::default()),
+        control,
         current.hide_from_share,
-    )?;
+    );
     if !headless {
         windows.open(None, None).await?;
         overlay_open.store(true, Ordering::Relaxed);
@@ -2012,7 +2288,7 @@ pub async fn run(
         pending,
         rig: Rig {
             replay,
-            audio: Arc::new(PipeWire),
+            audio: Arc::new(PlatformAudio),
             vad,
             diarizer,
             outages,
@@ -2028,15 +2304,37 @@ pub async fn run(
         overlay_open,
     };
     session.restart().await;
-    let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
-    let signalled = async move {
+    session.serve(received, stop_signal()?).await;
+    Ok(())
+}
+
+/// Resolves when the daemon is asked to stop: Ctrl-C or SIGTERM.
+#[cfg(unix)]
+fn stop_signal() -> io::Result<impl Future<Output = ()>> {
+    use tokio::signal::unix::{SignalKind, signal};
+    let mut terminate = signal(SignalKind::terminate())?;
+    Ok(async move {
         tokio::select! {
             _ = tokio::signal::ctrl_c() => {}
             _ = terminate.recv() => {}
         }
-    };
-    session.serve(received, signalled).await;
-    Ok(())
+    })
+}
+
+/// Resolves when the daemon is asked to stop: Ctrl-C or Ctrl-Break, its
+/// console closing, or Windows shutting down.
+#[cfg(windows)]
+fn stop_signal() -> io::Result<impl Future<Output = ()>> {
+    use tokio::signal::windows::{ctrl_break, ctrl_close, ctrl_shutdown};
+    let (mut cancel, mut close, mut shutdown) = (ctrl_break()?, ctrl_close()?, ctrl_shutdown()?);
+    Ok(async move {
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {}
+            _ = cancel.recv() => {}
+            _ = close.recv() => {}
+            _ = shutdown.recv() => {}
+        }
+    })
 }
 
 #[cfg(test)]
@@ -2049,6 +2347,7 @@ mod tests {
     use super::*;
     use crate::adapters::http;
     use crate::adapters::session_files::SessionFiles;
+    use crate::adapters::window_host::HostWindows;
     use crate::ports::{EchoCancelling, FRAME_SAMPLES, Frame, Heard, TranscriptionError};
 
     fn raw() -> Value {
@@ -2177,18 +2476,33 @@ mod tests {
 
     /// Three devices; logs every capture it builds and each echo cancellation.
     /// Its sources hear the speech fixture when `speech`, and end at once
-    /// otherwise; cancelling the echo fails when `echo_fails`.
+    /// otherwise; the device `unopened` never opens; cancelling the echo fails
+    /// when `echo_fails`, and the platform has none when `echo_unavailable`.
     #[derive(Default)]
     struct FakeAudio {
         captured: Mutex<Vec<String>>,
         speech: bool,
+        unopened: Option<&'static str>,
         echo_fails: bool,
+        echo_unavailable: bool,
     }
 
     impl FakeAudio {
         fn source(&self, name: String) -> Box<dyn AudioSource> {
+            if self.unopened == Some(name.as_str()) {
+                return Box::new(Unopened);
+            }
             self.captured.lock().unwrap().push(name);
             Box::new(Clip(if self.speech { speech() } else { Vec::new() }))
+        }
+    }
+
+    /// A device that fails each time it is opened.
+    struct Unopened;
+
+    impl AudioSource for Unopened {
+        fn frames(&mut self) -> stream::BoxStream<'_, Result<Frame, AudioError>> {
+            stream::iter([Err(AudioError("not connected".into()))]).boxed()
         }
     }
 
@@ -2210,12 +2524,19 @@ mod tests {
             self.source("cancelled".into())
         }
 
-        fn cancel_echo(&self, mic: &str) -> BoxFuture<'static, Result<EchoCancelling, AudioError>> {
+        fn cancels_echo(&self) -> bool {
+            !self.echo_unavailable
+        }
+
+        fn cancel_echo(&self, mic: &str) -> BoxFuture<'static, Result<EchoCancelling, EchoError>> {
             self.captured.lock().unwrap().push(format!("echo {mic}"));
-            let fails = self.echo_fails;
+            let (fails, unavailable) = (self.echo_fails, self.echo_unavailable);
             async move {
+                if unavailable {
+                    return Err(EchoError::Unavailable);
+                }
                 match fails {
-                    true => Err(AudioError("no echo-cancel module".into())),
+                    true => Err(AudioError("no echo-cancel module".into()).into()),
                     false => Ok(Box::new(()) as EchoCancelling),
                 }
             }
@@ -2567,7 +2888,7 @@ mod tests {
             "api_key_env": "OPENROUTER_API_KEY",
         }));
         let event = held(config_change(&current, "secret", &added.to_string()));
-        let x = json!({"name": "x", "base_url": "http://attacker", "api_key_env": "OPENROUTER_API_KEY", "api_key_omapass": null});
+        let x = json!({"name": "x", "base_url": "http://attacker", "api_key_env": "OPENROUTER_API_KEY", "api_key_omapass": null, "api_key_credential": null});
         assert_eq!(event["models"], json!([x]));
         let mut moved = raw();
         moved["models"][1]["base_url"] = json!("http://attacker");
@@ -2577,6 +2898,11 @@ mod tests {
         keyed["models"][1]["api_key_omapass"] = json!("openrouter");
         let event = held(config_change(&current, "secret", &keyed.to_string()));
         assert_eq!(event["models"][0]["api_key_omapass"], "openrouter");
+        let mut credential = raw();
+        credential["models"][1]["api_key_env"] = Value::Null;
+        credential["models"][1]["api_key_credential"] = json!("openrouter");
+        let event = held(config_change(&current, "secret", &credential.to_string()));
+        assert_eq!(event["models"][0]["api_key_credential"], "openrouter");
         // The provider's id for a known model is the user's to change from anywhere.
         let mut renamed = raw();
         renamed["models"][1]["model"] = json!("other");
@@ -2714,6 +3040,11 @@ mod tests {
         (capture, running)
     }
 
+    /// Window control through events, which tells nobody.
+    fn windows_told() -> Arc<HostWindows> {
+        Arc::new(HostWindows::new(Arc::new(|_| {})))
+    }
+
     fn told(greeting: &Greeting) -> Vec<Value> {
         let events = greeting();
         events
@@ -2733,6 +3064,8 @@ mod tests {
             Arc::default(),
             outages.clone(),
             Arc::default(),
+            windows_told(),
+            Vec::new(),
         );
         let down = Arc::new(AtomicBool::new(true));
         let stt = Stt::Stream(Box::new(Flaky(Arc::clone(&down))));
@@ -2763,9 +3096,12 @@ mod tests {
             Arc::default(),
             outages.clone(),
             Arc::default(),
+            windows_told(),
+            Vec::new(),
         );
         let stt = Stt::Stream(Box::new(Flaky(Arc::new(AtomicBool::new(true)))));
-        let (_capture, running) = transcribing(stt, &assistant, &emit, &outages);
+        let (capture, running) = transcribing(stt, &assistant, &emit, &outages);
+        capture.send(Captured::Frame(0, vec![0; FRAME_SAMPLES]));
         until(&events, |event| event["state"] == "down").await;
         assert_eq!(told(&greeting).len(), 1);
         stop(Some(running)).await;
@@ -2788,6 +3124,7 @@ mod tests {
         asked: Vec<String>,
         refuse: bool,
         hidden: Option<bool>,
+        tray: Option<bool>,
     }
 
     /// Windows on a `Desk`; one exits for each status sent to `exits`.
@@ -2851,8 +3188,19 @@ mod tests {
             }
         }
 
+        fn closed(&mut self, number: u32) {
+            let mut desk = self.desk.lock().unwrap();
+            desk.asked.push(format!("closed {number}"));
+            desk.open.retain(|(open, _)| *open != number);
+        }
+
         fn hide_from_share(&mut self, hidden: bool) -> BoxFuture<'_, ()> {
             self.desk.lock().unwrap().hidden = Some(hidden);
+            Box::pin(async {})
+        }
+
+        fn tray(&mut self, on: bool) -> BoxFuture<'_, ()> {
+            self.desk.lock().unwrap().tray = Some(on);
             Box::pin(async {})
         }
 
@@ -3375,6 +3723,8 @@ mod tests {
         assert_eq!(config["devices"][2]["id"], "usb-mic");
         assert_eq!(config["presets"], presets());
         assert_eq!(config["omapass"]["page"], omapass::PAGE);
+        assert_eq!(config["credential_manager"], cfg!(windows));
+        assert_eq!(config["echo_cancel"], Value::Null);
         d.line("devices").await;
         let devices = d.until(|event| event["type"] == "devices").await;
         assert_eq!(devices["devices"], config["devices"]);
@@ -3416,6 +3766,42 @@ mod tests {
         // The windows follow the config, and capture runs on it.
         assert_eq!(d.desk.lock().unwrap().hidden, Some(true));
         d.until(|event| event["type"] == "snapshot").await;
+    }
+
+    #[tokio::test]
+    async fn the_tray_follows_the_config_at_once() {
+        let mut d = daemon(raw());
+        let tray = |d: &Daemon| d.desk.lock().unwrap().tray;
+        d.line("sessions").await;
+        assert_eq!(tray(&d), Some(false));
+        let mut saved = raw();
+        saved["ui"] = json!({"tray": true});
+        saved["token"] = json!("secret");
+        assert_eq!(
+            said(&d.line(&format!("config.set {saved}")).await),
+            ["config_saved"]
+        );
+        assert_eq!(tray(&d), Some(true));
+        // The tray is not a window: opening the app still opens one.
+        d.line("overlay.open").await;
+        assert_eq!(d.asked(), ["open  "]);
+        saved["ui"] = json!({"tray": false});
+        assert_eq!(
+            said(&d.line(&format!("config.set {saved}")).await),
+            ["config_saved"]
+        );
+        assert_eq!(tray(&d), Some(false));
+    }
+
+    #[tokio::test]
+    async fn a_config_without_models_is_saved() {
+        let mut d = daemon(raw());
+        let fresh = json!({"ui": {"hide_from_share": true}, "token": "secret"});
+        let events = d.line(&format!("config.set {fresh}")).await;
+        assert_eq!(said(&events), ["config_saved"]);
+        let written = config::load(&d.session.config_path).unwrap();
+        assert!(written.models.is_empty());
+        assert!(written.hide_from_share);
     }
 
     #[tokio::test]
@@ -3571,19 +3957,53 @@ mod tests {
         let mut d = daemon(raw());
         let first = d.start("Retro").await;
         let second = d.start("1:1").await;
-        for _ in 0..3 {
+        for _ in 0..2 {
             let events = d.line("overlay.open").await;
             assert_eq!(events, [json!({"type": "overlay_status", "open": true})]);
         }
         assert_eq!(
             d.asked(),
-            [
-                format!("open {second} "),
-                format!("open {first} "),
-                "open  ".into()
-            ]
+            [format!("open {second} "), format!("open {first} ")]
         );
         assert!(d.session.overlay_open.load(Ordering::Relaxed));
+    }
+
+    #[tokio::test]
+    async fn opening_the_app_again_brings_the_open_window_forward() {
+        let mut d = daemon(raw());
+        d.line("overlay.open").await;
+        let events = d.line("overlay.open").await;
+        assert_eq!(
+            events,
+            [json!({"type": "overlay_status", "open": true, "raised": true})]
+        );
+        assert_eq!(d.asked(), ["open  ", "focus 1"]);
+        // A window that cannot take the keyboard is still open.
+        d.desk.lock().unwrap().refuse = true;
+        let events = d.line("overlay.open").await;
+        assert_eq!(
+            events,
+            [json!({"type": "overlay_status", "open": true, "raised": true})]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_window_that_says_it_closed_is_no_longer_open() {
+        let mut d = daemon(raw());
+        d.line("overlay.open").await;
+        assert!(d.line("window.closed 1").await.is_empty());
+        assert!(d.session.overlay_open.load(Ordering::Relaxed));
+        assert!(d.line(r#"window.closed {"window": 1}"#).await.is_empty());
+        assert!(!d.session.overlay_open.load(Ordering::Relaxed));
+        // Opening the app again opens a window instead of raising the closed one.
+        let events = d.line("overlay.open").await;
+        assert_eq!(events, [json!({"type": "overlay_status", "open": true})]);
+        assert_eq!(d.asked(), ["open  ", "closed 1", "open  "]);
+    }
+
+    #[tokio::test]
+    async fn a_window_that_fails_to_open_says_why() {
+        let mut d = daemon(raw());
         d.desk.lock().unwrap().refuse = true;
         let events = d.line("overlay.open").await;
         assert_eq!(
@@ -3646,22 +4066,80 @@ mod tests {
         assert_ne!(first, second);
     }
 
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_terminate_signal_stops_the_daemon() {
+        use rustix::process::{Signal, getpid, kill_process};
+        let stopped = stop_signal().unwrap();
+        kill_process(getpid(), Signal::TERM).unwrap();
+        tokio::time::timeout(Duration::from_secs(5), stopped)
+            .await
+            .unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn on_linux_the_daemon_registers_no_shortcut() {
+        let (lines, _) = mpsc::unbounded_channel();
+        let config = Config::from_value(raw()).unwrap();
+        assert_eq!(
+            shortcuts(&config, Path::new("config.toml"), &lines),
+            [] as [Value; 0]
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_refused_shortcut_is_a_coded_error_naming_its_keys() {
+        let refused = shortcut_refused("Win+Alt+A", Path::new(r"C:\eco\config.toml"));
+        assert_eq!(refused["code"], "shortcut.unavailable");
+        assert_eq!(
+            refused["params"],
+            json!({"keys": "Win+Alt+A", "path": r"C:\eco\config.toml"})
+        );
+        let message = refused["message"].as_str().unwrap();
+        assert!(
+            message
+                .contains(r"[shortcuts] in C:\eco\config.toml (create the file if it is missing)"),
+            "{message}"
+        );
+    }
+
     #[tokio::test]
     async fn the_daemon_greets_a_client_with_what_it_needs_first() {
         let d = daemon(raw());
         d.session.overlay_open.store(true, Ordering::Relaxed);
+        let windows = windows_told();
         let greeting = greeting(
             d.session.assistant.clone(),
             Arc::clone(&d.session.overlay_open),
             Outages::default(),
             Arc::clone(&d.session.pending),
+            windows.clone(),
+            vec![json!({"type": "error", "code": "shortcut.unavailable"})],
         );
         let events = greeting();
-        assert_eq!(said(&events), ["daemon", "snapshot"]);
+        assert_eq!(
+            said(&events),
+            ["daemon", "snapshot", "shortcut.unavailable"]
+        );
         assert_eq!(events[0]["overlay"], true);
         assert_eq!(events[0]["version"], env!("CARGO_PKG_VERSION"));
+        let exe = std::env::current_exe().unwrap();
+        assert_eq!(events[0]["exe"], *exe.to_string_lossy());
         let held = hold(&mut d.session.pending.lock().unwrap(), "notify-send done");
         assert_eq!(greeting()[2], held);
+        windows.focus(42).await.unwrap();
+        assert_eq!(
+            said(&greeting()),
+            [
+                "daemon",
+                "snapshot",
+                "config_pending",
+                "window_focus",
+                "shortcut.unavailable"
+            ]
+        );
     }
 
     #[tokio::test]
@@ -3679,13 +4157,26 @@ mod tests {
         let opened = || open.load(Ordering::Relaxed);
         eventually(opened).await;
         // A window that exits is no longer open.
-        exits
-            .send(std::os::unix::process::ExitStatusExt::from_raw(256))
-            .unwrap();
+        #[cfg(unix)]
+        let failed = std::os::unix::process::ExitStatusExt::from_raw(256);
+        #[cfg(windows)]
+        let failed = std::os::windows::process::ExitStatusExt::from_raw(1);
+        exits.send(failed).unwrap();
         eventually(|| !opened()).await;
         lines.send("stop".into()).unwrap();
         served.await.unwrap();
         assert_eq!(desk.lock().unwrap().asked, ["open  ", "close"]);
+    }
+
+    #[tokio::test]
+    async fn the_daemon_runs_the_tray_the_config_asks_for_from_the_start() {
+        let mut with_tray = raw();
+        with_tray["ui"] = json!({"tray": true});
+        let d = daemon(with_tray);
+        let (_lines, received) = mpsc::unbounded_channel();
+        d.session.serve(received, async {}).await;
+        assert_eq!(d.desk.lock().unwrap().tray, Some(true));
+        assert_eq!(d.desk.lock().unwrap().asked, ["close"]);
     }
 
     #[tokio::test]
@@ -3762,10 +4253,10 @@ mod tests {
                 "base_url": base_url, "model": "x", "api_key_env": key}))
             .unwrap()
         };
-        let built = |stt: Result<Stt, String>| match stt {
+        let built = |stt: Result<Stt, Unbuilt>| match stt {
             Ok(Stt::Segments(_)) => "segments".to_string(),
             Ok(Stt::Stream(_)) => "stream".to_string(),
-            Err(reason) => reason,
+            Err(why) => why.detail,
         };
         let deepgram = model("wss://api.deepgram.com/v1/listen", None);
         let cases = [
@@ -3842,6 +4333,50 @@ mod tests {
         let id = d.start("Retro").await;
         let events = d.line(&format!("session.show {id}")).await;
         assert_eq!(said(&events), ["session_detail"]);
+    }
+
+    #[tokio::test]
+    async fn without_a_config_file_the_daemon_runs_empty_and_a_save_writes_it() {
+        let mut d = daemon(json!({"participants": raw()["participants"]}));
+        assert!(!d.session.config_path.exists());
+        let snapshot = d.configured().await;
+        assert_eq!(snapshot["actions"], json!([]));
+        assert_eq!(
+            snapshot["kind_models"]["meeting"],
+            json!({"transcription": "", "chat": ""})
+        );
+        // Nothing is wrong yet: no part names a model it cannot have.
+        let problems = d.events.lock().unwrap().clone();
+        assert!(
+            !problems
+                .iter()
+                .any(|event| event["code"] == "stt.unavailable"
+                    || event["code"] == "model.unavailable"),
+            "{problems:?}"
+        );
+        // What needs a model says that none is chosen.
+        d.start("Retro").await;
+        let unheard = d.until(|event| event["code"] == "stt.unavailable").await;
+        assert_eq!(unheard["params"]["detail"], NO_TRANSCRIPTION_MODEL);
+        d.line("ask which queue?").await;
+        let unanswered = d.until(|event| event["code"] == "completion.failed").await;
+        assert_eq!(unanswered["params"]["detail"], NO_CHAT_MODEL);
+        let path = d.dir.path().join("call.wav");
+        std::fs::write(&path, b"RIFF").unwrap();
+        let events = d
+            .line(&format!("session.import {}", json!({"path": path})))
+            .await;
+        assert_eq!(said(&events), ["import.failed"]);
+        assert_eq!(events[0]["params"]["detail"], NO_TRANSCRIPTION_MODEL);
+        // The first save writes the file.
+        let mut saved = raw();
+        saved["token"] = json!("secret");
+        let events = d.line(&format!("config.set {saved}")).await;
+        assert_eq!(said(&events), ["config_saved"]);
+        assert_eq!(
+            config::load(&d.session.config_path).unwrap(),
+            d.session.current
+        );
     }
 
     #[tokio::test]
@@ -3972,6 +4507,45 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_device_that_cannot_open_is_told_down_and_the_others_are_transcribed() {
+        let reply = (200, None, br#"{"text": "bom dia"}"#.to_vec());
+        let (base, _) = http::testing::serve(vec![reply; 8]).await;
+        let mut raw = raw();
+        raw["models"][0]["base_url"] = json!(base);
+        let audio = Arc::new(FakeAudio {
+            speech: true,
+            unopened: Some("@default-input"),
+            ..FakeAudio::default()
+        });
+        let mut d = daemon_on(raw, audio, no_diarizer());
+        d.start("Retro").await;
+        d.configured().await;
+        let down = d.until(|event| event["type"] == "transcription").await;
+        assert_eq!(
+            down,
+            json!({"type": "transcription", "who": "Eu", "state": "down",
+                   "code": "capture.down", "detail": "not connected"})
+        );
+        let line = d.until(|event| event["type"] == "transcript").await;
+        assert_eq!(
+            (&line["who"], &line["text"]),
+            (&json!("Recrutador"), &json!("bom dia"))
+        );
+        // The session counts only the input heard.
+        let shown = d.session.assistant.snapshot()[0]["session"]["id"].clone();
+        let records = d.session.log.read(shown.as_str().unwrap()).unwrap();
+        let counted = records.iter().rfind(|r| r["type"] == "transcriber");
+        assert_eq!(counted.unwrap()["inputs"], 1);
+        let stopped = d
+            .events
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|e| e["code"] == "capture.stopped");
+        assert!(!stopped);
+    }
+
+    #[tokio::test]
     async fn a_microphone_whose_echo_cannot_be_cancelled_is_heard_as_it_is() {
         let mut raw = raw();
         raw["audio"] = json!({"echo_cancel": true});
@@ -3984,6 +4558,31 @@ mod tests {
         d.configured().await;
         let failed = d.until(|event| event["code"] == "echo_cancel.failed").await;
         assert_eq!(failed["params"]["detail"], "no echo-cancel module");
+    }
+
+    #[tokio::test]
+    async fn a_platform_without_echo_cancellation_says_so() {
+        let mut raw = raw();
+        raw["audio"] = json!({"echo_cancel": true});
+        let audio = Arc::new(FakeAudio {
+            echo_unavailable: true,
+            ..FakeAudio::default()
+        });
+        let mut d = daemon_on(raw, audio, no_diarizer());
+        // The settings are told before any session starts.
+        d.line("config").await;
+        let config = d.until(|event| event["type"] == "config").await;
+        assert_eq!(config["echo_cancel"], "echo_cancel.unavailable");
+        d.start("Retro").await;
+        d.configured().await;
+        let unavailable = d
+            .until(|event| event["code"] == "echo_cancel.unavailable")
+            .await;
+        assert_eq!(
+            unavailable["message"],
+            "echo cancellation is not available on this system"
+        );
+        assert_eq!(unavailable["params"], json!({}));
     }
 
     /// Hears `words` in every clip, billed under the request "r1".
@@ -4151,9 +4750,100 @@ mod tests {
             [error(
                 "stt.unavailable",
                 format!("transcription: {reason}"),
-                json!({"detail": reason})
+                json!({"name": "gone", "detail": reason})
             )]
         );
+    }
+
+    #[test]
+    fn a_missing_credential_is_told_with_its_name_and_other_failures_with_their_detail() {
+        let missing = Unbuilt {
+            detail: "deepgram: no key".into(),
+            credential: Some("dg".into()),
+        };
+        assert_eq!(
+            missing.stt_unavailable("deepgram"),
+            error(
+                "stt.credential_missing",
+                "transcription: deepgram: no key",
+                json!({"name": "deepgram", "credential": "dg"})
+            )
+        );
+        assert_eq!(
+            missing.model_unavailable("m"),
+            error(
+                "model.credential_missing",
+                "model m: deepgram: no key",
+                json!({"name": "m", "credential": "dg"})
+            )
+        );
+        assert_eq!(
+            missing.clone().unlisted(json!("llm")),
+            json!({"type": "models", "target": "llm", "models": [], "error": "deepgram: no key",
+                "code": "models.credential_missing", "params": {"credential": "dg"}})
+        );
+        let other = Unbuilt::from("GROQ_API_KEY is not set");
+        assert_eq!(
+            other.model_unavailable("m"),
+            error(
+                "model.unavailable",
+                "model m: GROQ_API_KEY is not set",
+                json!({"name": "m", "detail": "GROQ_API_KEY is not set"})
+            )
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn on_linux_a_credential_key_says_to_use_omapass() {
+        let why = api_key(Key::Credential("deepgram")).await.unwrap_err();
+        assert_eq!(why.detail, CredentialError::Unavailable.to_string());
+        assert_eq!(why.credential, None);
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn listing_with_a_missing_credential_names_it() {
+        if credentials::testing::no_store() {
+            return;
+        }
+        let name = format!("test-list-{}", uuid::Uuid::new_v4().simple());
+        let saved: ModelConfig = serde_json::from_value(json!({"name": "t", "type": "chat",
+            "base_url": "http://lan:9000/v1", "model": "x", "api_key_credential": name}))
+        .unwrap();
+        let payload =
+            json!({"target": "llm", "base_url": "http://lan:9000/v1", "api_key_credential": name});
+        let answer = models(&payload.to_string(), &[saved]).await;
+        assert_eq!(answer["code"], "models.credential_missing");
+        assert_eq!(answer["params"], json!({"credential": name}));
+        assert_eq!(answer["models"], json!([]));
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn a_credential_key_is_read_when_its_provider_is_built() {
+        if credentials::testing::no_store() {
+            return;
+        }
+        use keyring_core::api::CredentialStoreApi;
+        let name = format!("test-build-{}", uuid::Uuid::new_v4().simple());
+        let model: ModelConfig =
+            serde_json::from_value(json!({"name": "t", "type": "transcription",
+            "base_url": "http://lan:9000/v1", "model": "x", "api_key_credential": name}))
+            .unwrap();
+        let missing = Stt::build(&model, "pt", false).await.err().unwrap();
+        assert_eq!(missing.credential.as_deref(), Some(name.as_str()));
+        let target = format!("eco:{name}");
+        let modifiers = std::collections::HashMap::from([("target", target.as_str())]);
+        let entry = windows_native_keyring_store::Store::new()
+            .and_then(|store| store.build("eco", &name, Some(&modifiers)))
+            .unwrap();
+        entry.set_password("sk-build").unwrap();
+        let key = api_key(model.key()).await;
+        let built = Stt::build(&model, "pt", false).await;
+        entry.delete_credential().unwrap();
+        assert_eq!(key, Ok(Some("sk-build".into())));
+        assert!(matches!(built, Ok(Stt::Segments(_))));
     }
 
     /// A source that never ends.
@@ -4176,6 +4866,7 @@ mod tests {
             user: true,
             color: None,
             source: Box::new(Endless),
+            reopens: true,
             cancelled: None,
         };
         let mut channels = Channels {

@@ -4,8 +4,8 @@
 -- Each key runs the eco CLI, which hands the request to the running daemon. Those
 -- that open a view go to the newest eco window, the daemon opening one when none
 -- is, and give it the keyboard, so typing goes to eco and not to the app that had it.
-o.bind("SUPER + ALT + 1", "eco: ask", "eco window action ask")
-o.bind("SUPER + ALT + 2", "eco: probe", "eco window action probe")
+o.bind("SUPER + ALT + A", "eco: ask", "eco window action ask")
+o.bind("SUPER + ALT + Q", "eco: probe", "eco window action probe")
 o.bind("SUPER + ALT + C", "eco: configuração", "eco window config")
 o.bind("SUPER + ALT + N", "eco: nova nota", "eco window new")
 o.bind("SUPER + ALT + P", "eco: pausar/retomar", "eco window toggle")
@@ -28,7 +28,7 @@ o.window({ class = "^eco$", title = "^eco$" }, {
 -- The config window floats; pinned like the overlay, so it opens above it. It
 -- keeps the size it asks for, which fits its screen, and centres on the screen
 -- rather than on the overlay.
-o.window({ class = "^eco$", title = "^eco · configuração$" }, {
+o.window({ class = "^eco$", title = "^eco · settings$" }, {
   tag = "-default-opacity",
   opacity = "1 1",
   float = true,

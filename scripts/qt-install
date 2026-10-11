@@ -1,0 +1,29 @@
+#!/usr/bin/env python3
+"""Install the Qt that eco-window builds and runs with on Windows: Qt `QT` for
+MSVC 2022, 64-bit, its base and declarative modules (everything the overlay
+imports), into .qt/<QT>/msvc2022_64 in the checkout, through aqt, which mise
+pins. Removes any other version there. Idempotent: a Qt already installed is
+left alone. On Linux it does nothing: eco-window builds with the system's Qt."""
+
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+QT = "6.11.2"
+ARCH = "win64_msvc2022_64"
+
+if sys.platform != "win32":
+    sys.exit(0)
+
+root = Path(os.environ.get("MISE_PROJECT_ROOT") or Path(__file__).resolve().parents[1])
+cache = root / ".qt"
+if (cache / QT / "msvc2022_64" / "bin" / "qmltestrunner.exe").is_file():
+    sys.exit(0)
+if cache.exists():
+    shutil.rmtree(cache)
+subprocess.run(
+    ["aqt", "install-qt", "windows", "desktop", QT, ARCH, "--outputdir", str(cache), "--archives", "qtbase", "qtdeclarative"],
+    check=True,
+)

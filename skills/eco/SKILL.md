@@ -21,7 +21,7 @@ Every command prints one JSON object: `{"ok": true, "data": …}`, or
 `{"ok": false, "code": "…", "message": "…"}` with exit status 1. Check `ok`.
 Codes: `argument.invalid`, `daemon.offline`, `daemon.access_denied`, `daemon.unavailable`,
 `session.not_found`, `session.invalid`, `session.delete_failed`, `action.unknown`,
-`completion.failed`, `suggestion.removed`, `import.busy`, `import.failed`,
+`completion.failed`, `suggestion.removed`, `import.busy`, `import.failed`, `import.no_ffmpeg` (install ffmpeg and ffprobe),
 `person.not_found`, `person.invalid`, `person.exists`, `people.failed`,
 `line.not_found`.
 
@@ -156,7 +156,9 @@ transcribed (`--no-wait` returns once it starts). One import runs at a time.
 
 `eco window` does what the user's global shortcuts do, on their screen; use it
 only when the user asks to see something there. It returns `data: null` once
-sent, and the window shows the rest.
+the daemon has read it, and the window shows the rest. A daemon left running
+by an upgrade, of another version or executable, is restarted first, as
+`eco start` does; stderr says `eco: restarted the daemon <old> → <new>`.
 
 ```bash
 eco window focus                 # bring the eco window to the front (opens one if none is)
@@ -229,6 +231,10 @@ does not change WebVTT or audio import names, and can be run again safely.
 - `ask`, `action`, `rename`, `tag` (except `tag list`), `import`, `speaker`, `assign`, `delete`, `participant` and `people` change the
   user's sessions and people: run them when the user asked for that, not to
   explore. `delete` and `people forget` cannot be undone.
+- `eco key set <name>` and `eco key remove <name>` (Windows only) store and
+  delete a provider's key in the Windows Credential Manager. They print plain
+  `eco: …` lines, not JSON. Never run them: a key is the user's to type, and
+  an agent must not read, pass or remove one.
 - Live recording is the user's: the CLI cannot start, pause or end it. Several
   sessions may be `recording` at once (a call and a class, say); each holds only
   what was said while it recorded.

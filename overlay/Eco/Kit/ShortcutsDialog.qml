@@ -26,7 +26,7 @@ ModalDialog {
       ["SUPER+ALT+C", "keys.settings"],
       ["SUPER+ALT+P", "keys.pause"],
       ["SUPER+ALT+E", "keys.focus_eco"],
-      ["SUPER+ALT+1 · 2", "keys.actions"]
+      ["SUPER+ALT+A · Q", "keys.actions"]
     ]],
     ["keys.start", [
       ["N", "keys.new_session"],

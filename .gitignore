@@ -7,3 +7,5 @@ benchmark/runs.js
 .temp/
 __pycache__/
 .claude/worktrees/
+.qt/
+dist/

@@ -8,8 +8,9 @@ import Eco.Kit
 // OpenAI-compatible endpoint, or for `stt` a streaming one by its wss:// URL — in
 // three steps: which provider (a preset, or a custom base URL), which model
 // (typed, or picked from the list the provider offers, which LIST opens and
-// closes), and where its key comes from (an environment variable or an omapass
-// password).
+// closes), and where its key comes from (an environment variable, an omapass
+// password, or on Windows a credential of the Credential Manager, which this
+// window names and never reads).
 ColumnLayout {
   id: frame
 
@@ -55,10 +56,10 @@ ColumnLayout {
           checked: !frame.custom && frame.section.base_url === modelData.values.base_url
           onClicked: {
             frame.customChosen = false
-            // A key taken from omapass stays there; otherwise the preset names its variable.
-            const fromOmapass = frame.section.api_key_omapass !== undefined
+            // A key taken from omapass or a credential stays there; otherwise the preset names its variable.
+            const kept = frame.section.api_key_omapass !== undefined || frame.section.api_key_credential !== undefined
             for (const key in modelData.values)
-              if (!(fromOmapass && key === "api_key_env"))
+              if (!(kept && key === "api_key_env"))
                 frame.edited(key, modelData.values[key])
             Eco.clearModels(frame.target)
           }
@@ -183,8 +184,10 @@ ColumnLayout {
     id: key
     Layout.fillWidth: true
     spacing: 6
-    // "omapass" while the key is an omapass password; a variable otherwise.
-    readonly property string source: frame.section.api_key_omapass !== undefined ? "omapass" : "env"
+    // "credential" while the key is a Credential Manager credential, "omapass"
+    // while it is an omapass password; a variable otherwise.
+    readonly property string source: frame.section.api_key_credential !== undefined ? "credential"
+      : frame.section.api_key_omapass !== undefined ? "omapass" : "env"
     Caption { text: I18n.t("provider.key_from") }
     Flow {
       Layout.fillWidth: true
@@ -193,9 +196,25 @@ ColumnLayout {
         text: I18n.t("provider.key_env")
         checked: key.source === "env"
         dim: !checked
-        onClicked: frame.edited("api_key_omapass", null)
+        onClicked: {
+          frame.edited("api_key_omapass", null)
+          frame.edited("api_key_credential", null)
+        }
       }
       Chip {
+        visible: Eco.credentialManager
+        text: I18n.t("provider.key_credential")
+        checked: key.source === "credential"
+        dim: !checked
+        tip: I18n.t("provider.key_credential_tip")
+        onClicked: {
+          frame.edited("api_key_env", null)
+          frame.edited("api_key_omapass", null)
+          frame.edited("api_key_credential", frame.section.api_key_credential || "")
+        }
+      }
+      Chip {
+        visible: !Eco.credentialManager
         text: I18n.t("provider.key_omapass")
         checked: key.source === "omapass"
         dim: !checked
@@ -203,12 +222,13 @@ ColumnLayout {
         reason: !Eco.omapassInstalled && !checked ? I18n.t("provider.omapass_missing") : ""
         onClicked: {
           frame.edited("api_key_env", null)
+          frame.edited("api_key_credential", null)
           frame.edited("api_key_omapass", frame.section.api_key_omapass || "")
           Eco.requestOmapass()
         }
       }
       IconButton {
-        visible: !Eco.omapassInstalled && Eco.omapassPage !== ""
+        visible: !Eco.credentialManager && !Eco.omapassInstalled && Eco.omapassPage !== ""
         name: "info"
         tip: I18n.t("provider.omapass_install")
         onClicked: Qt.openUrlExternally(Eco.omapassPage)
@@ -221,6 +241,22 @@ ColumnLayout {
       value: frame.section.api_key_env || ""
       placeholderText: I18n.t("provider.key_placeholder")
       onTextEdited: frame.edited("api_key_env", text)
+    }
+    SyncedBox {
+      Layout.fillWidth: true
+      visible: key.source === "credential"
+      dense: true
+      value: frame.section.api_key_credential || ""
+      placeholderText: I18n.t("provider.credential_placeholder")
+      onTextEdited: frame.edited("api_key_credential", text)
+    }
+    Label {
+      Layout.fillWidth: true
+      visible: key.source === "credential" && (frame.section.api_key_credential || "") !== ""
+      text: I18n.t("provider.credential_how", { name: frame.section.api_key_credential })
+      color: Theme.dim
+      font.pixelSize: 10
+      wrapMode: Text.Wrap
     }
     Label {
       Layout.fillWidth: true

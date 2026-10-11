@@ -47,6 +47,17 @@ impl Device {
 /// Echo cancellation running on one microphone; dropping it stops it.
 pub type EchoCancelling = Box<dyn Send>;
 
+/// Why echo cancellation is not running.
+#[derive(Debug, thiserror::Error)]
+pub enum EchoError {
+    /// The platform has none to offer: Windows' audio.
+    #[cfg_attr(unix, allow(dead_code))]
+    #[error("echo cancellation is not available on this system")]
+    Unavailable,
+    #[error(transparent)]
+    Failed(#[from] AudioError),
+}
+
 /// The platform's audio: the devices eco can listen to, and capture from each.
 pub trait AudioDevices: Send + Sync {
     /// Every device, the system defaults first.
@@ -56,8 +67,10 @@ pub trait AudioDevices: Send + Sync {
     /// The microphone `cancel_echo` runs on, with what the default output plays
     /// taken out; it hears only while that cancellation runs.
     fn capture_cancelled(&self) -> Box<dyn AudioSource>;
+    /// Whether `cancel_echo` can run here; when not, it fails with `Unavailable`.
+    fn cancels_echo(&self) -> bool;
     /// Start cancelling, on `mic` (a device id), what the default output plays.
-    fn cancel_echo(&self, mic: &str) -> BoxFuture<'static, Result<EchoCancelling, AudioError>>;
+    fn cancel_echo(&self, mic: &str) -> BoxFuture<'static, Result<EchoCancelling, EchoError>>;
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -236,13 +249,16 @@ pub trait Hooks: Send + Sync {
 pub trait ServiceManager: Send + Sync {
     /// Start the service, with the graphical session it has to reach.
     fn start(&self) -> BoxFuture<'_, anyhow::Result<()>>;
+    /// What the daemons it started at or after `since` wrote, read when one
+    /// did not come up; `None` when there is nothing to read.
+    fn output(&self, since: std::time::SystemTime) -> BoxFuture<'_, Option<String>>;
 }
 
-/// Loads eco's window rules and shortcuts into the desktop's own config.
+/// Ties eco into the user's desktop: what `eco setup` sets up there.
 pub trait DesktopIntegration {
-    /// What was done; `Err` is a warning: the desktop config could not be
-    /// read or written, so the rules are not loaded.
-    fn load_rules(&self) -> Result<String, String>;
+    /// What was done, if anything is worth saying; `Err` is a warning: the
+    /// desktop config could not be read or written, so eco is not tied in.
+    fn integrate(&self) -> Result<Option<String>, String>;
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -262,4 +278,9 @@ pub trait WindowControl: Send + Sync {
         pids: Vec<u32>,
         hidden: bool,
     ) -> BoxFuture<'static, Result<(), WindowError>>;
+    /// What a client that connects is told of the windows: nothing, unless
+    /// the windows are controlled through events they read on the socket.
+    fn greeting(&self) -> Vec<Value> {
+        Vec::new()
+    }
 }

@@ -41,7 +41,7 @@ eco sessions --search "Cost check" | jq -c '.data[0] | {id,title,cost}'
 | `llm_usd` | answers, reviews and translations, as their provider reported them |
 | `transcription_usd` | transcription, as the provider reported it, or at the price you gave |
 | `total_usd` | the two added up |
-| `transcribed_s` | seconds of audio each transcription model heard — once per input, as every input streams on its own |
+| `transcribed_s` | seconds of audio each transcription model heard — once per input heard, as every input streams on its own; an input whose device cannot be heard is not counted |
 | `llm_unknown`, `transcription_unknown` | `true` when part of that side is **left out** of the total |
 
 All amounts are US dollars. **An `_unknown` that is `true` means the number

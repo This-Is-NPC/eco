@@ -138,6 +138,7 @@ impl PeopleStore for PeopleFiles {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
     use crate::adapters::session_files::tests::mode;
 
     #[test]
@@ -160,10 +161,13 @@ mod tests {
 
         let file = directory.path().join(format!("people/{}.json", ana.id));
         assert!(file.exists());
-        assert_eq!(mode(&directory.path().join("people")), 0o700);
-        assert_eq!(mode(&directory.path().join("people/voices")), 0o700);
-        assert_eq!(mode(&file), 0o600);
-        assert_eq!(mode(&directory.path().join("people/voices/n1.json")), 0o600);
+        #[cfg(unix)]
+        {
+            assert_eq!(mode(&directory.path().join("people")), 0o700);
+            assert_eq!(mode(&directory.path().join("people/voices")), 0o700);
+            assert_eq!(mode(&file), 0o600);
+            assert_eq!(mode(&directory.path().join("people/voices/n1.json")), 0o600);
+        }
         store.forget(&ana.id).unwrap();
         assert!(!file.exists());
         assert_eq!(store.people(), [bruno]);

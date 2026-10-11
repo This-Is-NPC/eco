@@ -38,14 +38,21 @@ loads the Hyprland rules, and publishes the `eco` skill for agents. **Removing t
 config, the sessions, the people, the models and the agent skill** — removing
 the program is not a reason to lose a year of meetings.
 
+On Windows, download `eco-<version>-windows-x86_64.zip` (`<version>` stands
+for the release's version) from the [latest
+release](https://github.com/This-Is-NPC/eco/releases/latest), check it
+against the release's `SHA256SUMS`, unzip it and put its `bin` on your `PATH`
+([on Windows](docs/how-to-install-and-remove.md#on-windows)).
+
 Released under the MIT license. [How to install it, and how to take it off
 again](docs/how-to-install-and-remove.md) is the whole of it.
 
 ## Start here
 
-The daemon will not start without `~/.config/eco/config.toml`; the smallest one
-that starts is in [the install page](docs/how-to-install-and-remove.md#3-write-a-first-config),
-and from then on the settings window writes it for you. Then, in the window:
+There is no config to write by hand: without `~/.config/eco/config.toml` the
+daemon starts with an empty one, and the settings window writes the file at
+its first save ([the install page](docs/how-to-install-and-remove.md#3-register-the-models-in-the-window)).
+Then, in the window:
 
 1. `SUPER+ALT+C` opens the settings. **Audio** first: one audio source for you
    on the default microphone, marked THIS IS ME, and one for everybody else on
@@ -149,23 +156,24 @@ where they work:
   skills · `Alt+1…9` run the skill with that number
 - settings: `Ctrl+1…8` tab · `Ctrl+S` save · `Alt+↑` / `Alt+↓` move a skill ·
   `Esc` close
-- anywhere, through Hyprland: `SUPER+ALT+N` new session · `SUPER+ALT+H`
+- anywhere, through Hyprland, or eco itself on Windows with `Win` for
+  `SUPER`: `SUPER+ALT+N` new session · `SUPER+ALT+H`
   sessions · `SUPER+ALT+C` settings · `SUPER+ALT+P` pause or resume ·
-  `SUPER+ALT+E` bring eco to the front · `SUPER+ALT+1` / `2` the skills bound
+  `SUPER+ALT+E` bring eco to the front · `SUPER+ALT+A` / `Q` the skills bound
   there
 
 ![the keyboard shortcuts dialog over the sessions list](docs/img/37-shortcuts.png)
 
 The Hyprland keys run `eco window …` (listed in [the commands](docs/cli.md)),
-which hands one line to the running daemon; none of them starts a second
-daemon. Every screen the window draws is in
+which hands one line to the running daemon; on Windows the daemon registers
+the same keys and reads the same lines. None of them starts a second daemon. Every screen the window draws is in
 [the walk through it](docs/screens.md), in the order somebody meets them.
 
 ## What it does not do
 
 **It is not a bot that joins the meeting.** It hears what the laptop plays and
-what its microphone hears, and nothing else. Linux only — Omarchy, Hyprland,
-PipeWire; nothing special-cases macOS or Windows.
+what its microphone hears, and nothing else. It is released for Linux —
+Omarchy, Hyprland, PipeWire — and as a zip for Windows; not for macOS.
 
 **It does not answer on its own.** Every answer is asked for: a question, a
 skill, a key. An automatic trigger on a question heard is an open question in
@@ -181,10 +189,10 @@ again on the page where you meet it.
 
 - **The window shows in a shared screen, unless you hide it.** By default,
   sharing the whole screen in a call shows eco's answers. **Settings ›
-  Interface › HIDE FROM SCREEN SHARING** blacks out eco's windows in the
-  share. Hyprland's `no_screen_share` cannot tell a screen share from a
-  screenshot, so it blacks them out in your own screenshots and recordings too.
-  With it off, share a window, not the screen.
+  Interface › HIDE FROM SCREEN SHARING** hides eco's windows in the share:
+  black on Linux, left out on Windows. Neither system can tell a screen share
+  from a screenshot, so they are hidden in your own screenshots and recordings
+  too. With it off, share a window, not the screen.
 - **Transcription cost needs a Deepgram key that may read usage.** Deepgram
   tells a request's cost only to a key with the `usage:read` scope; without it
   the cost reads as unknown, and a price per minute on the model can stand in as
@@ -192,6 +200,24 @@ again on the page where you meet it.
 - **Some providers report no cost.** A transcription provider other than
   Deepgram, or an answer provider that sends token counts and no cost, leaves
   that part unknown; the total then says it is a floor.
+- **On Windows a window may still open behind the others.** Windows brings a
+  window to the front only for a program that has the foreground, and eco's
+  daemon runs in the background; eco's window works around it, but if Windows
+  refuses, the window flashes in the taskbar instead
+  ([how to install and remove eco](docs/how-to-install-and-remove.md#on-windows)).
+- **The Windows programs are not code-signed.** The first time one runs,
+  SmartScreen may say "Windows protected your PC": **More info › Run anyway**
+  ([on Windows](docs/how-to-install-and-remove.md#on-windows)).
+- **No echo cancellation on Windows.** Windows offers eco none: with ECHO
+  CANCELLATION on, a session says so and records the raw microphone
+  ([how to set up audio sources](docs/how-to-set-up-audio-sources.md)). DROP
+  ECHOES and headphones still work.
+- **No omapass on Windows.** Its keyring does not exist there; keep keys in
+  the Windows Credential Manager or give them as environment variables
+  ([on Windows](docs/how-to-install-and-remove.md#on-windows)).
+- **No Credential Manager over ssh.** An ssh login by key has no Windows
+  Credential Manager: `eco key` fails there, and a daemon started there cannot
+  read keys kept in it; run eco from the desktop.
 - **Sessions recorded before eco kept costs stay unknown.** Their logs hold no
   cost records, and nothing brings those costs back.
 
@@ -208,3 +234,5 @@ has the commands.
 - `wl-copy`, to copy an answer or a transcript
 - `ffmpeg` and `ffprobe`, only to import audio or video
 - a key for each paid provider you use, or a model server of your own
+- on Windows instead: 64-bit Windows (tested on Windows 11) and the
+  Microsoft Visual C++ Redistributable (x64); the zip carries its own Qt

@@ -160,6 +160,13 @@ transcribed; fix it in Settings › Models.` — usually a key that is not set.
 **An input went quiet.** The capsule shows a warning for it; its name is on the
 hint, and a click opens the audio settings.
 
+**A device cannot be heard.** Under the capsule, that source reads
+`Device not heard · opening it again`; why is on the hover — on a remote
+desktop with no microphone, the default microphone is `not connected`. The
+other sources keep recording and transcribing. eco opens the device again,
+waiting longer each time up to 30 s, and once it is heard the line reads
+`Transcription back`.
+
 **The transcription provider went down.** Under the capsule, that source reads
 `Transcription down · reconnecting`; the provider's reason is on the hover.
 Nothing to do: eco opens the connection again and keeps what is heard
@@ -176,10 +183,12 @@ by itself. Reopen it to go on.
 
 **The others see eco in a shared screen.** By default the window is not
 hidden from captures. Turn on **Settings › Interface › HIDE FROM SCREEN
-SHARING**, and eco's windows show black in the share, at once and in every
-window that opens later. Hyprland's `no_screen_share` cannot tell a screen
-share from a screenshot, so they show black in your own screenshots and
-recordings too. With it off, share a window in the call, not the whole screen.
+SHARING**, and eco's windows are hidden in the share, at once and in every
+window that opens later: on Linux they show black, on Windows they are left out
+of the picture. Neither Hyprland's `no_screen_share` nor Windows' capture
+exclusion can tell a screen share from a screenshot, so they are hidden in your
+own screenshots and recordings too. With it off, share a window in the call,
+not the whole screen.
 
 ---
 

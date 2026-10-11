@@ -1,5 +1,5 @@
-//! `eco setup`: download the pinned models and pick the desktop that loads
-//! eco's rules.
+//! `eco setup`: download the pinned models and pick what of the desktop eco
+//! is tied into.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -8,7 +8,10 @@ use anyhow::{Context, Result, bail};
 use reqwest::Client;
 use sha2::{Digest, Sha256};
 
+#[cfg(unix)]
 use crate::adapters::desktop_hyprland::Hyprland;
+#[cfg(windows)]
+use crate::adapters::desktop_windows::{OldLoginScript, StartMenu};
 use crate::adapters::http;
 use crate::config;
 use crate::paths;
@@ -87,9 +90,23 @@ async fn fetch(
     Ok(format!("saved {}", target.display()))
 }
 
-/// The desktop `eco setup` loads eco's rules into.
-pub fn desktop() -> impl DesktopIntegration {
-    Hyprland::new(paths::hypr_bindings(), paths::shipped("hypr/eco.lua"))
+/// What `eco setup` ties eco into: Hyprland, which loads eco's rules.
+#[cfg(unix)]
+pub fn desktop() -> Vec<Box<dyn DesktopIntegration>> {
+    vec![Box::new(Hyprland::new(
+        paths::hypr_bindings(),
+        paths::shipped("hypr/eco.lua"),
+    ))]
+}
+
+/// What `eco setup` ties eco into: Windows, which lists it in the Start menu
+/// and no longer starts it at login.
+#[cfg(windows)]
+pub fn desktop() -> Vec<Box<dyn DesktopIntegration>> {
+    vec![
+        Box::new(OldLoginScript::new(paths::startup_dir())),
+        Box::new(StartMenu::new(paths::start_menu_dir())),
+    ]
 }
 
 #[cfg(test)]

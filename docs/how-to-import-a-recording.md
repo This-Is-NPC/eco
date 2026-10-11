@@ -224,6 +224,15 @@ last week's call imports.
 {"ok":false,"code":"import.failed","message":"import: no file \"/home/you/recordings/missing.mp4\""}
 ```
 
+**ffmpeg is not installed.** Audio and video need `ffmpeg` and `ffprobe` on
+the `PATH` the daemon started with; a WebVTT transcript does not:
+
+```json
+{"ok":false,"code":"import.no_ffmpeg","message":"import: ffmpeg is not installed: importing audio or video needs ffmpeg and ffprobe"}
+```
+
+Install them, then `eco restart`.
+
 **The daemon stopped mid-import.** The session ends at the next start, with
 what was transcribed until then; the requests made until then are priced at
 that start.

@@ -15,7 +15,7 @@ license=('MIT')
 # usage: the shell completions call `usage complete-word` as they complete.
 depends=('glibc' 'libgcc' 'libstdc++' 'hyprland' 'pipewire' 'qt6-base' 'qt6-declarative' 'usage' 'wl-clipboard')
 optdepends=('ffmpeg: import audio or video recordings')
-makedepends=('cargo' 'cmake' 'git' 'ninja' 'usage')
+makedepends=('cargo' 'cmake' 'git' 'ninja' 'python' 'usage')
 options=('!lto' '!debug')
 
 _tree="${ECO_TREE:-$startdir/../..}"

@@ -106,6 +106,7 @@ def environment(home):
         QT_QPA_PLATFORMTHEME="",
         QT_FONT_DPI="96",
         ECO_WINDOW="1",
+        ECO_SOCKET=str(home / "run" / "eco.sock"),
         # The daemon builds every provider when it starts, so the config's key
         # variables must be set; nothing is sent with them.
         OPENROUTER_API_KEY="placeholder-never-sent",

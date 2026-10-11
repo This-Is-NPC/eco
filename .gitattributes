@@ -1,0 +1,3 @@
+# Text is checked out with LF on every platform: eco embeds files such as
+# its skill and compares them byte for byte.
+* text=auto eol=lf

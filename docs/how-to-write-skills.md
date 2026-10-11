@@ -94,11 +94,11 @@ last, without touching eco. Add a line to `~/.config/hypr/bindings.lua`, after
 the line that loads eco's rules (it ends in `-- eco setup`):
 
 ```lua
-o.bind("SUPER + ALT + 3", "eco: minutes", "eco window action minutes")
+o.bind("SUPER + ALT + M", "eco: minutes", "eco window action minutes")
 ```
 
-eco's own rules already bind `SUPER+ALT+1` to `eco window action ask` and
-`SUPER+ALT+2` to `eco window action probe`; a skill named `ask` or `probe` gets those keys for free. Keep
+eco's own rules already bind `SUPER+ALT+A` to `eco window action ask` and
+`SUPER+ALT+Q` to `eco window action probe`; a skill named `ask` or `probe` gets those keys for free. Keep
 your own bindings in your file rather than in eco's: every upgrade of the
 package replaces eco's copy.
 
@@ -111,6 +111,13 @@ A **hook** is a shell command eco runs after an answer, for another program to
 pick it up — a CRM, a notes folder, a chat. It runs with `sh -c`, for at most 60
 seconds, with only the session in its environment: `ECO_SESSION`, the session's
 id, and `ECO_TITLE`. Everything else it reads with `eco show "$ECO_SESSION"`.
+
+On Windows it runs with `cmd /S /C` instead, so it reads the same variables as
+`%ECO_SESSION%` and `%ECO_TITLE%`:
+
+```bat
+echo %ECO_SESSION%  %ECO_TITLE%>> "%TEMP%\eco-minutes.log"
+```
 
 In the skill's card, **HOOK**:
 

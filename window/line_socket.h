@@ -7,13 +7,15 @@
 #include <QString>
 #include <QTimer>
 
-// LineSocket is one connection to the Unix socket at `path`, one line per
-// message each way. While it is down it connects again every second; an empty
-// path closes it.
+// LineSocket is one connection to the daemon's socket at `path` (a Unix socket,
+// or on Windows a named pipe), one line per message each way. While it is down
+// it connects again every second; an empty path closes it. On Windows its first
+// line on every connection is `auth <token>`, which the daemon admits it by.
 class LineSocket : public QObject, public QQmlParserStatus {
   Q_OBJECT
   Q_INTERFACES(QQmlParserStatus)
   Q_PROPERTY(QString path READ path WRITE setPath NOTIFY pathChanged)
+  Q_PROPERTY(QString token MEMBER token NOTIFY tokenChanged)
   Q_PROPERTY(bool connected READ connected NOTIFY connectedChanged)
 
 public:
@@ -22,6 +24,9 @@ public:
     connect(&retry, &QTimer::timeout, this, &LineSocket::open);
     connect(&socket, &QLocalSocket::connected, this, [this] {
       retry.stop();
+#ifdef Q_OS_WIN
+      send(QStringLiteral("auth ") + token);
+#endif
       Q_EMIT connectedChanged();
     });
     connect(&socket, &QLocalSocket::disconnected, this, [this] {
@@ -70,6 +75,7 @@ public:
 
 Q_SIGNALS:
   void pathChanged();
+  void tokenChanged();
   void connectedChanged();
   void received(const QString &line);
 
@@ -99,5 +105,6 @@ private:
   QTimer retry;
   QByteArray buffer;
   QString target;
+  QString token;
   bool complete = false;
 };

@@ -100,18 +100,27 @@ overlay only renders events: it never calls a provider, never holds a secret and
 never writes the config — it sends a draft and the daemon validates and saves it.
 
 **The window host.** `eco-window <file.qml>` (`window/`, C++ on Qt 6, built
-by `mise run window:build` into `target/window`) loads one entry of
-`overlay/` — `shell.qml`, the eco window, or `lab.qml`, the control lab — with
-a QGuiApplication and a QQmlApplicationEngine, puts the entry's folder on the
-engine's import path, and does nothing else: no logic lives in it beyond the
+by `mise run window:build` into `target/window`; on Windows with MSVC and the
+Qt `mise run qt:install` puts under `.qt`, whose libraries it copies beside
+`eco-window.exe`) loads one entry of
+`overlay/` — `shell.qml`, the eco window, `tray.qml`, the tray icon (§12.7),
+or `lab.qml`, the control lab — with a QApplication and a
+QQmlApplicationEngine, puts the entry's folder on the engine's import path,
+and does nothing else. A QApplication (Qt Widgets) rather than a
+QGuiApplication because the tray's menu, `Qt.labs.platform`'s `Menu`, falls
+back to a widget menu where the platform draws none, as on Windows; it is one
+application type for every entry, on both platforms. Beyond that, no logic lives in it beyond the
 bridge it hands QML as the module `EcoHost`:
 
 | Type | What QML gets |
 |---|---|
-| `Host` (singleton) | `env(name)` (an environment variable, or `""`), `copy(text)` (the clipboard, through `wl-copy` started detached, which keeps serving it after the window exits) |
-| `LineSocket` | a Unix socket at `path`, one line per message each way: `send(line)`, `received(line)`, `connected`; it connects again every second while down, and an empty path closes it |
+| `Host` (singleton) | `pid` (the window's process id), `env(name)` (an environment variable, or `""`), `localPath(url)` (the local path a `file:` URL names, as file dialogs and drops give them), `copy(text)` (the clipboard: on Linux through `wl-copy` started detached, which keeps serving it after the window exits; on Windows through Qt, then `OleFlushClipboard`, which hands the text to Windows at once, so it stays after the window exits or is killed, as `eco stop` kills it — `tests/window.rs` sees it over ssh: killed, the window leaves the text on the clipboard with the flush and nothing without it), `raise(window)` (the window to the front with the keyboard; on Windows over another program's foreground, §15); on Windows only, `hideFromCapture(hidden)` (every window of the process left out of screen capture, `SetWindowDisplayAffinity` with `WDA_EXCLUDEFROMCAPTURE`, now and as each later one shows; `false` shows them again) |
+| `LineSocket` | the daemon's socket at `path` — a Unix socket, or on Windows a named pipe — one line per message each way: `send(line)`, `received(line)`, `connected`; it connects again every second while down, and an empty path closes it. On Windows its first line on every connection is `auth <token>`, with its `token` (§10) |
 | `TextFile` | the file or directory at `path`, watched: `text` (the file as last read), `changed()` (it changed on disk), `reload()` |
 
+The daemon tells each window it starts where its socket is, in `ECO_SOCKET`
+(the Unix socket's path, or the pipe's name), and the token of the run, in
+`ECO_TOKEN`; `overlay/Eco/Core/Eco.qml` connects there with that token.
 Its windows are QtQuick `Window`s; its Wayland app id is `eco`, the class
 `packaging/hypr/eco.lua` matches. It logs to stderr, which the daemon passes on. The QML is shipped and loaded
 as files, as `mise run shots` and the control lab load it from the checkout,
@@ -136,8 +145,8 @@ files import modules by name (`import Eco.Kit`), never by relative path:
 
 Live, Sessions, Dialogs and Settings never import each other: a piece two of
 them share belongs in `Eco.Kit`, and what joins them lives in `Eco.Window`.
-`shell.qml` composes `OverlayPanel` with the settings window; `lab.qml` runs
-`ControlLab`.
+`shell.qml` composes `OverlayPanel` with the settings window; `tray.qml` is
+the tray icon, on `Eco.Core` alone; `lab.qml` runs `ControlLab`.
 
 `mise run overlay:check` (`scripts/overlay-check`, part of `mise run check`)
 enforces this table: it fails on an import a module may not make, a relative
@@ -168,12 +177,12 @@ composition happens in `src/session.rs` from `config.toml`. The crate forbids
 | Port | Adapters | Why |
 |---|---|---|
 | `AudioSource` | `pw-record` (any input, or what any sink plays), **WAV file** | The file adapter replays recorded meetings (`--replay <file.wav>`) to tune prompt and trigger and for automated tests. |
-| `AudioDevices` | PipeWire (`pw-dump`, `pw-record`, echo cancellation through `pw-cli`) | A platform seam (§15): it lists the devices, builds an `AudioSource` for one, and runs echo cancellation on a microphone. Tests compose inputs with a fake. |
+| `AudioDevices` | PipeWire (`pw-dump`, `pw-record`, echo cancellation through `pw-cli`); on Windows WASAPI through `cpal`, without echo cancellation | A platform seam (§15): it lists the devices, builds an `AudioSource` for one, and runs echo cancellation on a microphone. Tests compose inputs with a fake. |
 | `STT` | Deepgram (streaming), ElevenLabs Scribe (streaming), OpenAI-compatible transcription (`/v1/audio/transcriptions`: LAN whisper.cpp server, Groq, OpenAI) | There is no common real-time STT standard: each protocol needs its own adapter. |
 | `LLM` | a single OpenAI-compatible adapter | Covers OpenRouter, OpenAI, Groq, Ollama, llama.cpp — switching = `base_url` + key + model. |
 | `EventSink` | Unix socket (overlay), text on stdout | stdout is written only when it is a terminal (`mise run start`); under the user service it is the journal, which never gets transcript, note or answer text. |
 | `TranscriptStore` | file in `~/.local/share/eco/`, null (`--no-save`) | |
-| `WindowControl` | Hyprland (`hyprctl dispatch`, its event socket) | A platform seam (§15): it focuses a window process's window and leaves its windows out of screen sharing, both by pid. Tests open windows with a fake. |
+| `WindowControl` | Hyprland (`hyprctl dispatch`, its event socket); on Windows the windows themselves, told by events on the socket (`HostWindows`) | A platform seam (§15): it focuses a window process's window and leaves its windows out of screen sharing, both by pid. Tests open windows with a fake. |
 
 Rule: only add a port when two real implementations exist or a test clearly
 benefits.
@@ -253,13 +262,24 @@ eco/
   output** plays (the reference cannot be another output). Pausing, ending or
   stopping kills the `pw-cli` and every `eco.aec.*` node goes with it; those
   nodes are never listed as devices. If PipeWire refuses, `echo_cancel.failed`
-  is reported and the raw microphone is used. It costs ~3% of one core while a
+  is reported and the raw microphone is used. Windows has no echo cancellation
+  for eco: `echo_cancel.unavailable` is reported and the raw microphone is used
+  (§15). It costs ~3% of one core while a
   session records.
 - **Errors show:** a failed transcription or a capture that stops mid-session
   reaches the overlay's status line, and the terminal when the daemon runs in
   one. A streaming transcription down, and back, is not an error: it is a
   `transcription` event (§10.1), shown under the session capsule (§12.2) and
   printed in the terminal.
+- **A device that fails stops only itself:** a device that cannot be opened
+  (no default microphone in a remote desktop session) or that stops is a
+  `transcription` event with `"code":"capture.down"` for its participant, at
+  its first failure only, and is opened again after 1 s, the wait doubling up
+  to 30 s, as a streaming transcription is (§5); its first frame after is
+  `"state":"back"`. The other inputs keep capturing and transcribing
+  meanwhile, and the device's frames go on from where they stopped, so its
+  time never restarts. A file replayed is not opened again: its failure ends
+  the capture, as `capture.stopped`.
 
 ---
 
@@ -291,8 +311,13 @@ eco/
   segments, for imports' diarization. While audio goes out, a WebSocket ping
   goes every 5 s; a connection that brings nothing back — no pong, no message
   — for 15 s is stalled and counts as dropped. Frames flow without a gap while
-  a session records, so Deepgram's `KeepAlive` is never needed. A connection
-  that drops, closes or is refused while the session captures is opened
+  a source is heard, so Deepgram's `KeepAlive` is never needed. A connection
+  opens at the source's first frame, not before; when the source goes unheard
+  (`capture.down`, §4) its connection is closed once the audio held is sent,
+  and the next opens at its first frame after it is back: a source not heard
+  holds no connection and bills nothing, and its strip says the capture is
+  down, not the transcription. A connection
+  that drops, closes or is refused while the source is heard is opened
   again after 1 s, the wait doubling up to 30 s while it keeps failing. The
   first failure of an outage is a `transcription` event with `"state":"down"`;
   the rest of it is not reported. When a connection takes audio again — its
@@ -455,7 +480,7 @@ matters.
   config stops only the answers whose model or reviewer changed; the rest
   finish.
 - **Hooks:** an action may have a **hook**: a
-  shell command run (`sh -c`, at most 60 s) with only the session it answered
+  shell command run (`sh -c`, on Windows `cmd /S /C`, §15; at most 60 s) with only the session it answered
   for, in `ECO_SESSION` (its id) and `ECO_TITLE`; the other system reads the
   rest with `eco show "$ECO_SESSION"`. With `hook_auto` it runs once each answer
   is complete; either way the answer's card has a send button that runs it
@@ -466,12 +491,13 @@ matters.
 ### 6.1 Triggers
 
 The trigger is manual: a global Hyprland shortcut per action sends `action
-<name>` to the socket through `eco window action`, and the overlay shows one
-button per action.
+<name>` to the socket through `eco window action` (on Windows the daemon's own
+shortcut sends the same line, §15), and the overlay shows one button per
+action.
 
 ```lua
-o.bind("SUPER + ALT + 1", "eco: ask", "eco window action ask")
-o.bind("SUPER + ALT + 2", "eco: probe", "eco window action probe")
+o.bind("SUPER + ALT + A", "eco: ask", "eco window action ask")
+o.bind("SUPER + ALT + Q", "eco: probe", "eco window action probe")
 ```
 
 An automatic trigger and a running recap are not built; see Open questions.
@@ -636,7 +662,11 @@ its provider reported (`usd`, null when it reported none); a removed answer was
 still paid. Whenever a session starts transcribing with another model, on
 another number of inputs, or at another price, a `transcriber` record says so
 (`model` null for a WebVTT import, which nothing transcribes; `per_minute`, the
-model's `price_per_minute` then, when it has one).
+model's `price_per_minute` then, when it has one). `inputs` counts the inputs
+heard: one whose source cannot be heard (`capture.down`, §4) streams nothing, so
+it leaves the count when it goes down and comes back into it when it is heard
+again, each time with a record of its own; capture is not told, so no running
+transcriber restarts.
 
 A provider that bills by request names it: Deepgram's `dg-request-id` header on
 the WebSocket upgrade, and `metadata.request_id` in the reply to each segment of
@@ -672,7 +702,7 @@ age. An answer's or review's `spent` record names the answer (`answer`).
 
 A session's `cost` is read from its log: `llm_usd` sums the completions'
 reported costs, `transcribed_s` gives the seconds of audio each model heard —
-its run time once per input, as every input streams on its own — and
+its run time once per input heard, as every input streams on its own — and
 `transcription_usd` sums the requests' reported costs. `price_per_minute` is
 optional and empty by default: when the user gives one, it prices only what no
 reported cost covers — a billed request not priced (yet), or the time of a model
@@ -715,12 +745,26 @@ below is built in `src/paths.rs` (§15).
 | `~/.local/share/eco/people/voices/<session>.json` | the voices of a session's diarized speakers (§7.3) | the daemon |
 | `~/.local/share/eco/models/` | the Silero VAD and WeSpeaker CAM++ models | `eco setup` |
 | `$XDG_RUNTIME_DIR/eco.sock` | the socket (§10) | the daemon |
-| `$XDG_RUNTIME_DIR/eco.token` | the windows' token for this run (§9), `0600`, removed when the daemon exits | the daemon |
+| `$XDG_RUNTIME_DIR/eco.token` | the token for this run: the windows' (§9), and on Windows every client's admission (§10), `0600`, removed when the daemon exits | the daemon |
 
 The config, session logs, people and voices are the user's alone: eco creates
 their files `0600` and the directories it makes for them `0700`. A file eco
 rewrites (the config, a person, a session's voices) comes back `0600` on its next
 save; a session log made before keeps the mode it had.
+
+On Windows the same files sit elsewhere, and have no modes: under the user
+profile, each inherits an access list that admits only the user, the system
+and administrators (§15).
+
+| On Linux | On Windows |
+|---|---|
+| `~/.config/eco/config.toml` | `%APPDATA%\eco\config.toml` |
+| `~/.local/share/eco/` (sessions, people, voices, models) | `%LOCALAPPDATA%\eco\` |
+| `$XDG_RUNTIME_DIR/eco.sock` | the named pipe `\\.\pipe\eco-<user>`, no file |
+| `$XDG_RUNTIME_DIR/eco.token` | `%LOCALAPPDATA%\eco\eco.token` |
+| the journal of `eco.service` | `%LOCALAPPDATA%\eco\daemon.log`, the output of the daemon `eco start` started, emptied at each start |
+| the line `eco setup` adds to `~/.config/hypr/bindings.lua` | nothing: eco does not start at login; `eco setup` removes the `Startup\eco.cmd` an earlier eco wrote |
+| the launcher `eco.desktop` the package installs | `%APPDATA%\Microsoft\Windows\Start Menu\Programs\eco.lnk`, written by `eco setup`: it runs `eco start` through `conhost.exe --headless`, with the icon of `eco-window.exe` |
 
 A session log holds `session`, `state`, `speech`, `suggestion`, `removed`,
 `meta`, `speaker`, `diarized`, `person`, `attendee`, `unheard`, `edited`,
@@ -738,7 +782,20 @@ holds is listed and shown as `interrupted`, never reopened by itself.
 ## 9. Configuration
 
 `~/.config/eco/config.toml` (written by the config window; hand edits work too,
-but comments are not kept):
+but comments are not kept). No file is the empty config: no model, no
+participant, no action, the defaults for the rest — in the system language
+(`sys-locale`: `LANGUAGE`, `LC_ALL`, `LC_MESSAGES`, `LANG` on Linux, the
+user's display language on Windows): `ui.language` its pack (`pt-BR`,
+`ja-JP`, `en-US`), `stt.language` its code, first after `auto` in
+`stt.languages`, and `rules` the default rules in it; any language without a
+pack starts in English. A file that exists is read as written: a field it
+leaves out takes the default below, whatever the system says. The daemon
+starts on it, so the window opens and its settings write the file at the first save; a
+file that does not parse or validate still stops the daemon. `stt.model` and
+`llm.model` may be empty, naming no default: a session that needs that model
+is told `no transcription model is chosen`, as an `stt.unavailable` error, and
+an answer fails with `no chat model is chosen` (`completion.failed`). Every
+field:
 
 ```toml
 kinds = ["meeting", "conversation", "other", "idea"]  # what a session can be
@@ -794,7 +851,7 @@ kinds = ["idea"]                            # and answer here unless the action 
 name = "gemini"
 type = "chat"
 base_url = "https://openrouter.ai/api/v1"
-api_key_env = "OPENROUTER_API_KEY"          # or api_key_omapass = "<account>", not both
+api_key_env = "OPENROUTER_API_KEY"          # or api_key_omapass = "<account>", or api_key_credential = "<name>"; one
 model = "google/gemini-3.5-flash-lite"      # the provider's id
 extra = { reasoning = { effort = "minimal" } }
 
@@ -822,10 +879,18 @@ kinds = ["meeting"]
 
 [ui]
 language = "auto"                           # interface language pack, or auto
-hide_from_share = false                     # eco's windows black in screen shares (and screenshots)
+hide_from_share = false                     # eco's windows hidden from screen shares (and screenshots)
+tray = false                                # an icon in the system tray (§12.7)
 
 [colors]                                    # trace colour per device (optional)
 "@default-input" = "#ffb000"
+
+# Windows only (on Linux the keys are Hyprland binds, packaging/hypr/eco.lua):
+# keys -> the `eco window` command they run; without the table, the seven
+# Win+Alt keys of §15, and an empty table binds none. Read when the daemon starts.
+[shortcuts]
+"Win+Alt+A" = "action ask"                  # Ctrl, Alt, Shift, Win; A-Z, 0-9, F1-F24, Space…
+"Ctrl+Alt+M" = "sessions"
 
 # An audio source is a name in the conversation; it may hold several PipeWire
 # devices (node names, or @default-input / @default-output). A device has one owner.
@@ -874,8 +939,10 @@ dialog never changes under the user's pointer. The window's own save drops the
 held change. Every other change from any client is saved at once, as before.
 
 The daemon also writes the token to `$XDG_RUNTIME_DIR/eco.token`, mode `0600`,
-when it starts, and removes it when it exits; a file left by a killed daemon is
-replaced by the next one. A window the daemon did not start, `mise run overlay`
+once it holds the socket, and removes it when it exits; a file left by a killed
+daemon is replaced by the next one, and a second daemon, refused the socket,
+leaves the running one's file alone. On Windows the same token admits every
+client of the pipe (§10). A window the daemon did not start, `mise run overlay`
 beside `mise run start -- --headless`, reads it into `ECO_TOKEN`; started
 before the daemon, or kept across a restart, it has no token or an old one, and
 its saves of these fields are held like any other client's until it is started
@@ -906,6 +973,26 @@ Hyprland shortcut (which does not read `.bashrc`), set them in
 them. During development, mise loads them from `.env` at the project root
 (git-ignored).
 
+On Windows a key may come from the Windows Credential Manager instead:
+`api_key_credential = "<name>"` makes the daemon read the generic credential
+whose target is `eco:<name>` each time it builds that provider
+(`src/adapters/credentials.rs`, through the `keyring-core` crate and its
+Windows store, `windows-native-keyring-store`, without its search; the
+credential is the UTF-16 password the Credential Manager's own dialog writes,
+so one added by hand reads the same). `eco key set <name>` stores one, with
+`persistence` local to the machine, reading the key hidden from the console
+(`rpassword`) or from stdin when it is not a terminal; `eco key remove <name>`
+deletes it; neither talks to the daemon. A credential that is not there fails
+the model with `stt.credential_missing` or `model.credential_missing`
+(`params` `{"name","credential"}`), and a `models` listing with
+`models.credential_missing` (`{"credential"}`), each saying how to add it. The
+`config` event's `credential_manager` is true only on Windows: the window then
+offers CREDENTIAL MANAGER in place of OMAPASS, with a field for the name, and
+never sees the key. A logon session without the Credential Manager — an ssh
+login by key — gets `NoStore`, said as such; the tests that need the real
+store stop there with a line on stderr. On Linux the field parses and the
+provider fails with the message that names omapass and the environment.
+
 The `models` command (§10.2) lists a provider's models with a key, so it reads a
 key only where a saved provider would: the key source of a saved model, sent to
 that model's `base_url` (a trailing `/` aside), or one of the window's presets —
@@ -921,10 +1008,30 @@ custom URL and a key, or an omapass key, lists once it is saved.
 
 ## 10. The socket
 
-The daemon listens on `$XDG_RUNTIME_DIR/eco.sock`. Every client receives all
-events as JSON lines and may send commands, one per line. The first event on
-every connection is `daemon` with `pid`, `version`, and `overlay` fields. A
+The daemon listens on `$XDG_RUNTIME_DIR/eco.sock`, on Windows on the named pipe
+`\\.\pipe\eco-<user>` (§15). Every client receives all events as JSON lines and
+may send commands, one per line. The first event on every connection is
+`daemon` with `pid`, `exe` (the path of the executable it runs), `version`, and
+`overlay` fields. A
 daemon error carries a `code`, which the overlay translates as `error.<code>`.
+
+On Windows a client is admitted first. The pipe keeps Windows' default access
+list, which lets any local account open it, and setting another takes a call
+tokio offers only as `unsafe`, which the crate forbids. So the first line a
+client sends is `auth <token>`, the token of this run that the daemon wrote to
+`%LOCALAPPDATA%\eco\eco.token` (§8), a file only its user can read. Until that
+line arrives the daemon sends nothing and takes no command; a first line that
+is anything else, longer than it, or late by five seconds (`ADMIT_WITHIN`)
+closes the connection without a byte sent. The comparison takes the same time
+whatever bytes differ. The CLI and `eco start`, `stop`, `restart` and `status`
+read the file and send the line (`connect` in
+`src/adapters/control_socket.rs`); while the file is not there, as in the
+moment the daemon starts or stops, they treat the daemon as not running. On
+Linux there is no such line: the socket is `0600`, so only its user can open
+it. `admitted` and `introduce` in `src/adapters/control_socket.rs` are the one
+place that decides this per platform. A window gets the token from the daemon
+that starts it, in `ECO_TOKEN`, and its `LineSocket` sends the line first on
+every connection, a reconnection too (§3).
 
 Two limits keep one client from growing the daemon's memory. A command line
 longer than 1 MiB (`MAX_LINE` in `src/adapters/control_socket.rs`; a
@@ -935,21 +1042,33 @@ without running it. Each client has a queue of at most 4096 lines
 any other event it cannot take drops it and closes its connection, while the
 daemon and the other clients go on.
 
+A client learns that the daemon has read its lines by sending `sync` after
+them. The connection reads lines in order and answers `{"type":"synced"}` to
+that client alone, with no command run; a queue that cannot take it closes the
+connection (`SYNC` in `src/adapters/control_socket.rs`). `eco window` uses it
+(§11): a CLI that exits right after writing could otherwise leave before the
+daemon reads its line, which then may never run. It is one mechanism on both
+platforms, for a named pipe cannot close its writing half alone.
+
 ### 10.1 Events
 
 A new client first receives `snapshot`; a window asks for the timeline of the
 session it shows:
 
 ```json
-{"type":"snapshot","session":{"id":"…","title":"Entrevista","kind":"meeting","source":"live","language":"pt","state":"recording","started_at":1791083833.3,"active_s":312.4,"running_since":1791084400.0},"kinds":["meeting","conversation","other","idea"],"kind_models":{"meeting":{"transcription":"deepgram","chat":"gemini"},"idea":{"transcription":"whisper-lan","chat":"qwen-lan"}},"actions":["ask","probe"],"hooks":["probe"],"participants":[{"name":"Eu","user":true},{"name":"Eles","user":false}],"inputs":[{"id":"@default-input","label":"Microfone padrão","participant":"Eu","color":"#ffb000"}]}
+{"type":"snapshot","session":{"id":"…","title":"Entrevista","kind":"meeting","source":"live","language":"pt","state":"recording","started_at":1791083833.3,"active_s":312.4,"running_since":1791084400.0},"kinds":["meeting","conversation","other","idea"],"kind_models":{"meeting":{"transcription":"deepgram","chat":"gemini"},"idea":{"transcription":"whisper-lan","chat":"qwen-lan"}},"actions":["ask","probe"],"hooks":["probe"],"participants":[{"name":"Eu","user":true},{"name":"Eles","user":false}],"inputs":[{"id":"@default-input","label":"Default microphone","participant":"Eu","color":"#ffb000"}]}
 {"type":"signal","input":"@default-input","level":0.42,"speech":true}
 {"type":"session","session":{…} or null,"live":[{…} for each live session],"transcribers":[{"model":"deepgram","language":"pt","sessions":2}]}
 {"type":"session_opened","id":"…","window":2}
 {"type":"window_call","window":2,"call":"import","path":"/home/me/retro.mp4"}
+{"type":"window_focus","pid":10872}
+{"type":"window_share","pids":[10872,11240],"hidden":true}
+{"type":"synced"}
 {"type":"session_timeline","session":"…","timeline":[{"type":"transcript",…},{"type":"note",…},{"type":"suggestion",…}]}
 {"type":"transcript","session":"…","who":"Eles","name":"Ana","text":"...","at":1791083840.1,"latency_ms":990}
 {"type":"transcript_partial","session":"…","who":"Eles","name":"Ana","text":"so the next…"}
 {"type":"transcription","who":"Eles","state":"down","code":"stt.down","detail":"stalled: nothing heard for 15s"}
+{"type":"transcription","who":"Eu","state":"down","code":"capture.down","detail":"Default microphone: not connected"}
 {"type":"transcription","who":"Eles","state":"back","down_s":318.4,"dropped_s":18.2}
 {"type":"suggestion_start","id":"54401f25","session":"…","action":"chat","model":"google/gemini-3.5-flash-lite","prompt":"Ele citou Kafka?","at":1791083860.0}
 {"type":"suggestion_thinking","id":"54401f25","text":"..."}
@@ -979,12 +1098,19 @@ session it shows:
 {"type":"import_started","session":{…},"total_s":1834.2}
 {"type":"import_progress","id":"…","done_s":612.5,"total_s":1834.2}
 {"type":"import_done","id":"…","complete":true}
-{"type":"config","config":{...},"devices":[{"id":"@default-input","label":"...","kind":"input"}],"omapass":{"installed":false,"page":"https://plugins.omarchy.org/..."},"presets":{"transcription":[{"name":"DEEPGRAM","values":{"base_url":"wss://api.deepgram.com/v1/listen","model":"nova-3","api_key_env":"DEEPGRAM_API_KEY"}},…],"chat":[{"name":"OPENROUTER","values":{"base_url":"https://openrouter.ai/api/v1","model":"…","api_key_env":"OPENROUTER_API_KEY","extra":{}}},…]}}
+{"type":"config","config":{...},"devices":[{"id":"@default-input","label":"...","kind":"input"}],"omapass":{"installed":false,"page":"https://plugins.omarchy.org/..."},"credential_manager":false,"presets":{"transcription":[{"name":"DEEPGRAM","values":{"base_url":"wss://api.deepgram.com/v1/listen","model":"nova-3","api_key_env":"DEEPGRAM_API_KEY"}},…],"chat":[{"name":"OPENROUTER","values":{"base_url":"https://openrouter.ai/api/v1","model":"…","api_key_env":"OPENROUTER_API_KEY","extra":{}}},…]},"echo_cancel":null}
 {"type":"config_saved"}
-{"type":"config_pending","id":"1","hooks":[{"action":"minutes","command":"~/bin/crm-push"}],"files":["~/notes/cv.md"],"models":[{"name":"fast","base_url":"http://192.0.2.10:8000/v1","api_key_env":null,"api_key_omapass":"openrouter"}]}
+{"type":"config_pending","id":"1","hooks":[{"action":"minutes","command":"~/bin/crm-push"}],"files":["~/notes/cv.md"],"models":[{"name":"fast","base_url":"http://192.0.2.10:8000/v1","api_key_env":null,"api_key_omapass":"openrouter","api_key_credential":null}]}
 {"type":"models","target":"llm","models":["..."],"error":"..."}
 {"type":"error","code":"session.none","params":{},"message":"start a session first"}
 ```
+
+`window_focus` and `window_share` are window control on Windows (§15), sent
+only there: the window whose process is `pid` comes to the front with the
+keyboard, and the windows of the processes in `pids` leave screen capture
+while `hidden`, or come back to it. A client that connects is greeted, after
+the rest, with the last `window_focus` and, while windows are hidden, the
+last `window_share`, so a window that connects just after it opens hears both.
 
 `transcription` is a streaming transcriber's connection, for the source `who`
 (a participant), whichever sessions listen to it: `down` once per outage, with
@@ -1000,7 +1126,7 @@ participant, kept until it is back or the import stops.
 ### 10.2 Commands
 
 `action <name>`, `ask <question>`,
-`config` (current config and devices), `config.set <json>` (the config whole;
+`config` (current config and devices, and in `echo_cancel` the error code that says why echo cancellation cannot run on this platform, `echo_cancel.unavailable` on Windows, or `null`; the Audio tab shows that code's text in place of what the option does), `config.set <json>` (the config whole;
 a window adds `"token"`; one from another client that adds a hook, a context
 file or a model, or moves a model's key, is held, §9; while one is held, any
 other client's answers `config.busy`), `config.approve <token> <id>` and
@@ -1009,7 +1135,7 @@ other client's answers `config.busy`), `config.approve <token> <id>` and
 empty lists; a client that connects while a change is held is greeted with its
 `config_pending`),
 `session.language <json>`, `models <json>`
-(`{"target","base_url","api_key_env","api_key_omapass"}`; the key is read only
+(`{"target","base_url","api_key_env","api_key_omapass","api_key_credential"}`; the key is read only
 with no key source, a saved model's own source at that model's `base_url`, or a
 preset's variable at the preset's URL, as in §9.1; anything else answers `models`
 with `"code":"models.key_refused"` and `params` `{"base_url"}`), `omapass` (its
@@ -1021,7 +1147,9 @@ it records beside the live ones and is shown; with `"window"`, `session_opened`
 tells that window to show it), `session.timeline <id>` (`session_timeline` of a
 live session),
 `window.show <json>` (`{"window","session"}`: the session a window shows now, or
-`""`), `window.call <json>` (`{"call","path"}`, what a shortcut asks of a
+`""`), `window.closed <json>` (`{"window"}`: the window is closing and its
+process exiting; it is no longer open, so `overlay.open` opens a new one, and a
+process still running 2 s later is ended), `window.call <json>` (`{"call","path"}`, what a shortcut asks of a
 window: `focus` only gives it the keyboard, `config` opens or closes the
 settings, `new_session` the start dialog, `sessions` the sessions list when no
 session is on screen, `import` the import dialog with `path`, the only call
@@ -1073,7 +1201,10 @@ and `session.note <json>` (`{"id","text"}`)
 open one),
 `session.export <id>` (the transcript as WebVTT:
 `{"type":"session_export","id","format":"vtt","text"}`),
-`overlay.open` (open another window and return `overlay_status`),
+`overlay.open` (open the app: another window on a live session no window
+shows, else the newest window brought forward, else a window; then
+`overlay_status`, with `"raised": true` when an open window was brought
+forward),
 `session.import <json>` (`{"path"}`, optionally `"title"`, `"kind"`,
 `"language"`, `"participant"`, `"started_at"` in seconds since the epoch),
 `import.date <path>` (when the file was recorded, as an import without
@@ -1082,7 +1213,8 @@ imported), `import.cancel`, `entry.remove <json>`
 (`{"session","id"}`: an answer or a note of the open session, the one read back,
 or a stored one, whose log gets a `removed` record; clients get `note_removed`
 for a note and `suggestion_removed` otherwise, even when it was already gone)
-and `stop`.
+`sync` (no command: the connection answers `synced` to this client alone once
+it has read every line before it, §10) and `stop`.
 
 ---
 
@@ -1096,7 +1228,25 @@ How the commands are built:
   `bench` measures model latency and diarization. Neither needs a daemon.
 - `start`, `stop`, `restart` and `status` manage the daemon. The user service
   runs `eco daemon --headless`; `eco start` starts it if needed and waits for
-  `overlay_status` after opening the window (`--headless` skips it).
+  `overlay_status` after opening the window (`--headless` skips it). The
+  daemon launches the windows, so one left running by an upgrade would
+  launch a window it cannot serve: `eco start` and `eco window` first read
+  its greeting, and when its `version` is not the CLI's, or it runs another
+  executable than the CLI (by device and inode of `/proc/<pid>/exe` on
+  Linux, by the greeting's `exe` on Windows, the check `status
+  --expect-current-exe` makes; one it cannot see, from a sandbox with its
+  own pids, is not taken for another), stop it, start the service again,
+  and say
+  `eco: restarted the daemon <old> → <new>` on stderr
+  (`lifecycle::current` in `src/lifecycle.rs`). `eco status` and the other
+  commands report or ask without restarting. A
+  daemon that has not opened the socket within 10 seconds is reported with
+  its own reason: the last line of its output that starts with `eco: ` or
+  `Error: ` (what it prints as it exits on an error, with the `Caused by:`
+  lines after it), read from the journal of `eco.service` since the start
+  (`journalctl --user _SYSTEMD_USER_UNIT=eco.service`) or from
+  `daemon.log` on Windows. No other line is shown: the output may hold
+  transcripts.
 - The session commands talk to the running daemon over its socket (start one
   with `eco start --headless` when the overlay is not wanted) and print one
   JSON object, as `okt` does: `{"ok":true,"data":…}`, or
@@ -1107,13 +1257,16 @@ How the commands are built:
   `session.not_found`, `session.delete_failed`, `action.unknown`,
   `completion.failed`, `suggestion.removed` (replaced by a newer request), `import.busy`,
   `import.failed`, `person.not_found`, `person.invalid`, `person.exists`,
-  `people.failed`, `line.not_found`, `tag.invalid`, `tag.not_found`. They read
+  `people.failed`, `line.not_found`, `tag.invalid`, `tag.not_found`.
+  They read
   the broadcast for their own reply, so they work beside the overlay. `export`
   prints the document itself, to pipe or redirect.
 - `window` sends what a global shortcut asks — `window.call` (`focus`,
   `config`, `new` as `new_session`, `sessions`, `import [<path>]`),
-  `action <name>` or `session.toggle` (§10.2) — and prints
-  `{"ok":true,"data":null}` once it is sent, without waiting for the window.
+  `action <name>` or `session.toggle` (§10.2) — then `sync`, and prints
+  `{"ok":true,"data":null}` once `synced` comes back, so the daemon has read
+  the line, without waiting for the window; a connection that closes first
+  is `daemon.closed`.
   None of these needs the windows' token.
 - `show` carries the session's speakers and storage path/byte count; `speaker`
   names one speaker, while `assign` can identify one line or every line.
@@ -1163,8 +1316,10 @@ A QtQuick `Window` titled `eco` (720×680), opened by
 `eco start` (`--headless` skips it). It is a normal Hyprland window, so the user
 moves and resizes it freely; `packaging/hypr/eco.lua` floats it, pins it to
 every workspace and keeps its size. Each window is its own `eco-window` process
-(§3), numbered by the daemon (`ECO_WINDOW`). Opening the app opens another window,
-showing a live session no window shows, if there is one (`ECO_SHOW`). It
+(§3), numbered by the daemon (`ECO_WINDOW`). Opening the app opens another window
+on a live session no window shows, if there is one (`ECO_SHOW`); else it brings
+the newest open window forward through the same window control as `eco window
+focus`, and only with none open opens one. It
 reconnects to the socket on its own.
 
 - **Without a session:** the live trace of every input in the room above the
@@ -1238,8 +1393,9 @@ reconnects to the socket on its own.
   snapshot: `{kind: {"transcription", "chat"}}`), scrolls in a short window with
   its buttons kept below, and without an input it cannot start: it says so and
   offers the Audio settings.
-- **Several windows:** opening the app again always opens another window, to
-  start the next session in. The session view shows no other session: leaving
+- **Several windows:** opening the app again opens another window on a live
+  session no window shows, and otherwise brings the open one forward. The
+  session view shows no other session: leaving
   it (it keeps recording) goes to SESSIONS as it was searched and filtered,
   whose LIVE filter lists the live ones, any of which shows in that window when
   opened.
@@ -1413,7 +1569,7 @@ layouts are pinned to their natural height so the timeline gets the space.
 
 ### 12.6 The config window
 
-A QtQuick `Window` ("eco · configuração"), opened
+A QtQuick `Window` ("eco · settings", fixed and untranslated, as `packaging/hypr/eco.lua` matches it), opened
 from the overlay or with `window.call {"call":"config"}` (§10.2).
 It is created the first time it opens and then only shown and hidden: Qt writes
 its pipeline cache to disk when a window is destroyed, and the interface would
@@ -1426,12 +1582,19 @@ overlay, past the screen's edge).
 It edits a draft and saves it whole (SAVE, or `Ctrl+S`, named in its tooltip);
 the daemon validates it and saves it (§9). Unsaved changes are marked;
 discarding a changed draft asks first, and closing one offers SAVE AND CLOSE,
-KEEP EDITING or DISCARD CHANGES. What keeps a draft from saving shows on its own
+KEEP EDITING or DISCARD CHANGES. Closing the eco window ends its process, the
+settings with it, without asking: unsaved changes are dropped. Leaving is what
+the user asked for, and Qt's own quit, which asks every window first, would
+stop at the kept settings window, which never closes, and leave the process
+running unseen. What keeps a draft from saving shows on its own
 field — an outline in the error colour and the reason under it — with a dot on
 the tab that holds it; a repeated name or a space in a skill's name shows as it
 is typed, a missing value once a save is tried, which opens the first one's tab
 and card and gives its field the keyboard. Each clears as soon as its field is
-fixed; the line above the buttons only counts them. A daemon's refusal stays
+fixed; the line above the buttons only counts them. The default models are
+not required, as the daemon does not require them (§9): a draft with no model
+registered saves, and a default it names must be a registered model of its
+type (`overlay/Eco/Core/draft.js`, `problems`). A daemon's refusal stays
 there until the draft changes again. Every field is named by a caption right
 above its control, pickers (models, languages) as much as text inputs: no label
 sits in a column of its own. Prompt areas (rules, a skill's prompt and format,
@@ -1485,7 +1648,7 @@ another tab decides is only read, never picked, there.
   An action that names a model answers with it in every session kind. Cards
   move up and down (their chevrons, or `Alt+↑`/`Alt+↓` inside one), which orders
   the composer's skills. A name takes no spaces and no other skill's name;
-  renaming one warns that Hyprland shortcuts call it by name (`action <name>`),
+  renaming one warns that global shortcuts call it by name (`action <name>`),
   and removing one asks first, saying those shortcuts stop working.
 - **Translation:** the default translation model — or the default, the
   assistant's, named. Whether a session translates, and into which language,
@@ -1501,9 +1664,34 @@ another tab decides is only read, never picked, there.
   models and context slots; removing one asks first, saying that its sessions
   keep it, which kind becomes the default and that its own models and slots stop
   applying.
-- **Interface:** interface language, and HIDE FROM SCREEN SHARING (off by
+- **Interface:** interface language, HIDE FROM SCREEN SHARING (off by
   default), whose help says eco then shows black in the user's screenshots and
-  recordings too (§13).
+  recordings too (§13), and SHOW ECO IN THE TRAY (off by default, §12.7).
+
+### 12.7 The tray icon
+
+With `[ui] tray` on, the daemon runs one more `eco-window` process, on
+`overlay/tray.qml`: a `Qt.labs.platform` `SystemTrayIcon` bound to the `Eco`
+singleton. On Linux Qt exports it as a StatusNotifierItem over D-Bus, with its
+menu as a `com.canonical.dbusmenu`, which the bar's tray shows (on Omarchy a
+StatusNotifierHost is on the session bus); on Windows it is a notification
+area icon, its menu a Qt Widgets menu. Its icon is `overlay/icons/tray.png`,
+eco's bars in white, or `tray-recording.png`, with a red dot, while any live
+session records; its tooltip is `eco · idle` or `eco · recording · <title>`.
+A click sends `window.call {"call":"focus"}` and the menu's **Open** the same,
+**New session** `new_session`, **Settings** `config` — each the line `eco
+window` sends (§10.2) — and **Stop eco** `stop`, the line `eco stop` sends.
+`tests/window.rs` runs it offscreen and checks the lines and the states.
+
+The tray is part of the windows' lifecycle in `src/adapters/overlay.rs`, but
+not a window: it has no number, is never focused nor hidden from sharing, does
+not count for `overlay` in the greeting (`eco status --window-open`) and never
+gets a `window.call`. The daemon starts it when it starts with the setting on
+and after any line that leaves it on, ends it (`SIGTERM`, terminated on
+Windows) after a line that turns it off, and ends it with the windows when it
+stops. A tray process that exits, or cannot start, starts again after 1 s,
+then a pause that doubles to at most 60 s; one that ran a minute starts the
+count again.
 
 ---
 
@@ -1522,18 +1710,69 @@ their shells' vendor directories. `scripts/completions` writes those with
 dependency to build and to run. Building also needs `cargo`, `cmake`, `ninja`
 and Qt 6 (`qt6-base`, `qt6-declarative`); running needs the two Qt packages.
 `mise run package`
-(`scripts/package`) runs `makepkg` into `target/arch/pkg` and writes the
-`SHA256SUMS` beside the package; `install.sh` downloads both from a GitHub
-release, checks one against the other and runs `pacman -U`.
+(`scripts/package`) runs `makepkg` into `target/arch/pkg`; `install.sh`
+downloads the package and the release's `SHA256SUMS` from a GitHub release,
+checks one against the other and runs `pacman -U`.
+
+**The Windows package.** On Windows, `mise run package` builds `eco-window`
+first (`window:build`), then `scripts/package` builds the release binary from
+the working tree and writes `dist/eco-<version>-windows-x86_64.zip`, the
+version read from `Cargo.toml`. The zip holds one folder, `eco`, laid out as
+the prefix of the Arch package, so the daemon finds what it ships the same way
+on both (`paths::shipped`, `paths::shipped_program`: `share/eco` and `lib/eco`
+under the folder above the binary's):
+
+```
+eco/bin/eco.exe              the only program on PATH
+eco/lib/eco/eco-window.exe   the window, with its Qt runtime beside it
+eco/share/eco/overlay/       the QML it runs
+eco/LICENSE  eco/README.txt
+```
+
+`eco-window.exe` carries eco's icon, `packaging/windows/eco.ico`, as the
+resource `IDI_ICON1` (`window/eco-window.rc`, built only on Windows), which Qt
+also gives the windows it opens (read in Qt's source, not seen); the Start-menu
+shortcut takes its icon from there, so `eco.exe` carries none. `mise run icon`
+(`scripts/icon`) renders the `.ico` from `packaging/eco.svg`, and the tray's
+icons into `overlay/icons` (§12.7), shipped with the overlay, on Python's
+standard library: the SVG is rounded rectangles, which the script rasterises
+itself and refuses any other element, so no SVG renderer is pinned for it.
+
+The Qt runtime is what `windeployqt` copied into `target/window` as
+`scripts/window-build` built it there (the build itself goes to
+`target/window-msvc`), taken as it is. It leaves out the compiler runtime, so
+the machine needs the Microsoft Visual C++ Redistributable (x64), as `eco.exe`
+does. The script is Python, as `scripts/window-build` is, because it runs on
+both systems under mise and its `zipfile` needs nothing more; the `bash` on a
+Windows `PATH` may be WSL's. There is no installer: the release attaches the
+zip (below). The programs are not code-signed, so SmartScreen may warn the
+first time one runs.
 
 **Releases.** Commits follow Conventional Commits, and release-please reads
 them (`release-please-config.json`, `.release-please-manifest.json`). Every
 pull request merged into `master` runs `.github/workflows/release.yml`, which
 opens or updates a release pull request: it moves the version in `Cargo.toml`,
 `Cargo.lock` and the `PKGBUILD`, and writes `CHANGELOG.md`. Merging that pull
-request tags `v<version>`, and the same workflow builds the package from the
-tag with `scripts/package` in an Arch container and attaches it, with its
-`SHA256SUMS`, to the release. The container is `archlinux:base-devel` pinned
+request tags `v<version>`, and the same workflow builds from the tag, in
+three jobs after release-please:
+
+- `package-linux` builds the Arch package with `scripts/package` in an Arch
+  container and attaches it to the release.
+- `package-windows` runs on GitHub's `windows-2022` image, for the Visual
+  Studio 2022 that `scripts/window-build`'s CMake generator names
+  (`windows-latest` carries Visual Studio 2026). `jdx/mise-action` installs
+  only the tools of `mise.toml` the zip needs (Rust, Python, CMake, uv, aqt),
+  without a cache; `mise run package` installs Qt (`qt:install`), builds
+  `eco-window` and the zip, and the job attaches
+  `eco-<version>-windows-x86_64.zip`.
+- `checksums` downloads the release's `eco-*` assets, writes one
+  `SHA256SUMS` over all of them with `sha256sum` (`<sha256>  <file>`, the
+  format `install.sh` checks) and attaches it. It runs once the Linux package
+  is attached even if the Windows one failed, so `install.sh` keeps working.
+
+Every action is pinned by commit sha. On Windows the tools mise installs are
+pinned, the compiler and Windows SDK are the image's. The Linux job's
+container is `archlinux:base-devel` pinned
 by its multi-arch index digest, so the base image cannot change under a tag;
 the job's `pacman -Syu` still installs the Rust toolchain, CMake, Ninja, Qt
 and the system packages current on the day of the build, so the toolchain
@@ -1596,9 +1835,10 @@ leaves sessions, config, models and the agent skill.
 - It is not a bot that joins the meeting, and it does not record raw audio:
   audio is never written to disk, imports are decoded through a pipe, and voices
   are kept only as embeddings.
-- It is Linux only (Omarchy, Hyprland, PipeWire); nothing special-cases macOS or
-  Windows. The Windows machine on the LAN only serves models over HTTP and is
-  reached through the same adapters as any provider.
+- It is released for Linux (Omarchy, Hyprland, PipeWire) and as a zip for
+  Windows, where it builds and passes its tests and several platform seams
+  have no adapter yet (§15); macOS is not supported. A Windows machine on the LAN that serves
+  models over HTTP is reached through the same adapters as any provider.
 - Transcripts stay local in `~/.local/share/eco/`; `--no-save` keeps a session
   in memory only. Secrets are never logged, nor transcript text at info level.
   No telemetry.
@@ -1647,6 +1887,7 @@ mise run start -- --no-save              # keep sessions in memory only
 mise run overlay            # only the window; start it after the daemon
 mise watch overlay -o restart   # the same, run again on every save under overlay/
 mise run window:build       # eco-window, into target/window (the tasks that run it build it first)
+mise run qt:install         # Windows only: the Qt eco-window builds with, into .qt
 mise run check              # the gate: lint, test, cli:check, docs:check
 mise run lint               # cargo fmt and clippy, every warning fatal
 mise run test               # the domain tests, i18n, VAD and speaker parity
@@ -1659,11 +1900,14 @@ mise run bench              # answer quality per model; benchmark/README.md
 mise run bench:llm          # model latency on OpenRouter
 mise run bench:diarization <dir>   # diarization error rate on WAV + RTTM
 mise run readme:gif         # the README icon, from packaging/eco.omapixel
+mise run icon               # packaging/windows/eco.ico, from packaging/eco.svg
 mise run install            # the release build, under ~/.local (PREFIX moves it)
-mise run package            # the Arch package of HEAD, into target/arch/pkg
+mise run package            # the Arch package of HEAD, into target/arch/pkg; on Windows the zip, into dist
 mise run hooks:install      # run the gate on every push, and post local-check
 mise run local-check        # gate HEAD and post local-check by hand
 mise run uninstall          # asks first, then takes that install back off
+mise run install:windows    # Windows only: the release build, in %LOCALAPPDATA%\Programs\eco, on your PATH
+mise run uninstall:windows  # Windows only: takes it off; asks whether to delete your data too
 ```
 
 **A checkout is enough to try eco.** `mise run start` runs the daemon and its
@@ -1695,7 +1939,7 @@ That is the whole gate. It runs:
 | step | what it refuses |
 |---|---|
 | `lint` | Rust not formatted by `cargo fmt`, any clippy warning (`-D warnings`, all targets) |
-| `test` | `eco-window` that does not build without a warning (`window:build`), a failing `cargo test`: the domain tests, the i18n checks (`tests/i18n.rs`), the answer Markdown (`overlay/Eco/Core/markdown.js`) against its QML test case (`tests/overlay.rs`, run offscreen by Qt's `qmltestrunner`), eco-window's bridge offscreen (`tests/window.rs`: lines each way, the reconnect, a watched file, a clean exit) and the VAD and speaker parity tests against the Python fixtures (these need the models from `mise run setup`) |
+| `test` | `eco-window` that does not build without a warning (`window:build`), a failing `cargo test`: the domain tests, the i18n checks (`tests/i18n.rs`), the answer Markdown (`overlay/Eco/Core/markdown.js`) against its QML test case (`tests/overlay.rs`, run offscreen by Qt's `qmltestrunner`), eco-window's bridge offscreen (`tests/window.rs`: lines each way, on Windows the `auth` line first, the reconnect, the pid, a local path, a watched file, a clean exit) and the VAD and speaker parity tests against the Python fixtures (these need the models from `mise run setup`) |
 | `cli:check` | a `docs/cli.md` that is not what the binary's usage spec generates |
 | `docs:check` | a relative link or image in `README.md` or `docs/*.md` whose file, or whose heading for an `#anchor`, is missing |
 
@@ -1710,8 +1954,30 @@ pull request, which no hook ran on, is merged. To gate it instead, check its
 branch out and run `mise run local-check`, which gates that commit and posts the
 status. `ECO_SKIP_LOCAL_CHECK=1` or `git push --no-verify` skips the hook.
 
-mise pins CMake, Ninja and watchexec too; the C++ compiler and Qt 6 are the
-system's, the ones Arch builds Qt with. Recorded audio replays with
+mise pins CMake, Ninja and watchexec too; on Linux the C++ compiler and Qt 6
+are the system's, the ones Arch builds Qt with.
+
+**On Windows** a checkout builds and tests the daemon and its window, with
+the MSVC Build Tools 2022 (the C++ workload) installed; CMake finds them
+through its Visual Studio generator, with no developer shell. `mise install`
+also pins uv and aqt there, aqt at a commit, for no release of it reads Qt
+6.11's repository layout. `mise run window:build` first runs `mise run
+qt:install`, which installs Qt 6.11.2 for MSVC 2022 (`qtbase` and
+`qtdeclarative`, which hold every module the overlay imports) under `.qt` in
+the checkout: about 2 GB with Qt's debug libraries, in a minute on the
+machine it was measured on. It survives `cargo clean`; deleting `.qt` takes it
+back. `mise run package` builds the zip of §13; `mise run install:windows`
+installs that same folder, staged by the same code (`scripts/lib/windows.py`),
+in `%LOCALAPPDATA%\Programs\eco` and puts its `bin` on the user's `PATH`,
+and `mise run uninstall:windows` takes it off
+([how](how-to-install-and-remove.md#on-windows)). The `PATH` is edited in the
+registry through Python's `winreg`, which keeps the value's type
+(`REG_EXPAND_SZ`) and its `%…%` entries; PowerShell's
+`[Environment]::SetEnvironmentVariable` writes it back expanded, as `REG_SZ`.
+The other tasks run bash
+scripts, which Windows does not; run the tests
+and lints there with `mise exec -- cargo test` and `mise exec -- cargo clippy
+--all-targets -- -D warnings`. Recorded audio replays with
 `--replay <file.wav>` instead of joining a call.
 `mise run preview:controls` opens the control lab, and `mise run shots`
 regenerates `docs/img` from the real overlay against an isolated daemon.
@@ -1729,9 +1995,10 @@ regenerates `docs/img` from the real overlay against an isolated daemon.
 - **Default trigger:** manual.
 - **GPU:** no dedicated GPU on the laptop; Radeon 860M iGPU.
 - **Interface:** QML overlay instead of a TUI.
-- **Development:** on the laptop; the Windows machine only serves models.
-- **Screen sharing:** a setting, off by default — `no_screen_share` also blacks
-  out screenshots.
+- **Development:** on the laptop; Windows is built and tested by hand on a
+  Windows machine, which can also serve models.
+- **Screen sharing:** a setting, off by default — Hyprland's `no_screen_share`
+  and Windows' capture exclusion also hide eco from screenshots.
 - **Sessions:** transcription and storage only inside a session (outside,
   inputs are only measured for the live trace); removed suggestions disappear
   and leave the context; an unfinished session is marked paused and shown as
@@ -1757,22 +2024,29 @@ regenerates `docs/img` from the real overlay against an isolated daemon.
 
 ## 15. Platform seams
 
-A *platform seam* is a port in `src/ports.rs`, or the window host's
-bridge, with one Linux adapter. AGENTS.md's rule — add a port only
-when two real adapters exist or a test needs the seam — makes an
-explicit exception for these seams, so each exists with a single
-adapter. Each seam's adapter is chosen in one place: the composition
-in `src/session.rs`, or the module that owns the seam.
+A *platform seam* is a port in `src/ports.rs`, the window host's bridge, or a
+function, with a Linux and a Windows adapter. AGENTS.md's rule — add a port
+only when two real adapters exist or a test needs the seam — makes an
+explicit exception for these seams. Each seam's adapter is chosen with
+`#[cfg]` in one place: the composition in `src/session.rs`, or the module
+that owns the seam; nothing else names a platform.
 
-This section names the seams. The table says where each one's Linux
-adapter lives today.
+eco builds and passes its tests on Windows. The table says where each seam's
+adapter lives on each platform today.
 
-| Seam | Linux adapter today | File(s) |
-|---|---|---|
-| Paths | the home and the XDG base directories (`HOME`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_RUNTIME_DIR`, else `/run/user/<uid>`), and Hyprland's event socket under the runtime directory (`HYPRLAND_INSTANCE_SIGNATURE`) | `src/paths.rs` |
-| The daemon socket | a Unix domain socket at `$XDG_RUNTIME_DIR/eco.sock`, in `src/adapters/local_socket.rs`; the protocol (`src/adapters/control_socket.rs`), the CLI client (`src/cli.rs`) and the service commands (`src/lifecycle.rs`) reach it only through that module | `src/adapters/local_socket.rs` |
-| Audio devices and capture | the `AudioDevices` port, adapter `PipeWire`: devices from `pw-dump`, an `AudioSource` per device through `pw-record`, echo cancellation by `libpipewire-module-echo-cancel` loaded through `pw-cli`; composed in `src/session.rs` | `src/ports.rs`, `src/adapters/audio_pipewire.rs`, `src/adapters/pipewire_devices.rs`, `src/adapters/echo_cancel.rs` |
-| Service lifecycle and desktop setup | `ServiceManager`: the systemd user service (`systemctl --user`), chosen in `src/main.rs`; `DesktopIntegration`: the line loaded into the Hyprland Lua config (`~/.config/hypr/bindings.lua`), chosen in `src/setup.rs` | `src/adapters/service_systemd.rs`, `src/adapters/desktop_hyprland.rs` |
-| Window control | the `WindowControl` port, adapter `HyprlandWindows`: giving a window process's overlay (its window titled `eco`, never the settings window) the keyboard and raising it above the settings, so a dialog the shortcut opens shows and setting `no_screen_share` on its windows through `hyprctl dispatch`, by pid, again on Hyprland's `openwindow` events while they are hidden; composed in `src/session.rs`, used by `src/adapters/overlay.rs`, which launches `eco-window`. The window rules in `packaging/hypr/eco.lua` centering the config window stay compositor config | `src/ports.rs`, `src/adapters/window_hyprland.rs`, `src/adapters/overlay.rs`, `packaging/hypr/eco.lua` |
-| The window host's bridge | `eco-window`'s `EcoHost` module: `Host` gives the QML its environment and copies to the Wayland clipboard through `wl-copy`; `LineSocket` is a `QLocalSocket` to the daemon socket, whose path `overlay/Eco/Core/Eco.qml` builds from `XDG_RUNTIME_DIR`; `TextFile` reads and watches files, such as the Omarchy theme under `XDG_STATE_HOME` that `overlay/Eco/Core/Theme.qml` follows | `window/main.cpp`, `window/host.h`, `window/line_socket.h`, `window/text_file.h` |
-| Shortcuts | a global Hyprland bind that runs an `eco window` command, which sends one line to the socket and returns once the daemon has read it: `window.call` for those that open a view, the daemon giving that window the keyboard | `packaging/hypr/eco.lua`, `src/cli.rs` |
+| Seam | Linux | Windows | File(s) |
+|---|---|---|---|
+| Paths | the home and the XDG base directories (`HOME`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_RUNTIME_DIR`, else `/run/user/<uid>`), and Hyprland's event socket under the runtime directory (`HYPRLAND_INSTANCE_SIGNATURE`) | the user profile (`USERPROFILE`), the config under `%APPDATA%\eco`, the data and the windows' token under `%LOCALAPPDATA%\eco`, each else under the profile's `AppData`, and the pipe `\\.\pipe\eco-<USERNAME>` | `src/paths.rs` |
+| Private files | files `0600` and directories `0700` | plain files and directories: under the user profile they inherit an access list that admits only the user, the system and administrators | `src/config.rs` |
+| The daemon socket | a Unix domain socket at `$XDG_RUNTIME_DIR/eco.sock`, `0600`; a socket file a crashed daemon left is replaced | a named pipe that refuses clients on other machines; its first instance is created as the first, so a second daemon is refused while one runs, and the pipe goes with its last handle; a new instance waits for the next client before each accepted one is handed out, and a client finding every instance taken tries again for two seconds. The pipe keeps Windows' default access list, which lets any local account open it (setting its own takes a call tokio offers only as `unsafe`), so a client is admitted only once its first line is `auth <token>`, the token in `%LOCALAPPDATA%\eco\eco.token`; anything else is disconnected without a byte (§10) | `src/adapters/local_socket.rs`; the admission and the protocol (`src/adapters/control_socket.rs`), the CLI client (`src/cli.rs`) and the service commands (`src/lifecycle.rs`) reach it only through it |
+| Audio devices and capture | the `AudioDevices` port, adapter `PipeWire`: devices from `pw-dump`, an `AudioSource` per device through `pw-record`, echo cancellation by `libpipewire-module-echo-cancel` loaded through `pw-cli` | adapter `Wasapi`, on WASAPI through the `cpal` crate: the devices are the active endpoints, each with its endpoint id (`{0.0.1.00000000}.{…}`) and friendly name, a capture endpoint as `input` and a render endpoint as `output`, after the same two defaults; `@default-input` and `@default-output` follow the system default (the daemon names them `Default microphone` and `Default output`, in English as its messages are; the overlay names them by id in the interface language), and when it changes the stream opens again on the new one. An output is captured in loopback, beside a silent stream of eco's own on that output, because WASAPI hands a loopback nothing while its output plays nothing. Capture runs on cpal's thread in the device's own format (often 48 kHz float stereo); `src/adapters/audio_convert.rs`, platform-neutral and tested on both, averages the channels, resamples to 16 kHz with a Blackman-windowed sinc (rational polyphase, cutoff at 90% of the lower Nyquist) and cuts 512-sample frames across chunks. Frames reach the session through a queue of 256 (about 8 s) that drops new audio rather than make the device's thread wait; a device that cannot be opened or goes away is reported as `capture.down` and opened again, while the other inputs keep capturing (§4). Echo cancellation is not available: `cancel_echo` fails with `echo_cancel.unavailable`, and the "cancelled" microphone is the default microphone as it is. Measured on the Windows machine over ssh: the endpoints listed, one second of the default microphone gave 30 frames and of the default output 31 silent frames, and a 440 Hz tone at 0.2 played on it came back with a peak of 6554 | `src/session.rs` composes it; `src/adapters/audio_pipewire.rs`, `src/adapters/pipewire_devices.rs`, `src/adapters/echo_cancel.rs`, `src/adapters/devices.rs` (both), `src/adapters/audio_wasapi.rs`, `src/adapters/audio_convert.rs` |
+| Service lifecycle and desktop setup | `ServiceManager`: the systemd user service (`systemctl --user`), chosen in `src/main.rs`; `DesktopIntegration`: the line loaded into the Hyprland Lua config (`~/.config/hypr/bindings.lua`), chosen in `src/setup.rs` | `ServiceManager`, adapter `BackgroundProcess`: `eco start` has PowerShell's `Start-Process -WindowStyle Hidden` run `eco detach`, which runs `eco daemon --headless` from the same executable as a process of the user's own and returns. A process Rust's standard library starts inherits every inheritable handle of its parent, and a shell or ssh reading `eco start`'s output waits until the last holder of that pipe exits: started directly, or through `cmd /c start`, the daemon held it and `eco start 2>&1 \| Out-String` never returned; through `Start-Process`, which inherits nothing, it returns once PowerShell does (measured over ssh: 12 s against 0.2 s with a 12-second program). The daemon runs with `CREATE_NO_WINDOW` (a console of its own that is never shown, which the programs it runs, a hook's `cmd` say, share instead of each opening one; `DETACHED_PROCESS` would leave it none, and Windows ignores `CREATE_NO_WINDOW` beside it), out of reach of a Ctrl-C in the terminal that ran `eco start`; its output goes to `%LOCALAPPDATA%\eco\daemon.log`, emptied at each start, and `eco start` waits for the pipe as on Linux; stop, status and restart go through the pipe. `DesktopIntegration`, adapter `OldLoginScript`: eco starts only when the user opens it, so `eco setup` removes the `eco.cmd` an earlier `eco setup` wrote into the user's Startup folder, says so, and says nothing when there is none. Adapter `StartMenu`: `eco setup` saves the shortcut `eco.lnk` in the user's Start menu through PowerShell and the shell's `WScript.Shell` COM object, the values handed in variables; it runs `conhost.exe --headless "<eco.exe>" start`, a console host without a window, with the icon of `eco-window.exe`, and a rerun leaves a shortcut with the same fields alone. `setup::desktop()` lists both; Linux lists Hyprland alone | `src/adapters/service_systemd.rs`, `src/adapters/desktop_hyprland.rs`, `src/adapters/service_windows.rs`, `src/adapters/desktop_windows.rs` |
+| Stopping the daemon and its windows | the daemon stops on Ctrl-C or `SIGTERM`; a window process is sent `SIGTERM` | the daemon stops on Ctrl-C, Ctrl-Break, its console closing or Windows shutting down; a window process is terminated | `src/session.rs`, `src/adapters/overlay.rs` |
+| The running executable | `eco status --expect-current-exe` compares the daemon's `/proc/<pid>/exe` with this executable by device and inode | it compares the `exe` the daemon's greeting names with this executable's path; Windows lets no one overwrite a running executable | `src/lifecycle.rs` |
+| Window control | the `WindowControl` port, adapter `HyprlandWindows`: giving a window process's overlay (its window titled `eco`, never the settings window) the keyboard and raising it above the settings, so a dialog the shortcut opens shows and setting `no_screen_share` on its windows through `hyprctl dispatch`, by pid, again on Hyprland's `openwindow` events while they are hidden; composed in `src/session.rs`, used by `src/adapters/overlay.rs`, which launches `eco-window`. The window rules in `packaging/hypr/eco.lua` centering the config window stay compositor config | adapter `HostWindows`: the windows control themselves. Focusing sends `window_focus` with the pid and hiding sends `window_share` with the pids (§10.1), to every client; the window of that process answers through its host, `Host.raise` on its eco window, or `Host.hideFromCapture`, and the last of each is told again to a client that connects, as a window does just after it opens. Windows gives the foreground only to a process that has it or had the last input, and neither the daemon nor its windows, in the background, do: `raise()` and `requestActivate()` alone left the window behind another program, its taskbar button flashing (seen in a desktop test). So the host's `Host.raise` first attaches its thread to the input of the foreground window's thread (`AttachThreadInput`), brings the window to the top and calls `SetForegroundWindow`, then detaches, after checking that thread answers (`SendMessageTimeout`), as an attached hung thread would hang the window: the workaround Qt applies under its private `AlwaysActivateWindow` option. Chosen over a synthetic Alt press before `SetForegroundWindow`, which reaches the program in front (an Alt press and release opens its menu bar), and over the daemon passing the right on with `AllowSetForegroundWindow` from the hotkey's thread, which has no safe binding in Rust and would not cover `eco window` from a terminal. Leaving out of capture needs Windows 10 2004 or later, and leaves the windows out of the user's own screenshots and recordings too | `src/ports.rs`, `src/adapters/window_hyprland.rs`, `src/adapters/window_host.rs`, `src/adapters/overlay.rs`, `window/host.h`, `packaging/hypr/eco.lua` |
+| The window host's bridge | `eco-window`'s `EcoHost` module, built with the system's compiler and Qt by Ninja: `Host` gives the QML its pid, its environment and local paths, and copies to the Wayland clipboard through `wl-copy`; `LineSocket` is a `QLocalSocket` to the daemon socket the daemon names in `ECO_SOCKET`; `TextFile` reads and watches files, such as the Omarchy theme under `XDG_STATE_HOME` that `overlay/Eco/Core/Theme.qml` follows | the same module, built with MSVC through CMake's Visual Studio generator against the Qt `scripts/qt-install` puts under `.qt`, with Qt's libraries copied beside `eco-window.exe` by `windeployqt`; `src/adapters/overlay.rs` runs `<prefix>\lib\eco\eco-window.exe` beside an installed `eco`, else the checkout's `target\window\eco-window.exe`. `Host.copy` puts the text on the clipboard through Qt and flushes it to Windows (`OleFlushClipboard`, from `ole32`), `Host.hideFromCapture` sets the windows' display affinity, and `LineSocket` connects to the named pipe and sends `auth <token>` first. `tests/window.rs` and `tests/overlay.rs` run there too, the second with the `qmltestrunner` under `.qt`. There is no Omarchy theme, so the window keeps its own colours | `window/main.cpp`, `window/host.h`, `window/line_socket.h`, `window/text_file.h`, `scripts/window-build`, `scripts/qt-install` |
+| The tray icon | `Qt.labs.platform`'s `SystemTrayIcon`, which Qt exports as a StatusNotifierItem with a D-Bus menu (qt6-base carries Qt D-Bus); the bar's tray shows it | the same type, a notification area icon whose menu is a Qt Widgets menu; `windeployqt` ships Qt Widgets and the `Qt.labs.platform` plugin with `eco-window.exe` | `overlay/tray.qml`, `src/adapters/overlay.rs` |
+| Shortcuts | a global Hyprland bind that runs an `eco window` command, which sends one line to the socket and returns once the daemon has read it: `window.call` for those that open a view, the daemon giving that window the keyboard | the daemon registers `[shortcuts]` (§9) itself, `Win+Alt+A`, `Q`, `C`, `N`, `P`, `H` and `E` by default, the keys of `eco.lua` with the Windows key for SUPER, none of them one Microsoft documents for Windows (`Win+Alt` with a digit opens a taskbar jump list, and was refused on a desktop; the Game Bar holds `G`, `M`, `R` and `T`; Omarchy binds `SUPER+ALT+1` to `5` to a group's windows), through the `windows-hotkeys` crate: `RegisterHotKey` on a hidden message-only window of a thread of its own, which waits for `WM_HOTKEY` in the crate's loop. A pressed key hands the daemon's loop the very line `eco window` builds (`cli::Window::line`), so it is routed as the command would be. A key the system refuses, another program holding it, is written to the daemon's log and greets every client as an `error` with the code `shortcut.unavailable`, which names the config's path, to be created if missing, as the settings window has no place for shortcuts; the others still work. Chosen over `global-hotkey`, which registers the same way but leaves the message loop to the application, and that loop is `unsafe` code eco forbids, and over `livesplit-hotkey`, which installs a low-level keyboard hook: it sees every key pressed in every program, passes the shortcut on to the program in front as well (Win+Alt+1 would also open the first taskbar program's jump list) and cannot tell a key another program holds (read in the crates' sources). The keys are read when the daemon starts. Over ssh the system refuses every key: that session has no interactive window station (`RegisterHotKey` fails with error 1459, `ERROR_REQUIRES_INTERACTIVE_WINDOWSTATION`, measured), so each is reported; on a desktop, `Win+Alt+C`, `N`, `H` and `E` registered and worked when pressed (seen in a desktop test). `eco window` works as on Linux, knowing the daemon has read its line from the `synced` answer to `sync` (§10) | `packaging/hypr/eco.lua`, `src/cli.rs`, `src/shortcuts.rs`, `src/adapters/shortcuts_windows.rs` |
+| The hook shell | `shell()` runs each hook with `sh -c` | `shell()` runs each hook with `cmd /S /C "<command>"`, the command handed over as written, for cmd does not read its line by the quoting rules other programs use; a hook reads `%ECO_SESSION%` and `%ECO_TITLE%`. cmd is on every Windows | `src/adapters/hook_shell.rs` |
+| The omapass keyring | `api_key_omapass` reads a key through the omapass CLI | omapass does not exist: it is never installed, and a key from it fails | `src/adapters/omapass.rs` |
+| The Windows Credential Manager | none: `api_key_credential` and `eco key` fail, naming omapass and the environment | `api_key_credential` reads the generic credential `eco:<name>`; `eco key set`/`remove` write and delete it (§9.1) | `src/adapters/credentials.rs` |

@@ -8,10 +8,11 @@ use futures::future::BoxFuture;
 use futures::stream::BoxStream;
 use tokio::process::Command;
 
-use crate::adapters::pipewire_devices::{DEFAULT_INPUT, DEFAULT_OUTPUT, list_devices};
+use crate::adapters::devices::{DEFAULT_INPUT, DEFAULT_OUTPUT};
+use crate::adapters::pipewire_devices::list_devices;
 use crate::adapters::{echo_cancel, pipe};
 use crate::ports::{
-    AudioDevices, AudioError, AudioSource, Device, EchoCancelling, Frame, SAMPLE_RATE,
+    AudioDevices, AudioError, AudioSource, Device, EchoCancelling, EchoError, Frame, SAMPLE_RATE,
 };
 
 /// The audio of a PipeWire session.
@@ -30,7 +31,11 @@ impl AudioDevices for PipeWire {
         Box::new(PipeWireSource::cancelled())
     }
 
-    fn cancel_echo(&self, mic: &str) -> BoxFuture<'static, Result<EchoCancelling, AudioError>> {
+    fn cancels_echo(&self) -> bool {
+        true
+    }
+
+    fn cancel_echo(&self, mic: &str) -> BoxFuture<'static, Result<EchoCancelling, EchoError>> {
         let mic = mic.to_owned();
         async move {
             let module = echo_cancel::start(&mic).await?;
@@ -89,7 +94,7 @@ impl AudioSource for PipeWireSource {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::adapters::pipewire_devices::defaults;
+    use crate::adapters::devices::defaults;
 
     #[test]
     fn pw_record_arguments_per_device() {

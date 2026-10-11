@@ -1,0 +1,132 @@
+#!/usr/bin/env python3
+"""Render, from packaging/eco.svg, packaging/windows/eco.ico, the icon
+eco-window.exe carries on Windows, and the tray icons overlay/tray.qml shows:
+overlay/icons/tray.png, the bars alone in white, and
+overlay/icons/tray-recording.png, the same with a red dot while a session
+records. On the standard library alone: the SVG is filled rounded rectangles,
+which this rasterises with 4x4 samples a pixel into PNGs. Any other SVG
+element is refused. The output is the same for the same SVG."""
+
+import os
+import struct
+import sys
+import xml.etree.ElementTree as ET
+import zlib
+from pathlib import Path
+
+SIZES = (16, 24, 32, 48, 64, 256)
+TRAY_SIZE = 64
+WHITE = (255, 255, 255)
+SAMPLES = 4
+SVG = "{http://www.w3.org/2000/svg}"
+
+root = Path(os.environ.get("MISE_PROJECT_ROOT") or Path.cwd())
+source = root / "packaging/eco.svg"
+target = root / "packaging/windows/eco.ico"
+icons = root / "overlay/icons"
+
+
+def rects(svg):
+    """The rectangles of `svg` in paint order: x, y, width, height, radius, colour."""
+    found = []
+
+    def walk(element, fill):
+        fill = element.get("fill", fill)
+        tag = element.tag.removeprefix(SVG)
+        if tag == "rect":
+            x, y, w, h = (float(element.get(name, 0)) for name in ("x", "y", "width", "height"))
+            r = min(float(element.get("rx", 0)), w / 2, h / 2)
+            colour = fill.lstrip("#")
+            if len(colour) != 6:
+                sys.exit(f"icon: {source} has a fill that is not #rrggbb: {fill}")
+            found.append((x, y, w, h, r, tuple(int(colour[i : i + 2], 16) for i in (0, 2, 4))))
+        elif tag not in ("svg", "g"):
+            sys.exit(f"icon: {source} has a <{tag}>; this script draws only <rect> and <g>")
+        for child in element:
+            walk(child, fill)
+
+    walk(svg, None)
+    return found
+
+
+def inside(px, py, x, y, w, h, r):
+    """Whether the point lies in the rounded rectangle."""
+    if not (x <= px < x + w and y <= py < y + h):
+        return False
+    cx = min(max(px, x + r), x + w - r)
+    cy = min(max(py, y + r), y + h - r)
+    return (px - cx) ** 2 + (py - cy) ** 2 <= r * r
+
+
+def render(shapes, viewbox, size):
+    """RGBA rows of `shapes` drawn at `size` pixels a side, premultiplied while
+    drawn; a shape without a colour erases what it covers."""
+    scale = size / viewbox
+    pixels = [[0.0, 0.0, 0.0, 0.0] for _ in range(size * size)]
+    step = 1 / SAMPLES
+    for x, y, w, h, r, colour in shapes:
+        left, top = int(x * scale), int(y * scale)
+        right, bottom = min(size, int((x + w) * scale) + 1), min(size, int((y + h) * scale) + 1)
+        for row in range(top, bottom):
+            for column in range(left, right):
+                hits = sum(
+                    inside((column + (i + 0.5) * step) / scale, (row + (j + 0.5) * step) / scale, x, y, w, h, r)
+                    for i in range(SAMPLES)
+                    for j in range(SAMPLES)
+                )
+                if hits:
+                    alpha = hits / SAMPLES**2
+                    pixel = pixels[row * size + column]
+                    if colour is None:
+                        pixel[:] = [value * (1 - alpha) for value in pixel]
+                        continue
+                    for channel in range(3):
+                        pixel[channel] = colour[channel] * alpha + pixel[channel] * (1 - alpha)
+                    pixel[3] = alpha + pixel[3] * (1 - alpha)
+    rows = []
+    for row in range(size):
+        line = bytearray([0])
+        for pixel in pixels[row * size : (row + 1) * size]:
+            alpha = pixel[3]
+            rgb = [round(pixel[c] / alpha) if alpha else 0 for c in range(3)]
+            line += bytes(rgb + [round(alpha * 255)])
+        rows.append(bytes(line))
+    return rows
+
+
+def png(rows, size):
+    def chunk(kind, data):
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+
+    header = struct.pack(">IIBBBBB", size, size, 8, 6, 0, 0, 0)
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) + chunk(b"IDAT", zlib.compress(b"".join(rows), 9)) + chunk(b"IEND", b"")
+
+
+svg = ET.parse(source).getroot()
+viewbox = [float(value) for value in svg.get("viewBox", "").split()]
+if len(viewbox) != 4 or viewbox[:2] != [0, 0] or viewbox[2] != viewbox[3]:
+    sys.exit(f"icon: {source} needs a square viewBox from 0 0")
+shapes = rects(svg)
+images = [png(render(shapes, viewbox[2], size), size) for size in SIZES]
+icon = struct.pack("<HHH", 0, 1, len(images))
+offset = len(icon) + 16 * len(images)
+for size, image in zip(SIZES, images):
+    icon += struct.pack("<BBBBHHII", size % 256, size % 256, 0, 0, 1, 32, len(image), offset)
+    offset += len(image)
+target.write_bytes(icon + b"".join(images))
+print(f"wrote {target.relative_to(root)}: {', '.join(map(str, SIZES))} px")
+
+# The tray: the bars, the shapes of the first colour, in white; while recording,
+# a dot top right with a clear ring around it.
+bars = [shape[:5] + (WHITE,) for shape in shapes if shape[5] == shapes[0][5]]
+side = viewbox[2]
+dot = side * 0.28
+ring = side * 0.06
+recording = bars + [
+    (side - dot - 2 * ring, 0, dot + 2 * ring, dot + 2 * ring, dot / 2 + ring, None),
+    (side - dot - ring, ring, dot, dot, dot / 2, (0xF8, 0x55, 0x25)),
+]
+icons.mkdir(exist_ok=True)
+for name, drawn in (("tray.png", bars), ("tray-recording.png", recording)):
+    (icons / name).write_bytes(png(render(drawn, side, TRAY_SIZE), TRAY_SIZE))
+    print(f"wrote {(icons / name).relative_to(root)}: {TRAY_SIZE} px")

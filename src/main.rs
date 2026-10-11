@@ -12,6 +12,7 @@ mod paths;
 mod ports;
 mod session;
 mod setup;
+mod shortcuts;
 mod skill;
 
 use std::path::{Path, PathBuf};
@@ -19,8 +20,14 @@ use std::path::{Path, PathBuf};
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 
-use crate::adapters::service_systemd::SystemdUser;
-use crate::ports::DesktopIntegration;
+use crate::adapters::control_socket::Address;
+use crate::adapters::credentials;
+// What runs the daemon in the background: the systemd user service, or on
+// Windows a process of the user's own (docs/design.md §15).
+#[cfg(unix)]
+use crate::adapters::service_systemd::SystemdUser as PlatformService;
+#[cfg(windows)]
+use crate::adapters::service_windows::BackgroundProcess as PlatformService;
 
 #[derive(Debug, Parser)]
 #[command(
@@ -41,7 +48,7 @@ enum Command {
         #[arg(long, value_delimiter = ',')]
         harnesses: Vec<String>,
     },
-    /// Start the daemon service and open its window.
+    /// Start the daemon service and open its window, or bring the open one forward; a daemon of another eco is restarted.
     Start {
         /// Do not open the overlay.
         #[arg(long)]
@@ -73,12 +80,21 @@ enum Command {
         #[arg(long)]
         no_save: bool,
     },
+    /// Start the daemon in the background, its output in the daemon log, and return (run by `eco start`).
+    #[cfg(windows)]
+    #[command(hide = true)]
+    Detach,
     /// Tell the speakers of the regions on stdin apart (run by the daemon on import).
     #[command(hide = true)]
     Diarize { model: PathBuf },
     /// Print the usage spec (KDL) that docs/cli.md and the shell completions are generated from.
     #[command(hide = true)]
     Usage,
+    /// Keep a provider's key in the Windows Credential Manager (Windows only).
+    Key {
+        #[command(subcommand)]
+        action: KeyCommand,
+    },
     /// Measure what docs/benchmarks.md reports.
     Bench {
         #[command(subcommand)]
@@ -205,7 +221,7 @@ enum Command {
         #[command(subcommand)]
         action: Option<PeopleCommand>,
     },
-    /// Do what a shortcut does, on the newest eco window or the session shown; returns once sent.
+    /// Do what a shortcut does, on the newest eco window or the session shown; returns once the daemon has read it.
     Window {
         #[command(subcommand)]
         action: WindowCommand,
@@ -252,6 +268,15 @@ enum AssignTarget {
         #[arg(long, group = "person_choice")]
         name: Option<String>,
     },
+}
+
+#[derive(Debug, Subcommand)]
+enum KeyCommand {
+    /// Store a key as the credential eco:<name>, which a model names with
+    /// api_key_credential; typed hidden, or read from stdin when it is not a terminal.
+    Set { name: String },
+    /// Delete the credential eco:<name>.
+    Remove { name: String },
 }
 
 #[derive(Debug, Subcommand)]
@@ -360,10 +385,13 @@ enum Run {
         headless: bool,
         save_sessions: bool,
     },
+    #[cfg(windows)]
+    Detach,
     Diarize {
         model: PathBuf,
     },
     Usage,
+    Key(KeyCommand),
     BenchLlm,
     BenchDiarization(bench::diarization::Options),
     BenchPeople {
@@ -405,8 +433,11 @@ impl From<Command> for Run {
                     save_sessions: !no_save,
                 };
             }
+            #[cfg(windows)]
+            Command::Detach => return Run::Detach,
             Command::Diarize { model } => return Run::Diarize { model },
             Command::Usage => return Run::Usage,
+            Command::Key { action } => return Run::Key(action),
             Command::Bench { target } => {
                 return match target {
                     Bench::Llm => Run::BenchLlm,
@@ -570,15 +601,14 @@ async fn main() -> Result<()> {
     let ran = match Run::from(Cli::parse().command) {
         Run::SetUp { harnesses } => set_up(harnesses).await,
         Run::Start { show_window } => {
-            lifecycle::start(&SystemdUser, &paths::socket_path(), show_window).await
+            lifecycle::start(&PlatformService, &Address::user(), show_window).await
         }
-        Run::Stop => lifecycle::stop(&paths::socket_path()).await,
-        Run::Restart => lifecycle::restart(&SystemdUser, &paths::socket_path()).await,
+        Run::Stop => lifecycle::stop(&Address::user()).await,
+        Run::Restart => lifecycle::restart(&PlatformService, &Address::user()).await,
         Run::Status {
             expect_current_exe,
             window_open,
-        } => match lifecycle::status(&paths::socket_path(), expect_current_exe, window_open).await?
-        {
+        } => match lifecycle::status(&Address::user(), expect_current_exe, window_open).await? {
             0 => Ok(()),
             code => std::process::exit(code),
         },
@@ -587,19 +617,24 @@ async fn main() -> Result<()> {
             headless,
             save_sessions,
         } => session::run(&paths::config_file(), replay, headless, save_sessions).await,
+        #[cfg(windows)]
+        Run::Detach => adapters::service_windows::detach(),
         Run::Diarize { model } => adapters::diarizer_process::serve(&model),
         Run::Usage => {
             print!("{}", usage_spec());
             Ok(())
         }
+        Run::Key(command) => key(command).map(|done| println!("eco: {done}")),
         Run::BenchLlm => bench::llm::run().await,
         Run::BenchDiarization(options) => bench::diarization::run(options).await,
         Run::BenchPeople { dir, series } => bench::people::run(dir, series).await,
         // The client prints its JSON; its code is the exit status.
-        Run::Client(request) => match cli::run(&paths::socket_path(), request).await {
-            0 => Ok(()),
-            code => std::process::exit(code),
-        },
+        Run::Client(request) => {
+            match lifecycle::ask(&PlatformService, &Address::user(), request).await? {
+                0 => Ok(()),
+                code => std::process::exit(code),
+            }
+        }
     };
     // A bad config is the user's to fix: say what is wrong, without a trace.
     if let Err(failure) = &ran
@@ -611,6 +646,27 @@ async fn main() -> Result<()> {
     ran
 }
 
+/// `eco key`: store or remove a key in the Windows Credential Manager; what
+/// was done. A failure is the user's to fix, said as a bad config is.
+fn key(command: KeyCommand) -> Result<String> {
+    let done = match command {
+        KeyCommand::Set { name } => credentials::set(&name),
+        KeyCommand::Remove { name } => credentials::remove(&name),
+    };
+    Ok(done.map_err(|failure| config::ConfigError(failure.to_string()))?)
+}
+
+/// What `eco window <words>` asks, as a global shortcut's command runs it.
+fn window_request(words: &str) -> Option<cli::Window> {
+    let args = ["eco", "window"]
+        .into_iter()
+        .chain(words.split_whitespace());
+    match Run::from(Cli::try_parse_from(args).ok()?.command) {
+        Run::Client(cli::Request::Window(window)) => Some(window),
+        _ => None,
+    }
+}
+
 /// Download the models, load eco's rules into the desktop, then publish the
 /// skill to `harnesses` and refresh it wherever it is already installed. A
 /// desktop config it cannot write is a warning and exit status 1 after the
@@ -619,17 +675,22 @@ async fn set_up(harnesses: Vec<String>) -> Result<()> {
     for done in setup::run().await? {
         println!("eco: {done}");
     }
-    let rules = setup::desktop().load_rules();
-    match &rules {
-        Ok(done) => println!("eco: {done}"),
-        Err(warning) => eprintln!("eco: warning: {warning}"),
+    let mut tied = true;
+    for desktop in setup::desktop() {
+        match desktop.integrate() {
+            Ok(done) => done.iter().for_each(|done| println!("eco: {done}")),
+            Err(warning) => {
+                eprintln!("eco: warning: {warning}");
+                tied = false;
+            }
+        }
     }
     let home = paths::home();
     for harness in skill_targets(&home, harnesses) {
         println!("eco: {}", skill::install(&home, &harness)?);
     }
-    // The rest of setup ran; the exit status still says the rules are not loaded.
-    if rules.is_err() {
+    // The rest of setup ran; the exit status still says eco is not tied in.
+    if !tied {
         std::process::exit(1);
     }
     Ok(())
@@ -752,6 +813,42 @@ mod tests {
     }
 
     #[test]
+    fn key_sets_and_removes_one_named_key() {
+        assert!(matches!(
+            run(&["key", "set", "deepgram"]),
+            Run::Key(KeyCommand::Set { name }) if name == "deepgram"
+        ));
+        assert!(matches!(
+            run(&["key", "remove", "groq"]),
+            Run::Key(KeyCommand::Remove { name }) if name == "groq"
+        ));
+        assert_eq!(
+            rejected(&["key", "set"]),
+            ErrorKind::MissingRequiredArgument
+        );
+        assert_eq!(
+            rejected(&["key", "set", "a", "b"]),
+            ErrorKind::UnknownArgument
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn on_linux_key_says_to_keep_keys_in_omapass_as_a_config_error_does() {
+        for command in [
+            KeyCommand::Set { name: "dg".into() },
+            KeyCommand::Remove { name: "dg".into() },
+        ] {
+            let failure = key(command).unwrap_err();
+            let said = failure.downcast_ref::<config::ConfigError>().unwrap();
+            assert_eq!(
+                said.0,
+                credentials::CredentialError::Unavailable.to_string()
+            );
+        }
+    }
+
+    #[test]
     fn stop_and_restart_take_no_arguments() {
         assert!(matches!(run(&["stop"]), Run::Stop));
         assert!(matches!(run(&["restart"]), Run::Restart));
@@ -812,6 +909,12 @@ mod tests {
             Run::Diarize { model } if model == Path::new("embed.onnx")
         ));
         assert_eq!(rejected(&["diarize"]), ErrorKind::MissingRequiredArgument);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn detach_starts_the_daemon_in_the_background() {
+        assert!(matches!(run(&["detach"]), Run::Detach));
     }
 
     #[test]

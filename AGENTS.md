@@ -219,10 +219,11 @@ eco keeps voice sessions for Omarchy (Arch Linux, Hyprland/Wayland,
 PipeWire): meetings, conversations, other sessions, spoken ideas — each a session
 with a kind the user picks. It captures the audio, transcribes it, and
 streams short answers from an LLM into an overlay, live or afterwards.
-Linux only; nothing in this tree may special-case macOS or Windows.
-Development happens on the Omarchy laptop. A separate Windows machine
-on the LAN only serves models over HTTP; it holds no code from this
-repository and is reached through the same adapters as any provider.
+It runs on Linux and on Windows; macOS is not supported. Development
+happens on the Omarchy laptop. Windows is built and tested by hand on a
+Windows machine (`mise run check` there); there is no CI for it. A
+Windows machine on the LAN may also serve models over HTTP, reached
+through the same adapters as any provider.
 
 Two processes. The daemon (`src/`, Rust, toolchain pinned by mise,
 built with cargo) does capture, VAD, transcription, triggers, prompts and the
@@ -232,8 +233,10 @@ pinned by mise, `mise run window:build`), one process per window, launched by
 the daemon. The host is a bridge and holds no logic: it gives QML the socket,
 files, the environment and the clipboard (`EcoHost`), and nothing in it knows
 the compositor — focus, raising and screen-share hiding go through the
-daemon's `WindowControl` port. Both talk over one local socket (a Unix socket
-at `$XDG_RUNTIME_DIR/eco.sock`, behind `src/adapters/local_socket.rs`), one
+daemon's `WindowControl` port; a call only Windows needs from a window is a
+bridge method there, behind `Q_OS_WIN`. Both talk over one local socket (a
+Unix socket at `$XDG_RUNTIME_DIR/eco.sock` on Linux, a named pipe on
+Windows, behind `src/adapters/local_socket.rs`), one
 JSON object per line; the overlay
 never calls a provider, never holds a secret and never writes the
 config — it sends a draft and the daemon validates and saves it. QML
@@ -259,13 +262,17 @@ The daemon is ports and adapters. The core (`src/domain/`) imports
 no provider, audio, or network library; it depends only on the
 traits in `src/ports.rs`. Every external system
 is an adapter under `src/adapters/`, composed from the config in
-`src/session.rs`. No `unsafe`: the crate forbids it. Add a port only when two real adapters exist or
-a test needs the seam. The stated exception is a *platform seam*: a
-port in `src/ports.rs` (or the window host's bridge) with one Linux
-adapter, for paths, the daemon socket, audio devices and capture,
-service lifecycle and desktop setup, window control, and shortcuts.
-Its adapter is chosen in one place — the composition in
-`src/session.rs` or the module that owns the seam. The LLM has one adapter: the OpenAI-compatible
+`src/session.rs`. No `unsafe`: the crate forbids it; a Windows API is
+reached through a crate with a safe interface, or from the C++ host. Add a port only when two real adapters exist or
+a test needs the seam. A *platform seam* is a port in `src/ports.rs`
+(or the window host's bridge) with a Linux and a Windows adapter, for
+paths, the daemon socket, audio devices and capture, service lifecycle
+and desktop setup, window control, shortcuts and the shell that runs
+hooks. Its adapter is chosen with `#[cfg]` in one place — the
+composition in `src/session.rs` or the module that owns the seam;
+nothing else in the tree names a platform. A capability one platform
+lacks (echo cancellation, the omapass keyring on Windows) is a known
+limitation the adapter reports, not a silent no-op. The LLM has one adapter: the OpenAI-compatible
 API, selected by `base_url`. Agents reach eco only through the `eco` CLI
 and the `skills/eco/SKILL.md` skill (no MCP); a change to the CLI updates the
 skill in the same commit.
@@ -283,7 +290,10 @@ deterministically with fake adapters and tokio's paused clock, never against
 a real provider, the network, the user's socket or data. A test pins
 behaviour (a line sent, an event, an exit code, an error); none restates the
 code. Adapters that only run a program (`hyprctl`, `pw-*`, `systemctl`) are
-tested for the arguments they build and the output they read. `mise run
+tested for the arguments they build and the output they read. A platform's
+adapters are tested on that platform: tests that need Linux are
+`#[cfg(unix)]`, those that need Windows `#[cfg(windows)]`, and the rest run
+on both. `mise run
 coverage` measures lines per file: the target is 100% of `src/` except
 `src/bench/`, and every line left without a test is listed with its reason
 in `docs/benchmarks.md`, in the same change that leaves it; until a file
@@ -291,7 +301,8 @@ reaches the target, no change lowers its coverage.
 
 Never write raw audio to disk. Outside a session, audio is only measured
 for the input monitor — never transcribed or stored.
-Sessions are append-only logs in `~/.local/share/eco/sessions/` unless
+Sessions are append-only logs in the data directory's `sessions/`
+(`~/.local/share/eco` on Linux, `%LOCALAPPDATA%\eco` on Windows) unless
 `--no-save`; a removed suggestion must also leave the context of later
 actions. Secrets come only from the
 environment (`OPENROUTER_API_KEY`, `DEEPGRAM_API_KEY`,
@@ -300,8 +311,10 @@ keyring (`api_key_omapass`), read when a provider is built; never log them or tr
 No telemetry.
 
 The Hyprland config on the target machine is Lua (`o.bind`,
-`o.window`); do not ship legacy `hyprland.conf` syntax. Global
-shortcuts run `eco window` commands, which reach the running daemon; they never start a second one.
+`o.window`); do not ship legacy `hyprland.conf` syntax. On Linux, global
+shortcuts run `eco window` commands, which reach the running daemon; on
+Windows the daemon registers them itself. They never start a second
+daemon.
 
 The answer benchmark is the one exception to the scripts and docs rules: it
 is a self-contained tool in `benchmark/` — one Python script on the standard

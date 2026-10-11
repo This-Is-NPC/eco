@@ -49,6 +49,8 @@ Singleton {
   // change `session` again.
   onSessionChanged: Qt.callLater(follow)
   readonly property bool recording: session !== null && session.state === "recording"
+  // A live session that records, any window's, or null: what the tray shows.
+  readonly property var recordingSession: live.find(item => item.state === "recording") || null
   // The session whose cost screen is open over it, only after the user asked
   // for it, and what it cost as the daemon last said: {llm_usd, llm_unknown,
   // transcription_usd, transcription_unknown, total_usd, transcribed_s, parts,
@@ -163,6 +165,9 @@ Singleton {
   property var notice: []
   readonly property string message: notice.map(part => part.key ? I18n.t(part.key, part.args) : part.text).join("  ·  ")
   property bool messageIsError: false
+  // Whether the notice is an error of the live capture or its transcription,
+  // which a session that ends or is left takes with it.
+  property bool noticeLive: false
   // Counts notices, so the status line shows a new one without re-showing an
   // old one whose text merely changed language.
   property int noticeCount: 0
@@ -191,13 +196,13 @@ Singleton {
   readonly property string token: Host.env("ECO_TOKEN") || ""
   // A change another client asked for, held until the user approves or rejects
   // it ({id, hooks: [{action, command}], files, models: [{name, base_url,
-  // api_key_env, api_key_omapass}]}), or null. The daemon says it again on
+  // api_key_env, api_key_omapass, api_key_credential}]}), or null. The daemon says it again on
   // connecting.
   property var pendingConfig: null
   // What the held change runs, sends and where, one line each.
   readonly property string pendingText: pendingConfig === null ? "" : pendingConfig.hooks.map(hook => I18n.t("pending.hook", hook))
     .concat(pendingConfig.files.map(file => I18n.t("pending.file", { path: file })))
-    .concat(pendingConfig.models.map(model => I18n.t(model.api_key_env ? "pending.model_env" : model.api_key_omapass ? "pending.model_omapass" : "pending.model_keyless", model)))
+    .concat(pendingConfig.models.map(model => I18n.t(model.api_key_env ? "pending.model_env" : model.api_key_omapass ? "pending.model_omapass" : model.api_key_credential ? "pending.model_credential" : "pending.model_keyless", model)))
     .join("\n")
   onConnectedChanged: if (!connected) pendingConfig = null
   // Approve or reject the held change `id`, the one the window shows.
@@ -215,6 +220,10 @@ Singleton {
   property string omapassError: ""
   // Whether omapass is on this machine, and the page that tells how to install it.
   property bool omapassInstalled: true
+  // Whether keys can come from the Windows Credential Manager: on Windows, in place of omapass.
+  property bool credentialManager: false
+  // The error code that says why echo cancellation cannot run here, or "".
+  property string echoCancelError: ""
   property string omapassPage: ""
   // Provider presets by model type, from the daemon: {chat: [...], transcription: [...]},
   // each {name, values} with the model fields it sets.
@@ -232,6 +241,11 @@ Singleton {
   signal importRequested(string path)
   // A tag every session now carries under another name.
   signal tagRenamed(string from, string to)
+  // Asks the eco window to come to the front with the keyboard.
+  signal raiseRequested()
+  // Brings `window` to the front with the keyboard, which the host does on
+  // Windows over another program's foreground.
+  function raise(window) { Host.raise(window) }
 
   // act does what a shortcut asks of this window (a `window_call` event, see
   // docs/design.md §10): "config" opens or closes the settings, "new_session" the
@@ -255,6 +269,17 @@ Singleton {
     if (!connected)
       return
     link.send(command)
+  }
+  // callWindow asks what `eco window` asks (a `window.call`, docs/design.md
+  // §10.2): "focus" opens a window or brings the newest forward, "new_session"
+  // and "config" open those in it.
+  function callWindow(call) { send("window.call " + JSON.stringify({ call: call })) }
+  // stopDaemon stops eco, as `eco stop` does.
+  function stopDaemon() { send("stop") }
+  // Tells the daemon this window closes, then ends the process.
+  function quit() {
+    send("window.closed " + JSON.stringify({ window: window }))
+    Qt.exit(0)
   }
   // sendHook runs the hook of the action that gave answer `id`, in the open session or the one read back.
   function sendHook(id) {
@@ -296,7 +321,7 @@ Singleton {
     else
       send("entry.remove " + JSON.stringify({ session: onScreen.id, id: id }))
   }
-  // copy puts text on the Wayland clipboard, as it is, and says what it was.
+  // copy puts text on the clipboard, as it is, and says what it was.
   function copy(text, notice) {
     Host.copy(text)
     tell([[notice || "status.copied"]], false)
@@ -305,7 +330,7 @@ Singleton {
   // not copied.
   property string exporting: ""
   // The local path a file: URL names, as file dialogs and drops give them.
-  function localPath(url) { return decodeURIComponent(url.toString().replace(/^file:\/\//, "")) }
+  function localPath(url) { return Host.localPath(url) }
   // The files a context can be read from, for a file dialog.
   function textFileFilters() { return [I18n.t("files.text") + " (*.md *.txt)", I18n.t("import.any") + " (*)"] }
   function copyTranscript(id) { exporting = id; send("session.export " + id) }
@@ -419,6 +444,7 @@ Singleton {
   // goes back to the sessions as they were searched and filtered, where the live
   // ones are a filter away.
   function leaveSession() {
+    forgetLive()
     stored = null
     timeline.clear()
     shown = ""
@@ -485,7 +511,8 @@ Singleton {
     modelsAsked = Object.assign({}, modelsAsked, { [target]: true })
     send("models " + JSON.stringify({
       target: target, base_url: section.base_url || "",
-      api_key_env: section.api_key_env || "", api_key_omapass: section.api_key_omapass || ""
+      api_key_env: section.api_key_env || "", api_key_omapass: section.api_key_omapass || "",
+      api_key_credential: section.api_key_credential || ""
     }))
   }
   function requestOmapass() { send("omapass") }
@@ -505,6 +532,7 @@ Singleton {
   function tell(parts, isError) {
     notice = parts.map(part => ({ key: part[0], args: part[1] || {} }))
     messageIsError = isError
+    noticeLive = false
     noticeCount += 1
   }
 
@@ -512,7 +540,17 @@ Singleton {
   function say(text, isError) {
     notice = text ? [{ text: text }] : []
     messageIsError = isError
+    noticeLive = false
     noticeCount += 1
+  }
+
+  // The codes of errors about the live capture and its transcription.
+  readonly property var liveCodes: ["capture.", "transcription.", "echo_cancel.", "diarization.", "stt."]
+  // forgetLive clears a notice about the live capture once the session it was
+  // about ends or is left: the sessions would read it as their own.
+  function forgetLive() {
+    if (noticeLive)
+      say("", false)
   }
 
   // kindName labels a kind: the four built in read in the interface language,
@@ -764,6 +802,8 @@ Singleton {
       // Nothing is being said into a session that does not record.
       if (session !== null && session.state !== "recording")
         partials = []
+      if (!live.some(item => item.state === "recording"))
+        forgetLive()
       settleLinks()
       break
     case "session_opened":
@@ -773,6 +813,16 @@ Singleton {
     case "window_call":
       if (event.window === window)
         act(event)
+      break
+    // The daemon's window control on Windows (docs/design.md §15) names this
+    // window's process to raise it or to leave it out of screen capture.
+    case "window_focus":
+      if (event.pid === Host.pid)
+        raiseRequested()
+      break
+    case "window_share":
+      if (event.pids.indexOf(Host.pid) >= 0)
+        Host.hideFromCapture(event.hidden)
       break
     case "session_timeline":
       if (session !== null && event.session === session.id) {
@@ -1061,6 +1111,8 @@ Singleton {
       devices = event.devices
       omapassInstalled = event.omapass.installed
       omapassPage = event.omapass.page
+      credentialManager = event.credential_manager
+      echoCancelError = event.echo_cancel || ""
       break
     case "devices":
       devices = event.devices
@@ -1116,6 +1168,7 @@ Singleton {
         tell([["error." + event.code, event.params]], true)
       else
         say(event.message, true)
+      noticeLive = liveCodes.some(code => (event.code || "").startsWith(code))
       break
     }
     }
@@ -1140,11 +1193,12 @@ Singleton {
     InputSignal {}
   }
 
-  // The connection to the daemon, made again every second while it (which may
-  // restart) does not answer.
+  // The connection to the daemon at the socket it named, made again every
+  // second while it (which may restart) does not answer.
   LineSocket {
     id: link
-    path: Host.env("XDG_RUNTIME_DIR") + "/eco.sock"
+    path: Host.env("ECO_SOCKET")
+    token: root.token
     onReceived: line => root.handle(JSON.parse(line))
   }
 }

@@ -51,7 +51,7 @@ Also publish the `eco` skill to these agent harnesses: agents, claude-code
 
 - **Usage**: `eco start [--headless]`
 
-Start the daemon service and open its window
+Start the daemon service and open its window, or bring the open one forward; a daemon of another eco is restarted
 
 ### Flags
 
@@ -76,6 +76,32 @@ Restart the daemon and reopen its window if it was visible
 - **Usage**: `eco status`
 
 Show whether the daemon is running
+
+## `eco key`
+
+- **Usage**: `eco key <SUBCOMMAND>`
+
+Keep a provider's key in the Windows Credential Manager (Windows only)
+
+## `eco key set`
+
+- **Usage**: `eco key set <NAME>`
+
+Store a key as the credential eco:<name>, which a model names with api_key_credential; typed hidden, or read from stdin when it is not a terminal
+
+### Arguments
+
+#### `<NAME>`
+
+## `eco key remove`
+
+- **Usage**: `eco key remove <NAME>`
+
+Delete the credential eco:<name>
+
+### Arguments
+
+#### `<NAME>`
 
 ## `eco bench`
 
@@ -537,7 +563,7 @@ Delete a person and the voices kept for them; sessions keep the name
 
 - **Usage**: `eco window <SUBCOMMAND>`
 
-Do what a shortcut does, on the newest eco window or the session shown; returns once sent
+Do what a shortcut does, on the newest eco window or the session shown; returns once the daemon has read it
 
 ## `eco window focus`
 

@@ -183,7 +183,7 @@ impl SessionLog for SessionFiles {
         let path = self.path_of(session_id)?;
         let bytes = fs::metadata(&path).ok()?.len();
         Some(SessionStorage {
-            path: path.canonicalize().ok()?.display().to_string(),
+            path: crate::paths::real(&path).ok()?.display().to_string(),
             bytes,
         })
     }
@@ -228,13 +228,13 @@ impl SessionLog for NoSessionFiles {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use std::os::unix::fs::PermissionsExt;
-
     use super::*;
     use crate::domain::session::{ENDED, IMPORT, LIVE, Session, now};
 
     /// Who may read, write or enter `path`.
+    #[cfg(unix)]
     pub(crate) fn mode(path: &Path) -> u32 {
+        use std::os::unix::fs::PermissionsExt;
         fs::metadata(path).unwrap().permissions().mode() & 0o777
     }
 
@@ -362,8 +362,11 @@ pub(crate) mod tests {
         session.hear_at("Eles", "Hello", now());
         let storage = files.storage(&session.id).unwrap();
         assert!(storage.path.starts_with(sessions.to_str().unwrap()));
-        assert_eq!(mode(&sessions), 0o700);
-        assert_eq!(mode(Path::new(&storage.path)), 0o600);
+        #[cfg(unix)]
+        {
+            assert_eq!(mode(&sessions), 0o700);
+            assert_eq!(mode(Path::new(&storage.path)), 0o600);
+        }
         assert_eq!(storage.bytes, fs::metadata(&storage.path).unwrap().len());
         assert!(storage.bytes > 0);
         assert!(files.delete(&session.id).unwrap());
