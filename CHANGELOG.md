@@ -1,5 +1,55 @@
 # Changelog
 
+## [0.3.0](https://github.com/This-Is-NPC/eco/compare/v0.2.0...v0.3.0) (2026-10-11)
+
+
+### Features
+
+* **audio:** capture audio on windows with wasapi ([e8d22e3](https://github.com/This-Is-NPC/eco/commit/e8d22e34416e3cca598495553d498338984d8267))
+* **config:** start in the system language ([b88f37b](https://github.com/This-Is-NPC/eco/commit/b88f37be3a2f548361807204780a69244408d702))
+* **config:** start without a config file ([c58d569](https://github.com/This-Is-NPC/eco/commit/c58d569fe0ad75b0672a3ade258d44719c5267e7))
+* **daemon:** build and test eco on windows ([a9fb496](https://github.com/This-Is-NPC/eco/commit/a9fb4966907514a4382fb39759aead7d5afad8a2))
+* **hooks:** run hooks through cmd on windows ([c221cc1](https://github.com/This-Is-NPC/eco/commit/c221cc1e07821d7ce9a0900cacade2dc8c5f283b))
+* **install:** install and uninstall on windows ([8e47a3e](https://github.com/This-Is-NPC/eco/commit/8e47a3e8b66e0444af9a0f33235dc675eb95a789))
+* **keys:** keep keys in Credential Manager ([84733e2](https://github.com/This-Is-NPC/eco/commit/84733e2c632adad16e1fcda6d915194d650a4e81))
+* run eco on windows ([f3957fc](https://github.com/This-Is-NPC/eco/commit/f3957fcd6956663cb2958c2b483e17bf9a66ba6a))
+* **service:** run the daemon detached on windows ([bec3bbc](https://github.com/This-Is-NPC/eco/commit/bec3bbcae8b2c4407db252ad9674e16965f1be17))
+* **setup:** add eco to the Start menu on windows ([dee89aa](https://github.com/This-Is-NPC/eco/commit/dee89aa75a7744377f96b21e2e4e2ec4bee78c1e))
+* **shortcuts:** register global keys on windows ([a1cd906](https://github.com/This-Is-NPC/eco/commit/a1cd90622f897cec008e5ef465c2f0befca0e5bb))
+* **tray:** show eco in the tray when enabled ([a1ed332](https://github.com/This-Is-NPC/eco/commit/a1ed332d32f5365260558b5c319ff317c354e726)), closes [#3235](https://github.com/This-Is-NPC/eco/issues/3235)
+* **window:** control eco's windows on windows ([d428a48](https://github.com/This-Is-NPC/eco/commit/d428a48e68e60f75d5f58c46d89f18a6d23e7cfe))
+* **window:** run the eco window on windows ([1a1d0e0](https://github.com/This-Is-NPC/eco/commit/1a1d0e0f5b7cfc3975af66dc92fa1d5432570c16))
+
+
+### Bug Fixes
+
+* **audio:** tell the settings if echo cancels here ([ff64211](https://github.com/This-Is-NPC/eco/commit/ff64211256f7831a389fc6816688957acbd45108))
+* **capture:** stop only the device that fails ([b62c031](https://github.com/This-Is-NPC/eco/commit/b62c031d84a41c6169f179bbedb0701f468014bc))
+* **card:** stop the wait count at the first word ([b5d339e](https://github.com/This-Is-NPC/eco/commit/b5d339ea3419a1ab4f2705866e18f36c658c3244))
+* **channel:** open no stream for an unheard source ([790035f](https://github.com/This-Is-NPC/eco/commit/790035f2b3132b52ba29e89b69cbe94b1d354bc0))
+* **cost:** count only the inputs heard ([7e066bd](https://github.com/This-Is-NPC/eco/commit/7e066bdfaaae21878bd2da419a3bee0171bb8cad))
+* **devices:** name the default devices in english ([a1196e1](https://github.com/This-Is-NPC/eco/commit/a1196e1c031f69809c1cb9288a478c49263d1669))
+* **import:** report a broken ffprobe as missing ([c655b48](https://github.com/This-Is-NPC/eco/commit/c655b4828f9dd3a26b6ef06ffebc0b0d55764b0b))
+* **import:** say when ffmpeg is missing ([bfcbb16](https://github.com/This-Is-NPC/eco/commit/bfcbb1649c59c8e823e313abeb7abfb7892a56d8))
+* **overlay:** clear live errors when sessions end ([eefd0cb](https://github.com/This-Is-NPC/eco/commit/eefd0cb38b96c0c10f5d2a818cabb418da89fe3e))
+* **overlay:** describe screen-share hiding on both ([4c4a86b](https://github.com/This-Is-NPC/eco/commit/4c4a86b26869fb32f9d7867285568f2959f6e1bf))
+* **overlay:** end a window that closed but stays ([6116fe9](https://github.com/This-Is-NPC/eco/commit/6116fe927eb4a3f8826097296bb9ede3fca08aad))
+* **paths:** build shipped paths with one separator ([9ef3c7e](https://github.com/This-Is-NPC/eco/commit/9ef3c7e5b2d9f49106a6383aca324cb01107d904))
+* **service:** return from eco start on windows ([ba90954](https://github.com/This-Is-NPC/eco/commit/ba9095421ab20444e219bbb274f548e5b0313836))
+* **service:** say why the daemon did not start ([3922084](https://github.com/This-Is-NPC/eco/commit/3922084551041f381ec889ef7ea5cc1cf673a86b))
+* **settings:** save a draft that names no model ([c10af39](https://github.com/This-Is-NPC/eco/commit/c10af396f3e1b945da58e8bf61fc5b277b1b8fae))
+* **settings:** title the window in english ([c5b2d99](https://github.com/This-Is-NPC/eco/commit/c5b2d99919fef1f6aad33445524ee37aba5e386d))
+* **setup:** never start eco at Windows sign-in ([c1ff6b8](https://github.com/This-Is-NPC/eco/commit/c1ff6b89b83de95c388862be58186948ab3e4fe5))
+* **shortcuts:** pick free ask and probe keys ([54654af](https://github.com/This-Is-NPC/eco/commit/54654af722e92f81f2d7740c7be189d471874767))
+* **socket:** require the token on the windows pipe ([22893ce](https://github.com/This-Is-NPC/eco/commit/22893cefe5b8730e152d818a9d8a2e13e627082b))
+* **start:** bring the open window forward ([2d959d6](https://github.com/This-Is-NPC/eco/commit/2d959d66c2d962c61915ea52e757dba613d92cd6))
+* **start:** restart a daemon of another version ([4b03068](https://github.com/This-Is-NPC/eco/commit/4b030685093ee93d386402de3a27149b1090edad))
+* **tray:** open the tray menu on windows ([24ed1af](https://github.com/This-Is-NPC/eco/commit/24ed1af944fb8fea9d9b001bab7ac3ee10fbe56e))
+* **window:** end the process when it closes ([6d87e9a](https://github.com/This-Is-NPC/eco/commit/6d87e9a7ee8b74cd20e2ca11d8a10ec6ee73eacb))
+* **window:** keep a copied text after eco stops ([1a9b197](https://github.com/This-Is-NPC/eco/commit/1a9b197785f0978f5102e9ab4cca75852ea699ee))
+* **window:** run eco window on windows ([3cf1a1a](https://github.com/This-Is-NPC/eco/commit/3cf1a1af64e2c15419b31e2f14bf8511c56fcebf))
+* **window:** take the foreground on windows ([93eb29d](https://github.com/This-Is-NPC/eco/commit/93eb29d4dc6da93c11950afe0991ef0681202338))
+
 ## [0.2.0](https://github.com/This-Is-NPC/eco/compare/v0.1.1...v0.2.0) (2026-10-10)
 
 
