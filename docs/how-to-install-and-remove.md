@@ -215,57 +215,79 @@ starts it. A crash restarts it (`Restart=on-failure`).
 
 eco runs on 64-bit Windows (tested on Windows 11 build 26100) from a zip with
 the program, its window and the Qt it draws with. It needs the Microsoft
-Visual C++ Redistributable (x64), which most machines already have. There is
-no installer: every [GitHub release](https://github.com/This-Is-NPC/eco/releases/latest)
-carries `eco-<version>-windows-x86_64.zip` (`<version>` is a placeholder for
-the release's version, `0.2.0` here) and a `SHA256SUMS` that names it beside
-the Arch package ([how it is built](design.md#13-packaging)).
+Visual C++ Redistributable (x64), which most machines already have. Every
+[GitHub release](https://github.com/This-Is-NPC/eco/releases/latest) carries
+`eco-<version>-windows-x86_64.zip` (`<version>` is a placeholder for the
+release's version, `0.3.0` here) and a `SHA256SUMS` that names it beside the
+Arch package ([how it is built](design.md#13-packaging)); `install.ps1`, in
+the repository, installs that zip for your account.
 
-1. **Download the zip and check it** against the release's `SHA256SUMS`, in
-   PowerShell, in the folder you download to:
+1. **Install it,** in PowerShell (no administrator):
 
    ```powershell
-   $version = "0.2.0"
+   irm https://raw.githubusercontent.com/This-Is-NPC/eco/master/install.ps1 | iex
+   ```
+
+   It asks GitHub for the latest release, downloads its zip and
+   `SHA256SUMS`, and refuses a zip that does not match. Then it stops an eco
+   that is running, puts the zip's `eco` folder in
+   `%LOCALAPPDATA%\Programs\eco` in place of the one there, adds its `bin`
+   to your `PATH` (your account's, not the machine's) and runs `eco setup`,
+   which downloads the models and adds eco to the Start menu (step 2). A
+   daemon that was running is started again. Every line it writes starts
+   with `eco: `; it ends with how to start eco and how to take it off.
+
+   Running it again is the upgrade: it says `…\eco\bin is on your PATH
+   already` and adds no second entry. Sessions, config and models stay.
+   `$env:VERSION = "0.3.0"` before it picks a release other than the latest;
+   `$env:DRY_RUN = "1"` downloads and checks the zip and stops there. Against
+   the `v0.3.0` release:
+
+   ```
+   > $env:DRY_RUN = "1"; irm https://raw.githubusercontent.com/This-Is-NPC/eco/master/install.ps1 | iex
+   eco: downloading eco-0.3.0-windows-x86_64.zip
+   eco: eco-0.3.0-windows-x86_64.zip matches SHA256SUMS; would install it in C:\Users\you\AppData\Local\Programs\eco, add C:\Users\you\AppData\Local\Programs\eco\bin to your PATH and run eco setup
+   ```
+
+   A zip that does not match says `eco: eco-0.3.0-windows-x86_64.zip does
+   not match the release's SHA256SUMS; nothing was installed.` (seen with a
+   `SHA256SUMS` of its own). `$env:` values stay in that terminal; `Remove-Item
+   env:DRY_RUN` takes one off. Open a new terminal for the new `PATH`; the
+   one that ran the install finds `eco` already.
+
+   The programs are not code-signed, so the first time one runs,
+   SmartScreen may stop it with "Windows protected your PC": **More info ›
+   Run anyway** (read in Microsoft's documentation, not seen).
+
+   **Without the installer,** do the same by hand, in the folder you
+   download to:
+
+   ```powershell
+   $version = "0.3.0"
    $zip = "eco-$version-windows-x86_64.zip"
    $base = "https://github.com/This-Is-NPC/eco/releases/download/v$version"
    Invoke-WebRequest "$base/$zip" -OutFile $zip
    Invoke-WebRequest "$base/SHA256SUMS" -OutFile SHA256SUMS
    $expected = (Select-String -SimpleMatch $zip SHA256SUMS).Line.Split(" ")[0]
    if ((Get-FileHash $zip -Algorithm SHA256).Hash -eq $expected) { "ok" } else { "does not match; delete $zip" }
-   ```
-
-   `ok` means the zip is the one the release built. Anything else: delete it
-   and download it again. (Written from the release workflow's format, not
-   run against a published release yet.)
-
-2. **Unzip it** where programs of your own go. The zip holds one folder,
-   `eco`; keep it whole, the program finds its window and overlay inside it:
-
-   ```powershell
    Expand-Archive $zip -DestinationPath "$env:LOCALAPPDATA\Programs"
-   ```
-
-   The programs in it are not code-signed, so the first time one runs,
-   SmartScreen may stop it with "Windows protected your PC": **More info ›
-   Run anyway** (read in Microsoft's documentation, not seen).
-
-3. **Put its `bin` folder on your `PATH`,** for your account only, then open a
-   new terminal:
-
-   ```powershell
    $bin = "$env:LOCALAPPDATA\Programs\eco\bin"
    [Environment]::SetEnvironmentVariable("Path", [Environment]::GetEnvironmentVariable("Path", "User") + ";$bin", "User")
-   eco --version          # "eco 0.2.0"
    ```
 
-   Only `eco.exe` is in `bin`; the window and its Qt stay in `lib\eco`.
-   To upgrade, `eco stop`, delete the `eco` folder and unzip the new one in
-   its place; `PATH` and the Start menu entry still point at it. A daemon
-   still running from another copy is restarted by the next `eco start` or
-   shortcut, as on Linux.
+   `ok` means the zip is the one the release built. The zip holds one
+   folder, `eco`; keep it whole, the program finds its window and overlay
+   inside it. Only `eco.exe` is in `bin`; the window and its Qt stay in
+   `lib\eco`. `SetEnvironmentVariable` writes your `PATH` back with its
+   `%…%` entries expanded; the installer keeps them. Open a new terminal,
+   then `eco --version` says `eco 0.3.0`, and run `eco setup` (step 2). To
+   upgrade, `eco stop`, delete the `eco` folder and unzip the new one in its
+   place. A daemon still running from another copy is restarted by the next
+   `eco start` or shortcut, as on Linux.
 
-4. **Download the models** and add eco to the Start menu, as step 2 does on
-   Linux:
+2. **The models and the Start menu.** The installer ran `eco setup`, which
+   does what step 2 does on Linux and adds eco to the Start menu; run it
+   again whenever a model is missing:
 
    ```
    > eco setup
@@ -277,11 +299,11 @@ the Arch package ([how it is built](design.md#13-packaging)).
    (`C:\Users\you` stands for your profile directory.) A first run says
    `saved` and the path for each model instead of `is up to date`.
 
-5. **There is no config to write.** As step 3 says for Linux, eco starts
+3. **There is no config to write.** As step 3 says for Linux, eco starts
    with an empty config, and the settings write `%APPDATA%\eco\config.toml`
    at the first save.
 
-6. **Give it the keys,** in the Windows Credential Manager (below) or as
+4. **Give it the keys,** in the Windows Credential Manager (below) or as
    environment variables of your account. `setx` keeps a variable for
    programs started after it, so open a new terminal, and `eco restart` a
    daemon that was running:
@@ -331,13 +353,13 @@ the Arch package ([how it is built](design.md#13-packaging)).
    from the desktop` (seen). A daemon `eco start` started over such a login
    cannot read the keys either; start it from the desktop.
 
-7. **To import audio or video,** put `ffmpeg` and `ffprobe` on your `PATH`
+5. **To import audio or video,** put `ffmpeg` and `ffprobe` on your `PATH`
    (the zip does not carry them; [ffmpeg.org](https://ffmpeg.org/download.html)
    links Windows builds), then `eco restart`: the daemon looks for them on the
    `PATH` it started with. Without them an import says
    `import: ffmpeg is not installed: importing audio or video needs ffmpeg and ffprobe`.
 
-8. **Start it:** open **eco** from the Start menu, or in a terminal:
+6. **Start it:** open **eco** from the Start menu, or in a terminal:
 
    ```powershell
    eco start              # "eco: window opened"
@@ -360,52 +382,48 @@ Qt into the checkout the first time;
 Without the window, `eco start` starts the daemon, then fails to open the
 window with `Error: eco window failed:` and the path it looked for.
 
-**To install from a checkout,** in place of steps 1 to 4, run
-`mise run install:windows`. It builds eco and its window, puts the same `eco`
-folder the zip holds in `%LOCALAPPDATA%\Programs\eco`, adds its `bin` to your
-`PATH` (your account's, not the machine's) and runs `eco setup`:
+**To install from a checkout,** in place of step 1, run
+`mise run install:windows`. It builds the zip into `dist` (`mise run
+package`), writes a `SHA256SUMS` beside it, and runs `install.ps1` on that
+folder instead of a release: the same steps and the same lines as step 1.
+On Linux the task refuses and names `mise run install`.
 
-```
-> mise run install:windows
-[qt:install] $ python scripts/qt-install
-[window:build] sources up-to-date, skipping
-[install:windows] $ python scripts/install-windows
-installed eco in C:\Users\you\AppData\Local\Programs\eco
-added C:\Users\you\AppData\Local\Programs\eco\bin to your PATH; a new terminal finds eco
-eco: C:\Users\you\AppData\Local\eco\models\silero_vad.onnx is up to date
-eco: C:\Users\you\AppData\Local\eco\models\wespeaker_campplus.onnx is up to date
-eco: Start menu entry added in C:\Users\you\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\eco.lnk
+**To take it off again,** run the installer with `ECO_UNINSTALL`: `keep`
+keeps your sessions, config and models, `everything` deletes them too.
+
+```powershell
+$env:ECO_UNINSTALL = "keep"; irm https://raw.githubusercontent.com/This-Is-NPC/eco/master/install.ps1 | iex
+Remove-Item env:ECO_UNINSTALL
 ```
 
-Open a new terminal for the new `PATH`. Running it again is the upgrade: it
-says `…\eco\bin is on your PATH already` and adds no second entry. A daemon
-that was running is stopped before the files are replaced and started again
-after, `eco: daemon stopped` then `eco: daemon running`. Sessions, config and
-models stay. On Linux the task refuses and names `mise run install`.
-
-**To take it off again,** run `mise run uninstall:windows`. It asks:
+It stops the daemon and its window, then removes
+`%LOCALAPPDATA%\Programs\eco`, the Start menu entry, the login script an
+older eco wrote and the `bin` entry of your `PATH`, saying `eco: removed`
+and the path for each, and `eco: kept` for the data folders it leaves.
+`everything` also removes `%APPDATA%\eco` and `%LOCALAPPDATA%\eco`: the
+config, the sessions, the people, the models, the token and the log. With
+`$env:DRY_RUN = "1"` it only names them, as it did on the machine eco was
+built on:
 
 ```
-> mise run uninstall:windows
-[uninstall:windows] $ python scripts/uninstall-windows
+eco: would remove C:\Users\you\AppData\Local\Programs\eco
+eco: would remove C:\Users\you\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\eco.lnk
+eco: would remove C:\Users\you\AppData\Local\Programs\eco\bin from your PATH
+```
+
+From a checkout, `mise run uninstall:windows` runs the same removal and
+asks first:
+
+```
 1) uninstall eco, keep sessions, config and models
 2) uninstall and delete everything
-Choose 1 or 2: 1
-removed C:\Users\you\AppData\Local\Programs\eco
-removed C:\Users\you\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\eco.lnk
-removed C:\Users\you\AppData\Local\Programs\eco\bin from your PATH
-kept C:\Users\you\AppData\Local\eco
+Choose 1 or 2:
 ```
 
-It stops the daemon and its window first. `2` asks again, `Type delete to
-delete your sessions, config and models:`, and only the word `delete` goes
-on; then it also removes `%APPDATA%\eco` and `%LOCALAPPDATA%\eco`: the config,
-the sessions, the people, the models, the token and the log. Any other answer
-says `nothing removed` and removes nothing. `mise run uninstall:windows
---keep-data` and `mise run uninstall:windows --delete-everything` answer
-without asking. These outputs are from the machine eco was built on; the
-delete was run with `APPDATA` and `LOCALAPPDATA` pointing at folders of its
-own.
+`2` asks again, `Type delete to delete your sessions, config and models:`,
+and only the word `delete` goes on. Any other answer says `nothing removed`
+and removes nothing. `mise run uninstall:windows --keep-data` and `mise run
+uninstall:windows --delete-everything` answer without asking.
 
 **The window may still open behind the others.** Windows brings a window to
 the front only for a program that has the foreground or was given it, and the
@@ -480,8 +498,7 @@ of the log stays in the file.
 **eco does not start at login** on Windows: it runs once you open it, from
 the Start menu entry below or with `eco start`, and keeps running when the
 terminal that ran `eco start` is closed. An earlier eco wrote a
-login script, `eco.cmd`, into your Startup folder; `eco setup` (and so
-`mise run install:windows`) and `mise run uninstall:windows` remove it and
+login script, `eco.cmd`, into your Startup folder; `eco setup` (and so the installer) and the installer's removal remove it and
 say so:
 
 ```
@@ -507,10 +524,9 @@ exits with status 1. Over ssh the shortcut's command was run and started and
 stopped the daemon; a click in the Start menu was not seen, as the machine
 eco was built on has no desktop at hand.
 
-**To take eco off Windows** with a checkout at hand, `mise run
-uninstall:windows` above does it all. Without one, stop it, delete the Start
-menu entry, the folder you unzipped (or the checkout), and its `bin` folder
-from your `PATH`:
+**To take eco off Windows** installed by hand, without the installer, stop
+it, delete the Start menu entry, the folder you unzipped (or the checkout),
+and its `bin` folder from your `PATH`:
 
 ```powershell
 eco stop

@@ -38,10 +38,16 @@ loads the Hyprland rules, and publishes the `eco` skill for agents. **Removing t
 config, the sessions, the people, the models and the agent skill** — removing
 the program is not a reason to lose a year of meetings.
 
-On Windows, download `eco-<version>-windows-x86_64.zip` (`<version>` stands
-for the release's version) from the [latest
-release](https://github.com/This-Is-NPC/eco/releases/latest), check it
-against the release's `SHA256SUMS`, unzip it and put its `bin` on your `PATH`
+On Windows, in PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/This-Is-NPC/eco/master/install.ps1 | iex
+```
+
+It downloads the release's Windows zip, checks it against the same
+`SHA256SUMS`, puts eco in `%LOCALAPPDATA%\Programs\eco` with its `bin` on
+your `PATH`, and runs `eco setup`. `$env:ECO_UNINSTALL = "keep"` before the
+same line takes it off again, keeping your data
 ([on Windows](docs/how-to-install-and-remove.md#on-windows)).
 
 Released under the MIT license. [How to install it, and how to take it off
