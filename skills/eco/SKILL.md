@@ -156,7 +156,9 @@ transcribed (`--no-wait` returns once it starts). One import runs at a time.
 
 `eco window` does what the user's global shortcuts do, on their screen; use it
 only when the user asks to see something there. It returns `data: null` once
-the daemon has read it, and the window shows the rest.
+the daemon has read it, and the window shows the rest. A daemon left running
+by an upgrade, of another version or executable, is restarted first, as
+`eco start` does; stderr says `eco: restarted the daemon <old> → <new>`.
 
 ```bash
 eco window focus                 # bring the eco window to the front (opens one if none is)

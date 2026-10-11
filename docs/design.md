@@ -1228,7 +1228,18 @@ How the commands are built:
   `bench` measures model latency and diarization. Neither needs a daemon.
 - `start`, `stop`, `restart` and `status` manage the daemon. The user service
   runs `eco daemon --headless`; `eco start` starts it if needed and waits for
-  `overlay_status` after opening the window (`--headless` skips it). A
+  `overlay_status` after opening the window (`--headless` skips it). The
+  daemon launches the windows, so one left running by an upgrade would
+  launch a window it cannot serve: `eco start` and `eco window` first read
+  its greeting, and when its `version` is not the CLI's, or it runs another
+  executable than the CLI (by device and inode of `/proc/<pid>/exe` on
+  Linux, by the greeting's `exe` on Windows, the check `status
+  --expect-current-exe` makes; one it cannot see, from a sandbox with its
+  own pids, is not taken for another), stop it, start the service again,
+  and say
+  `eco: restarted the daemon <old> → <new>` on stderr
+  (`lifecycle::current` in `src/lifecycle.rs`). `eco status` and the other
+  commands report or ask without restarting. A
   daemon that has not opened the socket within 10 seconds is reported with
   its own reason: the last line of its output that starts with `eco: ` or
   `Error: ` (what it prints as it exits on an error, with the `Caused by:`

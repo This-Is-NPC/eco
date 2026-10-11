@@ -48,7 +48,7 @@ enum Command {
         #[arg(long, value_delimiter = ',')]
         harnesses: Vec<String>,
     },
-    /// Start the daemon service and open its window, or bring the open one forward.
+    /// Start the daemon service and open its window, or bring the open one forward; a daemon of another eco is restarted.
     Start {
         /// Do not open the overlay.
         #[arg(long)]
@@ -629,10 +629,12 @@ async fn main() -> Result<()> {
         Run::BenchDiarization(options) => bench::diarization::run(options).await,
         Run::BenchPeople { dir, series } => bench::people::run(dir, series).await,
         // The client prints its JSON; its code is the exit status.
-        Run::Client(request) => match cli::run(&Address::user(), request).await {
-            0 => Ok(()),
-            code => std::process::exit(code),
-        },
+        Run::Client(request) => {
+            match lifecycle::ask(&PlatformService, &Address::user(), request).await? {
+                0 => Ok(()),
+                code => std::process::exit(code),
+            }
+        }
     };
     // A bad config is the user's to fix: say what is wrong, without a trace.
     if let Err(failure) = &ran

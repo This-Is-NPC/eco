@@ -39,8 +39,11 @@ Every GitHub release carries the Arch package and a `SHA256SUMS` beside it.
 and installs it with `pacman -U`.
 
 **Installing a newer release is the upgrade.** `pacman -U` replaces the last
-one. A daemon that was running goes on running the old binary until
-`eco restart`, which also reopens its window if it was open.
+one. A daemon that was running goes on running the old binary, which cannot
+serve the new window. The next `eco start`, launcher or global shortcut
+restarts it on the new one first and says so on stderr:
+`eco: restarted the daemon 0.1.1 → 0.2.0` (the versions here are examples).
+`eco restart` does it by hand, and also reopens the window if it was open.
 
 ## 2. Download its models
 
@@ -236,7 +239,9 @@ machine with a checkout writes `dist\eco-<version>-windows-x86_64.zip`
 
    Only `eco.exe` is in `bin`; the window and its Qt stay in `lib\eco`.
    To upgrade, `eco stop`, delete the `eco` folder and unzip the new one in
-   its place; `PATH` and the Start menu entry still point at it.
+   its place; `PATH` and the Start menu entry still point at it. A daemon
+   still running from another copy is restarted by the next `eco start` or
+   shortcut, as on Linux.
 
 3. **Download the models** and add eco to the Start menu, as step 2 does on
    Linux:
