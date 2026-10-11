@@ -2,8 +2,9 @@
 """Build the release package of eco for the machine it runs on. Run from the
 root of the tree.
 
-On Linux: the Arch package of the committed HEAD into target/arch/pkg, with
-the SHA256SUMS that install.sh checks it against. Needs makepkg; not as root.
+On Linux: the Arch package of the committed HEAD into target/arch/pkg. Needs
+makepkg; not as root. The release's SHA256SUMS, which install.sh checks it
+against, is written by the release workflow over every package it attaches.
 
 On Windows: dist/eco-<version>-windows-x86_64.zip of the working tree, one
 folder eco/ laid out as the daemon looks for what it ships (docs/design.md
@@ -63,8 +64,5 @@ else:
     packages = sorted((out / "pkg").glob("eco-[0-9]*.pkg.tar.zst"))
     if not packages:
         sys.exit("package: makepkg wrote no eco package")
-    sums = "".join(
-        f"{hashlib.sha256(package.read_bytes()).hexdigest()}  {package.name}\n" for package in packages
-    )
-    (out / "pkg/SHA256SUMS").write_text(sums)
-    print(sums, end="")
+    for package in packages:
+        print(package)
