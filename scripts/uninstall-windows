@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Take eco off Windows: stop it, then remove what scripts/install-windows put
-there, the eco folder in %LOCALAPPDATA%\\Programs, its PATH entry, the
-Start-menu shortcut and the login script an older eco wrote. --delete-everything also deletes
-%APPDATA%\\eco and %LOCALAPPDATA%\\eco (config, sessions, people, models,
-log); --keep-data keeps them. With neither, it asks."""
+"""Take eco off Windows through install.ps1 (ECO_UNINSTALL): stop it, then
+remove the eco folder in %LOCALAPPDATA%\\Programs, its PATH entry, the
+Start-menu shortcut and the login script an older eco wrote.
+--delete-everything also deletes %APPDATA%\\eco and %LOCALAPPDATA%\\eco
+(config, sessions, people, models, log); --keep-data keeps them. With
+neither, it asks."""
 
 import os
 import sys
@@ -13,8 +14,6 @@ if sys.platform != "win32":
     sys.exit("uninstall:windows takes eco off Windows; on Linux run `mise run uninstall`")
 
 sys.dont_write_bytecode = True
-# Each line before the output of the programs it runs.
-sys.stdout.reconfigure(line_buffering=True)
 root = Path(os.environ.get("MISE_PROJECT_ROOT") or Path.cwd())
 sys.path.insert(0, str(root / "scripts/lib"))
 import windows  # noqa: E402
@@ -34,26 +33,4 @@ if not keep and not delete:
     elif answer != "1":
         sys.exit("nothing removed")
 
-eco = windows.install_dir()
-data = [Path(os.environ["APPDATA"]) / "eco", Path(os.environ["LOCALAPPDATA"]) / "eco"]
-programs = Path(os.environ["APPDATA"]) / r"Microsoft\Windows\Start Menu\Programs"
-installed = eco / "bin/eco.exe"
-built = root / "target/release/eco.exe"
-for exe in (installed, built):
-    if exe.exists():
-        windows.stop(exe, eco)
-        break
-for path in (eco, *(data if delete else [])):
-    if path.exists():
-        windows.remove(path)
-        print(f"removed {path}")
-for entry in (programs / r"Startup\eco.cmd", programs / "eco.lnk"):
-    if entry.exists():
-        entry.unlink()
-        print(f"removed {entry}")
-if windows.remove_from_user_path(eco / "bin"):
-    print(f"removed {eco / 'bin'} from your PATH")
-if not delete:
-    for path in data:
-        if path.exists():
-            print(f"kept {path}")
+windows.installer(root, ECO_UNINSTALL="everything" if delete else "keep")
