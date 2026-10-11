@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Render packaging/windows/eco.ico, the icon eco-window.exe carries on
-Windows, from packaging/eco.svg, on the standard library alone: the SVG is
-filled rounded rectangles, which this rasterises with 4x4 samples a pixel into
-one PNG per size of the icon. Any other SVG element is refused. The output is
-the same for the same SVG."""
+"""Render, from packaging/eco.svg, packaging/windows/eco.ico, the icon
+eco-window.exe carries on Windows, and the tray icons overlay/tray.qml shows:
+overlay/icons/tray.png, the bars alone in white, and
+overlay/icons/tray-recording.png, the same with a red dot while a session
+records. On the standard library alone: the SVG is filled rounded rectangles,
+which this rasterises with 4x4 samples a pixel into PNGs. Any other SVG
+element is refused. The output is the same for the same SVG."""
 
 import os
 import struct
@@ -13,12 +15,15 @@ import zlib
 from pathlib import Path
 
 SIZES = (16, 24, 32, 48, 64, 256)
+TRAY_SIZE = 64
+WHITE = (255, 255, 255)
 SAMPLES = 4
 SVG = "{http://www.w3.org/2000/svg}"
 
 root = Path(os.environ.get("MISE_PROJECT_ROOT") or Path.cwd())
 source = root / "packaging/eco.svg"
 target = root / "packaging/windows/eco.ico"
+icons = root / "overlay/icons"
 
 
 def rects(svg):
@@ -54,7 +59,8 @@ def inside(px, py, x, y, w, h, r):
 
 
 def render(shapes, viewbox, size):
-    """RGBA rows of `shapes` drawn at `size` pixels a side, premultiplied while drawn."""
+    """RGBA rows of `shapes` drawn at `size` pixels a side, premultiplied while
+    drawn; a shape without a colour erases what it covers."""
     scale = size / viewbox
     pixels = [[0.0, 0.0, 0.0, 0.0] for _ in range(size * size)]
     step = 1 / SAMPLES
@@ -71,6 +77,9 @@ def render(shapes, viewbox, size):
                 if hits:
                     alpha = hits / SAMPLES**2
                     pixel = pixels[row * size + column]
+                    if colour is None:
+                        pixel[:] = [value * (1 - alpha) for value in pixel]
+                        continue
                     for channel in range(3):
                         pixel[channel] = colour[channel] * alpha + pixel[channel] * (1 - alpha)
                     pixel[3] = alpha + pixel[3] * (1 - alpha)
@@ -106,3 +115,18 @@ for size, image in zip(SIZES, images):
     offset += len(image)
 target.write_bytes(icon + b"".join(images))
 print(f"wrote {target.relative_to(root)}: {', '.join(map(str, SIZES))} px")
+
+# The tray: the bars, the shapes of the first colour, in white; while recording,
+# a dot top right with a clear ring around it.
+bars = [shape[:5] + (WHITE,) for shape in shapes if shape[5] == shapes[0][5]]
+side = viewbox[2]
+dot = side * 0.28
+ring = side * 0.06
+recording = bars + [
+    (side - dot - 2 * ring, 0, dot + 2 * ring, dot + 2 * ring, dot / 2 + ring, None),
+    (side - dot - ring, ring, dot, dot, dot / 2, (0xF8, 0x55, 0x25)),
+]
+icons.mkdir(exist_ok=True)
+for name, drawn in (("tray.png", bars), ("tray-recording.png", recording)):
+    (icons / name).write_bytes(png(render(drawn, side, TRAY_SIZE), TRAY_SIZE))
+    print(f"wrote {(icons / name).relative_to(root)}: {TRAY_SIZE} px")

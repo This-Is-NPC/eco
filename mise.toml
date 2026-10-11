@@ -57,11 +57,11 @@ run = "scripts/uninstall-windows"
 run_windows = "python scripts/uninstall-windows"
 
 [tasks.icon]
-description = "Render packaging/windows/eco.ico, the icon eco-window.exe carries on Windows, from packaging/eco.svg"
+description = "Render packaging/windows/eco.ico, the icon eco-window.exe carries on Windows, and the tray icons in overlay/icons from packaging/eco.svg"
 run = "scripts/icon"
 run_windows = "python scripts/icon"
 sources = ["packaging/eco.svg", "scripts/icon"]
-outputs = ["packaging/windows/eco.ico"]
+outputs = ["packaging/windows/eco.ico", "overlay/icons/tray.png", "overlay/icons/tray-recording.png"]
 
 [tasks."readme:gif"]
 description = "Render the README's animated GIF from packaging/eco.omapixel (needs omapixel)"
