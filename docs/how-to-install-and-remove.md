@@ -235,7 +235,19 @@ the repository, installs that zip for your account.
    to your `PATH` (your account's, not the machine's) and runs `eco setup`,
    which downloads the models and adds eco to the Start menu (step 2). A
    daemon that was running is started again. Every line it writes starts
-   with `eco: `; it ends with how to start eco and how to take it off.
+   with `eco: `; it ends with how to start eco and how to take it off. On a
+   machine with no eco, from the `v0.3.0` release:
+
+   ```
+   eco: downloading eco-0.3.0-windows-x86_64.zip
+   eco: installed eco in C:\Users\you\AppData\Local\Programs\eco
+   eco: added C:\Users\you\AppData\Local\Programs\eco\bin to your PATH; a new terminal finds eco
+   eco: saved C:\Users\you\AppData\Local\eco\models\silero_vad.onnx
+   eco: saved C:\Users\you\AppData\Local\eco\models\wespeaker_campplus.onnx
+   eco: Start menu entry added in C:\Users\you\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\eco.lnk
+   eco: installed. Next: open eco from the Start menu, or run eco start
+   eco: take it off again with: $env:ECO_UNINSTALL = "keep"; irm https://raw.githubusercontent.com/This-Is-NPC/eco/master/install.ps1 | iex
+   ```
 
    Running it again is the upgrade: it says `…\eco\bin is on your PATH
    already` and adds no second entry. Sessions, config and models stay.
@@ -402,8 +414,18 @@ older eco wrote and the `bin` entry of your `PATH`, saying `eco: removed`
 and the path for each, and `eco: kept` for the data folders it leaves.
 `everything` also removes `%APPDATA%\eco` and `%LOCALAPPDATA%\eco`: the
 config, the sessions, the people, the models, the token and the log. With
-`$env:DRY_RUN = "1"` it only names them, as it did on the machine eco was
-built on:
+`$env:DRY_RUN = "1"` it only names them. `everything` on a machine with eco
+installed:
+
+```
+eco: removed C:\Users\you\AppData\Local\Programs\eco
+eco: removed C:\Users\you\AppData\Roaming\eco
+eco: removed C:\Users\you\AppData\Local\eco
+eco: removed C:\Users\you\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\eco.lnk
+eco: removed C:\Users\you\AppData\Local\Programs\eco\bin from your PATH
+```
+
+With `keep` and `$env:DRY_RUN = "1"`:
 
 ```
 eco: would remove C:\Users\you\AppData\Local\Programs\eco
