@@ -1744,9 +1744,31 @@ The Qt runtime is what `windeployqt` copied into `target/window` as
 the machine needs the Microsoft Visual C++ Redistributable (x64), as `eco.exe`
 does. The script is Python, as `scripts/window-build` is, because it runs on
 both systems under mise and its `zipfile` needs nothing more; the `bash` on a
-Windows `PATH` may be WSL's. There is no installer: the release attaches the
-zip (below). The programs are not code-signed, so SmartScreen may warn the
-first time one runs.
+Windows `PATH` may be WSL's. The release attaches the zip (below). The
+programs are not code-signed, so SmartScreen may warn the first time one runs.
+
+**The Windows installer.** `install.ps1`, at the root of the repository, is
+to Windows what `install.sh` is to Arch, run as `irm <raw URL> | iex`, on
+Windows PowerShell 5.1 and no module. It reads the latest tag from GitHub's
+API (or `VERSION`), downloads the release's `SHA256SUMS` and the zip it
+names, and refuses the zip when `Get-FileHash` disagrees. Then it stops the
+installed daemon (`eco stop` through the installed `eco.exe`) and the
+`eco-window` processes run from the install, replaces
+`%LOCALAPPDATA%\Programs\eco` with the zip's `eco` folder, adds its `bin`
+to the user's `PATH`, runs `eco setup`, and starts again a daemon that was
+running, with its window if it was open. `ECO_UNINSTALL=keep` or
+`everything` takes it off instead; `REPO`, `BASE_URL` and `DRY_RUN` are
+those of `install.sh`. It writes the `PATH` in `HKCU\Environment` through
+`Microsoft.Win32.Registry`, reading it unexpanded and writing it back with
+its own type (`REG_EXPAND_SZ`), then broadcasts `WM_SETTINGCHANGE` through
+`SendMessageTimeout`, so Explorer gives it to the programs it starts:
+`[Environment]::SetEnvironmentVariable` would write it back expanded, as
+`REG_SZ`. Its errors end the script with status 1 when it runs as a file,
+and leave the session open under `iex`. `mise run install:windows` and
+`mise run uninstall:windows` are the same script: `mise run package` also
+writes `dist/SHA256SUMS`, and `scripts/install-windows` runs `install.ps1`
+with `BASE_URL` at `dist`'s `file:` URL; `scripts/uninstall-windows` asks,
+then runs it with `ECO_UNINSTALL`.
 
 **Releases.** Commits follow Conventional Commits, and release-please reads
 them (`release-please-config.json`, `.release-please-manifest.json`). Every
@@ -1906,7 +1928,7 @@ mise run package            # the Arch package of HEAD, into target/arch/pkg; on
 mise run hooks:install      # run the gate on every push, and post local-check
 mise run local-check        # gate HEAD and post local-check by hand
 mise run uninstall          # asks first, then takes that install back off
-mise run install:windows    # Windows only: the release build, in %LOCALAPPDATA%\Programs\eco, on your PATH
+mise run install:windows    # Windows only: the zip, installed by install.ps1 in %LOCALAPPDATA%\Programs\eco, on your PATH
 mise run uninstall:windows  # Windows only: takes it off; asks whether to delete your data too
 ```
 
@@ -1967,13 +1989,10 @@ qt:install`, which installs Qt 6.11.2 for MSVC 2022 (`qtbase` and
 the checkout: about 2 GB with Qt's debug libraries, in a minute on the
 machine it was measured on. It survives `cargo clean`; deleting `.qt` takes it
 back. `mise run package` builds the zip of §13; `mise run install:windows`
-installs that same folder, staged by the same code (`scripts/lib/windows.py`),
-in `%LOCALAPPDATA%\Programs\eco` and puts its `bin` on the user's `PATH`,
-and `mise run uninstall:windows` takes it off
-([how](how-to-install-and-remove.md#on-windows)). The `PATH` is edited in the
-registry through Python's `winreg`, which keeps the value's type
-(`REG_EXPAND_SZ`) and its `%…%` entries; PowerShell's
-`[Environment]::SetEnvironmentVariable` writes it back expanded, as `REG_SZ`.
+installs it with `install.ps1`, as a release is installed, and `mise run
+uninstall:windows` takes it off
+([how](how-to-install-and-remove.md#on-windows)); §13 says how the `PATH` is
+kept.
 The other tasks run bash
 scripts, which Windows does not; run the tests
 and lints there with `mise exec -- cargo test` and `mise exec -- cargo clippy

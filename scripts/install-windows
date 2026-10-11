@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """Install the release build of eco from this checkout on Windows, for the
-user who runs it: the eco folder the zip holds (scripts/lib/windows.py stages
-both), in %LOCALAPPDATA%\\Programs\\eco, its bin on the user's PATH, then `eco
-setup` (models, the Start-menu entry, an old login script removed). A daemon that was running is stopped first
-and started again. Idempotent: each install replaces the last; sessions,
-config and models stay."""
+user who runs it: install.ps1, the installer of a release, run on the zip and
+SHA256SUMS `mise run package` wrote into dist. It stops a running eco, puts
+the zip's eco folder in %LOCALAPPDATA%\\Programs\\eco, its bin on the user's
+PATH, runs `eco setup` and starts again a daemon that was running.
+Idempotent: each install replaces the last; sessions, config and models
+stay."""
 
 import os
-import subprocess
 import sys
 from pathlib import Path
 
@@ -15,24 +15,8 @@ if sys.platform != "win32":
     sys.exit("install:windows installs eco on Windows; on Linux run `mise run install`")
 
 sys.dont_write_bytecode = True
-# Each line before the output of the programs it runs.
-sys.stdout.reconfigure(line_buffering=True)
 root = Path(os.environ.get("MISE_PROJECT_ROOT") or Path.cwd())
 sys.path.insert(0, str(root / "scripts/lib"))
 import windows  # noqa: E402
 
-eco = windows.install_dir()
-exe = eco / "bin/eco.exe"
-windows.build(root)
-window = windows.stop(root / "target/release/eco.exe", eco)
-windows.stage(root, eco)
-print(f"installed eco in {eco}")
-if windows.add_to_user_path(exe.parent):
-    print(f"added {exe.parent} to your PATH; a new terminal finds eco")
-else:
-    print(f"{exe.parent} is on your PATH already")
-subprocess.run([exe, "setup"], check=True)
-if window is not None:
-    subprocess.run([exe, "start", "--headless"], check=True)
-    if window:
-        subprocess.run([exe, "start"], check=True)
+windows.installer(root, BASE_URL=(root / "dist").as_uri())
