@@ -1,8 +1,10 @@
 // eco-window <file.qml>: runs one entry of the overlay — shell.qml, the eco
-// window, or lab.qml, the control lab — with the bridge in host.h,
-// line_socket.h and text_file.h imported as `EcoHost`, and the entry's folder
-// on the import path, where the Eco.* modules live (docs/design.md §3).
+// window, tray.qml, the tray icon, or lab.qml, the control lab — with the
+// bridge in host.h, line_socket.h and text_file.h imported as `EcoHost`, and
+// the entry's folder on the import path, where the Eco.* modules live
+// (docs/design.md §3).
 
+#include <QApplication>
 #include <QCoreApplication>
 #include <QFileInfo>
 #include <QGuiApplication>
@@ -22,7 +24,9 @@ int main(int argc, char **argv) {
   }
   // Logs go to stderr, which the daemon passes on, never straight to the journal.
   qputenv("QT_FORCE_STDERR_LOGGING", "1");
-  QGuiApplication app(argc, argv);
+  // A QApplication, not a QGuiApplication: the tray's menu is a widget where
+  // the platform has no native one (Windows).
+  QApplication app(argc, argv);
   app.setApplicationName(QStringLiteral("eco"));
   // Hyprland's class for every window, which packaging/hypr/eco.lua matches.
   QGuiApplication::setDesktopFileName(QStringLiteral("eco"));
