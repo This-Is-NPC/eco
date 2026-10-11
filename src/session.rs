@@ -1102,6 +1102,8 @@ trait Overlay: Send {
     fn closed(&mut self, number: u32);
     /// Leave every window out of screen sharing, or show them in it again.
     fn hide_from_share(&mut self, hidden: bool) -> BoxFuture<'_, ()>;
+    /// Run the tray icon, which is no window, or end it.
+    fn tray(&mut self, on: bool) -> BoxFuture<'_, ()>;
     /// Resolves when a window exits; never, without one.
     fn exited(&mut self) -> BoxFuture<'_, Option<ExitStatus>>;
     /// Terminate every window and wait for them to exit.
@@ -1143,6 +1145,10 @@ impl Overlay for overlay::Windows {
 
     fn hide_from_share(&mut self, hidden: bool) -> BoxFuture<'_, ()> {
         Box::pin(overlay::Windows::hide_from_share(self, hidden))
+    }
+
+    fn tray(&mut self, on: bool) -> BoxFuture<'_, ()> {
+        Box::pin(overlay::Windows::tray(self, on))
     }
 
     fn exited(&mut self) -> BoxFuture<'_, Option<ExitStatus>> {
@@ -1363,12 +1369,14 @@ struct Session {
 
 impl Session {
     /// Serve the lines `received` until `stop` arrives or `shutdown` resolves,
-    /// then stop capture, the import and the windows.
+    /// then stop capture, the import, the windows and the tray icon, which
+    /// runs meanwhile while the config asks for it.
     async fn serve(
         mut self,
         mut received: mpsc::UnboundedReceiver<String>,
         shutdown: impl Future<Output = ()>,
     ) {
+        self.windows.tray(self.current.tray).await;
         let mut shutdown = std::pin::pin!(shutdown);
         loop {
             tokio::select! {
@@ -1431,6 +1439,7 @@ impl Session {
         }
         let hidden = self.current.hide_from_share;
         self.windows.hide_from_share(hidden).await;
+        self.windows.tray(self.current.tray).await;
         true
     }
 
@@ -3115,6 +3124,7 @@ mod tests {
         asked: Vec<String>,
         refuse: bool,
         hidden: Option<bool>,
+        tray: Option<bool>,
     }
 
     /// Windows on a `Desk`; one exits for each status sent to `exits`.
@@ -3186,6 +3196,11 @@ mod tests {
 
         fn hide_from_share(&mut self, hidden: bool) -> BoxFuture<'_, ()> {
             self.desk.lock().unwrap().hidden = Some(hidden);
+            Box::pin(async {})
+        }
+
+        fn tray(&mut self, on: bool) -> BoxFuture<'_, ()> {
+            self.desk.lock().unwrap().tray = Some(on);
             Box::pin(async {})
         }
 
@@ -3754,6 +3769,31 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn the_tray_follows_the_config_at_once() {
+        let mut d = daemon(raw());
+        let tray = |d: &Daemon| d.desk.lock().unwrap().tray;
+        d.line("sessions").await;
+        assert_eq!(tray(&d), Some(false));
+        let mut saved = raw();
+        saved["ui"] = json!({"tray": true});
+        saved["token"] = json!("secret");
+        assert_eq!(
+            said(&d.line(&format!("config.set {saved}")).await),
+            ["config_saved"]
+        );
+        assert_eq!(tray(&d), Some(true));
+        // The tray is not a window: opening the app still opens one.
+        d.line("overlay.open").await;
+        assert_eq!(d.asked(), ["open  "]);
+        saved["ui"] = json!({"tray": false});
+        assert_eq!(
+            said(&d.line(&format!("config.set {saved}")).await),
+            ["config_saved"]
+        );
+        assert_eq!(tray(&d), Some(false));
+    }
+
+    #[tokio::test]
     async fn a_config_without_models_is_saved() {
         let mut d = daemon(raw());
         let fresh = json!({"ui": {"hide_from_share": true}, "token": "secret"});
@@ -4126,6 +4166,17 @@ mod tests {
         lines.send("stop".into()).unwrap();
         served.await.unwrap();
         assert_eq!(desk.lock().unwrap().asked, ["open  ", "close"]);
+    }
+
+    #[tokio::test]
+    async fn the_daemon_runs_the_tray_the_config_asks_for_from_the_start() {
+        let mut with_tray = raw();
+        with_tray["ui"] = json!({"tray": true});
+        let d = daemon(with_tray);
+        let (_lines, received) = mpsc::unbounded_channel();
+        d.session.serve(received, async {}).await;
+        assert_eq!(d.desk.lock().unwrap().tray, Some(true));
+        assert_eq!(d.desk.lock().unwrap().asked, ["close"]);
     }
 
     #[tokio::test]

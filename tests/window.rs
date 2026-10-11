@@ -6,7 +6,8 @@
 //! the overlay's views driven as the daemon drives them, in
 //! `tests/window/views.qml`; and the eco window closed with the settings open,
 //! saying so to the daemon before it exits,
-//! in `tests/window/close.qml`. Needs `mise run window:build`.
+//! in `tests/window/close.qml`; and the tray icon's states and menu, in
+//! `tests/window/tray.qml`. Needs `mise run window:build`.
 
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -220,6 +221,55 @@ async fn closing_the_window_tells_the_daemon_and_ends_the_process() {
         .expect("eco-window still runs 2 s after its window closed")
         .unwrap();
     assert!(status.success(), "eco-window exited with {status}");
+}
+
+/// The tray icon follows the sessions, and its click and menu send what `eco
+/// window` and `eco stop` send: a context click nothing, a click and Open
+/// `focus`, then New session, Settings and Stop eco.
+#[tokio::test]
+async fn the_tray_shows_the_state_and_its_menu_sends_the_cli_lines() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut listener = Listener::bind(dir.path());
+    let mut tray = Command::new(program())
+        .arg(Path::new(ROOT).join("tests/window/tray.qml"))
+        .env_remove("WAYLAND_DISPLAY")
+        .env_remove("DISPLAY")
+        .env("QML_IMPORT_PATH", Path::new(ROOT).join("overlay"))
+        .env("QT_QPA_PLATFORM", "offscreen")
+        .env("QT_QPA_PLATFORMTHEME", "")
+        .env("XDG_RUNTIME_DIR", dir.path())
+        .env("XDG_CACHE_HOME", dir.path().join("cache"))
+        .env("ECO_SOCKET", listener.name())
+        .env("ECO_TOKEN", "secret")
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .unwrap();
+    let mut daemon = accept(&mut listener, &mut tray).await;
+    let mut lines = Vec::new();
+    for _ in 0..5 {
+        lines.push(read(&mut daemon).await);
+    }
+    assert_eq!(
+        lines,
+        [
+            r#"window.call {"call":"focus"}"#,
+            r#"window.call {"call":"focus"}"#,
+            r#"window.call {"call":"new_session"}"#,
+            r#"window.call {"call":"config"}"#,
+            "stop",
+        ]
+    );
+    let output = tokio::time::timeout(Duration::from_secs(10), tray.wait_with_output())
+        .await
+        .expect("the tray did not exit")
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 
 /// eco-window running `tests/window/bridge.qml` on the Qt `platform`,

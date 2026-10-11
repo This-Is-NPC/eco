@@ -190,6 +190,18 @@ eco: daemon running (pid 434054, version 0.1.0)
 `eco status` prints `eco: daemon stopped` and exits 3 when nothing answers, so a
 script can test it.
 
+**To have eco in the tray,** open **Settings › Interface**, turn on **SHOW
+ECO IN THE TRAY** and save: the icon shows in the bar's tray at once (on
+Omarchy it may sit in the drawer behind the `<` arrow). A click opens the
+window; its menu opens a window, starts a session, opens the settings or stops
+eco. Turn it off and save, and it goes. It is off until you turn it on, and
+it shows only while the daemon runs. The same in `config.toml`:
+
+```toml
+[ui]
+tray = true
+```
+
 **The service is not enabled.** The package carries the unit, and nothing more:
 the daemon is not running after a login until `eco start` or the launcher
 starts it. A crash restarts it (`Restart=on-failure`).
@@ -419,6 +431,11 @@ were pressed and worked; `Win+Alt+A` and `Q` were chosen after `Win+Alt+1` and
 SHARING**) leaves eco's windows out of every capture, your own screenshots and
 recordings too; Microsoft documents this for Windows 10 2004 and later
 (read, not seen).
+
+**The tray icon** is turned on the same way, in **Settings › Interface ›
+SHOW ECO IN THE TRAY**; it shows in the notification area, perhaps among the
+hidden icons behind its `^` arrow, from which Windows lets you drag it onto
+the taskbar. Its click and menu do what they do on Linux.
 
 **The daemon's output** goes to `%LOCALAPPDATA%\eco\daemon.log`, emptied each
 time `eco start` starts it. A daemon that will not start says why there, and

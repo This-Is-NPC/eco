@@ -592,14 +592,26 @@ card renames the kind, makes it the default, and gives it its own
 transcription, assistant and translation models. Removing one says its sessions
 keep it.
 
-**Interface** — the interface language, and whether eco hides from screen
-sharing:
+**Interface** — the interface language, whether eco hides from screen
+sharing, and whether it shows in the tray:
 
-![Settings, 08 INTERFACE: INTERFACE LANGUAGE "English (US)"; below it the unlit chip HIDE FROM SCREEN SHARING and its help: "eco's windows are hidden from whoever watches your shared screen, and from your own screenshots and recordings too: the system cannot tell them apart".](img/50-settings-interface.png)
+![Settings, 08 INTERFACE: INTERFACE LANGUAGE "English (US)"; below it the unlit chip HIDE FROM SCREEN SHARING and its help: "eco's windows are hidden from whoever watches your shared screen, and from your own screenshots and recordings too: the system cannot tell them apart"; below that the unlit chip SHOW ECO IN THE TRAY and its help.](img/50-settings-interface.png)
 
 English, Brazilian Portuguese or Japanese, or `auto` to follow the system;
 see [i18n.md](i18n.md). HIDE FROM SCREEN SHARING is off by default; on, it
 applies to every eco window at once, and to each one that opens later.
+
+SHOW ECO IN THE TRAY is off by default. Saved on, an icon shows in the
+system tray at once — on Omarchy the bar's tray, on Windows the notification
+area — and saved off, it goes; no restart. The icon is eco's bars in white,
+with a red dot while a session records; its tooltip says `eco · idle` or
+`eco · recording · <title>` (`<title>` is a placeholder for the session's
+title). A click opens the eco window, or brings the open one forward, as `eco
+window focus` does. Its menu has no picture here, as the tray is drawn by the
+bar, not by eco; it holds **Open** (the same), **New session** (the start
+dialog), **Settings** (opens or closes them, as `eco window config`) and
+**Stop eco** (as `eco stop`: the windows and the icon go with the daemon). On
+Omarchy the bar may keep tray icons in a drawer behind its `<` arrow.
 
 **What keeps the draft from saving** shows on its own field: an outline in the
 error colour and the reason under it, and a dot on the tab that holds it. A

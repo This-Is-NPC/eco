@@ -1,5 +1,6 @@
 //! The overlay windows, each an `eco-window` process running the QML in
-//! `overlay/`, for as long as the session holds them (docs/design.md §3).
+//! `overlay/`, for as long as the session holds them, and the tray icon, one
+//! more such process while `[ui] tray` is on (docs/design.md §3).
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -8,16 +9,17 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::process::{Child, Command};
+use tokio::time::Instant;
 
 use crate::paths;
 use crate::ports::WindowControl;
 
-/// The window's QML: installed beside the binary
-/// (`<prefix>/share/eco/overlay/shell.qml` for `<prefix>/bin/eco`), or this
-/// checkout's when eco runs from it.
-fn shell() -> PathBuf {
-    paths::shipped("overlay/shell.qml")
-        .unwrap_or_else(|| concat!(env!("CARGO_MANIFEST_DIR"), "/overlay/shell.qml").into())
+/// The overlay's entry `name` (`shell.qml`, the window; `tray.qml`, the tray
+/// icon): installed beside the binary (`<prefix>/share/eco/overlay/<name>` for
+/// `<prefix>/bin/eco`), or this checkout's when eco runs from it.
+fn entry(name: &str) -> PathBuf {
+    paths::shipped(&format!("overlay/{name}"))
+        .unwrap_or_else(|| Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/overlay")).join(name))
 }
 
 /// The program that runs it: installed beside the binary
@@ -36,15 +38,117 @@ pub fn program() -> PathBuf {
 /// a window the daemon did not start reads it from `paths::token_path()`,
 /// which the control socket writes.
 /// `control` focuses each window as it opens and, while `hidden`, leaves them
-/// all out of screen sharing.
+/// all out of screen sharing. The tray icon is not one of the windows: it is
+/// neither numbered, focused nor hidden, and a window call never goes to it.
 pub struct Windows {
-    socket: PathBuf,
-    token: String,
-    program: PathBuf,
+    launch: Launch,
     control: Arc<dyn WindowControl>,
     hidden: bool,
     last: u32,
     open: Vec<Window>,
+    tray: Option<Tray>,
+}
+
+/// What runs every eco-window process: the program, the daemon's socket and
+/// the token of the run.
+struct Launch {
+    program: PathBuf,
+    socket: PathBuf,
+    token: String,
+}
+
+impl Launch {
+    /// The program running the overlay's entry `name`, with `env` set besides
+    /// the socket and the token.
+    fn spawn(&self, name: &str, env: &[(&str, &str)]) -> io::Result<Child> {
+        Command::new(&self.program)
+            .arg(entry(name))
+            .envs(env.iter().copied())
+            .env("ECO_SOCKET", &self.socket)
+            .env("ECO_TOKEN", &self.token)
+            .stdout(Stdio::null())
+            .stderr(Stdio::inherit())
+            .kill_on_drop(true)
+            .spawn()
+            .map_err(|error| io::Error::other(format!("{}: {error}", self.program.display())))
+    }
+}
+
+/// The tray icon's process while `[ui] tray` is on: started again, after a
+/// pause that doubles with each early end, whenever it exits or cannot start.
+struct Tray {
+    /// The process while it runs, and when it started.
+    running: Option<(Child, Instant)>,
+    /// How many times in a row it ended within `STEADY` of starting.
+    failures: u32,
+    /// When it starts again, while it does not run.
+    again: Instant,
+}
+
+/// The first pause before the tray starts again, and the longest.
+const RETRY: Duration = Duration::from_secs(1);
+const RETRY_MAX: Duration = Duration::from_secs(60);
+/// A tray that ran this long ended on its own, not as a failure to start.
+const STEADY: Duration = Duration::from_secs(60);
+
+impl Tray {
+    fn start(launch: &Launch) -> Self {
+        let mut tray = Self {
+            running: None,
+            failures: 0,
+            again: Instant::now(),
+        };
+        tray.run(launch);
+        tray
+    }
+
+    /// Run the process, or wait to try again when it cannot start.
+    fn run(&mut self, launch: &Launch) {
+        match launch.spawn("tray.qml", &[]) {
+            Ok(child) => self.running = Some((child, Instant::now())),
+            Err(error) => self.retry(&format!("could not start ({error})")),
+        }
+    }
+
+    /// Start again after the next pause, saying why.
+    fn retry(&mut self, why: &str) {
+        let pause = RETRY
+            .saturating_mul(2u32.saturating_pow(self.failures))
+            .min(RETRY_MAX);
+        eprintln!(
+            "eco: the tray icon {why}; it starts again in {} s",
+            pause.as_secs()
+        );
+        self.failures += 1;
+        self.again = Instant::now() + pause;
+    }
+
+    /// Resolves once the process exited, or once it was started again.
+    async fn keep(&mut self, launch: &Launch) {
+        match &mut self.running {
+            Some((child, since)) => {
+                let status = child.wait().await.map(|status| status.to_string());
+                if since.elapsed() >= STEADY {
+                    self.failures = 0;
+                }
+                self.running = None;
+                let status = status.unwrap_or_else(|error| error.to_string());
+                self.retry(&format!("exited ({status})"));
+            }
+            None => {
+                tokio::time::sleep_until(self.again).await;
+                self.run(launch);
+            }
+        }
+    }
+
+    /// End the process, and wait for it to exit.
+    async fn end(self) {
+        if let Some((mut child, _)) = self.running {
+            terminate(&mut child);
+            let _ = child.wait().await;
+        }
+    }
 }
 
 struct Window {
@@ -73,13 +177,16 @@ impl Windows {
         hidden: bool,
     ) -> Self {
         Self {
-            socket,
-            token,
-            program,
+            launch: Launch {
+                program,
+                socket,
+                token,
+            },
             control,
             hidden,
             last: 0,
             open: Vec::new(),
+            tray: None,
         }
     }
 
@@ -101,18 +208,14 @@ impl Windows {
     /// session and makes `call` (a `window_call`'s JSON) once it meets the daemon.
     pub async fn open(&mut self, show: Option<&str>, call: Option<&str>) -> io::Result<()> {
         let number = self.last + 1;
-        let mut child = Command::new(&self.program)
-            .arg(shell())
-            .env("ECO_WINDOW", number.to_string())
-            .env("ECO_SHOW", show.unwrap_or_default())
-            .env("ECO_CALL", call.unwrap_or_default())
-            .env("ECO_SOCKET", &self.socket)
-            .env("ECO_TOKEN", &self.token)
-            .stdout(Stdio::null())
-            .stderr(Stdio::inherit())
-            .kill_on_drop(true)
-            .spawn()
-            .map_err(|error| io::Error::other(format!("{}: {error}", self.program.display())))?;
+        let mut child = self.launch.spawn(
+            "shell.qml",
+            &[
+                ("ECO_WINDOW", &number.to_string()),
+                ("ECO_SHOW", show.unwrap_or_default()),
+                ("ECO_CALL", call.unwrap_or_default()),
+            ],
+        )?;
         tokio::time::sleep(Duration::from_millis(200)).await;
         if let Some(status) = child.try_wait()? {
             return Err(io::Error::other(format!("eco-window exited with {status}")));
@@ -192,27 +295,61 @@ impl Windows {
         });
     }
 
-    /// Resolves when a window exits, which leaves the set; never, without one.
-    /// `None` when its status could not be read.
-    pub async fn exited(&mut self) -> Option<ExitStatus> {
-        if self.open.is_empty() {
-            return std::future::pending().await;
+    /// Run the tray icon while `on`, or end it; nothing changes when it
+    /// already is as asked.
+    pub async fn tray(&mut self, on: bool) {
+        if on && self.tray.is_none() {
+            self.tray = Some(Tray::start(&self.launch));
+        } else if !on && let Some(tray) = self.tray.take() {
+            tray.end().await;
         }
-        let waits = self.open.iter_mut().map(|w| Box::pin(w.child.wait()));
-        let (status, at, _) = futures::future::select_all(waits).await;
-        let status = status.ok();
-        self.open.remove(at);
-        if self.hidden {
-            self.share().await;
-        }
-        status
     }
 
-    /// Terminate every window and wait for them to exit.
+    /// Resolves when a window exits, which leaves the set; never, without one.
+    /// `None` when its status could not be read. Meanwhile it starts the tray
+    /// icon again when that exits.
+    pub async fn exited(&mut self) -> Option<ExitStatus> {
+        loop {
+            let exited = {
+                let open = &mut self.open;
+                let windows = async move {
+                    if open.is_empty() {
+                        return std::future::pending().await;
+                    }
+                    let waits = open.iter_mut().map(|w| Box::pin(w.child.wait()));
+                    let (status, at, _) = futures::future::select_all(waits).await;
+                    (status.ok(), at)
+                };
+                let launch = &self.launch;
+                let tray = async {
+                    match self.tray.as_mut() {
+                        Some(tray) => tray.keep(launch).await,
+                        None => std::future::pending().await,
+                    }
+                };
+                tokio::select! {
+                    exited = windows => Some(exited),
+                    () = tray => None,
+                }
+            };
+            if let Some((status, at)) = exited {
+                self.open.remove(at);
+                if self.hidden {
+                    self.share().await;
+                }
+                return status;
+            }
+        }
+    }
+
+    /// Terminate every window and the tray icon, and wait for them to exit.
     pub async fn close(self) {
         for mut window in self.open {
             terminate(&mut window.child);
             let _ = window.child.wait().await;
+        }
+        if let Some(tray) = self.tray {
+            tray.end().await;
         }
     }
 }
@@ -301,13 +438,21 @@ mod programs {
 
     /// Windows whose program notes what it was handed in `dir/window-<number>`
     /// and then waits, or exits with 4 at once when told to show `exit`, or
-    /// with 2 a moment after opening when told to show `later`.
+    /// with 2 a moment after opening when told to show `later`. Run as the
+    /// tray, it adds a line to `dir/tray` instead, and exits with 3 at once
+    /// when `dir/tray-dies` exists, which it removes.
     fn windows(dir: &Path, control: Arc<dyn WindowControl>, hidden: bool) -> Windows {
         let program = fake_program(
             dir,
             "eco-window",
             &format!(
-                r#"echo "$1 $ECO_WINDOW $ECO_SHOW $ECO_CALL $ECO_SOCKET $ECO_TOKEN" > '{}'/window-$ECO_WINDOW
+                r#"cd '{}'
+if [ "${{1##*/}}" = tray.qml ]; then
+  echo "$1 [$ECO_WINDOW] $ECO_SOCKET $ECO_TOKEN" >> tray
+  [ -e tray-dies ] && rm tray-dies && exit 3
+  exec sleep 30
+fi
+echo "$1 $ECO_WINDOW $ECO_SHOW $ECO_CALL $ECO_SOCKET $ECO_TOKEN" > window-$ECO_WINDOW
 [ "$ECO_SHOW" = exit ] && exit 4
 [ "$ECO_SHOW" = later ] && sleep 0.4 && exit 2
 exec sleep 30"#,
@@ -323,6 +468,97 @@ exec sleep 30"#,
         )
     }
 
+    /// The tray's process, while it runs.
+    fn tray_pid(windows: &Windows) -> Option<u32> {
+        let (child, _) = windows.tray.as_ref()?.running.as_ref()?;
+        child.id()
+    }
+
+    /// The lines the tray program wrote, once there are `count`, while
+    /// `windows` waits for its windows; `exited` never resolves meanwhile.
+    async fn tray_starts(dir: &Path, windows: &mut Windows, count: usize) -> Vec<String> {
+        let start = std::time::Instant::now();
+        loop {
+            let lines: Vec<String> = fs::read_to_string(dir.join("tray"))
+                .unwrap_or_default()
+                .lines()
+                .map(String::from)
+                .collect();
+            if lines.len() >= count {
+                return lines;
+            }
+            assert!(
+                start.elapsed() < Duration::from_secs(10),
+                "the tray started {} times",
+                lines.len()
+            );
+            let waited = tokio::time::timeout(Duration::from_millis(50), windows.exited()).await;
+            assert!(waited.is_err(), "a window exited");
+        }
+    }
+
+    #[tokio::test]
+    async fn the_tray_runs_while_on_and_is_no_window() {
+        let dir = tempfile::tempdir().unwrap();
+        let control = Arc::new(Noted::default());
+        let mut windows = windows(dir.path(), control.clone(), true);
+        windows.tray(false).await;
+        assert!(windows.tray.is_none());
+        windows.tray(true).await;
+        windows.tray(true).await;
+        let started = tray_starts(dir.path(), &mut windows, 1).await;
+        let socket = dir.path().join("eco.sock");
+        assert_eq!(
+            started,
+            [format!(
+                "{} [] {} secret",
+                entry("tray.qml").display(),
+                socket.display()
+            )]
+        );
+        let pid = tray_pid(&windows).unwrap();
+        assert!(!windows.is_open());
+        assert_eq!(windows.newest(), None);
+        assert!(control.take().is_empty());
+        // The first window is still window 1, and the only one shared or focused.
+        windows.open(None, None).await.unwrap();
+        assert_eq!(windows.newest(), Some(1));
+        let window = pids(&windows)[0];
+        assert_eq!(
+            control.take(),
+            [format!("focus {window}"), format!("hide [{window}] true")]
+        );
+        windows.tray(false).await;
+        assert!(ended(pid));
+        assert!(windows.tray.is_none());
+        assert!(!ended(window));
+        windows.close().await;
+    }
+
+    #[tokio::test]
+    async fn a_tray_that_exits_starts_again() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("tray-dies"), "").unwrap();
+        let mut windows = windows(dir.path(), Arc::new(Noted::default()), false);
+        windows.tray(true).await;
+        tray_starts(dir.path(), &mut windows, 2).await;
+        let pid = tray_pid(&windows).unwrap();
+        windows.close().await;
+        assert!(ended(pid));
+    }
+
+    #[tokio::test]
+    async fn a_tray_that_cannot_start_is_tried_again() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut windows = windows(dir.path(), Arc::new(Noted::default()), false);
+        let program = std::mem::replace(&mut windows.launch.program, dir.path().join("gone"));
+        windows.tray(true).await;
+        assert_eq!(tray_pid(&windows), None);
+        windows.launch.program = program;
+        tray_starts(dir.path(), &mut windows, 1).await;
+        windows.close().await;
+    }
+
     #[tokio::test]
     async fn a_window_is_handed_its_number_session_call_socket_and_token() {
         let dir = tempfile::tempdir().unwrap();
@@ -336,13 +572,17 @@ exec sleep 30"#,
             handed(1).unwrap(),
             format!(
                 "{} 1 s1 {{}} {} secret\n",
-                shell().display(),
+                entry("shell.qml").display(),
                 socket.display()
             )
         );
         assert_eq!(
             handed(2).unwrap(),
-            format!("{} 2   {} secret\n", shell().display(), socket.display())
+            format!(
+                "{} 2   {} secret\n",
+                entry("shell.qml").display(),
+                socket.display()
+            )
         );
         assert_eq!(windows.shown().collect::<Vec<_>>(), ["s1", ""]);
         windows.shows(2, "s2");
@@ -367,7 +607,7 @@ exec sleep 30"#,
         let dir = tempfile::tempdir().unwrap();
         let mut windows = windows(dir.path(), Arc::new(Noted::default()), false);
         let missing = dir.path().join("gone");
-        windows.program = missing.clone();
+        windows.launch.program = missing.clone();
         let error = windows.open(None, None).await.unwrap_err();
         assert!(
             error

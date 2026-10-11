@@ -49,6 +49,8 @@ Singleton {
   // change `session` again.
   onSessionChanged: Qt.callLater(follow)
   readonly property bool recording: session !== null && session.state === "recording"
+  // A live session that records, any window's, or null: what the tray shows.
+  readonly property var recordingSession: live.find(item => item.state === "recording") || null
   // The session whose cost screen is open over it, only after the user asked
   // for it, and what it cost as the daemon last said: {llm_usd, llm_unknown,
   // transcription_usd, transcription_unknown, total_usd, transcribed_s, parts,
@@ -268,6 +270,12 @@ Singleton {
       return
     link.send(command)
   }
+  // callWindow asks what `eco window` asks (a `window.call`, docs/design.md
+  // §10.2): "focus" opens a window or brings the newest forward, "new_session"
+  // and "config" open those in it.
+  function callWindow(call) { send("window.call " + JSON.stringify({ call: call })) }
+  // stopDaemon stops eco, as `eco stop` does.
+  function stopDaemon() { send("stop") }
   // Tells the daemon this window closes, then ends the process.
   function quit() {
     send("window.closed " + JSON.stringify({ window: window }))

@@ -309,6 +309,8 @@ struct UiTable {
     language: String,
     #[serde(default)]
     hide_from_share: bool,
+    #[serde(default)]
+    tray: bool,
 }
 
 impl UiTable {
@@ -322,6 +324,7 @@ impl Default for UiTable {
         Self {
             language: Self::auto(),
             hide_from_share: false,
+            tray: false,
         }
     }
 }
@@ -386,6 +389,8 @@ pub struct Config {
     pub ui_language: String,
     /// eco's windows are left out of screen sharing (and so of screenshots and recordings).
     pub hide_from_share: bool,
+    /// eco shows an icon in the system tray, run as its own window process.
+    pub tray: bool,
     /// Keys -> the `eco window` command they run, registered on Windows;
     /// `None` keeps the defaults of `shortcuts::DEFAULT`.
     pub shortcuts: Option<BTreeMap<String, String>>,
@@ -467,6 +472,7 @@ impl Config {
             audio: raw.audio,
             ui_language: raw.ui.language,
             hide_from_share: raw.ui.hide_from_share,
+            tray: raw.ui.tray,
             shortcuts: raw.shortcuts,
         };
         config.validate()?;
@@ -493,6 +499,7 @@ impl Config {
             ui: UiTable {
                 language: self.ui_language.clone(),
                 hide_from_share: self.hide_from_share,
+                tray: self.tray,
             },
             shortcuts: self.shortcuts.clone(),
         }
@@ -1350,6 +1357,16 @@ mod tests {
                 .hide_from_share
         );
         assert!(error_of(with("ui", json!({"hide_from_share": "yes"}))).contains("invalid config"));
+    }
+
+    #[test]
+    fn the_tray_defaults_to_off_and_round_trips() {
+        assert!(!Config::from_value(raw()).unwrap().tray);
+        let config = Config::from_value(with("ui", json!({"tray": true}))).unwrap();
+        assert!(config.tray);
+        assert!(!config.hide_from_share);
+        assert!(Config::from_value(config.to_value()).unwrap().tray);
+        assert!(error_of(with("ui", json!({"tray": "yes"}))).contains("invalid config"));
     }
 
     #[test]

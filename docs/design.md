@@ -103,9 +103,13 @@ never writes the config — it sends a draft and the daemon validates and saves 
 by `mise run window:build` into `target/window`; on Windows with MSVC and the
 Qt `mise run qt:install` puts under `.qt`, whose libraries it copies beside
 `eco-window.exe`) loads one entry of
-`overlay/` — `shell.qml`, the eco window, or `lab.qml`, the control lab — with
-a QGuiApplication and a QQmlApplicationEngine, puts the entry's folder on the
-engine's import path, and does nothing else: no logic lives in it beyond the
+`overlay/` — `shell.qml`, the eco window, `tray.qml`, the tray icon (§12.7),
+or `lab.qml`, the control lab — with a QApplication and a
+QQmlApplicationEngine, puts the entry's folder on the engine's import path,
+and does nothing else. A QApplication (Qt Widgets) rather than a
+QGuiApplication because the tray's menu, `Qt.labs.platform`'s `Menu`, falls
+back to a widget menu where the platform draws none, as on Windows; it is one
+application type for every entry, on both platforms. Beyond that, no logic lives in it beyond the
 bridge it hands QML as the module `EcoHost`:
 
 | Type | What QML gets |
@@ -141,8 +145,8 @@ files import modules by name (`import Eco.Kit`), never by relative path:
 
 Live, Sessions, Dialogs and Settings never import each other: a piece two of
 them share belongs in `Eco.Kit`, and what joins them lives in `Eco.Window`.
-`shell.qml` composes `OverlayPanel` with the settings window; `lab.qml` runs
-`ControlLab`.
+`shell.qml` composes `OverlayPanel` with the settings window; `tray.qml` is
+the tray icon, on `Eco.Core` alone; `lab.qml` runs `ControlLab`.
 
 `mise run overlay:check` (`scripts/overlay-check`, part of `mise run check`)
 enforces this table: it fails on an import a module may not make, a relative
@@ -876,6 +880,7 @@ kinds = ["meeting"]
 [ui]
 language = "auto"                           # interface language pack, or auto
 hide_from_share = false                     # eco's windows hidden from screen shares (and screenshots)
+tray = false                                # an icon in the system tray (§12.7)
 
 [colors]                                    # trace colour per device (optional)
 "@default-input" = "#ffb000"
@@ -1648,9 +1653,34 @@ another tab decides is only read, never picked, there.
   models and context slots; removing one asks first, saying that its sessions
   keep it, which kind becomes the default and that its own models and slots stop
   applying.
-- **Interface:** interface language, and HIDE FROM SCREEN SHARING (off by
+- **Interface:** interface language, HIDE FROM SCREEN SHARING (off by
   default), whose help says eco then shows black in the user's screenshots and
-  recordings too (§13).
+  recordings too (§13), and SHOW ECO IN THE TRAY (off by default, §12.7).
+
+### 12.7 The tray icon
+
+With `[ui] tray` on, the daemon runs one more `eco-window` process, on
+`overlay/tray.qml`: a `Qt.labs.platform` `SystemTrayIcon` bound to the `Eco`
+singleton. On Linux Qt exports it as a StatusNotifierItem over D-Bus, with its
+menu as a `com.canonical.dbusmenu`, which the bar's tray shows (on Omarchy a
+StatusNotifierHost is on the session bus); on Windows it is a notification
+area icon, its menu a Qt Widgets menu. Its icon is `overlay/icons/tray.png`,
+eco's bars in white, or `tray-recording.png`, with a red dot, while any live
+session records; its tooltip is `eco · idle` or `eco · recording · <title>`.
+A click sends `window.call {"call":"focus"}` and the menu's **Open** the same,
+**New session** `new_session`, **Settings** `config` — each the line `eco
+window` sends (§10.2) — and **Stop eco** `stop`, the line `eco stop` sends.
+`tests/window.rs` runs it offscreen and checks the lines and the states.
+
+The tray is part of the windows' lifecycle in `src/adapters/overlay.rs`, but
+not a window: it has no number, is never focused nor hidden from sharing, does
+not count for `overlay` in the greeting (`eco status --window-open`) and never
+gets a `window.call`. The daemon starts it when it starts with the setting on
+and after any line that leaves it on, ends it (`SIGTERM`, terminated on
+Windows) after a line that turns it off, and ends it with the windows when it
+stops. A tray process that exits, or cannot start, starts again after 1 s,
+then a pause that doubles to at most 60 s; one that ran a minute starts the
+count again.
 
 ---
 
@@ -1692,7 +1722,8 @@ eco/LICENSE  eco/README.txt
 resource `IDI_ICON1` (`window/eco-window.rc`, built only on Windows), which Qt
 also gives the windows it opens (read in Qt's source, not seen); the Start-menu
 shortcut takes its icon from there, so `eco.exe` carries none. `mise run icon`
-(`scripts/icon`) renders the `.ico` from `packaging/eco.svg` on Python's
+(`scripts/icon`) renders the `.ico` from `packaging/eco.svg`, and the tray's
+icons into `overlay/icons` (§12.7), shipped with the overlay, on Python's
 standard library: the SVG is rounded rectangles, which the script rasterises
 itself and refuses any other element, so no SVG renderer is pinned for it.
 
@@ -1985,6 +2016,7 @@ adapter lives on each platform today.
 | The running executable | `eco status --expect-current-exe` compares the daemon's `/proc/<pid>/exe` with this executable by device and inode | it compares the `exe` the daemon's greeting names with this executable's path; Windows lets no one overwrite a running executable | `src/lifecycle.rs` |
 | Window control | the `WindowControl` port, adapter `HyprlandWindows`: giving a window process's overlay (its window titled `eco`, never the settings window) the keyboard and raising it above the settings, so a dialog the shortcut opens shows and setting `no_screen_share` on its windows through `hyprctl dispatch`, by pid, again on Hyprland's `openwindow` events while they are hidden; composed in `src/session.rs`, used by `src/adapters/overlay.rs`, which launches `eco-window`. The window rules in `packaging/hypr/eco.lua` centering the config window stay compositor config | adapter `HostWindows`: the windows control themselves. Focusing sends `window_focus` with the pid and hiding sends `window_share` with the pids (§10.1), to every client; the window of that process answers through its host, `Host.raise` on its eco window, or `Host.hideFromCapture`, and the last of each is told again to a client that connects, as a window does just after it opens. Windows gives the foreground only to a process that has it or had the last input, and neither the daemon nor its windows, in the background, do: `raise()` and `requestActivate()` alone left the window behind another program, its taskbar button flashing (seen in a desktop test). So the host's `Host.raise` first attaches its thread to the input of the foreground window's thread (`AttachThreadInput`), brings the window to the top and calls `SetForegroundWindow`, then detaches, after checking that thread answers (`SendMessageTimeout`), as an attached hung thread would hang the window: the workaround Qt applies under its private `AlwaysActivateWindow` option. Chosen over a synthetic Alt press before `SetForegroundWindow`, which reaches the program in front (an Alt press and release opens its menu bar), and over the daemon passing the right on with `AllowSetForegroundWindow` from the hotkey's thread, which has no safe binding in Rust and would not cover `eco window` from a terminal. Leaving out of capture needs Windows 10 2004 or later, and leaves the windows out of the user's own screenshots and recordings too | `src/ports.rs`, `src/adapters/window_hyprland.rs`, `src/adapters/window_host.rs`, `src/adapters/overlay.rs`, `window/host.h`, `packaging/hypr/eco.lua` |
 | The window host's bridge | `eco-window`'s `EcoHost` module, built with the system's compiler and Qt by Ninja: `Host` gives the QML its pid, its environment and local paths, and copies to the Wayland clipboard through `wl-copy`; `LineSocket` is a `QLocalSocket` to the daemon socket the daemon names in `ECO_SOCKET`; `TextFile` reads and watches files, such as the Omarchy theme under `XDG_STATE_HOME` that `overlay/Eco/Core/Theme.qml` follows | the same module, built with MSVC through CMake's Visual Studio generator against the Qt `scripts/qt-install` puts under `.qt`, with Qt's libraries copied beside `eco-window.exe` by `windeployqt`; `src/adapters/overlay.rs` runs `<prefix>\lib\eco\eco-window.exe` beside an installed `eco`, else the checkout's `target\window\eco-window.exe`. `Host.copy` puts the text on the clipboard through Qt and flushes it to Windows (`OleFlushClipboard`, from `ole32`), `Host.hideFromCapture` sets the windows' display affinity, and `LineSocket` connects to the named pipe and sends `auth <token>` first. `tests/window.rs` and `tests/overlay.rs` run there too, the second with the `qmltestrunner` under `.qt`. There is no Omarchy theme, so the window keeps its own colours | `window/main.cpp`, `window/host.h`, `window/line_socket.h`, `window/text_file.h`, `scripts/window-build`, `scripts/qt-install` |
+| The tray icon | `Qt.labs.platform`'s `SystemTrayIcon`, which Qt exports as a StatusNotifierItem with a D-Bus menu (qt6-base carries Qt D-Bus); the bar's tray shows it | the same type, a notification area icon whose menu is a Qt Widgets menu; `windeployqt` ships Qt Widgets and the `Qt.labs.platform` plugin with `eco-window.exe` | `overlay/tray.qml`, `src/adapters/overlay.rs` |
 | Shortcuts | a global Hyprland bind that runs an `eco window` command, which sends one line to the socket and returns once the daemon has read it: `window.call` for those that open a view, the daemon giving that window the keyboard | the daemon registers `[shortcuts]` (§9) itself, `Win+Alt+A`, `Q`, `C`, `N`, `P`, `H` and `E` by default, the keys of `eco.lua` with the Windows key for SUPER, none of them one Microsoft documents for Windows (`Win+Alt` with a digit opens a taskbar jump list, and was refused on a desktop; the Game Bar holds `G`, `M`, `R` and `T`; Omarchy binds `SUPER+ALT+1` to `5` to a group's windows), through the `windows-hotkeys` crate: `RegisterHotKey` on a hidden message-only window of a thread of its own, which waits for `WM_HOTKEY` in the crate's loop. A pressed key hands the daemon's loop the very line `eco window` builds (`cli::Window::line`), so it is routed as the command would be. A key the system refuses, another program holding it, is written to the daemon's log and greets every client as an `error` with the code `shortcut.unavailable`, which names the config's path, to be created if missing, as the settings window has no place for shortcuts; the others still work. Chosen over `global-hotkey`, which registers the same way but leaves the message loop to the application, and that loop is `unsafe` code eco forbids, and over `livesplit-hotkey`, which installs a low-level keyboard hook: it sees every key pressed in every program, passes the shortcut on to the program in front as well (Win+Alt+1 would also open the first taskbar program's jump list) and cannot tell a key another program holds (read in the crates' sources). The keys are read when the daemon starts. Over ssh the system refuses every key: that session has no interactive window station (`RegisterHotKey` fails with error 1459, `ERROR_REQUIRES_INTERACTIVE_WINDOWSTATION`, measured), so each is reported; on a desktop, `Win+Alt+C`, `N`, `H` and `E` registered and worked when pressed (seen in a desktop test). `eco window` works as on Linux, knowing the daemon has read its line from the `synced` answer to `sync` (§10) | `packaging/hypr/eco.lua`, `src/cli.rs`, `src/shortcuts.rs`, `src/adapters/shortcuts_windows.rs` |
 | The hook shell | `shell()` runs each hook with `sh -c` | `shell()` runs each hook with `cmd /S /C "<command>"`, the command handed over as written, for cmd does not read its line by the quoting rules other programs use; a hook reads `%ECO_SESSION%` and `%ECO_TITLE%`. cmd is on every Windows | `src/adapters/hook_shell.rs` |
 | The omapass keyring | `api_key_omapass` reads a key through the omapass CLI | omapass does not exist: it is never installed, and a key from it fails | `src/adapters/omapass.rs` |
