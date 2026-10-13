@@ -825,7 +825,12 @@ impl Client {
             }
             failure_in(
                 event,
-                &["session.", "translation.unknown", "translation.own"],
+                &[
+                    "session.",
+                    "translation.unknown",
+                    "translation.own",
+                    "translation.none",
+                ],
             )
             .map(Err)
         })
@@ -880,7 +885,15 @@ impl Client {
         self.send(command).await?;
         let mut answer: Option<Value> = None;
         self.until(|event| {
-            let failed = failure_in(event, &["session.", "action.unknown", "completion.failed"]);
+            let failed = failure_in(
+                event,
+                &[
+                    "session.",
+                    "action.unknown",
+                    "chat.none",
+                    "completion.failed",
+                ],
+            );
             if let Some(failure) = failed {
                 return Some(Err(failure));
             }
@@ -1254,6 +1267,31 @@ mod tests {
         assert_eq!(
             client.handle(request).await.unwrap_err(),
             Failure::new("hook.failed", "hook: down")
+        );
+    }
+
+    #[tokio::test]
+    async fn without_a_model_asking_and_translating_fail_at_once() {
+        let none = json!({"type": "error", "code": "chat.none", "message": "no chat model"});
+        let mut client = talking_to(r#"session.ask {"id":"n1","question":"E aí?"}"#, vec![none]);
+        let request = Request::Ask {
+            id: "n1".into(),
+            question: "E aí?".into(),
+        };
+        assert_eq!(client.handle(request).await.unwrap_err().code, "chat.none");
+
+        let none = json!({"type": "error", "code": "translation.none", "message": "no translator"});
+        let mut client = talking_to(
+            r#"session.translation {"id":"n1","language":"en"}"#,
+            vec![none],
+        );
+        let request = Request::Translate {
+            id: "n1".into(),
+            language: "en".into(),
+        };
+        assert_eq!(
+            client.handle(request).await.unwrap_err().code,
+            "translation.none"
         );
     }
 

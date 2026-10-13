@@ -166,7 +166,7 @@ ColumnLayout {
     id: composer
     Layout.fillWidth: true
     Layout.fillHeight: false
-    sessionId: Eco.onScreen ? Eco.onScreen.id : ""
+    session: Eco.onScreen
     compact: view.compact
     actionsShown: !view.short
   }

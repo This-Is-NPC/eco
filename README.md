@@ -63,7 +63,8 @@ Then, in the window:
 1. `SUPER+ALT+C` opens the settings. **Audio** first: one audio source for you
    on the default microphone, marked THIS IS ME, and one for everybody else on
    the default output — what the laptop plays.
-2. **Models**: a chat model and a transcription model, each named once. Their
+2. **Models**: a transcription model and, for answers and translation, a chat
+   model, each named once. eco records and transcribes with no chat model. Their
    keys come from the daemon's environment (`OPENROUTER_API_KEY`,
    `DEEPGRAM_API_KEY`, `ELEVEN_LABS_API_KEY`, `GROQ_API_KEY`, `OPENAI_API_KEY`,
    kept in `~/.config/uwsm/env`) or from your omapass keyring.

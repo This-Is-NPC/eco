@@ -91,7 +91,12 @@ ColumnLayout {
       title: kind ? Eco.kindName(kind) : ""
       placeholder: I18n.t("settings.kind_number", { number: index + 1 })
       note: [index === 0 ? I18n.t("settings.kind_default") : "",
-        I18n.t("settings.kind_note", { transcription: Draft.answering(editor.draft, "transcription", kind, null).name, chat: Draft.answering(editor.draft, "chat", kind, null).name })].filter(part => part).join("  ·  ")
+        kindNote].filter(part => part).join("  ·  ")
+      // Which models sessions of this kind run on; the answering one only when there is one.
+      readonly property string kindNote: {
+        const models = { transcription: Draft.answering(editor.draft, "transcription", kind, null).name, chat: Draft.answering(editor.draft, "chat", kind, null).name }
+        return I18n.t(models.chat ? "settings.kind_note" : "settings.kind_transcribes", models)
+      }
       expanded: editor.open === index
       removable: editor.kinds.length > 1
       removeTip: I18n.t("settings.remove_kind")
@@ -122,7 +127,7 @@ ColumnLayout {
         kind: card.kind
         onChanged: change => editor.changed(change)
       }
-      Label { Layout.fillWidth: true; text: I18n.t("settings.kind_chat_note"); color: Theme.dim; font.pixelSize: 11; wrapMode: Text.Wrap }
+      Label { Layout.fillWidth: true; visible: Draft.named(editor.draft, "chat").length > 0; text: I18n.t("settings.kind_chat_note"); color: Theme.dim; font.pixelSize: 11; wrapMode: Text.Wrap }
     }
   }
 

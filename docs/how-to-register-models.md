@@ -1,7 +1,8 @@
 # How to register models
 
-**The question:** eco needs one model to transcribe and one to answer. Where do
-the keys go, how do I add a model, and how do I say which one does what?
+**The question:** eco needs one model to transcribe, and one to answer and
+translate if you want answers. Where do the keys go, how do I add a model, and
+how do I say which one does what?
 
 This page is enough on its own. It ends with a chat model on OpenRouter and a
 transcription model registered, each with its key, and an answer that proves the
@@ -93,6 +94,10 @@ keep the key in omapass (api_key_omapass) or an environment variable
 Open the settings (`SUPER+ALT+C`), then **Models** (`Ctrl+2`).
 
 ![The Models tab: "Register each model once — chat or transcription — with its provider", then four closed cards — whisper-lan (TRANSCRIPTION, whisper-large-v3-turbo, used by DEFAULT TRANSCRIPTION, MEETING…), deepgram (TRANSCRIPTION, nova-3, used by INTERVIEW), gemini-flash (CHAT, google/gemini-2.5-flash, used by ASSISTANT, TRANSLATION…), claude-haiku (CHAT, anthropic/claude-haiku-4.5, used by minutes) — and ADD MODEL.](img/41-settings-models.png)
+
+**A chat model is optional.** Without one eco records, transcribes and keeps
+notes; the **Answers**, **Skills** and **Translation** tabs say NO CHAT MODEL,
+with a button back here. Skip to step 3 if you only want transcripts.
 
 A closed card says what the model is and what uses it. **ADD MODEL** opens a new
 one, its name field focused, starting from the provider and key source of the
@@ -273,6 +278,10 @@ program on the socket (an agent, a script) sent a config that adds a model or
 moves a model's address or key source. Nothing is saved until you choose: the
 dialog names the address and where the key comes from
 ([screens §12](screens.md#12-settings)). REJECT unless you asked for it.
+
+**Asking or translating says no chat model answers.** No chat model answers or
+translates that session's kind: `chat.none` or `translation.none`. Pick one
+under **Answers** or **Translation**, or for the kind under **Sessions**.
 
 **A model cannot be removed.** The assistant's and the default transcription
 model cannot. Removing any other asks first, listing what falls back to which

@@ -173,6 +173,17 @@ followed by more words, or a path such as `/etc/hosts`, is asked as written.
 {"ok":false,"code":"action.unknown","message":"unknown action \"minutes\""}
 ```
 
+**No chat model answers this session.** Without one for its kind, the composer
+has no SEND: Enter keeps the text as a note, and only the skills that name a
+model of their own show. From the command line:
+
+```
+{"ok":false,"code":"chat.none","message":"no chat model answers sessions of this kind"}
+```
+
+Register a chat model and pick it under **Settings › Answers**
+([how to register models](how-to-register-models.md)).
+
 **The model failed.** The card stays, in red, with `No answer: <why>` (the ASK
 card in the picture in step 1). From the command line the code is `completion.failed`, with the same reason.
 

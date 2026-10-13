@@ -158,6 +158,17 @@ eco translate a110f46d050d --lang pt
 
 The translation stays as it was.
 
+**No model translates this session's kind.** The session's details have no
+TRANSLATION line, and an answer's card has no translate button. From the command
+line:
+
+```json
+{"ok":false,"code":"translation.none","message":"no model translates sessions of this kind"}
+```
+
+Register a chat model; it translates once it is the assistant or the default
+under **Settings › Translation**.
+
 ---
 
 ## Next

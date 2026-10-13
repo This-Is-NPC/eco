@@ -10,7 +10,6 @@ Singleton {
   id: root
 
   readonly property bool connected: link.connected
-  property var actions: []
   // The actions with a hook: their answers can be sent to it.
   property var hooks: []
   property var participants: []
@@ -21,8 +20,11 @@ Singleton {
   property var languages: []
   // The kinds a session can be given, as configured.
   property var kinds: []
-  // What sessions of each kind run on, by model name: {kind: {transcription, chat}}.
+  // What sessions of each kind run on, by model name, "" where none, and the
+  // skills a model answers there: {kind: {transcription, chat, translation, actions}}.
   property var kindModels: ({})
+  // The same for sessions of a kind no longer configured.
+  property var defaultModels: ({ transcription: "", chat: "", translation: "", actions: [] })
   // The language codes eco offers to transcribe in and to translate into, as the
   // daemon lists them.
   property var languageCodes: []
@@ -553,6 +555,13 @@ Singleton {
       say("", false)
   }
 
+  // What sessions of `kind` run on, as in kindModels.
+  function modelsOf(kind) { return kindModels[kind] || defaultModels }
+  // Whether anything answers in sessions of `kind`: a chat model, or a skill that names its own.
+  function answersIn(kind) {
+    const models = modelsOf(kind)
+    return models.chat !== "" || models.actions.length > 0
+  }
   // kindName labels a kind: the four built in read in the interface language,
   // the user's own as they wrote them.
   function kindName(kind) {
@@ -767,7 +776,6 @@ Singleton {
   function handle(event) {
     switch (event.type) {
     case "snapshot":
-      actions = event.actions
       hooks = event.hooks || []
       participants = event.participants
       inputs = event.inputs
@@ -776,6 +784,7 @@ Singleton {
       languageCodes = event.language_codes
       kinds = event.kinds
       kindModels = event.kind_models || {}
+      defaultModels = event.default_models || defaultModels
       contexts = event.contexts || []
       uiLanguage = event.ui_language
       transcribers = event.transcribers || []

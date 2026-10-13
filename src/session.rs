@@ -374,7 +374,6 @@ type Models = Arc<HashMap<String, ModelConfig>>;
 
 /// What a session that needs a model is told while the config names none.
 const NO_TRANSCRIPTION_MODEL: &str = "no transcription model is chosen";
-const NO_CHAT_MODEL: &str = "no chat model is chosen";
 
 /// The model `listening` names, built in its language.
 async fn build(models: &Models, listening: &Listening) -> Result<Stt, Unbuilt> {
@@ -864,27 +863,38 @@ async fn pipeline(config: Config, assistant: Assistant, emit: Emit, rig: Rig) {
         let settings = settings.to_string();
         models.insert(name.clone(), Model { llm, id, settings });
     }
-    // A model the config names was built; without one, asking is told so.
-    let none = || Model {
-        llm: Arc::new(Unavailable(NO_CHAT_MODEL.into())),
-        id: String::new(),
-        settings: String::new(),
-    };
-    let model = models.get(&config.llm.model).cloned().unwrap_or_else(none);
+    let model = models.get(&config.llm.model).cloned();
     let kind_models: HashMap<String, Model> = config
         .kinds
         .iter()
         .filter_map(|kind| Some((kind.clone(), models[&kind_chat(kind)?.name].clone())))
         .collect();
+    // What sessions of `kind`, or of no kind configured, use by model name, ""
+    // for none, and the actions a model answers there.
+    let route = |kind: Option<&String>| {
+        let chat = kind
+            .and_then(kind_chat)
+            .map_or(config.llm.model.as_str(), |m| &m.name);
+        let translator = config.translator(kind.map_or("", String::as_str));
+        let actions: Vec<&String> = config
+            .actions
+            .iter()
+            .filter(|action| action.model.is_some() || !chat.is_empty())
+            .map(|action| &action.name)
+            .collect();
+        json!({
+            "transcription": kind.map_or(&config.stt.model, |kind| &kind_transcribers[kind]),
+            "chat": chat,
+            "translation": translator.map_or("", |m| &m.name),
+            "actions": actions,
+        })
+    };
     let routes: serde_json::Map<String, Value> = config
         .kinds
         .iter()
-        .map(|kind| {
-            let chat = kind_chat(kind).map_or(&config.llm.model, |m| &m.name);
-            let used = json!({"transcription": kind_transcribers[kind], "chat": chat});
-            (kind.clone(), used)
-        })
+        .map(|kind| (kind.clone(), route(Some(kind))))
         .collect();
+    let default_route = route(None);
     let reviewer = reviewer.and_then(|on| {
         Some(Reviewer {
             model: models.get(&on.model)?.clone(),
@@ -927,8 +937,7 @@ async fn pipeline(config: Config, assistant: Assistant, emit: Emit, rig: Rig) {
         model: config
             .translator("")
             .and_then(|translator| models.get(&translator.name))
-            .cloned()
-            .unwrap_or_else(none),
+            .cloned(),
         kind_models: config
             .kinds
             .iter()
@@ -945,6 +954,7 @@ async fn pipeline(config: Config, assistant: Assistant, emit: Emit, rig: Rig) {
         kind_models,
         translation,
         routes: Value::Object(routes),
+        default_route,
         actions: config.actions.clone(),
         rules: config.rules.clone(),
         reviewer,
@@ -4340,11 +4350,9 @@ mod tests {
         let mut d = daemon(json!({"participants": raw()["participants"]}));
         assert!(!d.session.config_path.exists());
         let snapshot = d.configured().await;
-        assert_eq!(snapshot["actions"], json!([]));
-        assert_eq!(
-            snapshot["kind_models"]["meeting"],
-            json!({"transcription": "", "chat": ""})
-        );
+        let nothing = json!({"transcription": "", "chat": "", "translation": "", "actions": []});
+        assert_eq!(snapshot["kind_models"]["meeting"], nothing);
+        assert_eq!(snapshot["default_models"], nothing);
         // Nothing is wrong yet: no part names a model it cannot have.
         let problems = d.events.lock().unwrap().clone();
         assert!(
@@ -4355,12 +4363,15 @@ mod tests {
             "{problems:?}"
         );
         // What needs a model says that none is chosen.
-        d.start("Retro").await;
+        let id = d.start("Retro").await;
         let unheard = d.until(|event| event["code"] == "stt.unavailable").await;
         assert_eq!(unheard["params"]["detail"], NO_TRANSCRIPTION_MODEL);
-        d.line("ask which queue?").await;
-        let unanswered = d.until(|event| event["code"] == "completion.failed").await;
-        assert_eq!(unanswered["params"]["detail"], NO_CHAT_MODEL);
+        // What needs a chat model is refused before anything is asked.
+        let events = d.line("ask which queue?").await;
+        assert_eq!(said(&events), ["chat.none"]);
+        let translate = json!({"id": id, "language": "en"});
+        let events = d.line(&format!("session.translation {translate}")).await;
+        assert_eq!(said(&events), ["translation.none"]);
         let path = d.dir.path().join("call.wav");
         std::fs::write(&path, b"RIFF").unwrap();
         let events = d
@@ -4396,13 +4407,37 @@ mod tests {
         assert_eq!(
             snapshot["kind_models"],
             json!({
-                "meeting": {"transcription": "w", "chat": "m"},
-                "conversation": {"transcription": "w", "chat": "m"},
-                "other": {"transcription": "w", "chat": "m"},
-                "idea": {"transcription": "dg", "chat": "fast"},
+                "meeting": {"transcription": "w", "chat": "m", "translation": "m", "actions": ["probe"]},
+                "conversation": {"transcription": "w", "chat": "m", "translation": "m", "actions": ["probe"]},
+                "other": {"transcription": "w", "chat": "m", "translation": "m", "actions": ["probe"]},
+                "idea": {"transcription": "dg", "chat": "fast", "translation": "fast", "actions": ["probe"]},
             })
         );
-        assert_eq!(snapshot["actions"], json!(["probe"]));
+    }
+
+    #[tokio::test]
+    async fn a_kind_with_its_own_chat_model_answers_where_no_default_does() {
+        let mut raw = raw();
+        raw["llm"]["model"] = json!("");
+        raw["models"][1]["kinds"] = json!(["idea"]);
+        raw["actions"] = json!([
+            {"name": "probe", "prompt": "p", "format": "f", "model": "m"},
+            {"name": "ask", "prompt": "p", "format": "f"},
+        ]);
+        let mut d = daemon(raw);
+        let snapshot = d.configured().await;
+        assert_eq!(
+            snapshot["kind_models"]["meeting"],
+            json!({"transcription": "w", "chat": "", "translation": "", "actions": ["probe"]})
+        );
+        assert_eq!(
+            snapshot["kind_models"]["idea"],
+            json!({"transcription": "w", "chat": "m", "translation": "", "actions": ["probe", "ask"]})
+        );
+        assert_eq!(
+            snapshot["default_models"],
+            snapshot["kind_models"]["meeting"]
+        );
     }
 
     #[tokio::test]

@@ -5,7 +5,8 @@ import Eco.Core
 import Eco.Kit
 
 // ComposerSurface asks, runs a skill or keeps a note: the skills as numbered
-// chips, and a box where `/` lists them as you type.
+// chips, and a box where `/` lists them as you type. Where nothing answers a
+// question, what is typed is kept as a note.
 ColumnLayout {
   id: surface
 
@@ -14,6 +15,8 @@ ColumnLayout {
   property string placeholder
   property bool compact: false
   property bool busy: false
+  // Whether a question typed is asked; otherwise Enter keeps it as a note.
+  property bool asks: true
   // Whether the actions show as chips above the box; `/` reaches them either way.
   property bool actionsShown: true
   // The `/name` sent that names no action; the box keeps it to be fixed.
@@ -59,6 +62,10 @@ ColumnLayout {
       run(slash[1])
       return
     }
+    if (!asks) {
+      note()
+      return
+    }
     const value = take()
     if (!value)
       return
@@ -100,7 +107,7 @@ ColumnLayout {
 
   Flow {
     Layout.fillWidth: true
-    visible: surface.actionsShown
+    visible: surface.actionsShown && surface.actions.length > 0
     spacing: 6
     Repeater {
       model: surface.actions
@@ -172,6 +179,7 @@ ColumnLayout {
       }
       TraceButton {
         id: sendButton
+        visible: surface.asks
         dense: true
         role: "progress"
         implicitWidth: surface.compact ? 32 : 86

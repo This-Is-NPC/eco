@@ -19,6 +19,8 @@ Window {
   property int resets: 0
   // A reviewer rewrites every answer while this is on.
   readonly property bool reviewing: draft !== null && !!draft.reviewer && draft.reviewer.enabled
+  // A chat model is registered: until then answers, skills and translation have nothing to run on.
+  readonly property bool chats: draft !== null && Draft.named(draft, "chat").length > 0
   property string issue: ""
   readonly property bool dirty: invalidExtra || (draft !== null && saved !== null && JSON.stringify(draft) !== JSON.stringify(saved))
   // A save was tried since the last reset: missing values show as problems too.
@@ -248,17 +250,17 @@ Window {
       Stage {
         anchors.fill: parent
         shown: window.page === 3
-        Loader { anchors.fill: parent; active: window.draft !== null; sourceComponent: answersPage }
+        Loader { anchors.fill: parent; active: window.draft !== null; sourceComponent: window.chats ? answersPage : noChatPage }
       }
       Stage {
         anchors.fill: parent
         shown: window.page === 4
-        Loader { anchors.fill: parent; active: window.draft !== null; sourceComponent: skillsPage }
+        Loader { anchors.fill: parent; active: window.draft !== null; sourceComponent: window.chats ? skillsPage : noChatPage }
       }
       Stage {
         anchors.fill: parent
         shown: window.page === 5
-        Loader { anchors.fill: parent; active: window.draft !== null; sourceComponent: translationPage }
+        Loader { anchors.fill: parent; active: window.draft !== null; sourceComponent: window.chats ? translationPage : noChatPage }
       }
       Stage {
         anchors.fill: parent
@@ -587,6 +589,38 @@ Window {
             reviewerModel.forceActiveFocus()
           else
             contexts.reveal(path)
+        }
+      }
+    }
+  }
+
+  // What the answers, skills and translation tabs say while no chat model is registered.
+  Component {
+    id: noChatPage
+    ScrollPage {
+      id: scroll
+      contentHeight: pane.implicitHeight
+      Panel {
+        id: pane
+        width: scroll.width
+        height: implicitHeight
+        index: "01"
+        title: I18n.t("settings.no_chat")
+        ColumnLayout {
+          anchors.fill: parent
+          spacing: 12
+          Label {
+            Layout.fillWidth: true
+            text: I18n.t("settings.no_chat_note")
+            color: Theme.dim
+            font.pixelSize: 11
+            wrapMode: Text.Wrap
+          }
+          Chip {
+            text: I18n.t("settings.no_chat_register")
+            icon: "chevron-right"
+            onClicked: window.page = 1
+          }
         }
       }
     }

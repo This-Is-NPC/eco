@@ -155,7 +155,9 @@ used, and says which models that kind runs on, so a paid transcriber is never
 picked unseen. Tags offer the existing ones as they are typed. The context
 slots are chips: those of the chosen kind start lit — `resume` is off here
 because it belongs to `interview`. WHO WILL BE HEARD lists the sources and their
-inputs; in the picture it is only the replayed file.
+inputs; in the picture it is only the replayed file. Where no chat model
+answers the kind, the models line says only `Transcribes with whisper-lan` and no
+context slots are offered.
 
 **Without an input** the dialog cannot start: it says `No input configured:
 nothing would be heard.` and offers AUDIO SETTINGS.
@@ -193,7 +195,10 @@ From the top:
   speaker's name asks who they are (section 7).
 - **The composer**: the skills as numbered chips, and a line to ask anything.
   Typing `/` lists the skills above the line as the word grows. NOTE (or
-  `Shift+Enter`) keeps the text as a note instead of asking it.
+  `Shift+Enter`) keeps the text as a note instead of asking it. Where no chat
+  model answers the session's kind, the line reads `Write a note`, there is no
+  SEND, `Enter` keeps a note, and only the skills that name a model of their own
+  show.
 
 ![The same session with "/" typed in the composer: a small list above it, "/reply" marked, "/minutes" and "/explain", over the last line and the skill chips.](img/06-live-skills.png)
 
@@ -382,7 +387,10 @@ From then on every line and answer carries its translation under it:
 ![The stored session "REVISIÓN DE PRECIOS": Sofia Alvarez's and the user's lines in Spanish, each with its English translation in italics under it, and an ASK card "¿Qué falta decidir?" answered in Spanish with the English under it.](img/26-session-translated.png)
 
 The model that translates is chosen in Settings › Translation; whether a
-session translates is chosen only here.
+session translates is chosen only here. Where no model translates the session's
+kind, there is no TRANSLATION line (unless the session still translates, to turn
+it off) and no translate button on its answers; CONTEXT goes too when nothing
+answers in that kind.
 
 # 7. Who is who
 
@@ -583,14 +591,20 @@ Renaming or removing one warns that global shortcuts call skills by name.
 
 ![Settings, 06 TRANSLATION: a sentence saying a session translates only once it is turned on in that session, on the TRANSLATION line of its details, and that here you pick the model; DEFAULT MODEL "gemini-flash"; "Translates sessions whose kind picks no translation model; on the default, the assistant's model does".](img/48-settings-translation.png)
 
+**Until a chat model is registered**, ANSWERS, SKILLS and TRANSLATION hold only
+`01 NO CHAT MODEL`, "eco records and transcribes without one. Answers, skills
+and translation need a chat model: register one under Models, then pick it
+here.", and REGISTER A CHAT MODEL, which opens Models. It is not pictured: the
+pictures run with chat models registered.
+
 **Sessions** — the kinds, and what each runs on:
 
 ![Settings, 07 SESSIONS: a sentence on the default kind and the kinds' own models; five cards — Meeting "DEFAULT · transcribes with whisper-lan · answers with gemini-flash", Conversation, Other and Idea with the same models, interview "transcribes with deepgram · answers with gemini-flash" — each with ×; ADD KIND.](img/49-settings-sessions.png)
 
 The first kind is the default the start and import dialogs suggest. Open, a
 card renames the kind, makes it the default, and gives it its own
-transcription, assistant and translation models. Removing one says its sessions
-keep it.
+transcription, assistant and translation models — only the transcription one
+until a chat model is registered. Removing one says its sessions keep it.
 
 **Interface** — the interface language, whether eco hides from screen
 sharing, and whether it shows in the tray:

@@ -21,7 +21,7 @@ Every command prints one JSON object: `{"ok": true, "data": …}`, or
 `{"ok": false, "code": "…", "message": "…"}` with exit status 1. Check `ok`.
 Codes: `argument.invalid`, `daemon.offline`, `daemon.access_denied`, `daemon.unavailable`,
 `session.not_found`, `session.invalid`, `session.delete_failed`, `action.unknown`,
-`completion.failed`, `suggestion.removed`, `import.busy`, `import.failed`, `import.no_ffmpeg` (install ffmpeg and ffprobe),
+`chat.none`, `translation.none`, `completion.failed`, `suggestion.removed`, `import.busy`, `import.failed`, `import.no_ffmpeg` (install ffmpeg and ffprobe),
 `person.not_found`, `person.invalid`, `person.exists`, `people.failed`,
 `line.not_found`.
 
@@ -71,7 +71,8 @@ When a session translates (`session.translating` is its language code), lines
 and answers carry a `translation` in that language. `eco translate` turns it
 on, changes the language or stops it (`--off`), and returns
 `{session, translating}`; a language eco does not translate into fails with
-`translation.unknown`, the session's own with `translation.own`. What the
+`translation.unknown`, the session's own with `translation.own`, and a session
+whose kind no model translates with `translation.none`. What the
 session already holds is translated in the background, and `eco show` brings
 the translations once they arrive. Quote
 the original `text`; the translation is a model's.
@@ -88,7 +89,10 @@ eco note <id> I migrated a WPF app to MVVM   # a fact later answers use, not a q
 returns at once with `{session, id, text, at}`: the note stays in the session,
 where the user sees it, and every later answer reads it. The answer is kept
 in the session, where the user sees it. Actions are the user's `[[actions]]` in
-`~/.config/eco/config.toml`; an unknown name fails with `action.unknown`. Each
+`~/.config/eco/config.toml`; an unknown name fails with `action.unknown`. A chat
+model is optional: where none answers the session's kind, `ask` and an action
+that names no model fail with `chat.none`; tell the user, who registers one in
+the eco window. Each
 session streams one answer at a time: a request made meanwhile on the same
 session waits for it and sees its answer; a newer request replaces the one
 waiting (`suggestion.removed`). Different sessions answer at once, so asking

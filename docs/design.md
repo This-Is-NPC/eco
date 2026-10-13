@@ -793,9 +793,13 @@ leaves out takes the default below, whatever the system says. The daemon
 starts on it, so the window opens and its settings write the file at the first save; a
 file that does not parse or validate still stops the daemon. `stt.model` and
 `llm.model` may be empty, naming no default: a session that needs that model
-is told `no transcription model is chosen`, as an `stt.unavailable` error, and
-an answer fails with `no chat model is chosen` (`completion.failed`). Every
-field:
+is told `no transcription model is chosen`, as an `stt.unavailable` error. A
+question or an action that no chat model answers in a session of its kind is
+refused before anything is asked, with `chat.none` (`{kind}`); one that waited
+while the setup lost its model fails with `completion.failed`. Turning
+translation on, or translating an answer, where no model translates the kind
+is refused with `translation.none` (`{kind}`); a session that still translates
+after its translator went asks for nothing more. Every field:
 
 ```toml
 kinds = ["meeting", "conversation", "other", "idea"]  # what a session can be
@@ -1056,7 +1060,7 @@ A new client first receives `snapshot`; a window asks for the timeline of the
 session it shows:
 
 ```json
-{"type":"snapshot","session":{"id":"…","title":"Entrevista","kind":"meeting","source":"live","language":"pt","state":"recording","started_at":1791083833.3,"active_s":312.4,"running_since":1791084400.0},"kinds":["meeting","conversation","other","idea"],"kind_models":{"meeting":{"transcription":"deepgram","chat":"gemini"},"idea":{"transcription":"whisper-lan","chat":"qwen-lan"}},"actions":["ask","probe"],"hooks":["probe"],"participants":[{"name":"Eu","user":true},{"name":"Eles","user":false}],"inputs":[{"id":"@default-input","label":"Default microphone","participant":"Eu","color":"#ffb000"}]}
+{"type":"snapshot","session":{"id":"…","title":"Entrevista","kind":"meeting","source":"live","language":"pt","state":"recording","started_at":1791083833.3,"active_s":312.4,"running_since":1791084400.0},"kinds":["meeting","conversation","other","idea"],"kind_models":{"meeting":{"transcription":"deepgram","chat":"gemini","translation":"gemini","actions":["ask","probe"]},"idea":{"transcription":"whisper-lan","chat":"qwen-lan","translation":"gemini","actions":["ask","probe"]}},"default_models":{"transcription":"deepgram","chat":"gemini","translation":"gemini","actions":["ask","probe"]},"hooks":["probe"],"participants":[{"name":"Eu","user":true},{"name":"Eles","user":false}],"inputs":[{"id":"@default-input","label":"Default microphone","participant":"Eu","color":"#ffb000"}]}
 {"type":"signal","input":"@default-input","level":0.42,"speech":true}
 {"type":"session","session":{…} or null,"live":[{…} for each live session],"transcribers":[{"model":"deepgram","language":"pt","sessions":2}]}
 {"type":"session_opened","id":"…","window":2}
@@ -1254,8 +1258,9 @@ How the commands are built:
   `argument.invalid` (an argument holds a line feed or a carriage return,
   which could end the command line early; nothing is sent),
   `daemon.offline`, `daemon.access_denied`, `daemon.unavailable`,
-  `session.not_found`, `session.delete_failed`, `action.unknown`,
-  `completion.failed`, `suggestion.removed` (replaced by a newer request), `import.busy`,
+  `session.not_found`, `session.delete_failed`, `action.unknown`, `chat.none`,
+  `completion.failed`, `suggestion.removed` (replaced by a newer request),
+  `translation.none`, `import.busy`,
   `import.failed`, `person.not_found`, `person.invalid`, `person.exists`,
   `people.failed`, `line.not_found`, `tag.invalid`, `tag.not_found`.
   They read
@@ -1390,7 +1395,9 @@ reconnects to the socket on its own.
   window's last session used (kept while the window lives, not across
   restarts), offers the context slots with those of the chosen kind already on,
   says which models a kind runs on once it is picked (`kind_models` in the
-  snapshot: `{kind: {"transcription", "chat"}}`), scrolls in a short window with
+  snapshot: `{kind: {"transcription", "chat", "translation", "actions"}}`, each
+  model by name or `""` for none, and the actions a model answers there;
+  `default_models` the same for a kind no longer configured), scrolls in a short window with
   its buttons kept below, and without an input it cannot start: it says so and
   offers the Audio settings.
 - **Several windows:** opening the app again opens another window on a live
@@ -1595,7 +1602,9 @@ fixed; the line above the buttons only counts them. The default models are
 not required, as the daemon does not require them (§9): a draft with no model
 registered saves, and a default it names must be a registered model of its
 type (`overlay/Eco/Core/draft.js`, `problems`). Naming a new model makes it the
-default of nothing; each default is picked in the tab that owns it.
+default of nothing; each default is picked in the tab that owns it. Until a chat
+model is registered, ANSWERS, SKILLS and TRANSLATION hold only NO CHAT MODEL and
+a button to the Models tab, and a kind offers no assistant or translation model.
 A daemon's refusal stays
 there until the draft changes again. Every field is named by a caption right
 above its control, pickers (models, languages) as much as text inputs: no label

@@ -4,7 +4,8 @@ import QtQuick.Layouts
 import Eco.Core
 
 // KindModels picks the transcription, assistant and translation models of the
-// sessions of `kind`, each its own or the default.
+// sessions of `kind`, each its own or the default; the assistant and translation
+// only once a chat model is registered.
 ColumnLayout {
   id: picks
 
@@ -15,9 +16,9 @@ ColumnLayout {
   spacing: 12
 
   Repeater {
-    model: [["transcription", I18n.t("settings.type_transcription")],
+    model: [["transcription", I18n.t("settings.type_transcription")]].concat(Draft.named(picks.draft, "chat").length === 0 ? [] : [
             ["chat", I18n.t("settings.role_assistant")],
-            ["translation", I18n.t("settings.translation")]]
+            ["translation", I18n.t("settings.translation")]])
     delegate: ModelPick {
       id: kindPick
       required property var modelData

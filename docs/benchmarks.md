@@ -368,7 +368,7 @@ those adapters came in.
 | `src/setup.rs` | 90.62% | `run()` over the production model URLs and the user's paths; `desktop()`, one composition line. `fetch` is at 100%. |
 | `src/adapters/omapass.rs` | 95.18% | `program()`, `installed()`, `accounts()`, `secret()`: they read the real PATH and home and would run the user's keyring; `find`, `accounts_of` and `secret_of` are tested. |
 | `src/adapters/diarizer_process.rs`, `service_systemd.rs`, `echo_cancel.rs`, `pipewire_devices.rs`, `window_hyprland.rs`, `overlay.rs` | 95.4–98.5% | the one-line entry points into the real `eco diarize`, `systemctl`, `pw-cli`, `pw-dump`, `hyprctl` and `eco-window`, and `Windows::new`, which runs the real `eco-window`; branches only timing reaches (a child already reaped, no event follower). |
-| `src/domain/assistant.rs` | 99.60% | states no command sequence reaches (2365, 2368, 2808, 2815, 2884–2885). |
+| `src/domain/assistant.rs` | 99.62% | states no command sequence reaches (2390, 2393, 2848, 2855, 2924–2925). |
 | `src/domain/session.rs` | 98.21% | an `unreachable!` (527). |
 | `src/adapters/control_socket.rs`, `local_socket.rs`, `pipe.rs`, `speaker_tract.rs`, `config.rs` | 97–99.7% | a closed listener's accept loop, a pipe read error and tract's input-fact error, which no input provokes; waits inside test helpers; `Address::user()`, the user's own socket and token, which a test never touches. |
 | `src/cli.rs`, `src/lifecycle.rs` | 99.6–99.8% | as in the CLI section above. |
