@@ -50,4 +50,29 @@ TestCase {
     Draft.retype(d, 0, "transcription", presets)
     compare(d.models[0].api_key_credential, "llm")
   }
+
+  // With nothing registered, a model just added and not yet named serves nothing,
+  // so its type can still be chosen.
+  function test_a_nameless_model_serves_nothing() {
+    const d = draft([{ name: "", type: "chat", base_url: "http://llm", model: "" }], "", "")
+    verify(!Draft.serves(d, d.models[0], "chat", "", null))
+    verify(!Draft.serves(d, d.models[0], "chat", "meeting", null))
+    verify(!Draft.serves(d, d.models[0], "translation", "", null))
+    const named = draft(registered, "w", "m")
+    verify(Draft.serves(named, named.models[1], "chat", "meeting", null))
+  }
+
+  function test_naming_a_new_model_makes_it_no_default() {
+    const d = draft([{ name: "", type: "transcription", base_url: "http://stt", model: "" }], "", "")
+    Draft.rename(d, 0, "w")
+    compare([d.models[0].name, d.stt.model, d.llm.model], ["w", "", ""])
+  }
+
+  function test_renaming_a_model_renames_what_names_it() {
+    const d = draft(JSON.parse(JSON.stringify(registered)), "w", "m")
+    d.actions = [{ name: "probe", model: "m" }, { name: "ask" }]
+    d.translation = { model: "m" }
+    Draft.rename(d, 1, "fast")
+    compare([d.llm.model, d.stt.model, d.translation.model, d.actions[0].model, d.actions[1].model], ["fast", "w", "fast", "fast", undefined])
+  }
 }

@@ -1594,7 +1594,9 @@ and card and gives its field the keyboard. Each clears as soon as its field is
 fixed; the line above the buttons only counts them. The default models are
 not required, as the daemon does not require them (§9): a draft with no model
 registered saves, and a default it names must be a registered model of its
-type (`overlay/Eco/Core/draft.js`, `problems`). A daemon's refusal stays
+type (`overlay/Eco/Core/draft.js`, `problems`). Naming a new model makes it the
+default of nothing; each default is picked in the tab that owns it.
+A daemon's refusal stays
 there until the draft changes again. Every field is named by a caption right
 above its control, pickers (models, languages) as much as text inputs: no label
 sits in a column of its own. Prompt areas (rules, a skill's prompt and format,

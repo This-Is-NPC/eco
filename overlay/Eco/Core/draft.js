@@ -60,6 +60,27 @@ function answering(draft, use, kind, action) {
   return { name: at < 0 ? "" : steps[at], own: at === 0 }
 }
 
+// Whether the registered model `entry` answers `use` of the skill `action` in
+// a session of `kind`, as `answering` picks it; one with no name answers nothing.
+function serves(draft, entry, use, kind, action) {
+  return !!entry.name && answering(draft, use, kind, action).name === entry.name
+}
+
+// Rename the model at `index` in the draft `d` to `name`, and with it every
+// default, reviewer, translation and skill that named it; one that had no name
+// yet was named by none of them.
+function rename(d, index, name) {
+  const old = d.models[index].name
+  d.models[index].name = name
+  if (!old)
+    return
+  if (d.llm.model === old) d.llm.model = name
+  if (d.stt.model === old) d.stt.model = name
+  if (d.reviewer && d.reviewer.model === old) d.reviewer.model = name
+  if (d.translation && d.translation.model === old) d.translation.model = name
+  d.actions.forEach(action => { if (action.model === old) action.model = name })
+}
+
 // The provider a model of `type` in the draft starts from: the base URL and key
 // source of the draft's last model of that type, or else of the type's first
 // preset in `presets` ({chat: [...], transcription: [...]}).

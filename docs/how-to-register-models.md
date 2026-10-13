@@ -96,7 +96,8 @@ Open the settings (`SUPER+ALT+C`), then **Models** (`Ctrl+2`).
 
 A closed card says what the model is and what uses it. **ADD MODEL** opens a new
 one, its name field focused, starting from the provider and key source of the
-last model of its type. Fill it top to bottom:
+last model of its type. A new model is the default of nothing: step 4 picks
+what uses it. Fill it top to bottom:
 
 - **TYPE** — **CHAT**. It can change only while nothing uses the model.
 - **Name** — yours, such as `gemini`. It is what every other tab shows. Renaming

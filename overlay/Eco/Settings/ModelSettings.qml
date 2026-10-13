@@ -58,7 +58,7 @@ ColumnLayout {
   // the defaults, the reviewer, the skills that name it and each session kind's uses.
   function users(entry) {
     const found = []
-    const answers = (use, kind, action) => Draft.answering(draft, use, kind, action).name === entry.name
+    const answers = (use, kind, action) => Draft.serves(draft, entry, use, kind, action)
     const uses = entry.type === "chat" ? ["chat", "translation"] : ["transcription"]
     const label = (use, kind) => use === "translation" ? I18n.t("settings.translates_kind", { kind: Eco.kindName(kind).toUpperCase() }) : Eco.kindName(kind).toUpperCase()
     if (entry.type === "chat" && answers("chat", "", null))
@@ -125,15 +125,7 @@ ColumnLayout {
         })
       }
       function rename(name) {
-        const old = entry.name
-        editor.changed(d => {
-          d.models[index].name = name
-          if (d.llm.model === old) d.llm.model = name
-          if (d.stt.model === old) d.stt.model = name
-          if (d.reviewer && d.reviewer.model === old) d.reviewer.model = name
-          if (d.translation && d.translation.model === old) d.translation.model = name
-          d.actions.forEach(action => { if (action.model === old) action.model = name })
-        })
+        editor.changed(d => Draft.rename(d, index, name))
       }
       // Gives the keyboard to the field of `key`: "name", "base_url", "model" or "extra".
       function focusField(key) {
@@ -158,7 +150,7 @@ ColumnLayout {
       note: [I18n.t(chat ? "settings.type_chat" : "settings.type_transcription"), entry.model,
         used.length ? I18n.t("settings.used_by", { users: used.join(", ") }) : ""].filter(part => part).join("  ·  ")
       expanded: editor.open === index
-      removable: editor.draft.llm.model !== entry.name && editor.draft.stt.model !== entry.name
+      removable: !entry.name || (editor.draft.llm.model !== entry.name && editor.draft.stt.model !== entry.name)
       removeTip: I18n.t("settings.remove_model")
       onToggled: {
         editor.open = expanded ? -1 : index
