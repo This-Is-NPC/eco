@@ -10,6 +10,7 @@ use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::time::{Duration, Instant};
 
 use futures::future::BoxFuture;
 use tokio::process::Command;
@@ -19,6 +20,12 @@ use crate::ports::{InstallError, InstallProgress, InstallStage, Installer};
 
 /// What ends the name of a file moved aside.
 const ASIDE: &str = ".eco-old";
+
+/// How long a file another program has open is waited for, as install.ps1 waits.
+const PATIENCE: Duration = Duration::from_secs(5);
+
+/// Windows' ERROR_SHARING_VIOLATION: another program has the file open.
+const SHARING_VIOLATION: i32 = 32;
 
 #[derive(Clone)]
 pub struct Folder {
@@ -108,10 +115,28 @@ fn prune(directory: &Path) {
     }
 }
 
+/// Rename `from` to `to`, tried again while another program has `from` open
+/// for a moment — a window reading a language pack it watches, a virus scan —
+/// for up to `PATIENCE`.
+fn rename(from: &Path, to: &Path) -> std::io::Result<()> {
+    let start = Instant::now();
+    loop {
+        match fs::rename(from, to) {
+            Err(error)
+                if error.raw_os_error() == Some(SHARING_VIOLATION)
+                    && start.elapsed() < PATIENCE =>
+            {
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            done => return done,
+        }
+    }
+}
+
 /// Put back each file moved aside, as `(file, moved)`.
 fn restore(aside: &[(PathBuf, PathBuf)]) {
     for (file, moved) in aside.iter().rev() {
-        let _ = fs::rename(moved, file);
+        let _ = rename(moved, file);
     }
 }
 
@@ -128,7 +153,7 @@ fn replace(staged: &Path, install: &Path) -> Result<(), InstallError> {
         let mut moved = file.clone().into_os_string();
         moved.push(format!(".{id}{ASIDE}"));
         let moved = PathBuf::from(moved);
-        if let Err(error) = fs::rename(&file, &moved) {
+        if let Err(error) = rename(&file, &moved) {
             restore(&aside);
             return Err(failed("move aside", &file, error));
         }
@@ -140,7 +165,7 @@ fn replace(staged: &Path, install: &Path) -> Result<(), InstallError> {
         let moved = target
             .parent()
             .map_or(Ok(()), fs::create_dir_all)
-            .and_then(|()| fs::rename(&file, &target));
+            .and_then(|()| rename(&file, &target));
         if let Err(error) = moved {
             for placed in &placed {
                 let _ = fs::remove_file(placed);
@@ -255,6 +280,36 @@ mod tests {
         );
         assert!(install.join(r"share\eco\overlay\shell.qml").is_file());
         assert!(!install.join("lib").exists());
+        assert!(files(&install).iter().all(|file| !is_aside(file)));
+    }
+
+    #[test]
+    fn a_file_another_program_holds_for_a_moment_is_waited_for() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let directory = tempfile::tempdir().unwrap();
+        let install = directory.path().join("eco");
+        let staged = directory.path().join("staged");
+        let pack = install.join(r"share\eco\overlay\Eco\Core\i18n\pt-BR.json");
+        write(&pack, "old");
+        write(
+            &staged.join(r"share\eco\overlay\Eco\Core\i18n\pt-BR.json"),
+            "new",
+        );
+        // Open as Qt opens a file it reads: shared for reading and writing, not
+        // for deleting, which a rename needs.
+        let held = fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0x1 | 0x2)
+            .open(&pack)
+            .unwrap();
+        let reader = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(300));
+            drop(held);
+        });
+        let replaced = replace(&staged, &install);
+        reader.join().unwrap();
+        replaced.unwrap();
+        assert_eq!(fs::read_to_string(&pack).unwrap(), "new");
         assert!(files(&install).iter().all(|file| !is_aside(file)));
     }
 

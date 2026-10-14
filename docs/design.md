@@ -2125,7 +2125,10 @@ and the installer, one adapter per platform.
   replaced with the zip's `eco` folder, as `install.ps1` does; the running
   `eco.exe` cannot be overwritten, so every file of the folder is renamed
   aside first, `<file>.<id>.eco-old`, and deleted at once when nothing holds
-  it, else when the daemon next starts (`installer::tidy`). The Start-menu
+  it, else when the daemon next starts (`installer::tidy`). A file another
+  program has open for a moment (a window rereading a language pack it
+  watches, a virus scan) is tried again for up to 5 s; one still held then
+  fails the install, and what was moved aside is put back. The Start-menu
   shortcut and the `PATH` entry are left as they are. The package is
   downloaded into a folder of its own under the temporary directory, deleted
   when the install ends.

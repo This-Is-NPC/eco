@@ -720,8 +720,13 @@ your account, as `install.ps1` does. Windows does not let a running `eco.exe`
 or a loaded library be overwritten, but lets it be renamed: each file of the
 folder is renamed aside, `<file>.<id>.eco-old`, the new ones are moved in, and
 each file aside is deleted at once when nothing holds it, else when the daemon
-next starts. The Start menu entry and the `PATH` entry stay as they are.
-(Read in the code; not yet run on Windows.)
+next starts. A file another program has open for a moment, such as a window
+reading its language packs, is waited for up to 5 seconds; if it is still held,
+the update fails and puts back every file it moved. The Start menu entry and
+the `PATH` entry stay as they are. Run on Windows: with the daemon and its
+window running, `eco update --version 0.4.0` replaced `eco.exe` and the Qt
+libraries, restarted the daemon and reopened the window, and the next start
+deleted the 34 files left aside.
 
 ### Which version, and is everything in place
 
