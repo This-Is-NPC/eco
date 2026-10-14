@@ -294,15 +294,15 @@ Singleton {
   // §10.2): "focus" opens a window or brings the newest forward, "new_session"
   // and "config" open those in it.
   function callWindow(call) { send("window.call " + JSON.stringify({ call: call })) }
-  // Whether one of this process's windows has the keyboard, as the daemon
-  // last heard it: it notifies the system only while none has.
-  property bool windowActive: false
-  // setActive tells the daemon, once the windows settle: the keyboard moving
-  // from one window to the other is no change.
-  function setActive(active) {
-    windowActive = active
-    Qt.callLater(settleActive)
-  }
+  // Whether one of this process's windows has the keyboard, as Qt says it.
+  property bool shellActive: false
+  // Whether one of this process's windows has the keyboard and is the system's
+  // foreground: the daemon notifies the system only while none is.
+  readonly property bool windowActive: shellActive && Host.foreground
+  // The daemon hears of it once the windows settle: the keyboard moving from
+  // one window to the other is no change.
+  onWindowActiveChanged: Qt.callLater(settleActive)
+  function setActive(active) { shellActive = active }
   property bool sentActive: false
   function settleActive() {
     if (windowActive !== sentActive)

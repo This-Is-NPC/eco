@@ -281,7 +281,9 @@ async fn closing_the_window_tells_the_daemon_and_ends_the_process() {
         .unwrap();
     let mut daemon = accept(&mut listener, &mut window).await;
     daemon
-        .write_all(b"{\"type\":\"snapshot\",\"ui_language\":\"auto\",\"live\":[]}\n")
+        .write_all(
+            b"{\"type\":\"snapshot\",\"language\":\"en\",\"ui_language\":\"auto\",\"live\":[]}\n",
+        )
         .await
         .unwrap();
     let mut stderr = BufReader::new(window.stderr.take().unwrap()).lines();
@@ -386,6 +388,9 @@ async fn the_bridge_carries_lines_reconnects_reads_files_and_exits_cleanly() {
     assert_eq!(answer["text"], "first");
     assert_eq!(answer["pid"], window.id().unwrap());
     assert_eq!(Path::new(answer["path"].as_str().unwrap()), file);
+    // No offscreen window is in front of Windows, whatever Qt calls active;
+    // elsewhere the bridge leaves it to Qt.
+    assert_eq!(answer["foreground"], cfg!(unix));
     assert_eq!(ask(&mut first, "raise").await["line"], "raise");
 
     std::fs::write(&file, "second").unwrap();
