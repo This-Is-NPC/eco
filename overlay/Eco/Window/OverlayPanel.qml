@@ -85,13 +85,6 @@ Window {
           : panel.current === "start"
             ? I18n.t(Eco.connected ? "section.start" : "section.offline")
             : I18n.t("section." + panel.current)
-        StatusLine {
-          message: panel.current === "session" || panel.current === "cost" ? "" : Eco.message
-          error: Eco.messageIsError
-          // Start already says it in its section.
-          offline: !Eco.connected && panel.current !== "start"
-          maxWidth: Math.max(0, panel.width - 360 - (updateNotice.visible ? updateNotice.width + 14 : 0))
-        }
         // A newer release, out of a session's way: it opens the release notes.
         NoticeChip {
           id: updateNotice
@@ -136,6 +129,7 @@ Window {
       }
 
       Item {
+        id: stages
         Layout.fillWidth: true
         Layout.fillHeight: true
 
@@ -362,6 +356,16 @@ Window {
         Icon { anchors.horizontalCenter: parent.horizontalCenter; name: "import"; size: 28; color: Theme.primary }
         Label { text: I18n.t("import.drop"); color: Theme.primary; font.pixelSize: 11; font.letterSpacing: 3 }
       }
+    }
+    // What happened, in toasts over the window's corner: in a session over
+    // the conversation, above the composer; elsewhere under the view's bar.
+    ToastStack {
+      anchors { right: parent.right; bottom: parent.bottom; margins: panel.short ? 10 : 20 }
+      anchors.bottomMargin: anchors.margins + (panel.current === "session" ? sessionView.composerRoom : 0)
+      width: Math.min(340, panel.width - 2 * anchors.margins)
+      maxHeight: panel.current === "session" ? sessionView.conversationHeight : stages.height - 60
+      notices: Eco.notices
+      onDismissed: id => Eco.dismiss(id)
     }
     Connections {
       target: Eco

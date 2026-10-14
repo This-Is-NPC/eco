@@ -601,7 +601,9 @@ Windows), so a restart does not ask again:
 When the latest release is newer than the one running, the main window shows a
 small notice, `ECO 0.5.0 AVAILABLE`, in the masthead, except on a
 session and on its cost. A press opens the release notes in your browser; its
-× hides it until the window opens again.
+× hides it until the window opens again. With **SYSTEM NOTIFICATIONS** on
+(**Settings › General › INTERFACE**) and no eco window active, the system also
+notifies you, once per version.
 
 **To never ask on its own,** turn **CHECK FOR UPDATES** off in **Settings ›
 General › UPDATES**, or in `config.toml`:
@@ -622,10 +624,10 @@ version` when no daemon runs.
    `0.4.0 · up to date` (or `0.4.0 · not checked`, `0.4.0 · could not check`),
    or **UPDATE** and `0.4.0 · 0.5.0 available` when a newer one is out; and
    **DAEMON**, with **RESTART** and `running`.
-2. Press **UPDATE**. The row and the masthead say each step: `downloading eco
+2. Press **UPDATE**. The row and a toast say each step: `downloading eco
    0.5.0`, `checking the checksum of eco 0.5.0`, `installing eco 0.5.0`,
    `restarting eco`, `eco 0.5.0 is running` — or `update failed:` and the
-   reason, in red. A release GitHub does not have said:
+   reason, in an error toast. A release GitHub does not have said:
    `update failed: could not download v0.4.1/SHA256SUMS: 404 Not Found`.
 3. **On Linux,** at installing, `pkexec` asks for your password in a window of
    its own, and installs the package with `pacman -U`, as `install.sh` does.
@@ -709,7 +711,7 @@ release has never mismatched). The folder goes once the install ends.
 ### A recording is never cut
 
 The install happens while a session records; the restart waits. The row and
-the masthead say `eco 0.5.0 installed · restarts when the session ends`, and
+a toast say `eco 0.5.0 installed · restarts when the session ends`, and
 the daemon restarts once the last live or paused session ends. Until then it
 keeps running the old version.
 
@@ -859,7 +861,7 @@ start`: nothing answers on `$XDG_RUNTIME_DIR/eco.sock`. `eco status`, then
 `eco start`; the window reconnects on its own. Service failures
 are in `journalctl --user -u eco.service`.
 
-![eco's start screen with no daemon: the masthead "ECO / OFFLINE", the buttons dimmed, and under them, in amber, "Daemon disconnected · eco start".](img/02-disconnected.png)
+![eco's start screen with no daemon: the masthead "ECO / OFFLINE", the buttons dimmed, under them, in amber, "Daemon disconnected · eco start", and in the bottom-right corner an error toast saying the daemon is disconnected.](img/02-disconnected.png)
 
 ---
 

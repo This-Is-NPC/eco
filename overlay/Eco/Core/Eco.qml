@@ -162,17 +162,16 @@ Singleton {
   // The answers streaming or waiting to, by id: {session, action, at}. Each
   // session answers on its own, so each composer shows only its session's.
   property var answers: ({})
-  // The status notice as parts — {key, args} to translate, or {text} as given —
-  // rendered in the current language, so it follows a language switch.
-  property var notice: []
-  readonly property string message: notice.map(part => part.key ? I18n.t(part.key, part.args) : part.text).join("  ·  ")
-  property bool messageIsError: false
-  // Whether the notice is an error of the live capture or its transcription,
-  // which a session that ends or is left takes with it.
-  property bool noticeLive: false
-  // Counts notices, so the status line shows a new one without re-showing an
-  // old one whose text merely changed language.
-  property int noticeCount: 0
+  // The notices the windows show as toasts, oldest first: {id, kind ("info",
+  // "success" or "error"), parts — {key, args} to translate, or {text} as
+  // given — so they follow a language switch, time, and what replaces them:
+  // `topic`, a notice of the same topic; `live`, an error of the live capture
+  // that a session ending or left takes with it; `pinned`, kept while newer
+  // ones push the oldest out.
+  property var notices: []
+  // The last notice's id.
+  property int lastNotice: 0
+  signal noticed(var notice)
 
   property bool configOpen: false
   signal configCloseRequested()
@@ -206,10 +205,13 @@ Singleton {
     .concat(pendingConfig.files.map(file => I18n.t("pending.file", { path: file })))
     .concat(pendingConfig.models.map(model => I18n.t(model.api_key_env ? "pending.model_env" : model.api_key_omapass ? "pending.model_omapass" : model.api_key_credential ? "pending.model_credential" : "pending.model_keyless", model)))
     .join("\n")
-  // Gone, the daemon takes the held change with it, and a save under way never answers.
+  // Met again, the warning that the daemon was not reached goes. Gone, it
+  // takes the held change with it, and a save under way never answers.
   onConnectedChanged: {
-    if (connected)
+    if (connected) {
+      removeNotices(notice => notice.topic === "offline")
       return
+    }
     pendingConfig = null
     updateChecking = false
     if (configSaving) {
@@ -292,6 +294,26 @@ Singleton {
   // §10.2): "focus" opens a window or brings the newest forward, "new_session"
   // and "config" open those in it.
   function callWindow(call) { send("window.call " + JSON.stringify({ call: call })) }
+  // Whether one of this process's windows has the keyboard, as the daemon
+  // last heard it: it notifies the system only while none has.
+  property bool windowActive: false
+  // setActive tells the daemon, once the windows settle: the keyboard moving
+  // from one window to the other is no change.
+  function setActive(active) {
+    windowActive = active
+    Qt.callLater(settleActive)
+  }
+  property bool sentActive: false
+  function settleActive() {
+    if (windowActive !== sentActive)
+      sendActive()
+  }
+  function sendActive() {
+    if (!connected)
+      return
+    sentActive = windowActive
+    send("window.active " + JSON.stringify({ window: window, active: windowActive }))
+  }
   // stopDaemon stops eco, as `eco stop` does.
   function stopDaemon() { send("stop") }
 
@@ -597,28 +619,50 @@ Singleton {
 
   // tell shows translated parts: tell([["status.saved"]]) or with arguments.
   function tell(parts, isError) {
-    notice = parts.map(part => ({ key: part[0], args: part[1] || {} }))
-    messageIsError = isError
-    noticeLive = false
-    noticeCount += 1
+    const keys = parts.map(part => ({ key: part[0], args: part[1] || {} }))
+    post(keys, isError ? "error" : successes.includes(parts[0][0]) ? "success" : "info", {})
   }
 
-  // say shows text as it is: what the daemon wrote, or nothing ("").
+  // say shows text as it is: what the daemon wrote; "" shows nothing.
   function say(text, isError) {
-    notice = text ? [{ text: text }] : []
-    messageIsError = isError
-    noticeLive = false
-    noticeCount += 1
+    if (text)
+      post([{ text: text }], isError ? "error" : "info", {})
+  }
+
+  // The notices that tell of something done.
+  readonly property var successes: ["status.saved", "status.copied", "status.transcript_copied", "status.imported",
+    "status.session_deleted", "update.stage.done"]
+
+  // post adds a notice of `kind` with `parts`; `marks` sets its topic, live
+  // and pinned. One of the same topic, or saying the same, gives way to it.
+  function post(parts, kind, marks) {
+    const said = JSON.stringify(parts)
+    const notice = { id: ++lastNotice, kind: kind, parts: parts, time: Date.now(), topic: marks.topic || "",
+      live: marks.live === true, pinned: marks.pinned === true }
+    notices = notices.filter(old => (notice.topic === "" || old.topic !== notice.topic)
+      && (old.kind !== kind || JSON.stringify(old.parts) !== said)).concat([notice])
+    noticed(notice)
+  }
+
+  // noticeText is what `notice` says, in the interface language.
+  function noticeText(notice) {
+    return notice.parts.map(part => part.key ? I18n.t(part.key, part.args) : part.text).join("  ·  ")
+  }
+
+  // dismiss removes the notice `id`.
+  function dismiss(id) { removeNotices(notice => notice.id === id) }
+
+  // removeNotices removes the notices `test` picks, if any.
+  function removeNotices(test) {
+    if (notices.some(test))
+      notices = notices.filter(notice => !test(notice))
   }
 
   // The codes of errors about the live capture and its transcription.
   readonly property var liveCodes: ["capture.", "transcription.", "echo_cancel.", "diarization.", "stt."]
-  // forgetLive clears a notice about the live capture once the session it was
-  // about ends or is left: the sessions would read it as their own.
-  function forgetLive() {
-    if (noticeLive)
-      say("", false)
-  }
+  // forgetLive removes the notices about the live capture once the session they
+  // were about ends or is left: the sessions would read them as their own.
+  function forgetLive() { removeNotices(notice => notice.live) }
 
   // What sessions of `kind` run on, as in kindModels.
   function modelsOf(kind) { return kindModels[kind] || defaultModels }
@@ -862,6 +906,8 @@ Singleton {
       follow()
       send("people")
       send("tags")
+      // It forgets, when it restarts, whether this window is active.
+      sendActive()
       if (opening) {
         act(JSON.parse(opening))
         opening = ""
@@ -933,7 +979,7 @@ Singleton {
       // A failed import already showed its error.
       if (event.complete)
         tell([["status.imported"]], false)
-      else if (!messageIsError)
+      else if (notices.length === 0 || notices[notices.length - 1].kind !== "error")
         tell([["status.import_stopped"]], false)
       if (view === "history")
         send("sessions")
@@ -1126,8 +1172,6 @@ Singleton {
       if (list)
         addSuggestion(event.id, event.action, event.model, event.prompt, "", true, event.at, list)
       answerStarted(event.id, event.session, event.action, event.at)
-      if (list)
-        say("", false)
       break
     }
     case "suggestion_delta":
@@ -1197,12 +1241,12 @@ Singleton {
       // The daemon met again after an install runs the release installed.
       if (updateProgress !== null && updateProgress.stage === "restarting" && event.current === updateProgress.version) {
         updateProgress = { stage: "done", version: event.current, detail: "" }
-        tell([["update.stage.done", updateProgress]], false)
+        post([{ key: "update.stage.done", args: updateProgress }], "success", { topic: "update" })
       }
       break
     case "update_progress":
       updateProgress = { stage: event.stage, version: event.version || "", detail: event.detail || "" }
-      tell([["update.stage." + event.stage, updateProgress]], event.stage === "failed")
+      post([{ key: "update.stage." + event.stage, args: updateProgress }], event.stage === "failed" ? "error" : "info", { topic: "update" })
       break
     case "config_pending":
       pendingConfig = event.hooks.length + event.files.length + event.models.length > 0 ? event : null
@@ -1266,14 +1310,21 @@ Singleton {
       if (about ? onScreen === null || onScreen.id !== about : answer && failed === null)
         break
       // A coded error reads in the interface language; others as the daemon wrote them.
-      if (event.code && I18n.has("error." + event.code))
-        tell([["error." + event.code, event.params]], true)
-      else
-        say(event.message, true)
-      noticeLive = liveCodes.some(code => (event.code || "").startsWith(code))
+      const coded = event.code && I18n.has("error." + event.code)
+      if (coded || event.message)
+        post(coded ? [{ key: "error." + event.code, args: event.params || {} }] : [{ text: event.message }],
+          "error", { live: liveCodes.some(code => (event.code || "").startsWith(code)) })
       break
     }
     }
+  }
+
+  // A daemon not reached for a moment is said, in an error that stays until
+  // it is met again; a quick restart says nothing.
+  Timer {
+    interval: 1500
+    running: !root.connected
+    onTriggered: root.post([{ key: "start.offline", args: {} }], "error", { topic: "offline", pinned: true })
   }
 
   Timer {

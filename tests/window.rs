@@ -5,7 +5,8 @@
 //! on Windows, a copied text that outlives the window, on the real platform;
 //! the overlay's views driven as the daemon drives them, in
 //! `tests/window/views.qml`; the settings window's section keys, in
-//! `tests/window/settings_keys.qml`; the bars and tables of the views, pressed
+//! `tests/window/settings_keys.qml`; the toast stack, in
+//! `tests/window/toasts.qml`; the bars and tables of the views, pressed
 //! as a keyboard and a pointer press them, in `tests/window/bars.qml`; and the
 //! eco window closed with the settings open,
 //! saying so to the daemon before it exits,
@@ -210,6 +211,27 @@ async fn the_settings_keys_choose_sections() {
     );
 }
 
+/// The toast stack: three at most, the pinned one kept, information closing
+/// after its time unless held by the pointer or the keyboard, errors staying,
+/// Esc and Tab, and a notice replacing one of its topic or text.
+#[tokio::test]
+async fn the_toasts_come_stay_and_go_as_they_should() {
+    let dir = tempfile::tempdir().unwrap();
+    let run = offscreen("toasts", dir.path())
+        .env("ECO_SOCKET", dir.path().join("no-daemon"))
+        .kill_on_drop(true)
+        .output();
+    let output = tokio::time::timeout(Duration::from_secs(30), run)
+        .await
+        .expect("the toasts did not finish")
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
 /// The bars and tables of the views, pressed as a keyboard and a pointer
 /// press them, with a daemon socket that answers nothing: a row's own act, the
 /// guarded command's hairline, a bar's readout, the sessions' NEW SESSION and
@@ -240,7 +262,8 @@ async fn the_bars_and_tables_answer_their_keys() {
     assert!(status.success(), "{said}");
 }
 
-/// Closing the eco window tells the daemon and ends its process, even with
+/// The eco window says whether it is active once the daemon greets it; closing
+/// it tells the daemon and ends its process, even with
 /// the settings open and unsaved: Qt's quit asks every window to close, and
 /// the settings refuse.
 #[tokio::test]
@@ -257,6 +280,10 @@ async fn closing_the_window_tells_the_daemon_and_ends_the_process() {
         .spawn()
         .unwrap();
     let mut daemon = accept(&mut listener, &mut window).await;
+    daemon
+        .write_all(b"{\"type\":\"snapshot\",\"ui_language\":\"auto\",\"live\":[]}\n")
+        .await
+        .unwrap();
     let mut stderr = BufReader::new(window.stderr.take().unwrap()).lines();
     let closing = async {
         while let Some(line) = stderr.next_line().await.unwrap() {
@@ -270,13 +297,16 @@ async fn closing_the_window_tells_the_daemon_and_ends_the_process() {
         status = window.wait() => panic!("eco-window exited with {} before closing", status.unwrap()),
         _ = tokio::time::sleep(Duration::from_secs(30)) => panic!("the window never closed"),
     }
+    let mut active = false;
     loop {
         let line = read(&mut daemon).await;
         assert!(!line.is_empty(), "the window never said it closed");
+        active |= line.starts_with(r#"window.active {"window":3,"active":"#);
         if line == r#"window.closed {"window":3}"# {
             break;
         }
     }
+    assert!(active, "the window never said whether it is active");
     let status = tokio::time::timeout(Duration::from_secs(2), window.wait())
         .await
         .expect("eco-window still runs 2 s after its window closed")

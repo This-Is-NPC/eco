@@ -154,7 +154,7 @@ runs skills about what it holds.
 
 ![The NEW SESSION dialog with, under WHO WILL BE HEARD, "No input configured: nothing would be heard." in amber and an AUDIO SETTINGS button; START dimmed.](img/04-new-session-no-input.png)
 
-**Nothing is transcribed.** The status line says why:
+**Nothing is transcribed.** An error toast says why:
 `Transcription unavailable: <why>. Inputs are measured but nothing is
 transcribed; fix it in Settings › Models.` — usually a key that is not set.
 

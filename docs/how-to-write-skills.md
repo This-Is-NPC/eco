@@ -205,7 +205,7 @@ saves nothing, says `Give it a name.` under **NAME** and puts the keyboard
 there.
 
 **The skill is not there.** A key or a command naming a skill that does not
-exist — a typo, or a skill since renamed — fails, and the window's status line
+exist — a typo, or a skill since renamed — fails, and an error toast in the window
 says `Unknown skill: <name>`. From the command line:
 
 ```
@@ -218,7 +218,7 @@ says `Unknown skill: <name>`. From the command line:
 {"ok":false,"code":"completion.failed","message":"probe: OPENROUTER_API_KEY is not set"}
 ```
 
-**The hook failed.** The card says `NOT SENT`, and the status line gives the last
+**The hook failed.** The card says `NOT SENT`, and an error toast gives the last
 line the command wrote to stderr: `The hook failed — <that line>`. Sending an
 answer whose skill has no hook:
 

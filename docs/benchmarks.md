@@ -401,3 +401,20 @@ The Windows installer (`src/adapters/installer_windows.rs`) is
 | `src/main.rs` | 88.74% | 88.90% | the new arms of `main()`, one line each; as before. |
 | `src/paths.rs` | 89.24% | 89.89% | as before; `update_state()` is tested. |
 | `src/cli.rs`, `src/config.rs`, `src/adapters/desktop_hyprland.rs` | 99.89%, 99.79%, 98.37% | 99.90%, 99.80%, 98.47% | as before. |
+
+## Notifications coverage (2026-10-14)
+
+Measured with `mise run coverage` (cargo-llvm-cov 0.9.1, unit and integration
+tests) on the tree that added the system notifications and the window's
+toasts; line numbers read from `cargo llvm-cov report --show-missing-lines`.
+Before is the commit the change started from. `src/` without `src/bench/`, the
+whole crate: 96.93% of lines before, 96.95% after. The Windows adapter
+(`src/adapters/notify_windows.rs`) is `#[cfg(windows)]`: it is not counted
+here, and its tests run on Windows.
+
+| File | Lines before | Lines after | Left without a test, and why |
+|---|---|---|---|
+| `src/domain/notifications.rs` | new | 100.00% (0 of 370) | — |
+| `src/adapters/notify_linux.rs` | new | 84.48% (9 of 58) | `NotifySend::notify`, which runs the real `notify-send` on a thread of its own and would show a notification on the desktop of whoever runs the tests; the arguments it builds and what it says when the program fails or is missing (`command`, `run`) are tested. |
+| `src/session.rs` | 96.79% | 96.81% | as in the update section; `notifier()`, one composition line that builds the real `NotifySend`; in `emitter()`, the terminal's line, which needs a terminal (`emitter()` is tested without one, and the terminal's printing in `src/adapters/terminal.rs`). |
+| `src/adapters/overlay.rs`, `src/config.rs` | 96.25%, 99.80% | 96.36%, 99.80% | as before. |

@@ -550,6 +550,7 @@ dependencies = [
  "tract-onnx",
  "unicode-normalization",
  "uuid",
+ "windows 0.62.2",
  "windows-hotkeys",
  "windows-native-keyring-store",
 ]

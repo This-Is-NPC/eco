@@ -30,7 +30,7 @@ use crate::adapters::session_files::{NoSessionFiles, SessionFiles};
 use crate::adapters::stt_deepgram::{self, DeepgramBilling, DeepgramTranscriber};
 use crate::adapters::stt_elevenlabs::{self, ElevenLabsTranscriber};
 use crate::adapters::stt_openai::OpenAITranscriber;
-use crate::adapters::terminal::terminal;
+use crate::adapters::terminal::{Terminal, terminal};
 use crate::adapters::vad_silero::{SileroModel, SileroVad};
 use crate::adapters::webvtt;
 use crate::config::{self, Config, ConfigError, Key, ModelConfig, ModelType};
@@ -42,13 +42,14 @@ use crate::domain::channel::{
 use crate::domain::diarization::Diarization;
 use crate::domain::events::{Outages, error};
 use crate::domain::hub::{Capture, Hub};
+use crate::domain::notifications::{Notifications, Texts};
 use crate::domain::segmenter::{Segment, SegmenterConfig};
 use crate::domain::transcribers::{Listening, Transcribers};
 use crate::import;
 use crate::installer;
 use crate::paths;
 use crate::ports::{
-    AudioDevices, AudioError, AudioSource, Device, EchoError, LanguageModel, PeopleStore,
+    AudioDevices, AudioError, AudioSource, Device, EchoError, LanguageModel, Notifier, PeopleStore,
     SessionLog, SpeechToText, StreamingSpeechToText, TranscriptionBilling, WindowControl,
 };
 
@@ -75,6 +76,46 @@ fn window_control(emit: &Emit) -> Arc<dyn WindowControl> {
     Arc::new(crate::adapters::window_host::HostWindows::new(Arc::clone(
         emit,
     )))
+}
+
+/// The desktop's notifications (docs/design.md §15): notify-send on Linux.
+#[cfg(unix)]
+fn notifier() -> Arc<dyn Notifier> {
+    Arc::new(crate::adapters::notify_linux::NotifySend)
+}
+
+/// The desktop's notifications (docs/design.md §15): toasts on Windows.
+#[cfg(windows)]
+fn notifier() -> Arc<dyn Notifier> {
+    Arc::new(crate::adapters::notify_windows::Toasts)
+}
+
+/// The texts notifications read: the interface's language pack, in the
+/// system language on "auto", each key it lacks read in English.
+fn interface_texts(config: &Config) -> Texts {
+    let code = config.interface_pack(sys_locale::get_locale().as_deref());
+    let chosen = overlay::language_pack(&code);
+    let english = overlay::language_pack("en-US");
+    Arc::new(move |key| {
+        let text = chosen.get(key).or_else(|| english.get(key))?;
+        text.as_str().map(String::from)
+    })
+}
+
+/// Where every event the daemon emits goes: the terminal, when there is one,
+/// every client, and the notifications, which tell the desktop of some.
+fn emitter<W: std::io::Write + Send + 'static>(
+    terminal: Option<Terminal<W>>,
+    clients: Clients,
+    notifications: Arc<Notifications>,
+) -> Emit {
+    Arc::new(move |event| {
+        if let Some(terminal) = &terminal {
+            terminal.print(&event);
+        }
+        clients.emit(&event);
+        notifications.heard(&event);
+    })
 }
 
 /// The global shortcuts (docs/design.md §15): on Linux Hyprland binds the keys,
@@ -1056,6 +1097,14 @@ fn window_closed(payload: &str) -> Option<u32> {
     u32::try_from(request.get("window")?.as_u64()?).ok()
 }
 
+/// `window.active {"window", "active"}`: whether the overlay window `window`
+/// is active now.
+fn window_active(payload: &str) -> Option<(u32, bool)> {
+    let request = serde_json::from_str::<Value>(payload).ok()?;
+    let number = u32::try_from(request.get("window")?.as_u64()?).ok()?;
+    Some((number, request.get("active")?.as_bool()?))
+}
+
 /// `window.call {"call", "path"}`: what a shortcut asks of an overlay window —
 /// "focus", "config", "new_session", "sessions", or "import" with the file's
 /// `path`, which may be left out — as the fields of the `window_call` event;
@@ -1103,6 +1152,8 @@ trait Overlay: Send {
     fn shown(&self) -> Vec<String>;
     /// The window opened last of those still open.
     fn newest(&self) -> Option<u32>;
+    /// The numbers of the windows open.
+    fn numbers(&self) -> Vec<u32>;
     fn is_open(&self) -> bool;
     /// Open another window, focused, that shows `show` and makes `call`.
     fn open<'a>(
@@ -1133,6 +1184,10 @@ impl Overlay for overlay::Windows {
 
     fn newest(&self) -> Option<u32> {
         overlay::Windows::newest(self)
+    }
+
+    fn numbers(&self) -> Vec<u32> {
+        overlay::Windows::numbers(self).collect()
     }
 
     fn is_open(&self) -> bool {
@@ -1386,6 +1441,8 @@ struct Session {
     updates: Updates,
     /// The daily check for a newer eco, while the config asks for it.
     daily: Option<JoinHandle<()>>,
+    /// Hears every event emitted; told which windows are active.
+    notifications: Arc<Notifications>,
 }
 
 impl Session {
@@ -1406,6 +1463,7 @@ impl Session {
                 },
                 status = self.windows.exited() => {
                     self.overlay_open.store(self.windows.is_open(), Ordering::Relaxed);
+                    self.notifications.windows_open(&self.windows.numbers());
                     if let Some(status) = status.filter(|status| !status.success()) {
                         eprintln!(
                             "eco: an overlay window exited ({status}); check WAYLAND_DISPLAY, then `eco start`"
@@ -1455,6 +1513,11 @@ impl Session {
                 self.windows.closed(number);
                 self.overlay_open
                     .store(self.windows.is_open(), Ordering::Relaxed);
+                self.notifications.windows_open(&self.windows.numbers());
+            }
+        } else if let ("window.active", Some(payload)) = split(line) {
+            if let Some((number, active)) = window_active(payload) {
+                self.notifications.window_active(number, active);
             }
         } else if !self.command(line).await {
             return false;
@@ -1533,6 +1596,8 @@ impl Session {
         });
         match saved {
             Ok(config) => {
+                self.notifications
+                    .configure(config.notifications, interface_texts(&config));
                 self.current = config;
                 self.restart().await;
                 self.check_daily().await;
@@ -2352,16 +2417,16 @@ pub async fn run(
     };
 
     let clients = Clients::default();
-    let emit: Emit = {
-        let clients = clients.clone();
-        let terminal = terminal(std::io::stdout());
-        Arc::new(move |event| {
-            if let Some(terminal) = &terminal {
-                terminal.print(&event);
-            }
-            clients.emit(&event);
-        })
-    };
+    let notifications = Arc::new(Notifications::new(
+        notifier(),
+        current.notifications,
+        interface_texts(&current),
+    ));
+    let emit = emitter(
+        terminal(std::io::stdout()),
+        clients.clone(),
+        Arc::clone(&notifications),
+    );
     let people: Arc<dyn PeopleStore> = Arc::new(PeopleFiles::new(paths::people_dir()));
     let assistant = Assistant::new(
         Arc::clone(&emit),
@@ -2442,6 +2507,7 @@ pub async fn run(
         overlay_open,
         updates,
         daily: None,
+        notifications,
     };
     session.restart().await;
     session.check_daily().await;
@@ -2546,6 +2612,7 @@ mod tests {
     use crate::adapters::http;
     use crate::adapters::session_files::SessionFiles;
     use crate::adapters::window_host::HostWindows;
+    use crate::domain::notifications::testing::Shown;
     use crate::ports::{EchoCancelling, FRAME_SAMPLES, Frame, Heard, TranscriptionError};
 
     fn raw() -> Value {
@@ -3352,12 +3419,12 @@ mod tests {
         }
 
         fn newest(&self) -> Option<u32> {
-            self.desk
-                .lock()
-                .unwrap()
-                .open
-                .last()
-                .map(|(number, _)| *number)
+            self.numbers().last().copied()
+        }
+
+        fn numbers(&self) -> Vec<u32> {
+            let desk = self.desk.lock().unwrap();
+            desk.open.iter().map(|(number, _)| *number).collect()
         }
 
         fn is_open(&self) -> bool {
@@ -3437,6 +3504,8 @@ mod tests {
         desk: Arc<Mutex<Desk>>,
         exits: mpsc::UnboundedSender<ExitStatus>,
         fakes: update::testing::Fakes,
+        /// The notifications shown.
+        shown: Arc<Shown>,
         dir: tempfile::TempDir,
     }
 
@@ -3470,9 +3539,16 @@ mod tests {
             Arc::clone(&emit),
             dir.path().join("update.json"),
         );
+        let current = Config::from_value(raw).unwrap();
+        let shown = Arc::new(Shown::default());
+        let notifications = Arc::new(Notifications::new(
+            Arc::clone(&shown) as Arc<dyn Notifier>,
+            current.notifications,
+            interface_texts(&current),
+        ));
         let session = Session {
             config_path: dir.path().join("config.toml"),
-            current: Config::from_value(raw).unwrap(),
+            current,
             token: "secret".into(),
             pending: Arc::default(),
             rig: Rig {
@@ -3496,6 +3572,7 @@ mod tests {
             overlay_open: Arc::default(),
             updates,
             daily: None,
+            notifications,
         };
         Daemon {
             session,
@@ -3503,6 +3580,7 @@ mod tests {
             desk,
             exits,
             fakes,
+            shown,
             dir,
         }
     }
@@ -4072,6 +4150,129 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn notifications_follow_the_config_and_its_language_at_once() {
+        let mut d = daemon(raw());
+        let failed = error(
+            "hook.failed",
+            "resumo: exit 1",
+            json!({"action": "resumo", "detail": "exit 1"}),
+        );
+        d.session.notifications.heard(&failed);
+        assert!(d.shown.taken().is_empty());
+        let mut saved = raw();
+        saved["ui"] = json!({"notifications": true, "language": "pt-BR"});
+        saved["token"] = json!("secret");
+        assert_eq!(
+            said(&d.line(&format!("config.set {saved}")).await),
+            ["config_saved"]
+        );
+        d.session.notifications.heard(&failed);
+        let pack = overlay::language_pack("pt-BR");
+        let body = pack["error.hook.failed"]
+            .as_str()
+            .unwrap()
+            .replace("{action}", "resumo")
+            .replace("{detail}", "exit 1");
+        assert_eq!(
+            d.shown.taken(),
+            [("eco".to_string(), body, crate::ports::Urgency::Critical)]
+        );
+        saved["ui"] = json!({"notifications": false});
+        d.line(&format!("config.set {saved}")).await;
+        d.session.notifications.heard(&failed);
+        assert!(d.shown.taken().is_empty());
+    }
+
+    #[test]
+    fn every_event_emitted_is_heard_by_the_notifications() {
+        let shown = Arc::new(Shown::default());
+        let notifications = Arc::new(Notifications::new(
+            Arc::clone(&shown) as Arc<dyn Notifier>,
+            true,
+            Arc::new(|_| None),
+        ));
+        let emit = emitter::<Vec<u8>>(None, Clients::default(), notifications);
+        emit(error("stt.down", "the provider closed", Value::Null));
+        assert_eq!(
+            shown.taken(),
+            [(
+                "eco".to_string(),
+                "the provider closed".to_string(),
+                crate::ports::Urgency::Critical
+            )]
+        );
+    }
+
+    #[tokio::test]
+    async fn an_active_window_holds_notifications_until_it_is_not_or_closes() {
+        let mut on = raw();
+        on["ui"] = json!({"notifications": true});
+        let mut d = daemon(on);
+        let failed = error("stt.down", "something broke", Value::Null);
+        let shown = |d: &mut Daemon| {
+            d.session.notifications.heard(&failed);
+            d.shown.taken().len()
+        };
+        d.line("overlay.open").await;
+        assert!(
+            d.line(r#"window.active {"window": 1, "active": true}"#)
+                .await
+                .is_empty()
+        );
+        assert_eq!(shown(&mut d), 0);
+        // Malformed, it changes nothing.
+        for line in [
+            "window.active 1",
+            r#"window.active {"window": 1}"#,
+            r#"window.active {"window": 1, "active": "no"}"#,
+        ] {
+            assert!(d.line(line).await.is_empty());
+        }
+        assert_eq!(shown(&mut d), 0);
+        d.line(r#"window.active {"window": 1, "active": false}"#)
+            .await;
+        assert_eq!(shown(&mut d), 1);
+        d.line(r#"window.active {"window": 1, "active": true}"#)
+            .await;
+        d.line(r#"window.closed {"window": 1}"#).await;
+        assert_eq!(shown(&mut d), 1);
+    }
+
+    #[tokio::test]
+    async fn a_window_that_exits_no_longer_holds_notifications() {
+        let mut on = raw();
+        on["ui"] = json!({"notifications": true});
+        let Daemon {
+            mut session,
+            exits,
+            shown,
+            ..
+        } = daemon(on);
+        session.handle("overlay.open").await;
+        session
+            .handle(r#"window.active {"window": 1, "active": true}"#)
+            .await;
+        let notifications = Arc::clone(&session.notifications);
+        let failed = error("stt.down", "something broke", Value::Null);
+        notifications.heard(&failed);
+        assert!(shown.taken().is_empty());
+        let (lines, received) = mpsc::unbounded_channel();
+        let served = tokio::spawn(session.serve(received, std::future::pending()));
+        #[cfg(unix)]
+        let failed_exit = std::os::unix::process::ExitStatusExt::from_raw(256);
+        #[cfg(windows)]
+        let failed_exit = std::os::windows::process::ExitStatusExt::from_raw(1);
+        exits.send(failed_exit).unwrap();
+        eventually(|| {
+            notifications.heard(&failed);
+            !shown.taken().is_empty()
+        })
+        .await;
+        lines.send("stop".into()).unwrap();
+        served.await.unwrap();
+    }
+
+    #[tokio::test]
     async fn a_config_without_models_is_saved() {
         let mut d = daemon(raw());
         let fresh = json!({"ui": {"hide_from_share": true}, "token": "secret"});
@@ -4509,6 +4710,7 @@ mod tests {
         windows.open(Some("s1"), None).await.unwrap();
         assert!(windows.is_open());
         assert_eq!(windows.newest(), Some(1));
+        assert_eq!(windows.numbers(), [1]);
         assert_eq!(windows.shown(), ["s1"]);
         windows.shows(1, "s2");
         assert_eq!(windows.shown(), ["s2"]);

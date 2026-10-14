@@ -21,4 +21,9 @@ OverlayPanel {
     target: Eco
     function onConfigOpenChanged() { if (Eco.configOpen) settings.active = true }
   }
+  // The daemon hears whether one of these windows has the keyboard: it
+  // notifies the system only while none has.
+  readonly property bool anyActive: overlay.active || (settings.item !== null && settings.item.active)
+  onAnyActiveChanged: Eco.setActive(anyActive)
+  Component.onCompleted: Eco.setActive(anyActive)
 }

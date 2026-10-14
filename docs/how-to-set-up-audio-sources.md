@@ -46,7 +46,7 @@ On the row **Default microphone**, open **HEARD AS** (a click, or `Enter` or
 
 ![The Audio table with the HEARD AS list of the first device row open under it: Me (chosen), Them, Not heard and New source….](img/40-settings-audio-heard.png)
 
-Choose **New source…** and type `Me`. It saves at once: the status line says
+Choose **New source…** and type `Me`. It saves at once: a toast says
 `settings saved`, the daemon restarts capture with the device, and `Me` shows
 under AUDIO SOURCES. There, press the dim **OFF** chip under **YOU** in the
 row of `Me`. It lights as **ON**: your lines
@@ -175,7 +175,7 @@ when it starts, so a hand edit needs `eco restart`.
 **A device is not there.** A device a source names that the computer does not
 have shows dim in the Audio table, as unavailable, and the daemon skips it rather than let `pw-record` fall back to the default device
 silently. During a session the capsule shows a warning for an input that sends
-no audio, and the status line says which: `Them: <device> is not connected`.
+no audio, and an error toast says which: `Them: <device> is not connected`.
 
 **Nobody is configured.** The new-session dialog says
 `No input configured: nothing would be heard.`, offers **AUDIO SETTINGS**, and
@@ -186,7 +186,7 @@ first, and says what changes: the devices no longer heard, `Nobody else is
 heard: no other audio source has an output device.` when it held the only
 output, and `No audio source is you any more.` when it was you.
 
-**Echo cancellation would not start.** The status line says
+**Echo cancellation would not start.** An error toast says
 `Echo cancellation is off: <why>`, and eco records from the raw microphone.
 
 **Echo cancellation on Windows.** Windows offers eco none: the ECHO

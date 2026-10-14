@@ -232,6 +232,9 @@ again on the page where you meet it.
   daemon runs in the background; eco's window works around it, but if Windows
   refuses, the window flashes in the taskbar instead
   ([how to install and remove eco](docs/how-to-install-and-remove.md#on-windows)).
+- **On Windows, eco's system notifications say "Windows PowerShell".** eco
+  registers no app id of its own, so with SYSTEM NOTIFICATIONS on, Windows
+  shows them under PowerShell's name ([settings](docs/screens.md#12-settings)).
 - **The Windows programs are not code-signed.** The first time one runs,
   SmartScreen may say "Windows protected your PC": **More info › Run anyway**
   ([on Windows](docs/how-to-install-and-remove.md#on-windows)).

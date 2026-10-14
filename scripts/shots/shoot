@@ -45,7 +45,7 @@ SETTINGS = (1040, 760)
 # Taller, for the sections whose tables hold every row only so: Audio and General.
 SETTINGS_TALL = (1040, 920)
 # Taller still, for General, whose table ends with UPDATES.
-SETTINGS_GENERAL = (1040, 1130)
+SETTINGS_GENERAL = (1040, 1170)
 # The live session's lines, answers and note, from fixtures: nothing transcribes.
 LIVE = json.loads((FIXTURES / "live.json").read_text())
 # What comes after them: a sent and an unsent hook, a failed answer and one thinking.
@@ -292,13 +292,18 @@ class Shots:
     def take(self, name, which="overlay", offline=False):
         """Save a picture of a window, refusing one taken while the window
         is offline (unless that is the picture) or shows an error, and one
-        that drew nothing."""
+        that drew nothing. Toasts left from earlier steps are closed first,
+        but for the daemon's absence in the offline picture."""
         w = self.window
-        state = json.loads(w.js("return { connected: Eco.connected, error: Eco.messageIsError, message: Eco.message }"))
+        state = json.loads(w.js(
+            "return { connected: Eco.connected,"
+            " errors: Eco.notices.filter(n => n.kind === 'error' && n.topic !== 'offline').map(n => Eco.noticeText(n)) }"
+        ))
         if state["connected"] == offline:
             fail(f"{name}: the overlay is {'still connected' if offline else 'offline'}")
-        if state["error"]:
-            fail(f"{name}: the window shows an error: {state['message']}")
+        if state["errors"]:
+            fail(f"{name}: the window shows an error: {state['errors'][0]}")
+        w.js("Eco.notices.filter(n => n.topic !== 'offline').forEach(n => Eco.dismiss(n.id))")
         path = self.out / f"{name}.png"
         path.unlink(missing_ok=True)
         # What moves on a change settles within 300 ms.
@@ -535,7 +540,9 @@ def scenes(w, shots, stop):
         0.3,
     )
     feed(live, ANSWERS)
-    shots.until("!Eco.messageIsError", "the hook's error to clear")
+    # The hook's and the answer's errors stay as toasts until closed.
+    shots.until("Eco.notices.some(n => n.kind === 'error')", "the answers' errors")
+    w.do("Eco.notices.filter(n => n.kind === 'error').forEach(n => Eco.dismiss(n.id))", 0.3)
     w.do("d.blur()")
     shots.take("08-live-new")
     w.do("d.object('TimelineView').jump()")
@@ -642,6 +649,7 @@ def scenes(w, shots, stop):
     w.do("Eco.leaveSession(); Eco.go('start')")
     stop()
     shots.until("!Eco.connected", "the window to lose the daemon")
+    shots.until("Eco.notices.some(n => n.topic === 'offline')", "the toast that the daemon is gone")
     shots.take("02-disconnected", offline=True)
 
 

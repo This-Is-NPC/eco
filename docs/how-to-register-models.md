@@ -160,7 +160,7 @@ default of nothing: step 4 makes it one. Fill it top to bottom:
 - **EXTRA (JSON)** — extra fields sent with every request, as a JSON object, such as
   `{"temperature": 0.2}`. A reasoning chosen above wins over one written here.
 
-**SAVE** (`Ctrl+S`) saves this model alone. The status line says
+**SAVE** (`Ctrl+S`) saves this model alone. A toast says
 `settings saved`, and the model's screen shows it read. A save with a field
 missing marks that field and saves nothing:
 
@@ -289,7 +289,7 @@ api_key_omapass = "Deepgram"
 ## What can go wrong
 
 **The key is not set.** The daemon still starts, and everything that does not
-use that model works. The window's status line says
+use that model works. An error toast in the window says
 `Model gemini unavailable: OPENROUTER_API_KEY is not set. Everything else works;
 what uses this model fails until it is fixed in Settings › Models.` From the
 command line, a skill on that model fails the same way:

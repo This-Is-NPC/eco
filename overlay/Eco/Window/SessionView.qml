@@ -38,6 +38,10 @@ ColumnLayout {
   spacing: short ? 8 : 14
 
   function focusEntry() { composer.focusEntry() }
+  // The height the composer takes at the bottom, with the space above it,
+  // and the conversation's above that.
+  readonly property real composerRoom: composer.height + spacing
+  readonly property real conversationHeight: conversation.height
 
   function resume() {
     if (!resumable || resuming)
@@ -52,8 +56,8 @@ ColumnLayout {
       if (Eco.session !== null)
         view.resuming = false
     }
-    function onNoticeCountChanged() {
-      if (view.resuming && Eco.messageIsError)
+    function onNoticed(notice) {
+      if (view.resuming && notice.kind === "error")
         view.resuming = false
     }
   }
@@ -141,6 +145,7 @@ ColumnLayout {
   }
 
   Item {
+    id: conversation
     Layout.fillWidth: true
     Layout.fillHeight: true
 
@@ -181,12 +186,5 @@ ColumnLayout {
     session: Eco.onScreen
     compact: view.compact
     actionsShown: !view.short
-  }
-
-  StatusLine {
-    Layout.alignment: Qt.AlignRight
-    message: Eco.message
-    error: Eco.messageIsError
-    maxWidth: Math.max(0, view.width)
   }
 }

@@ -18,6 +18,8 @@ Item {
     }
   }
 
+  // The newest notice's text, or "".
+  function told() { return Eco.notices.length > 0 ? Eco.noticeText(Eco.notices[Eco.notices.length - 1]) : "" }
   // Whether an item under `item` shows `text`.
   function shows(item, text) {
     for (const child of item.children) {
@@ -84,16 +86,16 @@ Item {
       const recording = { id: "s1", title: "Retro", kind: "meeting", source: "live", state: "recording", running_since: null }
       Eco.handle({ type: "session", live: [recording] })
       Eco.handle({ type: "error", code: "capture.stopped", params: { detail: "gone" }, message: "capture stopped: gone" })
-      root.check("a capture error shows while the session records", Eco.message !== "")
+      root.check("a capture error shows while the session records", Eco.notices.some(notice => notice.kind === "error" && notice.live))
       Eco.handle({ type: "session", live: [] })
-      root.check("a capture error goes when the session ends", Eco.message === "")
+      root.check("a capture error goes when the session ends", !Eco.notices.some(notice => notice.live))
       Eco.handle({ type: "session", live: [recording] })
       Eco.handle({ type: "error", code: "transcription.failed", params: { who: "Eles", detail: "x" }, message: "x" })
       Eco.leaveSession()
-      root.check("a transcription error goes when the session is left", Eco.message === "")
+      root.check("a transcription error goes when the session is left", !Eco.notices.some(notice => notice.live))
       Eco.handle({ type: "error", code: "import.failed", params: { detail: "bad.mp4" }, message: "import: bad.mp4" })
       Eco.handle({ type: "session", live: [] })
-      root.check("an import error stays when a session ends", Eco.message !== "")
+      root.check("an import error stays when a session ends", Eco.notices.some(notice => notice.kind === "error" && !notice.live))
       // A newer release is told while checks are on, until it is dismissed.
       const newer = { type: "update", current: "0.4.0", latest: "0.5.0", newer: true, notes: "https://example.invalid/v0.5.0", checked_at: 1, check: true, error: "" }
       Eco.handle(newer)
@@ -107,14 +109,14 @@ Item {
       root.check("a dismissed notice goes", Eco.updateNotice === "")
       // Each stage of an install is said; a failure as an error, with its reason.
       Eco.handle({ type: "update_progress", stage: "installing", version: "0.5.0", detail: "" })
-      root.check("an install under way is said", Eco.updating && Eco.message === I18n.t("update.stage.installing", { version: "0.5.0" }))
-      root.check("the stage is said in words, not as its key", Eco.message.indexOf("update.stage.") < 0)
+      root.check("an install under way is said", Eco.updating && root.told() === I18n.t("update.stage.installing", { version: "0.5.0" }))
+      root.check("the stage is said in words, not as its key", root.told().indexOf("update.stage.") < 0)
       Eco.handle({ type: "update_progress", stage: "failed", version: "0.5.0", detail: "pkexec was dismissed" })
-      root.check("a failed install says why", !Eco.updating && Eco.messageIsError && Eco.message.indexOf("pkexec was dismissed") >= 0)
-      // A restart refused while recording asks in the window, not in the status line.
-      Eco.say("", false)
+      root.check("a failed install says why", !Eco.updating && Eco.notices[Eco.notices.length - 1].kind === "error" && root.told().indexOf("pkexec was dismissed") >= 0)
+      // A restart refused while recording asks in the window, not in a toast.
+      const toasts = Eco.notices.length
       Eco.handle({ type: "error", code: "daemon.recording", params: null, message: "a session is recording" })
-      root.check("a restart refused while recording asks first", root.refusedRestarts === 1 && Eco.message === "")
+      root.check("a restart refused while recording asks first", root.refusedRestarts === 1 && Eco.notices.length === toasts)
       // RELATED shows only when something is related.
       root.check("an item with nothing related has no RELATED", !root.shows(alone, I18n.t("settings.related").toUpperCase()))
       root.check("an item with a link has RELATED", root.shows(linked, I18n.t("settings.related").toUpperCase()))

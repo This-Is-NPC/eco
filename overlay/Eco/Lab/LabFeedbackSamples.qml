@@ -10,6 +10,12 @@ Column {
   property int unseen: 2
   property bool linkBack: false
   property bool noticed: true
+  // The toast stack's notices, and the last one's number.
+  property var toasts: [{ id: 1, kind: "error", parts: [{ key: "lab.status_error", args: {} }], pinned: false }]
+  property int toasted: 1
+  function toast(kind, key) {
+    toasts = toasts.concat([{ id: ++toasted, kind: kind, parts: [{ key: key, args: {} }], pinned: false }])
+  }
 
   spacing: 14
 
@@ -18,39 +24,38 @@ Column {
     text: I18n.t("lab.toggle_status")
     onClicked: samples.showError = !samples.showError
   }
-  Flow {
+  StatusMessage {
+    width: Math.min(460, samples.width)
+    kind: samples.showError ? "error" : "success"
+    message: samples.showError ? I18n.t("lab.status_error") : I18n.t("lab.status_success")
+    Chip { text: I18n.t("dialog.cancel") }
+  }
+
+  // Toasts pile up in the box's corner; a fourth pushes the oldest out.
+  ControlLabRow {
     width: parent.width
-    height: childrenRect.height
-    spacing: 10
-    Repeater {
-      model: ["compact", "toast"]
-      delegate: Column {
-        id: statusVariant
-        required property string modelData
-        width: Math.max(230, (samples.width - 10) / 2)
-        spacing: 6
-        Label {
-          text: (statusVariant.modelData === "compact" ? I18n.t("lab.status_variant.compact")
-            : I18n.t("lab.status_variant.toast")).toUpperCase()
-          color: Theme.dim
-          font.pixelSize: 10
-          font.letterSpacing: 1.5
-        }
-        StatusMessage {
-          width: parent.width
-          variant: statusVariant.modelData
-          kind: samples.showError ? "error" : "success"
-          message: samples.showError ? I18n.t("lab.status_error") : I18n.t("lab.status_success")
-          Chip { visible: statusVariant.modelData === "toast"; text: I18n.t("dialog.cancel") }
+    title: I18n.t("lab.toast_stack")
+    Column {
+      spacing: 10
+      Row {
+        spacing: 8
+        Chip { text: I18n.t("lab.add_info"); onClicked: samples.toast("info", "lab.toast_info") }
+        Chip { text: I18n.t("lab.add_success"); onClicked: samples.toast("success", "lab.status_success") }
+        Chip { text: I18n.t("lab.add_error"); onClicked: samples.toast("error", "lab.status_error") }
+      }
+      Rectangle {
+        width: Math.min(420, samples.width - 210)
+        height: 300
+        color: "transparent"
+        border.color: Theme.line
+        ToastStack {
+          anchors { right: parent.right; bottom: parent.bottom; margins: 10 }
+          width: Math.min(340, parent.width - 20)
+          notices: samples.toasts
+          onDismissed: id => samples.toasts = samples.toasts.filter(notice => notice.id !== id)
         }
       }
     }
-  }
-
-  ControlLabRow {
-    width: parent.width
-    title: I18n.t("lab.status_line")
-    StatusLine { message: I18n.t("lab.status_success") }
   }
 
   ControlLabRow {

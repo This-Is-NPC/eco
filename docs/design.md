@@ -135,7 +135,7 @@ files import modules by name (`import Eco.Kit`), never by relative path:
 | Module | Holds | Imports of the overlay |
 |---|---|---|
 | `Eco.Core` | the singletons `Eco` (the socket and the state), `Theme`, `I18n`, their root `Singleton`, `InputSignal`, the language packs in `i18n/`, and the JavaScript libraries `Draft` (`draft.js`), `Focus` (`focus.js`), `Markdown` (`markdown.js`) and `Packs` (`packs.js`), declared in its `qmldir` | none |
-| `Eco.Kit` | the generic components every view composes: buttons, chips, fields, dropdowns, menus, dialogs' frames, tables, panels, status lines, the tab rail and command bar, `Stage` | `Eco.Core` |
+| `Eco.Kit` | the generic components every view composes: buttons, chips, fields, dropdowns, menus, dialogs' frames, tables, panels, the toast stack, the tab rail and command bar, `Stage` | `Eco.Core` |
 | `Eco.Live` | the live session: timeline, speech turns, answer and note cards, composer, session control, speaker guesses | `Eco.Core`, `Eco.Kit` |
 | `Eco.Sessions` | history, a session's details (attendees, speakers, context, translation), people, cost, the import strip | `Eco.Core`, `Eco.Kit` |
 | `Eco.Dialogs` | start, import, rename, speaker assignment | `Eco.Core`, `Eco.Kit` |
@@ -183,6 +183,7 @@ composition happens in `src/session.rs` from `config.toml`. The crate forbids
 | `EventSink` | Unix socket (overlay), text on stdout | stdout is written only when it is a terminal (`mise run start`); under the user service it is the journal, which never gets transcript, note or answer text. |
 | `TranscriptStore` | file in `~/.local/share/eco/`, null (`--no-save`) | |
 | `WindowControl` | Hyprland (`hyprctl dispatch`, its event socket); on Windows the windows themselves, told by events on the socket (`HostWindows`) | A platform seam (§15): it focuses a window process's window and leaves its windows out of screen sharing, both by pid. Tests open windows with a fake. |
+| `Notifier` | `notify-send` on Linux; Windows toast notifications on Windows | A platform seam (§15): `notify(title, body, urgency)` shows one system notification. The daemon decides when (§12.2); tests decide with a fake. |
 
 Rule: only add a port when two real implementations exist or a test clearly
 benefits.
@@ -271,7 +272,7 @@ eco/
   (§15). It costs ~3% of one core while a
   session records.
 - **Errors show:** a failed transcription or a capture that stops mid-session
-  reaches the overlay's status line, and the terminal when the daemon runs in
+  reaches the overlay as an error toast (§12.2), and the terminal when the daemon runs in
   one. A streaming transcription down, and back, is not an error: it is a
   `transcription` event (§10.1), shown under the session capsule (§12.2) and
   printed in the terminal.
@@ -893,6 +894,7 @@ kinds = ["meeting"]
 language = "auto"                           # interface language pack, or auto
 hide_from_share = false                     # eco's windows hidden from screen shares (and screenshots)
 tray = false                                # an icon in the system tray (§12.7)
+notifications = false                       # system notifications while no eco window is active (§12.2)
 
 [update]
 check = true                                # once a day, ask GitHub for the latest release's tag (§13); false never asks
@@ -1207,7 +1209,10 @@ live session),
 `window.show <json>` (`{"window","session"}`: the session a window shows now, or
 `""`), `window.closed <json>` (`{"window"}`: the window is closing and its
 process exiting; it is no longer open, so `overlay.open` opens a new one, and a
-process still running 2 s later is ended), `window.call <json>` (`{"call","path"}`, what a shortcut asks of a
+process still running 2 s later is ended), `window.active <json>`
+(`{"window","active"}`: the window has the system's focus, or lost it; each
+window sends it on every change, and the daemon notifies, §12.2, only while no
+window it knows is active; a closed window counts as not active), `window.call <json>` (`{"call","path"}`, what a shortcut asks of a
 window: `focus` only gives it the keyboard, `config` opens or closes the
 settings, `new_session` the start dialog, `sessions` the sessions list when no
 session is on screen, `import` the import dialog with `path`, the only call
@@ -1391,7 +1396,7 @@ indices, one accent from the active Omarchy theme
 the default). The overlay reloads the palette after file edits and theme
 directory replacements, including light and dark mode changes. The
 kit lives in `overlay/Eco/Kit/` (`Panel`, `SurfaceFrame`, `TraceButton`, `Chip`, `Tab`,
-`TextBox`, `Field`, `NumberField`, `Kicker`, `Masthead`, `StatusMessage`,
+`TextBox`, `Field`, `NumberField`, `Kicker`, `Masthead`, `ToastStack`,
 `Icon`, `EcgTrace`, `DataTable`, `TabRail`, `PageBar`, `CommandRow`); views
 compose it and hold no logic beyond binding `Eco`, the singleton that owns the
 socket. `TabRail` is an app's pages as a carousel down the left edge, the
@@ -1415,8 +1420,9 @@ run instead of opening the row. The control lab
 - **Icons:** one set (`Icon.qml`), thin line drawings on a 16-unit grid with
   one stroke weight and round ends — settings (sliders), play, pause, stop,
   list, close, chevrons, enter, warning, spark (AI) — instead of Unicode
-  glyphs that each fallback font draws differently. No connection badge while
-  things work; `DESCONECTADO` shows only when the daemon is unreachable.
+  glyphs that each fallback font draws differently. No connection warning
+  while things work; an error toast says when the daemon is unreachable
+  (§12.2).
 - **Selection always shows:** the chosen option of a dropdown carries a dot and
   an accent tint, distinct from hover; the current row of a list is tinted
   with its title in the accent. No side bars.
@@ -1497,6 +1503,31 @@ reconnects to the socket on its own.
   cancels).
 - **Conversation:** a chat — the user's lines on the right, everyone else on
   the left, the speaker's name, time, and color on every line.
+- **Notices:** what the window has to say — a save, a refusal, an error of the
+  daemon — is a toast in its bottom-right corner, the kit's `ToastStack`, in
+  the eco window and in the config window alike, on every screen: in a
+  session the stack stands above the composer, and in the config window
+  inside the section's frame, so no toast covers the composer or a bar.
+  Where that room is too short for every toast, the stack hides the oldest
+  until they fit again, keeping the pinned one (the daemon's absence) and the
+  newest. `Eco` keeps them as a list
+  (id, kind, the text's parts, time): `tell` and `say` add one, `dismiss(id)`
+  takes one out. At most three show, the newest at the bottom; a fourth takes
+  out the oldest. Each has its kind's icon (info, success, error), its text,
+  wrapped, and a × button, which Tab reaches. Info and success close on their
+  own after about six seconds, a count that stops while the pointer is over
+  the toast or it has the keyboard; an error stays until its × or Esc closes
+  it. While the daemon is unreachable an error toast says so, with no
+  countdown, and it goes when the window connects again. A toast moves
+  only as it comes and goes.
+- **System notifications:** with `[ui] notifications` on (Settings › General,
+  off by default) the daemon, through the `Notifier` port (§3.1, §15), sends a
+  notification of the system when no eco window is active — each window tells
+  it with `window.active` (§10.2) — for these events only: a source's
+  transcription down, and back (§5); a newer release found, once per version
+  (§13); an answer finished, named by its skill or its question, never its
+  text; and an error the windows show as an error. Nothing else, and never a
+  secret or transcript text.
 
 ### 12.3 Screens and dialogs
 
@@ -1642,8 +1673,8 @@ reconnects to the socket on its own.
   model's reasoning as it arrives (it is working), then lights its frame while
   the reply grows (it is still arriving) — text being read never scrambles; a
   failed answer stays, in red, saying why; speech slides in from its speaker's
-  side, answers rise in and the new-content pill rises above the composer
-  (something new); traces move only with real audio (the inputs work);
+  side, answers rise in, the new-content pill rises above the composer
+  and a toast comes in and goes out (something new); traces move only with real audio (the inputs work);
   views slide when the user navigates (see Navigation motion) and visible
   labels decode softly; action buttons grow an accent rail on hover and
   carry an audio trace while waiting for the next state.
@@ -1691,8 +1722,8 @@ silent-input warning, pause and end, without the trace; on a window also under
 560 px wide the name `ECO ╱` drops, the title elides first and the language
 picker and the cost button move into the details. The config window scrolls an item's screen when it is long, and its
 tables stack each row's cells into lines under 700 px. Long
-titles elide; the section name in the masthead keeps its room and the status
-message condenses to a marked tooltip when space is tight. Nested
+titles elide and the section name in the masthead keeps its room; toasts
+narrow with the window and their text wraps. Nested
 layouts are pinned to their natural height so the timeline gets the space.
 
 ### 12.6 The config window
@@ -1739,8 +1770,8 @@ right chevron opens. When their names do not fit, BACK shows only its
 chevron and each action its short name where it has one (DEFAULT FOR CHAT
 becomes FOR CHAT); when even those do not fit, each action but the main one
 shows only its icon, on a bar narrower still the main action too, each name in
-its tip, and narrower again one menu holds them all. The window's close is a corner button on the masthead line,
-with the last message (`StatusLine`) left of it while there is one.
+its tip, and narrower again one menu holds them all. The window's close is a corner button on the masthead line;
+its messages are toasts in the bottom-right corner (§12.2).
 
 **Tables.** Each section is a `DataTable` under its name and what it is for.
 A simple value — ON/OFF, a choice, a name, a number — is changed in its row
@@ -1781,7 +1812,7 @@ screen as they were written, their own lines kept. Each related
 entry is a link that opens that item in its own section; BACK returns to where
 it was followed from, and choosing a section on the rail starts the way back
 over. A link, or REGISTER A CHAT MODEL, into a section whose open item has
-changes not saved shows that item instead, and the window's message says
+changes not saved shows that item instead, and a toast says
 `Save or cancel <name> first`. EDIT (`Ctrl+E`) turns the screen into its form;
 opened by the table's EDIT, the item goes back to the table once saved or
 cancelled. Every field is named by a
@@ -1820,7 +1851,7 @@ on the row run its `act()`: open the list, turn the switch, or start writing,
 where Enter, or leaving the field, saves and Esc puts the value back; either
 gives the keyboard back to the rows. Each saves at once, on a copy of the
 saved config; the controls show the saved config, so a refused save leaves
-them as they were, and the window's message says why. Tab from the rows
+them as they were, and a toast says why. Tab from the rows
 reaches the control of the row picked, and goes on through the next rows'
 controls, picking each row it enters. General is a section's table; Audio's
 two tables are its `body`, a component the section draws in the table's place
@@ -1853,8 +1884,8 @@ error colour and the reason under it — and the first such field takes the
 keyboard: a repeated name or a space in a skill's name as it is typed, a
 missing value once a save is tried. Each clears as soon as its field is fixed.
 A problem outside the item's fields, and a daemon's refusal, shows under its
-title until the item changes again; a refused DELETE or quick change shows as the
-window's message, on the masthead line. The default models are not required, as the daemon does not
+title until the item changes again; a refused DELETE or quick change shows as an
+error toast (§12.2). The default models are not required, as the daemon does not
 require them (§9): a config with no model registered saves, and a default it
 names must be a registered model of its type (`overlay/Eco/Core/draft.js`,
 `problems`). Naming a new model makes it the default of nothing; each default
@@ -1982,7 +2013,8 @@ table, then closes the window. Keys show only in the shortcuts dialog
   the control that changes it, saved at once. INTERFACE: the interface
   language, a dropdown of `auto` and the packs; HIDE FROM SCREEN SHARING (off
   by default), whose help says eco then shows black in the user's screenshots
-  and recordings too (§13); SHOW ECO IN THE TRAY (off by default, §12.7).
+  and recordings too (§13); SHOW ECO IN THE TRAY (off by default, §12.7);
+  SYSTEM NOTIFICATIONS (`[ui] notifications`, off by default, §12.2).
   REVIEWER: REVIEW ANSWERS (`[reviewer] enabled`), the reviewer's model named
   beside its switch, on or off, as a hint; turned on with no reviewer
   model, `Draft.review` takes the chat default; and SHOW THE DRAFT
@@ -2110,7 +2142,8 @@ and the installer, one adapter per platform.
   `update.check` (§10.2) or `eco update --check`. `[update] check = false`
   (§9) stops the daily check. The answer is kept in `update.json` in the state
   directory (§8), `checked_at` and `latest`, so a restart does not ask again,
-  and told to the windows as `update` (§10.1). A network that is down or an
+  and told to the windows as `update` (§10.1), and, with `[ui] notifications`
+  on and no window active, as one system notification per version (§12.2). A network that is down or an
   answer that does not parse leaves the last state and sets `error`.
 - *Fetching.* `eco update`, or `update.install` from the window, downloads
   the release's `SHA256SUMS` from
@@ -2236,6 +2269,9 @@ leaves sessions, config, models and the agent skill.
   in memory only. Secrets are never logged, nor transcript text at info level.
   No telemetry: the one request eco makes of its own is the daily GET for the
   latest release's tag (§13), which `[update] check = false` turns off.
+  A system notification (`[ui] notifications`, §12.2) stays on the machine and
+  carries no secret and no transcript text: an answer is named by its skill or
+  question, never its text.
 
 The targets the design is held to:
 
@@ -2440,6 +2476,7 @@ adapter lives on each platform today.
 | Window control | the `WindowControl` port, adapter `HyprlandWindows`: giving a window process's overlay (its window titled `eco`, never the settings window) the keyboard and raising it above the settings, so a dialog the shortcut opens shows and setting `no_screen_share` on its windows through `hyprctl dispatch`, by pid, again on Hyprland's `openwindow` events while they are hidden; composed in `src/session.rs`, used by `src/adapters/overlay.rs`, which launches `eco-window`. The window rules in `packaging/hypr/eco.lua` centering the config window stay compositor config | adapter `HostWindows`: the windows control themselves. Focusing sends `window_focus` with the pid and hiding sends `window_share` with the pids (§10.1), to every client; the window of that process answers through its host, `Host.raise` on its eco window, or `Host.hideFromCapture`, and the last of each is told again to a client that connects, as a window does just after it opens. Windows gives the foreground only to a process that has it or had the last input, and neither the daemon nor its windows, in the background, do: `raise()` and `requestActivate()` alone left the window behind another program, its taskbar button flashing (seen in a desktop test). So the host's `Host.raise` first attaches its thread to the input of the foreground window's thread (`AttachThreadInput`), brings the window to the top and calls `SetForegroundWindow`, then detaches, after checking that thread answers (`SendMessageTimeout`), as an attached hung thread would hang the window: the workaround Qt applies under its private `AlwaysActivateWindow` option. Chosen over a synthetic Alt press before `SetForegroundWindow`, which reaches the program in front (an Alt press and release opens its menu bar), and over the daemon passing the right on with `AllowSetForegroundWindow` from the hotkey's thread, which has no safe binding in Rust and would not cover `eco window` from a terminal. Leaving out of capture needs Windows 10 2004 or later, and leaves the windows out of the user's own screenshots and recordings too | `src/ports.rs`, `src/adapters/window_hyprland.rs`, `src/adapters/window_host.rs`, `src/adapters/overlay.rs`, `window/host.h`, `packaging/hypr/eco.lua` |
 | The window host's bridge | `eco-window`'s `EcoHost` module, built with the system's compiler and Qt by Ninja: `Host` gives the QML its pid, its environment and local paths, and copies to the Wayland clipboard through `wl-copy`; `LineSocket` is a `QLocalSocket` to the daemon socket the daemon names in `ECO_SOCKET`; `TextFile` reads and watches files, such as the Omarchy theme under `XDG_STATE_HOME` that `overlay/Eco/Core/Theme.qml` follows | the same module, built with MSVC through CMake's Visual Studio generator against the Qt `scripts/qt-install` puts under `.qt`, with Qt's libraries copied beside `eco-window.exe` by `windeployqt`; `src/adapters/overlay.rs` runs `<prefix>\lib\eco\eco-window.exe` beside an installed `eco`, else the checkout's `target\window\eco-window.exe`. `Host.copy` puts the text on the clipboard through Qt and flushes it to Windows (`OleFlushClipboard`, from `ole32`), `Host.hideFromCapture` sets the windows' display affinity, and `LineSocket` connects to the named pipe and sends `auth <token>` first. `tests/window.rs` and `tests/overlay.rs` run there too, the second with the `qmltestrunner` under `.qt`. There is no Omarchy theme, so the window keeps its own colours | `window/main.cpp`, `window/host.h`, `window/line_socket.h`, `window/text_file.h`, `scripts/window-build`, `scripts/qt-install` |
 | The tray icon | `Qt.labs.platform`'s `SystemTrayIcon`, which Qt exports as a StatusNotifierItem with a D-Bus menu (qt6-base carries Qt D-Bus); the bar's tray shows it | the same type, a notification area icon whose menu is a Qt Widgets menu; `windeployqt` ships Qt Widgets and the `Qt.labs.platform` plugin with `eco-window.exe` | `overlay/tray.qml`, `src/adapters/overlay.rs` |
+| System notifications | the `Notifier` port, adapter `notify-send`: `notify-send` with the app name `eco`, the installed eco icon and the urgency (`normal`, or `critical` for an error); a missing `notify-send` is written to the daemon's log | adapter `Toasts`: a Windows toast notification through the WinRT `ToastNotificationManager` of the `windows` crate's safe projection, `long` for an error. eco is not a packaged app and registers no app id, so the toast goes out under Windows PowerShell's app id and Windows labels it "Windows PowerShell"; it needs no Start-menu shortcut and works from the zip install. Both chosen with `#[cfg]` in `src/session.rs`. Only with `[ui] notifications` on and no eco window active (§12.2) | `src/ports.rs`, `src/domain/notifications.rs`, `src/session.rs`, `src/adapters/notify_linux.rs`, `src/adapters/notify_windows.rs` |
 | Shortcuts | a global Hyprland bind that runs an `eco window` command, which sends one line to the socket and returns once the daemon has read it: `window.call` for those that open a view, the daemon giving that window the keyboard | the daemon registers `[shortcuts]` (§9) itself, `Win+Alt+A`, `Q`, `C`, `N`, `P`, `H` and `E` by default, the keys of `eco.lua` with the Windows key for SUPER, none of them one Microsoft documents for Windows (`Win+Alt` with a digit opens a taskbar jump list, and was refused on a desktop; the Game Bar holds `G`, `M`, `R` and `T`; Omarchy binds `SUPER+ALT+1` to `5` to a group's windows), through the `windows-hotkeys` crate: `RegisterHotKey` on a hidden message-only window of a thread of its own, which waits for `WM_HOTKEY` in the crate's loop. A pressed key hands the daemon's loop the very line `eco window` builds (`cli::Window::line`), so it is routed as the command would be. A key the system refuses, another program holding it, is written to the daemon's log and greets every client as an `error` with the code `shortcut.unavailable`, which names the config's path, to be created if missing, as the settings window has no place for shortcuts; the others still work. Chosen over `global-hotkey`, which registers the same way but leaves the message loop to the application, and that loop is `unsafe` code eco forbids, and over `livesplit-hotkey`, which installs a low-level keyboard hook: it sees every key pressed in every program, passes the shortcut on to the program in front as well (Win+Alt+1 would also open the first taskbar program's jump list) and cannot tell a key another program holds (read in the crates' sources). The keys are read when the daemon starts. Over ssh the system refuses every key: that session has no interactive window station (`RegisterHotKey` fails with error 1459, `ERROR_REQUIRES_INTERACTIVE_WINDOWSTATION`, measured), so each is reported; on a desktop, `Win+Alt+C`, `N`, `H` and `E` registered and worked when pressed (seen in a desktop test). `eco window` works as on Linux, knowing the daemon has read its line from the `synced` answer to `sync` (§10) | `packaging/hypr/eco.lua`, `src/cli.rs`, `src/shortcuts.rs`, `src/adapters/shortcuts_windows.rs` |
 | The hook shell | `shell()` runs each hook with `sh -c` | `shell()` runs each hook with `cmd /S /C "<command>"`, the command handed over as written, for cmd does not read its line by the quoting rules other programs use; a hook reads `%ECO_SESSION%` and `%ECO_TITLE%`. cmd is on every Windows | `src/adapters/hook_shell.rs` |
 | The omapass keyring | `api_key_omapass` reads a key through the omapass CLI | omapass does not exist: it is never installed, and a key from it fails | `src/adapters/omapass.rs` |

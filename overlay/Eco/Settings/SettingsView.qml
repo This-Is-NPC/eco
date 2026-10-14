@@ -121,8 +121,8 @@ Item {
     shown = setOf(shown, index, id)
   }
   // Shows the section `index` to open its item `id` there, unless another item
-  // open there has changes not saved: then that one stays, and the window's
-  // message says why. Returns whether `id` may open.
+  // open there has changes not saved: then that one stays, and an error toast
+  // says why. Returns whether `id` may open.
   function reach(index, id) {
     wanted(index)
     const stage = stages.itemAt(index)
@@ -182,8 +182,7 @@ Item {
     confirmRemove.open()
   }
   // Saves the saved config with `change` applied at once, then calls `done`;
-  // what keeps it from saving, or the daemon's refusal, shows as the window's
-  // message, on the masthead line.
+  // what keeps it from saving, or the daemon's refusal, shows in an error toast.
   function saveNow(change, done) {
     if (quick.saving || Eco.configSaving)
       return
@@ -219,7 +218,7 @@ Item {
     return found
   }
   // SAVE AND CLOSE: saves each item with changes in turn, then runs `done`. An
-  // item that does not save stops it: it shows, and the window's message says why.
+  // item that does not save stops it: it shows, and an error toast says why.
   function saveAll(done) {
     finish = done
     saveNext()

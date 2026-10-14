@@ -15,7 +15,7 @@ SettingsSection {
 
   // The rows, by group: [group key, [setting ids]].
   readonly property var groups: [
-    ["interface", ["language", "hide_from_share", "tray"]],
+    ["interface", ["language", "hide_from_share", "tray", "notifications"]],
     ["reviewer", ["review", "show_draft"]],
     ["audio", ["drop_echoes", "echo_cancel"]],
     ["answers", ["max_context_chars", "concurrency"]],
@@ -27,6 +27,7 @@ SettingsSection {
     language: I18n.t("interface.language_tip"),
     hide_from_share: I18n.t("interface.hide_from_share_tip"),
     tray: I18n.t("interface.tray_tip"),
+    notifications: I18n.t("interface.notifications_tip"),
     review: I18n.t("general.review_tip"),
     show_draft: I18n.t("general.show_draft_tip"),
     drop_echoes: I18n.t("audio.drop_echoes_tip"),
@@ -42,6 +43,7 @@ SettingsSection {
     language: I18n.t("interface.language"),
     hide_from_share: I18n.t("interface.hide_from_share"),
     tray: I18n.t("interface.tray"),
+    notifications: I18n.t("interface.notifications"),
     review: I18n.t("general.review"),
     show_draft: I18n.t("general.show_draft"),
     drop_echoes: I18n.t("audio.drop_echoes"),
@@ -212,6 +214,7 @@ SettingsSection {
     return ({
       hide_from_share: config.ui.hide_from_share === true,
       tray: config.ui.tray === true,
+      notifications: config.ui.notifications === true,
       review: reviewer.enabled === true,
       show_draft: reviewer.verbose === true,
       drop_echoes: audio.drop_echoes === true,

@@ -44,7 +44,6 @@ ScrollPage 1.0 ScrollPage.qml
 SettingsTextArea 1.0 SettingsTextArea.qml
 ShortcutsDialog 1.0 ShortcutsDialog.qml
 Stage 1.0 Stage.qml
-StatusLine 1.0 StatusLine.qml
 StatusMessage 1.0 StatusMessage.qml
 SurfaceFrame 1.0 SurfaceFrame.qml
 SyncedBox 1.0 SyncedBox.qml
@@ -54,5 +53,6 @@ TagChip 1.0 TagChip.qml
 TagInput 1.0 TagInput.qml
 TextBlock 1.0 TextBlock.qml
 TextBox 1.0 TextBox.qml
+ToastStack 1.0 ToastStack.qml
 TraceButton 1.0 TraceButton.qml
 TranscriptionStrip 1.0 TranscriptionStrip.qml

@@ -86,7 +86,7 @@ Window {
     }
 
     // Declared in the order Tab follows: the rail, the bar, the section, the
-    // window's close.
+    // window's close, the toasts.
     TabRail {
       id: rail
       anchors.top: masthead.bottom
@@ -109,6 +109,7 @@ Window {
 
     // The section on screen, framed beside the carousel and under its bar.
     Rectangle {
+      id: frame
       anchors { left: bar.left; right: parent.right; top: bar.bottom; topMargin: 16; bottom: parent.bottom }
       color: "transparent"
       border.color: Theme.line
@@ -122,18 +123,25 @@ Window {
       }
     }
 
-    // The top line: the app's last message, while there is one, and the
-    // window's close in the corner.
+    // The top line, with the window's close in the corner.
     Masthead {
       id: masthead
       anchors { left: parent.left; right: parent.right; top: parent.top }
       section: I18n.t("section.config")
-      StatusLine { message: Eco.message; error: Eco.messageIsError; maxWidth: Math.min(480, window.width - 260); minWidth: 90; boxHeight: 28 }
       IconButton {
         name: "close"
         tip: I18n.t("settings.close").toLowerCase()
         onClicked: window.attemptClose()
       }
+    }
+
+    // What happened, in toasts in the section's corner, inside its frame.
+    ToastStack {
+      anchors { right: parent.right; bottom: parent.bottom; margins: 12 }
+      width: Math.min(340, frame.width - 24)
+      maxHeight: frame.height - 24
+      notices: Eco.notices
+      onDismissed: id => Eco.dismiss(id)
     }
   }
 

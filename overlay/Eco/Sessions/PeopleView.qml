@@ -76,7 +76,6 @@ ColumnLayout {
     id: banner
     Layout.fillWidth: true
     visible: people.merging !== null
-    variant: "toast"
     kind: "info"
     message: people.merging ? I18n.t(people.pickedSelf ? "people.merging_self" : "people.merging", { name: people.merging.name }) : ""
     Chip { text: I18n.t("dialog.cancel"); onClicked: people.merging = null }

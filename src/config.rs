@@ -311,6 +311,8 @@ struct UiTable {
     hide_from_share: bool,
     #[serde(default)]
     tray: bool,
+    #[serde(default)]
+    notifications: bool,
 }
 
 impl UiTable {
@@ -325,6 +327,7 @@ impl Default for UiTable {
             language: Self::auto(),
             hide_from_share: false,
             tray: false,
+            notifications: false,
         }
     }
 }
@@ -413,6 +416,9 @@ pub struct Config {
     pub hide_from_share: bool,
     /// eco shows an icon in the system tray, run as its own window process.
     pub tray: bool,
+    /// The daemon tells the desktop's notifications what the windows would
+    /// show while no eco window is active.
+    pub notifications: bool,
     pub update: UpdateConfig,
     /// Keys -> the `eco window` command they run, registered on Windows;
     /// `None` keeps the defaults of `shortcuts::DEFAULT`.
@@ -433,6 +439,15 @@ impl Config {
             .iter()
             .map(|slot| (slot, read(slot)))
             .collect()
+    }
+
+    /// The language pack the interface reads: the one chosen, or, on "auto",
+    /// the system language `locale`'s.
+    pub fn interface_pack(&self, locale: Option<&str>) -> String {
+        match self.ui_language.as_str() {
+            "auto" => system_language(locale).0.to_string(),
+            chosen => chosen.to_string(),
+        }
     }
 
     /// The registered model called `name`.
@@ -496,6 +511,7 @@ impl Config {
             ui_language: raw.ui.language,
             hide_from_share: raw.ui.hide_from_share,
             tray: raw.ui.tray,
+            notifications: raw.ui.notifications,
             update: raw.update,
             shortcuts: raw.shortcuts,
         };
@@ -524,6 +540,7 @@ impl Config {
                 language: self.ui_language.clone(),
                 hide_from_share: self.hide_from_share,
                 tray: self.tray,
+                notifications: self.notifications,
             },
             update: self.update.clone(),
             shortcuts: self.shortcuts.clone(),
@@ -738,18 +755,24 @@ pub(crate) fn valid_color(color: &str) -> bool {
 /// any language without a pack.
 const FIRST_LANGUAGES: [(&str, &str); 3] = [("en-US", "en"), ("pt-BR", "pt"), ("ja-JP", "ja")];
 
-/// The empty config in the system language `locale` (`pt_BR.UTF-8`, `ja-JP`):
-/// its interface, its transcription language and its rules; English for a
-/// language eco has no pack for, or none.
-fn first_run(locale: Option<&str>) -> Config {
+/// The (pack, transcription code) of the system language `locale`
+/// (`pt_BR.UTF-8`, `ja-JP`); English for a language eco has no pack for, or none.
+fn system_language(locale: Option<&str>) -> &'static (&'static str, &'static str) {
     let language = locale
         .map(|locale| locale.split(['_', '-', '.', '@']).next().unwrap_or(""))
         .unwrap_or("")
         .to_ascii_lowercase();
-    let (pack, code) = FIRST_LANGUAGES
+    FIRST_LANGUAGES
         .iter()
         .find(|(_, code)| *code == language)
-        .unwrap_or(&FIRST_LANGUAGES[0]);
+        .unwrap_or(&FIRST_LANGUAGES[0])
+}
+
+/// The empty config in the system language `locale` (`pt_BR.UTF-8`, `ja-JP`):
+/// its interface, its transcription language and its rules; English for a
+/// language eco has no pack for, or none.
+fn first_run(locale: Option<&str>) -> Config {
+    let (pack, code) = system_language(locale);
     let languages = ["auto", code]
         .into_iter()
         .map(String::from)
@@ -1392,6 +1415,27 @@ mod tests {
         assert!(!config.hide_from_share);
         assert!(Config::from_value(config.to_value()).unwrap().tray);
         assert!(error_of(with("ui", json!({"tray": "yes"}))).contains("invalid config"));
+    }
+
+    #[test]
+    fn notifications_default_to_off_and_round_trip() {
+        assert!(!Config::from_value(raw()).unwrap().notifications);
+        let config = Config::from_value(with("ui", json!({"notifications": true}))).unwrap();
+        assert!(config.notifications);
+        assert!(!config.tray);
+        assert!(Config::from_value(config.to_value()).unwrap().notifications);
+        assert!(error_of(with("ui", json!({"notifications": "yes"}))).contains("invalid config"));
+    }
+
+    #[test]
+    fn the_interface_pack_is_the_chosen_one_or_the_system_s_on_auto() {
+        let mut config = Config::from_value(raw()).unwrap();
+        assert_eq!(config.interface_pack(Some("pt_BR.UTF-8")), "pt-BR");
+        assert_eq!(config.interface_pack(Some("ja-JP")), "ja-JP");
+        assert_eq!(config.interface_pack(Some("de_DE")), "en-US");
+        assert_eq!(config.interface_pack(None), "en-US");
+        config.ui_language = "ja-JP".into();
+        assert_eq!(config.interface_pack(Some("pt_BR.UTF-8")), "ja-JP");
     }
 
     #[test]

@@ -333,3 +333,18 @@ pub trait Installer: Send + Sync {
         progress: InstallProgress,
     ) -> BoxFuture<'static, Result<(), InstallError>>;
 }
+
+/// How much a notification asks of the user's attention.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Urgency {
+    Normal,
+    /// It stays until the user closes it, where the desktop allows.
+    Critical,
+}
+
+/// The desktop's notifications.
+pub trait Notifier: Send + Sync {
+    /// Show `title` and `body` without waiting for the desktop; a failure is
+    /// written to the daemon's log.
+    fn notify(&self, title: &str, body: &str, urgency: Urgency);
+}

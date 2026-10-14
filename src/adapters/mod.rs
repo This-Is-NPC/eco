@@ -30,6 +30,10 @@ pub mod installer_linux;
 pub mod installer_windows;
 pub mod llm_openai;
 pub mod local_socket;
+#[cfg(unix)]
+pub mod notify_linux;
+#[cfg(windows)]
+pub mod notify_windows;
 pub mod omapass;
 pub mod overlay;
 pub mod people_files;
