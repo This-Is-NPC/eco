@@ -134,12 +134,12 @@ files import modules by name (`import Eco.Kit`), never by relative path:
 
 | Module | Holds | Imports of the overlay |
 |---|---|---|
-| `Eco.Core` | the singletons `Eco` (the socket and the state), `Theme`, `I18n`, their root `Singleton`, `InputSignal`, the language packs in `i18n/`, and the JavaScript libraries `Draft` (`draft.js`), `Focus` (`focus.js`) and `Markdown` (`markdown.js`), declared in its `qmldir` | none |
-| `Eco.Kit` | the generic components every view composes: buttons, chips, fields, dropdowns, menus, dialogs' frames, tables, panels, status lines, `Stage` | `Eco.Core` |
+| `Eco.Core` | the singletons `Eco` (the socket and the state), `Theme`, `I18n`, their root `Singleton`, `InputSignal`, the language packs in `i18n/`, and the JavaScript libraries `Draft` (`draft.js`), `Focus` (`focus.js`), `Markdown` (`markdown.js`) and `Packs` (`packs.js`), declared in its `qmldir` | none |
+| `Eco.Kit` | the generic components every view composes: buttons, chips, fields, dropdowns, menus, dialogs' frames, tables, panels, the toast stack, the tab rail and command bar, `Stage` | `Eco.Core` |
 | `Eco.Live` | the live session: timeline, speech turns, answer and note cards, composer, session control, speaker guesses | `Eco.Core`, `Eco.Kit` |
 | `Eco.Sessions` | history, a session's details (attendees, speakers, context, translation), people, cost, the import strip | `Eco.Core`, `Eco.Kit` |
 | `Eco.Dialogs` | start, import, rename, speaker assignment | `Eco.Core`, `Eco.Kit` |
-| `Eco.Settings` | the settings window and its pages | `Eco.Core`, `Eco.Kit` |
+| `Eco.Settings` | the settings window: its sections, the screen of each kind of item, and the draft an item is edited in | `Eco.Core`, `Eco.Kit` |
 | `Eco.Window` | the composing root: `OverlayPanel`, the eco window, and `SessionView`, which joins the live session to its details | every module above |
 | `Eco.Lab` | the control lab | any |
 
@@ -183,6 +183,7 @@ composition happens in `src/session.rs` from `config.toml`. The crate forbids
 | `EventSink` | Unix socket (overlay), text on stdout | stdout is written only when it is a terminal (`mise run start`); under the user service it is the journal, which never gets transcript, note or answer text. |
 | `TranscriptStore` | file in `~/.local/share/eco/`, null (`--no-save`) | |
 | `WindowControl` | Hyprland (`hyprctl dispatch`, its event socket); on Windows the windows themselves, told by events on the socket (`HostWindows`) | A platform seam (§15): it focuses a window process's window and leaves its windows out of screen sharing, both by pid. Tests open windows with a fake. |
+| `Notifier` | `notify-send` on Linux; Windows toast notifications on Windows | A platform seam (§15): `notify(title, body, urgency)` shows one system notification. The daemon decides when (§12.2); tests decide with a fake. |
 
 Rule: only add a port when two real implementations exist or a test clearly
 benefits.
@@ -203,9 +204,12 @@ eco/
 │   ├── lifecycle.rs         # start, stop and status of the daemon (§15)
 │   ├── setup.rs, skill.rs   # `eco setup`: models, desktop rules, agent skill
 │   ├── import.rs            # a file into a session (§7.7)
+│   ├── installer.rs         # `eco update` and `eco version`: fetch, verify, install (§13)
+│   ├── doctor.rs            # `eco doctor` (§11)
 │   ├── config.rs            # config.toml: schema, validation, atomic save (§9)
 │   ├── paths.rs             # every path eco reads or writes (§8, §15)
 │   ├── session.rs           # adapter composition + orchestration
+│   ├── session/update.rs    # the daily release check, the install, the deferred restart (§13)
 │   ├── ports.rs             # traits
 │   ├── domain/              # segmenter, sessions, assistant, prompts, people, billing
 │   ├── adapters/            # audio, vad, stt, llm, socket, terminal, overlay, files
@@ -229,7 +233,8 @@ eco/
 - **Audio sources:** the user groups devices into audio sources (`Eu`,
   `Recrutador`…; `[[participants]]` in the config); each device is its own
   stream, labelled with its audio source, so no diarization is needed. One
-  audio source may be marked as the user (THIS IS ME).
+  audio source may be marked as the user (YOU, under Settings › Audio ›
+  AUDIO SOURCES).
   Devices missing from `pw-dump` are reported and skipped, since `pw-record`
   silently falls back to the default device for an unknown target.
 - Format: mono, 16 kHz, s16le, in ~100 ms blocks.
@@ -249,13 +254,13 @@ eco/
   voices are kept like an import's, so their speakers get guesses.
 - **Echoes:** without headphones, or with headphones loud, the user's
   microphone hears the call and duplicates "their" speech as "me". Headphones
-  are recommended; two answers are built in. With `[audio] drop_echoes` (on by default; CAPTURE › YOUR
-  MICROPHONE › DROP ECHOES), a line of the user's whose words mostly follow, in
+  are recommended; two answers are built in. With `[audio] drop_echoes` (on by default; Settings › General ›
+  DROP ECHOES), a line of the user's whose words mostly follow, in
   order, what the others said in the last 20 s (at least 60% of them, and 4
   words or more) is their audio: dropped when it comes after theirs, taken back
   when it came first (an `unheard` record; clients get `transcript_removed`).
   Live sessions only; imports have one stream. With `[audio] echo_cancel`
-  (CAPTURE › YOUR MICROPHONE › ECHO CANCELLATION, off by default), while a
+  (Settings › General › ECHO CANCELLATION, off by default), while a
   session records eco runs PipeWire's `libpipewire-module-echo-cancel` (WebRTC,
   `monitor.mode`) inside a `pw-cli` it owns: the user's first microphone is
   captured through the module's source, which takes out what the **default
@@ -267,7 +272,7 @@ eco/
   (§15). It costs ~3% of one core while a
   session records.
 - **Errors show:** a failed transcription or a capture that stops mid-session
-  reaches the overlay's status line, and the terminal when the daemon runs in
+  reaches the overlay as an error toast (§12.2), and the terminal when the daemon runs in
   one. A streaming transcription down, and back, is not an error: it is a
   `transcription` event (§10.1), shown under the session capsule (§12.2) and
   printed in the terminal.
@@ -402,8 +407,8 @@ matters.
   URL has no path, as servers usually serve under `/v1`); an answer that ends
   without a word fails too, rather than leaving an empty card.
 - **Rules:** `rules` holds the rules every answer follows (language,
-  brevity, never putting facts in the user's mouth); the config window edits
-  them. An action's prompt and format override them, so a new action states
+  brevity, never putting facts in the user's mouth); Settings › Prompts
+  edits them. An action's prompt and format override them, so a new action states
   its own behaviour instead of changing the shared rules.
 - **Reviewer:** with `[reviewer] enabled`, every answer — an action or a free
   question — is first drafted unseen by its model, then the reviewer's `model`
@@ -414,6 +419,8 @@ matters.
   the draft (`suggestion_draft`) and keeps it on the answer, shown dimmed above
   it, to inspect what the reviewer changed. A reviewer whose model cannot be set
   up fails answers with that reason until it is fixed or turned off.
+  In the window, Models' DEFAULT FOR REVIEW picks `model`, General turns
+  `enabled` and `verbose` on, and Prompts holds `prompt`.
 - **Default model:** `[llm] model` names the assistant's; an action's `model`
   names another (e.g. a slower, better model for a deep action). Only the models
   something uses are set up. Latency measurements: [benchmarks.md](benchmarks.md).
@@ -744,6 +751,7 @@ below is built in `src/paths.rs` (§15).
 | `~/.local/share/eco/people/<id>.json` | a person: name, color, voiceprints (§7.4) | the daemon |
 | `~/.local/share/eco/people/voices/<session>.json` | the voices of a session's diarized speakers (§7.3) | the daemon |
 | `~/.local/share/eco/models/` | the Silero VAD and WeSpeaker CAM++ models | `eco setup` |
+| `~/.local/state/eco/update.json` | the last check for a release that GitHub answered (§13): `checked_at` (Unix seconds), `latest` (the tag's version) and `notes` (the release page) | the daemon |
 | `$XDG_RUNTIME_DIR/eco.sock` | the socket (§10) | the daemon |
 | `$XDG_RUNTIME_DIR/eco.token` | the token for this run: the windows' (§9), and on Windows every client's admission (§10), `0600`, removed when the daemon exits | the daemon |
 
@@ -762,9 +770,11 @@ and administrators (§15).
 | `~/.local/share/eco/` (sessions, people, voices, models) | `%LOCALAPPDATA%\eco\` |
 | `$XDG_RUNTIME_DIR/eco.sock` | the named pipe `\\.\pipe\eco-<user>`, no file |
 | `$XDG_RUNTIME_DIR/eco.token` | `%LOCALAPPDATA%\eco\eco.token` |
+| `~/.local/state/eco/update.json` (`$XDG_STATE_HOME/eco/` when that is set) | `%LOCALAPPDATA%\eco\update.json` |
 | the journal of `eco.service` | `%LOCALAPPDATA%\eco\daemon.log`, the output of the daemon `eco start` started, emptied at each start |
 | the line `eco setup` adds to `~/.config/hypr/bindings.lua` | nothing: eco does not start at login; `eco setup` removes the `Startup\eco.cmd` an earlier eco wrote |
 | the launcher `eco.desktop` the package installs | `%APPDATA%\Microsoft\Windows\Start Menu\Programs\eco.lnk`, written by `eco setup`: it runs `eco start` through `conhost.exe --headless`, with the icon of `eco-window.exe` |
+| the icon `eco` the package installs, which names `notify-send`'s notifications | the registry key `HKCU\Software\Classes\AppUserModelId\This-Is-NPC.eco`, written by `eco setup` and by the daemon before a notification: `DisplayName` `eco`, `IconUri` the installed `share\eco\eco.ico` |
 
 A session log holds `session`, `state`, `speech`, `suggestion`, `removed`,
 `meta`, `speaker`, `diarized`, `person`, `attendee`, `unheard`, `edited`,
@@ -793,9 +803,13 @@ leaves out takes the default below, whatever the system says. The daemon
 starts on it, so the window opens and its settings write the file at the first save; a
 file that does not parse or validate still stops the daemon. `stt.model` and
 `llm.model` may be empty, naming no default: a session that needs that model
-is told `no transcription model is chosen`, as an `stt.unavailable` error, and
-an answer fails with `no chat model is chosen` (`completion.failed`). Every
-field:
+is told `no transcription model is chosen`, as an `stt.unavailable` error. A
+question or an action that no chat model answers in a session of its kind is
+refused before anything is asked, with `chat.none` (`{kind}`); one that waited
+while the setup lost its model fails with `completion.failed`. Turning
+translation on, or translating an answer, where no model translates the kind
+is refused with `translation.none` (`{kind}`); a session that still translates
+after its translator went asks for nothing more. Every field:
 
 ```toml
 kinds = ["meeting", "conversation", "other", "idea"]  # what a session can be
@@ -881,6 +895,10 @@ kinds = ["meeting"]
 language = "auto"                           # interface language pack, or auto
 hide_from_share = false                     # eco's windows hidden from screen shares (and screenshots)
 tray = false                                # an icon in the system tray (§12.7)
+notifications = false                       # system notifications while no eco window is active (§12.2)
+
+[update]
+check = true                                # once a day, ask GitHub for the latest release's tag (§13); false never asks
 
 [colors]                                    # trace colour per device (optional)
 "@default-input" = "#ffb000"
@@ -912,7 +930,8 @@ hook = "~/bin/crm-push --board leads"       # run with ECO_SESSION and ECO_TITLE
 hook_auto = true                            # after every answer; else from its send button
 ```
 
-The config window saves a draft whole; the daemon validates it, writes
+The config window saves one item or value at a time, sending the saved config with
+that item's change whole (§12.6); the daemon validates it, writes
 `config.toml` and restarts capture. A restart first stops the running pipeline
 and its capture or monitor task completely, then starts the new one, so a save
 never leaves a second `pw-record` duplicating frames or transcribing twice.
@@ -966,8 +985,8 @@ never logged) each time it builds that provider. omapass is found on `PATH` or
 in `~/.config/omarchy/plugins/io.github.this-is-npc.omapass/bin/`, and is
 optional: the `config` event says whether it is there and where its install page
 is, and without it the config window's OMAPASS is off, with an info button that
-opens that page. The window's KEY FROM switches between ENV and OMAPASS and
-lists its passwords (not its Nostr keys), never their secrets. Since the daemon may be launched from a
+opens that page. The window's KEY FROM lists its passwords (not its Nostr
+keys) among the key names it offers, never their secrets. Since the daemon may be launched from a
 Hyprland shortcut (which does not read `.bashrc`), set them in
 `~/.config/uwsm/env`. Only the daemon reads the keys; the shortcuts do not need
 them. During development, mise loads them from `.env` at the project root
@@ -977,21 +996,42 @@ On Windows a key may come from the Windows Credential Manager instead:
 `api_key_credential = "<name>"` makes the daemon read the generic credential
 whose target is `eco:<name>` each time it builds that provider
 (`src/adapters/credentials.rs`, through the `keyring-core` crate and its
-Windows store, `windows-native-keyring-store`, without its search; the
+Windows store, `windows-native-keyring-store`; the
 credential is the UTF-16 password the Credential Manager's own dialog writes,
 so one added by hand reads the same). `eco key set <name>` stores one, with
 `persistence` local to the machine, reading the key hidden from the console
 (`rpassword`) or from stdin when it is not a terminal; `eco key remove <name>`
-deletes it; neither talks to the daemon. A credential that is not there fails
+deletes it; neither talks to the daemon. The daemon lists them by name for the
+`keys` command (§10.2) through the store's search (its `search` feature,
+`Store::search` with the pattern `^eco:`, then each entry's `get_attributes`
+for its `target_name`): eco asks for no password, the crate zeroes each one
+the enumeration brings before it lets go of it, and a credential gone between
+the search and the read is left out. A credential that is not there fails
 the model with `stt.credential_missing` or `model.credential_missing`
 (`params` `{"name","credential"}`), and a `models` listing with
 `models.credential_missing` (`{"credential"}`), each saying how to add it. The
 `config` event's `credential_manager` is true only on Windows: the window then
-offers CREDENTIAL MANAGER in place of OMAPASS, with a field for the name, and
-never sees the key. A logon session without the Credential Manager — an ssh
+offers CREDENTIAL MANAGER in place of OMAPASS, its credentials listed by name
+and a name typed by hand taken too, and never sees the key. A logon session without the Credential Manager — an ssh
 login by key — gets `NoStore`, said as such; the tests that need the real
 store stop there with a line on stderr. On Linux the field parses and the
 provider fails with the message that names omapass and the environment.
+
+The window's KEY FROM picks a key by name from one list: the `keys` command
+(§10.2) answers the names of the daemon's environment variables that may hold a
+key and of the Credential Manager's `eco:<name>` credentials, and the `omapass`
+command the accounts. Only names cross the socket; no value is kept or sent.
+A variable may hold a key when it is named `ECO_<NAME>` — the convention
+for a key of the user's own — or is one of the presets' variables (`PRESETS` in
+`src/session.rs`) and is set, even empty (the provider build then says it is
+empty). The `ECO_` variables eco itself sets or reads for its own work
+(`ECO_SOCKET`, `ECO_TOKEN`, `ECO_WINDOW`, `ECO_SESSION`, `ECO_TITLE`, …) are
+`OWN_VARIABLES` in `src/session.rs`, one list, and are never offered. The daemon
+reads its environment when it starts, so a new `ECO_` variable is listed after
+`eco restart`: on Linux set it in `~/.config/uwsm/env`, on Windows among the
+user's environment variables. A credential added on Windows is listed at once,
+since the store is searched on each request. `eco key list` prints the three
+lists (§11).
 
 The `models` command (§10.2) lists a provider's models with a key, so it reads a
 key only where a saved provider would: the key source of a saved model, sent to
@@ -1056,7 +1096,7 @@ A new client first receives `snapshot`; a window asks for the timeline of the
 session it shows:
 
 ```json
-{"type":"snapshot","session":{"id":"…","title":"Entrevista","kind":"meeting","source":"live","language":"pt","state":"recording","started_at":1791083833.3,"active_s":312.4,"running_since":1791084400.0},"kinds":["meeting","conversation","other","idea"],"kind_models":{"meeting":{"transcription":"deepgram","chat":"gemini"},"idea":{"transcription":"whisper-lan","chat":"qwen-lan"}},"actions":["ask","probe"],"hooks":["probe"],"participants":[{"name":"Eu","user":true},{"name":"Eles","user":false}],"inputs":[{"id":"@default-input","label":"Default microphone","participant":"Eu","color":"#ffb000"}]}
+{"type":"snapshot","session":{"id":"…","title":"Entrevista","kind":"meeting","source":"live","language":"pt","state":"recording","started_at":1791083833.3,"active_s":312.4,"running_since":1791084400.0},"kinds":["meeting","conversation","other","idea"],"kind_models":{"meeting":{"transcription":"deepgram","chat":"gemini","translation":"gemini","actions":["ask","probe"]},"idea":{"transcription":"whisper-lan","chat":"qwen-lan","translation":"gemini","actions":["ask","probe"]}},"default_models":{"transcription":"deepgram","chat":"gemini","translation":"gemini","actions":["ask","probe"]},"hooks":["probe"],"participants":[{"name":"Eu","user":true},{"name":"Eles","user":false}],"inputs":[{"id":"@default-input","label":"Default microphone","participant":"Eu","color":"#ffb000"}]}
 {"type":"signal","input":"@default-input","level":0.42,"speech":true}
 {"type":"session","session":{…} or null,"live":[{…} for each live session],"transcribers":[{"model":"deepgram","language":"pt","sessions":2}]}
 {"type":"session_opened","id":"…","window":2}
@@ -1102,8 +1142,22 @@ session it shows:
 {"type":"config_saved"}
 {"type":"config_pending","id":"1","hooks":[{"action":"minutes","command":"~/bin/crm-push"}],"files":["~/notes/cv.md"],"models":[{"name":"fast","base_url":"http://192.0.2.10:8000/v1","api_key_env":null,"api_key_omapass":"openrouter","api_key_credential":null}]}
 {"type":"models","target":"llm","models":["..."],"error":"..."}
+{"type":"keys","env":["ECO_LAN_KEY","OPENROUTER_API_KEY"],"credentials":null,"credential_error":""}
+{"type":"update","current":"0.4.0","latest":"0.5.0","newer":true,"notes":"https://github.com/This-Is-NPC/eco/releases/tag/v0.5.0","checked_at":1791083833,"check":true,"error":""}
+{"type":"update_progress","stage":"installing","version":"0.5.0","detail":""}
 {"type":"error","code":"session.none","params":{},"message":"start a session first"}
 ```
+
+`update` is what the daemon knows of releases (§13): the version it runs
+(`current`), the latest release's version (`latest`, `null` before any check
+answered), whether it is `newer`, the release page (`notes`, `""` without
+one), when it last asked (`checked_at`, Unix seconds, or `null`), whether
+`[update] check` is on, and the last check's failure (`error`, `""` when it
+answered). It is sent whenever one of these changes and to every client after
+`snapshot`. `update_progress` follows one install: `stage` is `downloading`,
+`verifying`, `installing`, `waiting` (installed, the restart waits for the
+last live session to end), `restarting`, `done` or `failed`, with `detail`
+saying why it failed.
 
 `window_focus` and `window_share` are window control on Windows (§15), sent
 only there: the window whose process is `pid` comes to the front with the
@@ -1126,7 +1180,7 @@ participant, kept until it is back or the import stops.
 ### 10.2 Commands
 
 `action <name>`, `ask <question>`,
-`config` (current config and devices, and in `echo_cancel` the error code that says why echo cancellation cannot run on this platform, `echo_cancel.unavailable` on Windows, or `null`; the Audio tab shows that code's text in place of what the option does), `config.set <json>` (the config whole;
+`config` (current config and devices, and in `echo_cancel` the error code that says why echo cancellation cannot run on this platform, `echo_cancel.unavailable` on Windows, or `null`; General's ECHO CANCELLATION row is disabled with that code's text as its tip), `config.set <json>` (the config whole;
 a window adds `"token"`; one from another client that adds a hook, a context
 file or a model, or moves a model's key, is held, §9; while one is held, any
 other client's answers `config.busy`), `config.approve <token> <id>` and
@@ -1140,7 +1194,14 @@ with no key source, a saved model's own source at that model's `base_url`, or a
 preset's variable at the preset's URL, as in §9.1; anything else answers `models`
 with `"code":"models.key_refused"` and `params` `{"base_url"}`), `omapass` (its
 passwords: `{"type":"omapass","installed","accounts":[{"account","folder"}],"error"?}`;
-not installed is `"installed":false`, not an error),
+not installed is `"installed":false`, not an error), `keys` (the names a
+model's key can come from, answered in the background:
+`{"type":"keys","env":["ECO_DEEPGRAM","OPENROUTER_API_KEY"],"credentials":["deepgram"],"credential_error":""}`;
+`env` is sorted and holds the `ECO_<NAME>` variables but eco's own and the
+presets' variables that are set, §9.1; `credentials` is the Credential
+Manager's `eco:<name>` names, sorted, `null` on Linux, and `[]` with
+`credential_error` saying why when the store could not be read; no value is
+ever kept or sent),
 `session.start <json>` (`{"title","kind","language","tags"}`; the kind defaults
 to the first, the tags are added as by `session.tag`;
 it records beside the live ones and is shown; with `"window"`, `session_opened`
@@ -1149,7 +1210,10 @@ live session),
 `window.show <json>` (`{"window","session"}`: the session a window shows now, or
 `""`), `window.closed <json>` (`{"window"}`: the window is closing and its
 process exiting; it is no longer open, so `overlay.open` opens a new one, and a
-process still running 2 s later is ended), `window.call <json>` (`{"call","path"}`, what a shortcut asks of a
+process still running 2 s later is ended), `window.active <json>`
+(`{"window","active"}`: the window has the system's focus, or lost it; each
+window sends it on every change, and the daemon notifies, §12.2, only while no
+window it knows is active; a closed window counts as not active), `window.call <json>` (`{"call","path"}`, what a shortcut asks of a
 window: `focus` only gives it the keyboard, `config` opens or closes the
 settings, `new_session` the start dialog, `sessions` the sessions list when no
 session is on screen, `import` the import dialog with `path`, the only call
@@ -1213,6 +1277,19 @@ imported), `import.cancel`, `entry.remove <json>`
 (`{"session","id"}`: an answer or a note of the open session, the one read back,
 or a stored one, whose log gets a `removed` record; clients get `note_removed`
 for a note and `suggestion_removed` otherwise, even when it was already gone)
+`update.check` (asks GitHub now, whatever `[update] check` says, and answers
+`update`), `update.install <json>` (`{"version"}`, optional, the latest when
+absent: installs that release through the installer port, the code `eco
+update` runs, and reports each step as `update_progress`; on Linux `pkexec`
+shows its own password prompt at `installing`), `daemon.restart <json>`
+(`{"force"}`: restarts the daemon as `eco restart` does, by spawning the
+installed `eco restart` detached — on Linux `systemd-run --user --collect
+--quiet <eco> restart`, a transient unit stopping `eco.service` does not take
+with it — and the windows reconnect; without `force`, while a session is live,
+it is refused with `daemon.recording`, and the window asks before it sends
+`force`; a restart that cannot be spawned is `daemon.restart_failed`
+`{detail}`; a second `update.install` while one runs or waits is
+`update.busy`),
 `sync` (no command: the connection answers `synced` to this client alone once
 it has read every line before it, §10) and `stop`.
 
@@ -1254,8 +1331,9 @@ How the commands are built:
   `argument.invalid` (an argument holds a line feed or a carriage return,
   which could end the command line early; nothing is sent),
   `daemon.offline`, `daemon.access_denied`, `daemon.unavailable`,
-  `session.not_found`, `session.delete_failed`, `action.unknown`,
-  `completion.failed`, `suggestion.removed` (replaced by a newer request), `import.busy`,
+  `session.not_found`, `session.delete_failed`, `action.unknown`, `chat.none`,
+  `completion.failed`, `suggestion.removed` (replaced by a newer request),
+  `translation.none`, `import.busy`,
   `import.failed`, `person.not_found`, `person.invalid`, `person.exists`,
   `people.failed`, `line.not_found`, `tag.invalid`, `tag.not_found`.
   They read
@@ -1268,6 +1346,34 @@ How the commands are built:
   the line, without waiting for the window; a connection that closes first
   is `daemon.closed`.
   None of these needs the windows' token.
+- `key list` sends `keys` then `omapass` and prints
+  `{"ok":true,"data":{"env":[…],"credentials":[…]|null,"omapass":[…]|null}}`:
+  the `keys` event's two lists and the omapass account names (`null` when
+  omapass is not installed); a source that could not be listed adds its
+  `credential_error` or `omapass_error`. Names only (§9.1). `key set` and
+  `key remove` do not talk to the daemon.
+- `update` installs a release (§13): `--check` only asks GitHub and reports
+  `{"current","latest","newer","notes"}`; without it the latest release is
+  installed when it is newer, and `--version <version>` installs that one, an
+  older one too. It prints one JSON object, `{"current","version","installed",
+  "restart"}`, and each step on stderr. A running daemon installs it
+  (`update.install`, §10.2) and restarts on the new version, its window
+  reopened, as `eco restart` does: `restart` is `"now"`, or
+  `"when_session_ends"` while a session records. With no daemon, or one that
+  answers `command.unknown` (a daemon from before updates), the command
+  installs it itself and `restart` is `"none"`. Codes: `update.unavailable`
+  (GitHub could not be asked, or has no such release), `update.failed` (the
+  download, the checksum or the install failed) and `update.busy`.
+- `version` prints `{"installed","daemon","latest","channel"}`: this
+  executable's version, the running daemon's (`null` when none runs), the
+  latest release — what the running daemon last found, `null` before its first
+  check, or with no daemon asked of GitHub — and `"release"`.
+- `doctor` checks the installed files, the VAD and speaker models, that the
+  config loads, that each model's key source resolves (by name; no value is
+  read out), that the daemon runs, and the global shortcuts (Hyprland's binds
+  on Linux, the registered keys on Windows). It prints one JSON object whose
+  list holds `{"check","ok","detail","fix"}` for each, and exits non-zero when
+  any fails.
 - `show` carries the session's speakers and storage path/byte count; `speaker`
   names one speaker, while `assign` can identify one line or every line.
 
@@ -1291,22 +1397,39 @@ indices, one accent from the active Omarchy theme
 the default). The overlay reloads the palette after file edits and theme
 directory replacements, including light and dark mode changes. The
 kit lives in `overlay/Eco/Kit/` (`Panel`, `SurfaceFrame`, `TraceButton`, `Chip`, `Tab`,
-`TextBox`, `Field`, `NumberField`, `Kicker`, `Masthead`, `StatusMessage`,
-`Icon`, `EcgTrace`); views compose it and hold no logic
-beyond binding `Eco`, the singleton that owns the socket. The control lab
+`TextBox`, `Field`, `NumberField`, `Kicker`, `Masthead`, `ToastStack`,
+`Icon`, `EcgTrace`, `DataTable`, `TabRail`, `PageBar`, `CommandRow`); views
+compose it and hold no logic beyond binding `Eco`, the singleton that owns the
+socket. `TabRail` is an app's pages as a carousel down the left edge, the
+one on screen at its head and the others after it in order, folded to their
+numbers and unfolding over what is beside it, with their names, under the
+pointer, with the keyboard on it or after a tap on its head; a page `marked`
+shows a dot, and ↑/↓/Home/End move along the carousel;
+`PageBar`, beside its head, the commands of the page on screen, and at its end
+the page's readout (a count, such as `7 SESSIONS`), which gives way first when
+the bar is narrow; `CommandRow`, a
+bar's actions ranked, the main one solid (`TraceButton`'s `filled`) and, when
+`spread`, on the left with the others on the right and the guarded ones last,
+behind a hairline, each falling back to its short name when the names do not
+fit, or, with `iconsWhenTight` (as `PageBar` sets it), to its icon. A
+`DataTable` that `picks` picks a row on a click and opens it on a double click,
+Enter or Space; the row ↑/↓, Enter and Space act on is always the picked one.
+A row's tools may carry their own act, which Enter, Space and a double click
+run instead of opening the row. The control lab
 (`mise run preview:controls`) shows every kit component.
 
 - **Icons:** one set (`Icon.qml`), thin line drawings on a 16-unit grid with
   one stroke weight and round ends — settings (sliders), play, pause, stop,
   list, close, chevrons, enter, warning, spark (AI) — instead of Unicode
-  glyphs that each fallback font draws differently. No connection badge while
-  things work; `DESCONECTADO` shows only when the daemon is unreachable.
+  glyphs that each fallback font draws differently. No connection warning
+  while things work; an error toast says when the daemon is unreachable
+  (§12.2).
 - **Selection always shows:** the chosen option of a dropdown carries a dot and
   an accent tint, distinct from hover; the current row of a list is tinted
   with its title in the accent. No side bars.
 - **Languages:** the interface is translated through JSON language packs in
   `overlay/Eco/Core/i18n/` (English, Brazilian Portuguese, Japanese), found and
-  reloaded on their own, chosen in Settings › Interface (`[ui] language`,
+  reloaded on their own, chosen in Settings › General (`[ui] language`,
   `auto` follows the system). Dates follow the chosen locale; daemon errors
   carry codes the overlay translates. See [i18n.md](i18n.md).
 
@@ -1334,10 +1457,11 @@ reconnects to the socket on its own.
 - **During a session**, as a chat, with the conversation taking every pixel the
   header does not need: the session's title in the masthead (a session without
   one is named by its kind, there and everywhere else), with
-  the details button (what it is, people, speakers, tags — added with the
-  existing ones offered, taken off by their chip —, context, translation and
-  cost, in a panel that opens over the top of the conversation, takes its clicks
-  and scrolls past its height) and, top right, the close button, back
+  the cost button (`$`, the session's cost screen), the details button (what
+  it is, people, speakers, tags — added with the existing ones offered, taken
+  off by their chip —, context and translation, in a panel that opens over the
+  top of the conversation, takes its clicks and scrolls past its height under
+  a head that stays) and, top right, the close button, back
   to the sessions — a live one keeps recording; then the
   **session capsule**, one line — the running time (stopped while paused) and
   state (a dot with a ring that keeps leaving it while recording), the live trace
@@ -1380,6 +1504,32 @@ reconnects to the socket on its own.
   cancels).
 - **Conversation:** a chat — the user's lines on the right, everyone else on
   the left, the speaker's name, time, and color on every line.
+- **Notices:** what the window has to say — a save, a refusal, an error of the
+  daemon — is a toast in its bottom-right corner, the kit's `ToastStack`, in
+  the eco window and in the config window alike, on every screen: in a
+  session the stack stands above the composer, and in the config window
+  inside the section's frame, so no toast covers the composer or a bar.
+  Where that room is too short for every toast, the stack hides the oldest
+  until they fit again, keeping the pinned one (the daemon's absence) and the
+  newest. `Eco` keeps them as a list
+  (id, kind, the text's parts, time): `tell` and `say` add one, `dismiss(id)`
+  takes one out. At most three show, the newest at the bottom; a fourth takes
+  out the oldest. Each has its kind's icon (info, success, error), its text,
+  wrapped, and a × button, which Tab reaches. Info and success close on their
+  own after about six seconds, a count that stops while the pointer is over
+  the toast or it has the keyboard; an error stays until its × or Esc closes
+  it. While the daemon is unreachable an error toast says so, with no
+  countdown, and it goes when the window connects again. A toast moves
+  only as it comes and goes.
+- **System notifications:** with `[ui] notifications` on (Settings › General,
+  off by default) the daemon, through the `Notifier` port (§3.1, §15), sends a
+  notification of the system when no eco window is active — each window tells
+  it with `window.active` (§10.2), active meaning it has the keyboard and is in
+  front of the system (`Host.foreground`, §15) — for these events only: a source's
+  transcription down, and back (§5); a newer release found, once per version
+  (§13); an answer finished, named by its skill or its question, never its
+  text; and an error the windows show as an error. Nothing else, and never a
+  secret or transcript text.
 
 ### 12.3 Screens and dialogs
 
@@ -1390,7 +1540,9 @@ reconnects to the socket on its own.
   window's last session used (kept while the window lives, not across
   restarts), offers the context slots with those of the chosen kind already on,
   says which models a kind runs on once it is picked (`kind_models` in the
-  snapshot: `{kind: {"transcription", "chat"}}`), scrolls in a short window with
+  snapshot: `{kind: {"transcription", "chat", "translation", "actions"}}`, each
+  model by name or `""` for none, and the actions a model answers there;
+  `default_models` the same for a kind no longer configured), scrolls in a short window with
   its buttons kept below, and without an input it cannot start: it says so and
   offers the Audio settings.
 - **Several windows:** opening the app again opens another window on a live
@@ -1400,7 +1552,9 @@ reconnects to the socket on its own.
   whose LIVE filter lists the live ones, any of which shows in that window when
   opened.
 - **End:** asks for confirmation, then closes the session the window shows.
-- **SESSIONS:** the start screen links to a table of stored sessions — the live
+- **SESSIONS:** a `PageBar` — back, NEW SESSION solid, IMPORT and PEOPLE, and
+  the count of sessions listed as its readout — over a table of stored
+  sessions — the live
   ones first under LIVE, with a dot before their state, then the others newest
   first under their day (TODAY, YESTERDAY, or the date): title, kind, tags, when
   (`Today 14:30`, `08 Oct 14:30`), duration, people, and state; no cost —,
@@ -1426,14 +1580,16 @@ reconnects to the socket on its own.
   Interrupted sessions are untinted: only the live sessions (the LIVE count) and
   an import under way are toned.
 - **Keys:** `n` new session, `h` SESSIONS and `p` people on the start screen,
-  `↑`/`↓`/`Enter` in the list, `Esc` back, `e` edit, `r` resume; on the People
+  `n` new session and `↑`/`↓`/`Enter` in the list, `Esc` back, `e` edit, `r` resume; on the People
   screen `F2` renames and `m` merges the selected person. Back returns to the
   screen the user came from: SESSIONS opened from People goes back to People,
   and People opened from SESSIONS back to SESSIONS.
-- **Details:** the details panel opens with what the session is, on one line
-  — its state, start ("Today 14:30", as the sessions list), running duration,
-  and how many lines, answers and notes it holds — beside the edit (title and
-  kind) button, the title itself being in the masthead; a stored session adds
+- **Details:** the details panel opens with what the session is, in two lines
+  at most — its state, start ("Today 14:30", as the sessions list), running
+  duration, and how many lines, answers and notes it holds — beside the edit
+  (title and kind) button and the close (an up chevron, as Esc), the title
+  itself being in the masthead; that head stays while the rest scrolls under
+  it, a hairline under it while it does; a stored session adds
   its absolute storage path, with COPY PATH beside it, and copies its
   transcript. An interrupted or ended session can be deleted after a
   title-specific confirmation; a live session's delete is off. Its CONTEXT line's
@@ -1461,7 +1617,8 @@ reconnects to the socket on its own.
   tell apart by their session count, and the dialog's top edge stays put as it
   grows. NOT THEM undoes it.
 - **People screen** (PEOPLE on the start screen or in SESSIONS; `p` on the
-  start screen) lists everyone with their voices and sessions, and also
+  start screen), under a `PageBar` with back, ADD solid and the count of people
+  as its readout (while a merge waits, only the readout), lists everyone with their voices and sessions, and also
   changes person colors; selecting a person opens
   their sessions. The same screen adds someone by a name no one has (ADD, also
   offered by the empty list), renames, merges or forgets them. MERGE shows a
@@ -1476,8 +1633,10 @@ reconnects to the socket on its own.
   (`YYYY-MM-DD HH:MM`, read back as SESSIONS writes dates) and takes another;
   one it cannot read is outlined and stops the import. A strip shows the
   progress and stops it.
-- **Cost:** shown only when asked, inside the session: the COST button of its
-  details panel opens the session's cost screen (masthead `COST · <title>`,
+- **Cost:** shown only when asked, inside the session: the masthead's cost
+  button (`$`) opens the session's cost screen, and the details panel's COST
+  only when the masthead has no room for it (a short, narrow live window, where
+  the capsule joins the masthead) (masthead `COST · <title>`,
   SESSION or Esc back to the session) — the total, the LLM part with answers,
   reviews and translations, the transcription's with its minutes, each unknown
   reason once in full and a note when a part is estimated, then the charges in
@@ -1516,8 +1675,8 @@ reconnects to the socket on its own.
   model's reasoning as it arrives (it is working), then lights its frame while
   the reply grows (it is still arriving) — text being read never scrambles; a
   failed answer stays, in red, saying why; speech slides in from its speaker's
-  side, answers rise in and the new-content pill rises above the composer
-  (something new); traces move only with real audio (the inputs work);
+  side, answers rise in, the new-content pill rises above the composer
+  and a toast comes in and goes out (something new); traces move only with real audio (the inputs work);
   views slide when the user navigates (see Navigation motion) and visible
   labels decode softly; action buttons grow an accent rail on hover and
   carry an audio trace while waiting for the next state.
@@ -1538,9 +1697,10 @@ reconnects to the socket on its own.
   between it slides once per display frame (`FrameAnimation`). A `Canvas`
   repainted per frame looked as smooth but cost ~77% of a core; this costs
   ~12%. The same trace runs in the start screen's background,
-  inside the session capsule, and next to each captured device in the config
-  window.
-- **Input colours:** the user picks a colour per device (a palette of ten vivid
+  inside the session capsule, and in the LEVEL column of each device in the
+  config window's Audio section.
+- **Input colours:** the user picks a colour per device, in its row under
+  Settings › Audio (a palette of ten vivid
   colours, or automatic by position) so a trace says which input hears audio
   by colour alone; stored in `[colors]` (device id → `#rrggbb`). The palette is
   the theme's colours made readable, then their hues turned when the theme has
@@ -1562,9 +1722,10 @@ the details at the speakers), and, from 360 px wide, a live session's capsule
 joins the masthead line — state dot with its ring, running time, the
 silent-input warning, pause and end, without the trace; on a window also under
 560 px wide the name `ECO ╱` drops, the title elides first and the language
-picker moves into the details. The config window scrolls long panels. Long
-titles elide; the section name in the masthead keeps its room and the status
-message condenses to a marked tooltip when space is tight. Nested
+picker and the cost button move into the details. The config window scrolls an item's screen when it is long, and its
+tables stack each row's cells into lines under 700 px. Long
+titles elide and the section name in the masthead keeps its room; toasts
+narrow with the window and their text wraps. Nested
 layouts are pinned to their natural height so the timeline gets the space.
 
 ### 12.6 The config window
@@ -1579,94 +1740,295 @@ the rule in `packaging/hypr/eco.lua` gives it no size, so it keeps that one, and
 centres it on the screen (without `center`, Hyprland would centre it on the
 overlay, past the screen's edge).
 
-It edits a draft and saves it whole (SAVE, or `Ctrl+S`, named in its tooltip);
-the daemon validates it and saves it (§9). Unsaved changes are marked;
-discarding a changed draft asks first, and closing one offers SAVE AND CLOSE,
-KEEP EDITING or DISCARD CHANGES. Closing the eco window ends its process, the
-settings with it, without asking: unsaved changes are dropped. Leaving is what
-the user asked for, and Qt's own quit, which asks every window first, would
-stop at the kept settings window, which never closes, and leave the process
-running unseen. What keeps a draft from saving shows on its own
-field — an outline in the error colour and the reason under it — with a dot on
-the tab that holds it; a repeated name or a space in a skill's name shows as it
-is typed, a missing value once a save is tried, which opens the first one's tab
-and card and gives its field the keyboard. Each clears as soon as its field is
-fixed; the line above the buttons only counts them. The default models are
-not required, as the daemon does not require them (§9): a draft with no model
-registered saves, and a default it names must be a registered model of its
-type (`overlay/Eco/Core/draft.js`, `problems`). A daemon's refusal stays
-there until the draft changes again. Every field is named by a caption right
-above its control, pickers (models, languages) as much as text inputs: no label
-sits in a column of its own. Prompt areas (rules, a skill's prompt and format,
-the reviewer's prompt) grow to ten lines, then scroll inside. Number fields take
-digits only and keep the last valid number. A device refresh sends `devices`
-and leaves the draft intact. Lists (languages, context files) are compact rows:
-the position, the item, a step up and ×. File lists add a path typed in the
-field or picked, several at once, from the file dialog behind the folder button.
+**Sections.** Eight, down the left in the kit's `TabRail`, each named for
+the one question it answers: 01 Audio, 02 Models, 03 Languages, 04 Session
+kinds, 05 Prompts, 06 Context, 07 Skills, 08 General (`settings.at`: `audio`,
+`models`, `languages`, `kinds`, `prompts`, `context`, `skills`, `general`) —
+Audio first and Models second, since the sections after it pick from it, and
+Models sets the defaults: the chat, translation, review and transcription
+models used where nothing more specific picks one. The rail is a carousel in that order: the section on screen at
+its head beside the bar, the ones after it below, the ones before it coming
+round after the last. Folded, each tab shows only its number; under the
+pointer, with the keyboard on one of its tabs, or after a tap on its head, it
+unfolds over the bar and the section with the names. Each tab is a stop of the
+Tab chain (rail, bar, section, then the close button): ↑/↓/Home/End move along
+the carousel, Enter or Space chooses, and the chosen section takes the
+keyboard, so the rail folds. A section's number chooses it unless a field
+being written holds the keyboard and takes the digit; Ctrl with the number
+chooses it anywhere in the window, and `Ctrl+Tab` and `Ctrl+Shift+Tab` turn
+to the next or the one before. Each section
+owns its own fields: no section edits another's, and what another decides is
+only read there, as a link to it. A section whose open item has changes not
+saved shows a dot on its tab.
 
-Tabs, `Ctrl+1`…`Ctrl+8`, Audio first and Models second, since the tabs after
-it pick from it, each owning its own fields: no tab edits another's, and what
-another tab decides is only read, never picked, there.
+**The bar.** The kit's `PageBar`, beside the rail, holds the commands of what
+is on screen, ranked: BACK first and apart; the main action solid, on the
+left; across a gap, on the right, the others outlined, the guarded one
+(DELETE or DISCARD, at most one a bar) last, behind a hairline. Commands that
+act on a picked row are there whether a row is picked or not, dimmed until one
+is with the reason in their tip, so the bar does not move as rows are picked.
+Icons say what a command does: a trash can destroys, × takes out of a list, a
+right chevron opens. When their names do not fit, BACK shows only its
+chevron and each action its short name where it has one (DEFAULT FOR CHAT
+becomes FOR CHAT); when even those do not fit, each action but the main one
+shows only its icon, on a bar narrower still the main action too, each name in
+its tip, and narrower again one menu holds them all. The window's close is a corner button on the masthead line;
+its messages are toasts in the bottom-right corner (§12.2).
 
-- **Audio:** one card per audio source — its name, whether it is the user,
-  and its PipeWire devices (colour, kind, live trace, missing ones marked), with
-  ADD DEVICE listing every device and who has it now; removing one asks first,
+**Tables.** Each section is a `DataTable` under its name and what it is for.
+A simple value — ON/OFF, a choice, a name, a number — is changed in its row
+and saved at once (below, **Values in the row**); only content — models,
+session kinds, prompts, context, skills — has a screen of its own. A click or
+↑/↓ picks a row; on a table of items a double click, Enter or Space opens it,
+when it has a screen: a spoken language has none, so Languages has no VIEW or
+EDIT. The bar offers ADD (ADD MODEL, ADD LANGUAGE, ADD
+CONTEXT SLOT, ADD SKILL, ADD KIND), then, for the row picked, VIEW, EDIT, the
+section's own and DELETE. EDIT (`Ctrl+E` on the table) opens the row in its
+form, and SAVE, CANCEL or Esc returns to the table with the row still picked
+(under its new id, when the save renamed it); it is dimmed, with why, on a row
+whose screen has no form, as Global context's. The section's own: REFRESH
+DEVICES on Audio, which sends `devices` and changes nothing else; DEFAULT FOR
+CHAT, DEFAULT FOR TRANSLATION and DEFAULT FOR REVIEW on a chat model and
+DEFAULT FOR TRANSCRIPTION on a transcription one, which set `[llm] model`,
+`[translation] model`, `[reviewer] model` and `[stt] model`, each dimmed on the
+model already that default; MAKE DEFAULT on Languages, which sets `[stt]
+language`, and on Session kinds, which moves the kind first. Each of these saves at once. ADD LANGUAGE opens a screen in the
+section, the languages not offered yet as a table, where choosing one saves it
+and returns to the table. Lists keep the order their entries were added in:
+nothing moves an entry. Models' DEFAULT column says which defaults a model is;
+a translation default that is not set follows the chat one and reads
+inherited there. DELETE, or Delete on a
+row, asks first in a dialog that says what follows, then saves at once.
+A part of the config that is not a list item — Context's Global row — has
+DELETE dimmed, `Always kept`; Prompts, whose two rows are both such parts, has
+no ADD or DELETE at all; an item that may not go yet, as the chat default, has
+it dimmed, with why in its tip. Until a chat model is registered, Prompts,
+Context and Skills hold only NO CHAT
+MODEL, what it means, and REGISTER A CHAT MODEL, which opens a new model in
+Models; a kind offers no assistant or translation model then.
+
+**An item's screen.** An item opens read (`ItemPage`): its kind, its name, ABOUT — its facts — and RELATED, what it uses and what uses it, side
+by side from 640 px wide; with nothing related, RELATED is left out and ABOUT
+takes the width. Long texts, such as a skill's prompt, follow across the
+screen as they were written, their own lines kept. Each related
+entry is a link that opens that item in its own section; BACK returns to where
+it was followed from, and choosing a section on the rail starts the way back
+over. A link, or REGISTER A CHAT MODEL, into a section whose open item has
+changes not saved shows that item instead, and a toast says
+`Save or cancel <name> first`. EDIT (`Ctrl+E`) turns the screen into its form;
+opened by the table's EDIT, the item goes back to the table once saved or
+cancelled. Every field is named by a
+caption right above its control, pickers (models, languages) as much as text
+inputs: no label sits in a column of its own. Prompt areas (rules, a skill's
+prompt and format, the reviewer's prompt) grow to ten lines, then scroll
+inside. Number fields take digits only and keep the last valid number. A
+form holds only single values — text, pickers, and chips that choose among
+fixed options, as a slot's kinds — never a collection.
+
+**Child tables.** A collection that belongs to an item — the files of the
+global context and of each context slot — is a titled `DataTable` on the
+item's read screen, under ABOUT and RELATED (`tables` in `ItemPage`), its rows
+in the order they were added. Its rows are changed from the bar: the table's
+ADD (ADD FILE) — the main action of an item with no form, as the global
+context, otherwise beside the others —, then REMOVE named for what it takes
+out (REMOVE FILE), with × and not guarded, as ADD undoes it in one step; it is
+there whether a row is picked or not, dimmed until one is. Each **saves at
+once**, as DELETE does, on a copy of the saved config, finding what it changes
+by its name, and the row stays picked. ADD opens a **child screen**
+(`ChildScreen`) inside the item: the item's name small over its title, BACK
+(or Esc) back to the item without saving, and a small form: a file's PATH with
+BROWSE, which adds every file chosen in the file dialog at once. A new item
+opens in its form, so its collections fill only after its first SAVE. A screen
+that saves and closes — a child screen, a section's choosing screen
+(`ChooseView`: ADD LANGUAGE), an item deleted — closes first, then saves: a
+table destroyed while the save changes its rows crashed the window.
+
+**Values in the row.** Audio and General are tables of values, each row's
+control inline: a `Dropdown`, a `ColorPicker`, a lit/dim ON/OFF `Chip`, or a
+field for a name (`SyncedBox`, `inline`) or a number (`NumberField`,
+`inline`). They are the table's `tools` (with `toolsTitle` naming the column,
+`toolsAlways` keeping them shown on every row and `toolsLive` keeping every
+row's working, not only the picked row's), and Enter, Space and a double click
+on the row run its `act()`: open the list, turn the switch, or start writing,
+where Enter, or leaving the field, saves and Esc puts the value back; either
+gives the keyboard back to the rows. Each saves at once, on a copy of the
+saved config; the controls show the saved config, so a refused save leaves
+them as they were, and a toast says why. Tab from the rows
+reaches the control of the row picked, and goes on through the next rows'
+controls, picking each row it enters. General is a section's table; Audio's
+two tables are its `body`, a component the section draws in the table's place
+(`AudioBody`), whose rows the bar's commands act on as on a table's.
+
+**Saving one item.** An item is edited in an `ItemDraft`: a copy of the saved
+config that its form changes only where the item is. SAVE (`Ctrl+S`) sends
+the saved config plus that item's change, whole, and the daemon validates and
+saves it (§9); a rename follows wherever the item is named — a model into
+every use, a kind into the models and context slots — and the screen follows
+the new name. Renaming as it is typed, the uses follow only a name that is
+not empty and no other model's or kind's, so clearing a name or passing
+through another's moves nothing. One save goes to the daemon at a time: while
+one is under way, SAVE, CANCEL, DISCARD and Esc wait. DISCARD, shown once a
+saved item changed, reads it again; CANCEL stops editing and drops the
+changes, and a new item not saved goes back to the table; either, or Esc,
+asks first (DISCARD CHANGES or KEEP EDITING) when something was changed. The
+title's line marks NEW, UNSAVED and EDITING.
+Each section keeps its open item and its edit while another is on screen.
+When the saved config changes under a changed item (another program saved,
+or another item here), its changes are made again on the new one while the
+lists it lives in, and every list its changes reached (a kind's models pick
+reaches the models), are as they were there; otherwise it is marked CHANGED
+ELSEWHERE, SAVE says `Settings changed elsewhere. Discard your draft to reload
+before saving.` and saves nothing until DISCARD — shown then for a new item
+too, which it starts again — reads it again.
+
+What keeps an item from saving shows on its own field — an outline in the
+error colour and the reason under it — and the first such field takes the
+keyboard: a repeated name or a space in a skill's name as it is typed, a
+missing value once a save is tried. Each clears as soon as its field is fixed.
+A problem outside the item's fields, and a daemon's refusal, shows under its
+title until the item changes again; a refused DELETE or quick change shows as an
+error toast (§12.2). The default models are not required, as the daemon does not
+require them (§9): a config with no model registered saves, and a default it
+names must be a registered model of its type (`overlay/Eco/Core/draft.js`,
+`problems`). Naming a new model makes it the default of nothing; each default
+is set on the Models table.
+
+Closing the window with an item unsaved asks first: SAVE AND CLOSE saves
+each changed item in turn, the one on screen first, and closes once none is
+left; one that does not save stops it, shown, with why in the bar; it is off
+while an item is CHANGED ELSEWHERE. KEEP EDITING; or DISCARD CHANGES, which
+drops every one. Closing the eco window ends its process, the settings with it, without
+asking: unsaved changes are dropped. Leaving is what the user asked for, and
+Qt's own quit, which asks every window first, would stop at the kept settings
+window, which never closes, and leave the process running unseen.
+
+**Keys.** `Ctrl+1`…`Ctrl+8` a section, `Ctrl+Tab` / `Ctrl+Shift+Tab` the next
+or previous one; on the rail ↑/↓/Home/End move and Enter or Space opens the
+section. In a section's table ↑/↓ pick a row, Enter or Space opens it, Delete
+deletes it (asking first); in a child table ↑/↓ pick, Delete removes the
+row, and on a child screen's table Enter adds it. On a row with a value, Enter
+or Space acts on its control — opens the list, turns the switch, or starts
+writing a name or a number, which Enter saves and Esc puts back — and Tab
+reaches the control. `Ctrl+E` edits the item picked on a table, or the item open, `Ctrl+S`
+saves it. Esc goes back one level: out of a child
+screen, out of editing (asking first when that drops changes), back to the
+table, then closes the window. Keys show only in the shortcuts dialog
+(`ShortcutsDialog`), never on a button or in a tip.
+
+**The sections and their items.**
+
+- **Audio** (`AudioSection`), who is heard through which device: two tables
+  of values, no item screens. The first has a row per input and output of the
+  computer (`Eco.devices`), and one, dim and marked unavailable, per device a
+  source names that is not there: DEVICE, its label; KIND, MIC or OUT; LEVEL,
+  its live trace (`EcgTrace`) in its colour while it has signal
+  (`Eco.signals`); HEARD AS, a dropdown of every source, then Not heard, then
+  New source…; and COLOUR, a colour picker. Choosing a source gives the device
+  to it, taking it from the source that had it; Not heard takes it from its
+  source; New source… asks a name and creates that source with this device.
+  Each saves at once. The bar holds REFRESH DEVICES, which sends `devices` and
+  changes nothing else. Under it, AUDIO SOURCES, a row per audio source: NAME,
+  written in the row (Enter or leaving the field saves, Esc puts it back), and
+  YOU, a chip lit on the user's source (one source at most is you; lighting
+  one dims the other). DELETE deletes the source picked there, asking first,
   naming the devices no longer heard, whether nobody else is heard (it held the
-  only output device) and whether nobody is the user any more; then the
-  microphone echo controls, each with what it does.
-- **Models:** the registry only — every model as a card, chat and
-  transcription alike; closed, its type, the provider's id and what uses it;
-  open, what uses it in full and read-only (the defaults, the reviewer, the
-  skills that name it and each kind's transcription, assistant and translation
-  that answer with it, as the overlay's one resolver, `answering` in
-  `overlay/Eco/Core/draft.js`, mirrors the daemon's precedence), its type while nothing
-  uses it (changing it keeps the name and model id; the provider and key change
-  only when its base URL does not fit the new type), its name, for chat
-  REASONING (the provider's — or IN EXTRA FIELDS when `extra` sets one —, off,
-  low, medium or high: `reasoning`, sent as OpenRouter's `reasoning` field and
-  winning over one in `extra`), the provider (a preset of its type or CUSTOM,
-  which shows the base URL), model (typed, with the preset's model as an
-  example, or picked from LIST, which closes the list again, as Esc does), key
-  from an environment variable or an omapass password and, for chat, its extra
-  JSON under ADVANCED. Renaming one renames it everywhere; the assistant's and
-  the default transcription cannot be removed, and removing another asks first,
-  listing what falls back to which model (as `answering` picks it) and whether
-  the reviewer turns off. A new model starts from the base URL and key source
-  of the last model of its type, with its name field focused.
-- **Transcription:** the default transcription model, which sessions whose
-  kind picks none use; the offered spoken languages picked by name, and
-  the default spoken language new sessions start in.
-- **Answers:** the default assistant model, which answers questions and the
-  skills and kinds that pick none; the rules for every answer; the global
-  context files and the context slots (a slot: its name, files and the kinds
-  that start with it on); the reviewer (on, verbose, its model and prompt); and
-  the limits: context size and answers running at the same time, across all
-  sessions.
-- **Skills:** the actions as cards that open to edit, each picking its model —
-  or the default, named with the model it inherits (`default · <model>`) — and
-  its hook, sent on its own (AUTOMATIC, once a hook is set) or from the answer.
-  An action that names a model answers with it in every session kind. Cards
-  move up and down (their chevrons, or `Alt+↑`/`Alt+↓` inside one), which orders
-  the composer's skills. A name takes no spaces and no other skill's name;
-  renaming one warns that global shortcuts call it by name (`action <name>`),
-  and removing one asks first, saying those shortcuts stop working.
-- **Translation:** the default translation model — or the default, the
-  assistant's, named. Whether a session translates, and into which language,
-  is chosen in that session only.
-- **Sessions:** the kinds as cards — closed, the kind, DEFAULT on the first
-  (suggested by the start and import dialogs) and the models its sessions run
-  on; open, its name, MAKE DEFAULT, and its transcription, assistant and
-  translation models, each its own or the default named with the model it
-  inherits, noting that its assistant
-  model answers questions and the actions that name no model. A kind is renamed
-  once its name is left or Enter is pressed, never to an empty or another kind's
-  name. Renaming or removing a kind follows it into the
-  models and context slots; removing one asks first, saying that its sessions
-  keep it, which kind becomes the default and that its own models and slots stop
-  applying.
-- **Interface:** interface language, HIDE FROM SCREEN SHARING (off by
-  default), whose help says eco then shows black in the user's screenshots and
-  recordings too (§13), and SHOW ECO IN THE TRAY (off by default, §12.7).
+  only output device) and whether nobody is the user any more. Echoes are set
+  under General.
+- **Models** (`ModelsSection`): the registry and the defaults — a row per
+  model, chat and transcription alike: its name, type, the provider's model
+  id, DEFAULT (what it is the default for: CHAT, TRANSLATION, REVIEW,
+  TRANSCRIPTION, or TRANSLATION (INHERITED) on the chat default while no
+  translation default is set) and what else uses it. With a row picked,
+  DEFAULT FOR CHAT, DEFAULT FOR TRANSLATION and DEFAULT FOR REVIEW on a chat
+  model, DEFAULT FOR TRANSCRIPTION on a transcription one, each saved at once
+  and dimmed on the model that is already that default (`Draft.defaults`,
+  `Draft.makeDefault`); with none picked, DEFAULT FOR CHAT, dimmed. DEFAULT
+  FOR REVIEW sets `[reviewer] model` and leaves `enabled` as it is; nothing
+  else in the window picks the reviewer's model. Read: its type, what it is
+  the default for, provider, base URL, model id, where its key comes from, and
+  for chat its REASONING and extra fields, for transcription its price per
+  minute; RELATED, what else uses it, grouped by the section that sets each
+  use (the skills that name it, and each kind once, under a
+  group that says what the kinds in it use it for: assistant, translation or
+  both, as the overlay's one resolver, `answering` in
+  `overlay/Eco/Core/draft.js`, mirrors the daemon's precedence). Edited: its
+  TYPE while nothing uses it (changing it keeps the name and model id; the
+  provider and key change only when its base URL does not fit the new type),
+  its NAME, for chat REASONING (the provider's — or IN EXTRA FIELDS when
+  `extra` sets one —, off, low, medium or high: `reasoning`, sent as
+  OpenRouter's `reasoning` field and winning over one in `extra`), the
+  provider (a preset of its type or CUSTOM, which shows the base URL), model
+  (typed, with the preset's model as an example, or picked from LIST, which
+  closes the list again, as Esc does), key from an environment variable or an
+  omapass password, for transcription a fallback price per minute and, for
+  chat, the extra JSON sent with each request (EXTRA (JSON)). The chat and
+  transcription defaults cannot be deleted; deleting another asks first, listing what
+  falls back to which model (as `answering` picks it) and whether the reviewer
+  turns off. A new model starts from the base URL and key source of the last
+  model of its type.
+- **Languages** (`LanguagesSection`): a row per offered spoken language,
+  DEFAULT on the one new sessions start in; a language has no screen. ADD
+  LANGUAGE opens `AddLanguageView`, the languages eco knows that are not
+  offered as a table, where ADD LANGUAGE or Enter offers the one picked, saves
+  and returns to the table with it picked. For the row picked, MAKE DEFAULT and
+  DELETE, which asks first and, for the default, names the first language
+  left, the new default; the last language stays. The default transcription
+  model is set on Models.
+- **Session kinds** (`KindsSection`): the kinds, the default first (suggested
+  by the start and import dialogs), each row the kind, DEFAULT on the first and
+  the models its sessions transcribe and, once a chat model is registered,
+  answer with. Read: whether it is the default and its transcription,
+  assistant and translation models, each its own or the default named with the
+  model it inherits; its models and the context slots on from the start in it
+  as links; MAKE DEFAULT. Edited: its name, never empty or another kind's, and
+  those three models, noting that its assistant model answers questions and
+  the actions that name no model. Renaming or deleting a kind follows it into
+  the models and context slots; the last kind cannot be deleted, and deleting
+  another asks first, saying that its sessions keep it, which kind becomes the
+  default and that its own models and slots stop applying.
+- **Prompts** (`PromptsSection`), what instructions the models get: two rows,
+  nothing added or deleted — RULES FOR EVERY ANSWER, `rules`, and REVIEWER
+  PROMPT, `[reviewer] prompt`. Read, a prompt shows its text as written
+  (`ItemText`); EDIT holds only that text, in a `SettingsTextArea`. It holds NO
+  CHAT MODEL until a chat model is registered.
+- **Context** (`ContextSection`): the files sent with answers, each row its
+  name, when it is sent and how many files: Global, sent with every answer,
+  whose files, in the order they were added, are its child table FILES (ADD
+  FILE, REMOVE FILE), with no form, so no EDIT; and a row per context slot
+  (`On in <kinds>` or `When a session turns it on`), the only rows ADD and
+  DELETE reach — a slot's files are the same child table, its form only its
+  name and kinds, and deleting one says which kinds no longer start with it
+  on.
+- **Skills** (`SkillsSection`): the actions in the composer's order, the order
+  they were added in, each row its name, its
+  model — or the default, named with the model it inherits (`default ·
+  <model>`) — and its hook. Read: its model, hook and whether the hook sends on
+  its own, then its prompt and output format, its model a link. Edited: its
+  name, prompt, output format, model and hook, sent on its own (SEND ON ITS
+  OWN, once a hook is set) or from the answer. An action that names a model
+  answers with it in every session kind. A name takes no spaces and no other
+  skill's name; renaming one warns that global shortcuts call it by name
+  (`action <name>`), and deleting one asks first, saying those shortcuts stop
+  working and the skills after it move up.
+- **General** (`GeneralSection`), how eco behaves: one table of values under
+  titles (the `DataTable`'s `section` groups), each value beside its name as
+  the control that changes it, saved at once. INTERFACE: the interface
+  language, a dropdown of `auto` and the packs; HIDE FROM SCREEN SHARING (off
+  by default), whose help says eco then shows black in the user's screenshots
+  and recordings too (§13); SHOW ECO IN THE TRAY (off by default, §12.7);
+  SYSTEM NOTIFICATIONS (`[ui] notifications`, off by default, §12.2).
+  REVIEWER: REVIEW ANSWERS (`[reviewer] enabled`), the reviewer's model named
+  beside its switch, on or off, as a hint; turned on with no reviewer
+  model, `Draft.review` takes the chat default; and SHOW THE DRAFT
+  (`verbose`), dim while review is off. AUDIO: DROP ECHOES and ECHO
+  CANCELLATION (`[audio] drop_echoes`, `echo_cancel`), the latter disabled
+  while off where the daemon cannot cancel echoes (its `config` reply's
+  `echo_cancel` code, on Windows), with that code's text as its tip and note;
+  on, it can still be turned off. ANSWERS:
+  MAXIMUM CONTEXT (CHARACTERS) (`[llm] max_context_chars`) and ANSWERS AT THE SAME TIME
+  (`[llm] concurrency`), numbers written in the row. The note says what the
+  picked row does. No screens, so no VIEW or EDIT, and no DELETE: the bar is
+  empty.
 
 ### 12.7 The tray icon
 
@@ -1726,6 +2088,7 @@ under the folder above the binary's):
 eco/bin/eco.exe              the only program on PATH
 eco/lib/eco/eco-window.exe   the window, with its Qt runtime beside it
 eco/share/eco/overlay/       the QML it runs
+eco/share/eco/eco.ico        the icon of eco's notifications
 eco/LICENSE  eco/README.txt
 ```
 
@@ -1763,12 +2126,57 @@ those of `install.sh`. It writes the `PATH` in `HKCU\Environment` through
 its own type (`REG_EXPAND_SZ`), then broadcasts `WM_SETTINGCHANGE` through
 `SendMessageTimeout`, so Explorer gives it to the programs it starts:
 `[Environment]::SetEnvironmentVariable` would write it back expanded, as
-`REG_SZ`. Its errors end the script with status 1 when it runs as a file,
+`REG_SZ`. Taking eco off also deletes the app id key `eco setup` wrote
+(`HKCU\Software\Classes\AppUserModelId\This-Is-NPC.eco`, §15). Its errors end the script with status 1 when it runs as a file,
 and leave the session open under `iex`. `mise run install:windows` and
 `mise run uninstall:windows` are the same script: `mise run package` also
 writes `dist/SHA256SUMS`, and `scripts/install-windows` runs `install.ps1`
 with `BASE_URL` at `dist`'s `file:` URL; `scripts/uninstall-windows` asks,
 then runs it with `ECO_UNINSTALL`.
+
+**Updates.** eco installs its own releases with the steps of `install.sh` and
+`install.ps1`, written in Rust behind two ports: the release source, GitHub,
+and the installer, one adapter per platform.
+
+- *Knowing.* The daemon asks
+  `https://api.github.com/repos/This-Is-NPC/eco/releases/latest` for the tag
+  and the release page only: one GET with `User-Agent: eco/<version>`, nothing
+  of the user in it, and no telemetry. It asks when it starts if the last
+  check is older than 24 hours, then every 24 hours while it runs, and on
+  `update.check` (§10.2) or `eco update --check`. `[update] check = false`
+  (§9) stops the daily check. The answer is kept in `update.json` in the state
+  directory (§8), `checked_at` and `latest`, so a restart does not ask again,
+  and told to the windows as `update` (§10.1), and, with `[ui] notifications`
+  on and no window active, as one system notification per version (§12.2). A network that is down or an
+  answer that does not parse leaves the last state and sets `error`.
+- *Fetching.* `eco update`, or `update.install` from the window, downloads
+  the release's `SHA256SUMS` from
+  `https://github.com/This-Is-NPC/eco/releases/download/<tag>/`, takes from it
+  the line of this system's asset — the `eco-<version>-…pkg.tar.zst` Arch
+  package on Linux, `eco-<version>-windows-x86_64.zip` on Windows, the names
+  `install.sh` and `install.ps1` match — downloads the asset and checks its
+  sha256. On a mismatch nothing is installed and the update fails.
+- *Installing.* On Linux, `pkexec pacman -U --noconfirm <file>`, which shows
+  the desktop's password prompt; without `pkexec` and with a terminal
+  attached, `sudo pacman -U`. On Windows, `%LOCALAPPDATA%\Programs\eco` is
+  replaced with the zip's `eco` folder, as `install.ps1` does; the running
+  `eco.exe` cannot be overwritten, so every file of the folder is renamed
+  aside first, `<file>.<id>.eco-old`, and deleted at once when nothing holds
+  it, else when the daemon next starts (`installer::tidy`). A file another
+  program has open for a moment (a window rereading a language pack it
+  watches, a virus scan) is tried again for up to 5 s; one still held then
+  fails the install, and what was moved aside is put back. The Start-menu
+  shortcut and the `PATH` entry are left as they are. The package is
+  downloaded into a folder of its own under the temporary directory, deleted
+  when the install ends.
+- *Restarting.* Then the daemon restarts on the new binary, as `eco restart`
+  does, and a window that was open reopens. The restart never cuts a
+  recording: while a session is live it waits (`update_progress` stage
+  `waiting`, "restarts when the session ends") and runs once the last live
+  session, recording or paused, ends; the daemon looks after every command it
+  reads. On Linux the restart runs in a transient unit, `systemd-run --user
+  --collect --quiet <eco> restart`, where `<eco>` is the running executable's
+  path without the ` (deleted)` Linux adds once pacman replaced it.
 
 **Releases.** Commits follow Conventional Commits, and release-please reads
 them (`release-please-config.json`, `.release-please-manifest.json`). Every
@@ -1841,7 +2249,7 @@ leaves sessions, config, models and the agent skill.
   overlay also raises it above the settings, and a dialog it opens shows.
   Without the rules, Hyprland tiles both.
 - **Screen sharing:** off by default, eco's windows show in captures.
-  `[ui] hide_from_share` (Settings › Interface) makes the daemon set
+  `[ui] hide_from_share` (Settings › General) makes the daemon set
   Hyprland's `no_screen_share` on the windows of every `eco-window` it started
   (the overlay and its config window, found by pid) through the Lua dispatcher
   (`hyprctl dispatch`, in `src/adapters/window_hyprland.rs`): when a window
@@ -1863,7 +2271,11 @@ leaves sessions, config, models and the agent skill.
   models over HTTP is reached through the same adapters as any provider.
 - Transcripts stay local in `~/.local/share/eco/`; `--no-save` keeps a session
   in memory only. Secrets are never logged, nor transcript text at info level.
-  No telemetry.
+  No telemetry: the one request eco makes of its own is the daily GET for the
+  latest release's tag (§13), which `[update] check = false` turns off.
+  A system notification (`[ui] notifications`, §12.2) stays on the machine and
+  carries no secret and no transcript text: an answer is named by its skill or
+  question, never its text.
 
 The targets the design is held to:
 
@@ -1993,10 +2405,13 @@ installs it with `install.ps1`, as a release is installed, and `mise run
 uninstall:windows` takes it off
 ([how](how-to-install-and-remove.md#on-windows)); §13 says how the `PATH` is
 kept.
-The other tasks run bash
-scripts, which Windows does not; run the tests
-and lints there with `mise exec -- cargo test` and `mise exec -- cargo clippy
---all-targets -- -D warnings`. Recorded audio replays with
+On Windows mise runs a task's command through `cmd`, which runs no script
+by its shebang, so a task that runs there names a Python script, on the
+Python mise pins, in its `run_windows`: besides the tasks above, `mise run
+check` and the tasks it runs, `format`, `coverage` and `cli:gen` run from
+plain PowerShell. The others are bash scripts, for Linux alone; Windows ships
+no bash, and the first `bash` on its `PATH` may be WSL's, as it was on the
+machine eco is tested on. Recorded audio replays with
 `--replay <file.wav>` instead of joining a call.
 `mise run preview:controls` opens the control lab, and `mise run shots`
 regenerates `docs/img` from the real overlay against an isolated daemon.
@@ -2059,13 +2474,15 @@ adapter lives on each platform today.
 | Private files | files `0600` and directories `0700` | plain files and directories: under the user profile they inherit an access list that admits only the user, the system and administrators | `src/config.rs` |
 | The daemon socket | a Unix domain socket at `$XDG_RUNTIME_DIR/eco.sock`, `0600`; a socket file a crashed daemon left is replaced | a named pipe that refuses clients on other machines; its first instance is created as the first, so a second daemon is refused while one runs, and the pipe goes with its last handle; a new instance waits for the next client before each accepted one is handed out, and a client finding every instance taken tries again for two seconds. The pipe keeps Windows' default access list, which lets any local account open it (setting its own takes a call tokio offers only as `unsafe`), so a client is admitted only once its first line is `auth <token>`, the token in `%LOCALAPPDATA%\eco\eco.token`; anything else is disconnected without a byte (§10) | `src/adapters/local_socket.rs`; the admission and the protocol (`src/adapters/control_socket.rs`), the CLI client (`src/cli.rs`) and the service commands (`src/lifecycle.rs`) reach it only through it |
 | Audio devices and capture | the `AudioDevices` port, adapter `PipeWire`: devices from `pw-dump`, an `AudioSource` per device through `pw-record`, echo cancellation by `libpipewire-module-echo-cancel` loaded through `pw-cli` | adapter `Wasapi`, on WASAPI through the `cpal` crate: the devices are the active endpoints, each with its endpoint id (`{0.0.1.00000000}.{…}`) and friendly name, a capture endpoint as `input` and a render endpoint as `output`, after the same two defaults; `@default-input` and `@default-output` follow the system default (the daemon names them `Default microphone` and `Default output`, in English as its messages are; the overlay names them by id in the interface language), and when it changes the stream opens again on the new one. An output is captured in loopback, beside a silent stream of eco's own on that output, because WASAPI hands a loopback nothing while its output plays nothing. Capture runs on cpal's thread in the device's own format (often 48 kHz float stereo); `src/adapters/audio_convert.rs`, platform-neutral and tested on both, averages the channels, resamples to 16 kHz with a Blackman-windowed sinc (rational polyphase, cutoff at 90% of the lower Nyquist) and cuts 512-sample frames across chunks. Frames reach the session through a queue of 256 (about 8 s) that drops new audio rather than make the device's thread wait; a device that cannot be opened or goes away is reported as `capture.down` and opened again, while the other inputs keep capturing (§4). Echo cancellation is not available: `cancel_echo` fails with `echo_cancel.unavailable`, and the "cancelled" microphone is the default microphone as it is. Measured on the Windows machine over ssh: the endpoints listed, one second of the default microphone gave 30 frames and of the default output 31 silent frames, and a 440 Hz tone at 0.2 played on it came back with a peak of 6554 | `src/session.rs` composes it; `src/adapters/audio_pipewire.rs`, `src/adapters/pipewire_devices.rs`, `src/adapters/echo_cancel.rs`, `src/adapters/devices.rs` (both), `src/adapters/audio_wasapi.rs`, `src/adapters/audio_convert.rs` |
-| Service lifecycle and desktop setup | `ServiceManager`: the systemd user service (`systemctl --user`), chosen in `src/main.rs`; `DesktopIntegration`: the line loaded into the Hyprland Lua config (`~/.config/hypr/bindings.lua`), chosen in `src/setup.rs` | `ServiceManager`, adapter `BackgroundProcess`: `eco start` has PowerShell's `Start-Process -WindowStyle Hidden` run `eco detach`, which runs `eco daemon --headless` from the same executable as a process of the user's own and returns. A process Rust's standard library starts inherits every inheritable handle of its parent, and a shell or ssh reading `eco start`'s output waits until the last holder of that pipe exits: started directly, or through `cmd /c start`, the daemon held it and `eco start 2>&1 \| Out-String` never returned; through `Start-Process`, which inherits nothing, it returns once PowerShell does (measured over ssh: 12 s against 0.2 s with a 12-second program). The daemon runs with `CREATE_NO_WINDOW` (a console of its own that is never shown, which the programs it runs, a hook's `cmd` say, share instead of each opening one; `DETACHED_PROCESS` would leave it none, and Windows ignores `CREATE_NO_WINDOW` beside it), out of reach of a Ctrl-C in the terminal that ran `eco start`; its output goes to `%LOCALAPPDATA%\eco\daemon.log`, emptied at each start, and `eco start` waits for the pipe as on Linux; stop, status and restart go through the pipe. `DesktopIntegration`, adapter `OldLoginScript`: eco starts only when the user opens it, so `eco setup` removes the `eco.cmd` an earlier `eco setup` wrote into the user's Startup folder, says so, and says nothing when there is none. Adapter `StartMenu`: `eco setup` saves the shortcut `eco.lnk` in the user's Start menu through PowerShell and the shell's `WScript.Shell` COM object, the values handed in variables; it runs `conhost.exe --headless "<eco.exe>" start`, a console host without a window, with the icon of `eco-window.exe`, and a rerun leaves a shortcut with the same fields alone. `setup::desktop()` lists both; Linux lists Hyprland alone | `src/adapters/service_systemd.rs`, `src/adapters/desktop_hyprland.rs`, `src/adapters/service_windows.rs`, `src/adapters/desktop_windows.rs` |
+| Service lifecycle and desktop setup | `ServiceManager`: the systemd user service (`systemctl --user`), chosen in `src/main.rs`; `DesktopIntegration`: the line loaded into the Hyprland Lua config (`~/.config/hypr/bindings.lua`), chosen in `src/setup.rs` | `ServiceManager`, adapter `BackgroundProcess`: `eco start` has PowerShell's `Start-Process -WindowStyle Hidden` run `eco detach`, which runs `eco daemon --headless` from the same executable as a process of the user's own and returns. A process Rust's standard library starts inherits every inheritable handle of its parent, and a shell or ssh reading `eco start`'s output waits until the last holder of that pipe exits: started directly, or through `cmd /c start`, the daemon held it and `eco start 2>&1 \| Out-String` never returned; through `Start-Process`, which inherits nothing, it returns once PowerShell does (measured over ssh: 12 s against 0.2 s with a 12-second program). The daemon runs with `CREATE_NO_WINDOW` (a console of its own that is never shown, which the programs it runs, a hook's `cmd` say, share instead of each opening one; `DETACHED_PROCESS` would leave it none, and Windows ignores `CREATE_NO_WINDOW` beside it), out of reach of a Ctrl-C in the terminal that ran `eco start`; its output goes to `%LOCALAPPDATA%\eco\daemon.log`, emptied at each start, and `eco start` waits for the pipe as on Linux; stop, status and restart go through the pipe. `DesktopIntegration`, adapter `OldLoginScript`: eco starts only when the user opens it, so `eco setup` removes the `eco.cmd` an earlier `eco setup` wrote into the user's Startup folder, says so, and says nothing when there is none. Adapter `StartMenu`: `eco setup` saves the shortcut `eco.lnk` in the user's Start menu through PowerShell and the shell's `WScript.Shell` COM object, the values handed in variables; it runs `conhost.exe --headless "<eco.exe>" start`, a console host without a window, with the icon of `eco-window.exe`, and a rerun leaves a shortcut with the same fields alone. Adapter `ToastName`: `eco setup` registers eco's app id for the notifications (below). `setup::desktop()` lists the three; Linux lists Hyprland alone | `src/adapters/service_systemd.rs`, `src/adapters/desktop_hyprland.rs`, `src/adapters/service_windows.rs`, `src/adapters/desktop_windows.rs` |
 | Stopping the daemon and its windows | the daemon stops on Ctrl-C or `SIGTERM`; a window process is sent `SIGTERM` | the daemon stops on Ctrl-C, Ctrl-Break, its console closing or Windows shutting down; a window process is terminated | `src/session.rs`, `src/adapters/overlay.rs` |
 | The running executable | `eco status --expect-current-exe` compares the daemon's `/proc/<pid>/exe` with this executable by device and inode | it compares the `exe` the daemon's greeting names with this executable's path; Windows lets no one overwrite a running executable | `src/lifecycle.rs` |
-| Window control | the `WindowControl` port, adapter `HyprlandWindows`: giving a window process's overlay (its window titled `eco`, never the settings window) the keyboard and raising it above the settings, so a dialog the shortcut opens shows and setting `no_screen_share` on its windows through `hyprctl dispatch`, by pid, again on Hyprland's `openwindow` events while they are hidden; composed in `src/session.rs`, used by `src/adapters/overlay.rs`, which launches `eco-window`. The window rules in `packaging/hypr/eco.lua` centering the config window stay compositor config | adapter `HostWindows`: the windows control themselves. Focusing sends `window_focus` with the pid and hiding sends `window_share` with the pids (§10.1), to every client; the window of that process answers through its host, `Host.raise` on its eco window, or `Host.hideFromCapture`, and the last of each is told again to a client that connects, as a window does just after it opens. Windows gives the foreground only to a process that has it or had the last input, and neither the daemon nor its windows, in the background, do: `raise()` and `requestActivate()` alone left the window behind another program, its taskbar button flashing (seen in a desktop test). So the host's `Host.raise` first attaches its thread to the input of the foreground window's thread (`AttachThreadInput`), brings the window to the top and calls `SetForegroundWindow`, then detaches, after checking that thread answers (`SendMessageTimeout`), as an attached hung thread would hang the window: the workaround Qt applies under its private `AlwaysActivateWindow` option. Chosen over a synthetic Alt press before `SetForegroundWindow`, which reaches the program in front (an Alt press and release opens its menu bar), and over the daemon passing the right on with `AllowSetForegroundWindow` from the hotkey's thread, which has no safe binding in Rust and would not cover `eco window` from a terminal. Leaving out of capture needs Windows 10 2004 or later, and leaves the windows out of the user's own screenshots and recordings too | `src/ports.rs`, `src/adapters/window_hyprland.rs`, `src/adapters/window_host.rs`, `src/adapters/overlay.rs`, `window/host.h`, `packaging/hypr/eco.lua` |
+| Window control | the `WindowControl` port, adapter `HyprlandWindows`: giving a window process's overlay (its window titled `eco`, never the settings window) the keyboard and raising it above the settings, so a dialog the shortcut opens shows and setting `no_screen_share` on its windows through `hyprctl dispatch`, by pid, again on Hyprland's `openwindow` events while they are hidden; composed in `src/session.rs`, used by `src/adapters/overlay.rs`, which launches `eco-window`. The window rules in `packaging/hypr/eco.lua` centering the config window stay compositor config | adapter `HostWindows`: the windows control themselves. Focusing sends `window_focus` with the pid and hiding sends `window_share` with the pids (§10.1), to every client; the window of that process answers through its host, `Host.raise` on its eco window, or `Host.hideFromCapture`, and the last of each is told again to a client that connects, as a window does just after it opens. Windows gives the foreground only to a process that has it or had the last input, and neither the daemon nor its windows, in the background, do: `raise()` and `requestActivate()` alone left the window behind another program, its taskbar button flashing (seen in a desktop test). So the host's `Host.raise` first attaches its thread to the input of the foreground window's thread (`AttachThreadInput`), brings the window to the top and calls `SetForegroundWindow`, then detaches, after checking that thread answers (`SendMessageTimeout`), as an attached hung thread would hang the window: the workaround Qt applies under its private `AlwaysActivateWindow` option. Chosen over a synthetic Alt press before `SetForegroundWindow`, which reaches the program in front (an Alt press and release opens its menu bar), and over the daemon passing the right on with `AllowSetForegroundWindow` from the hotkey's thread, which has no safe binding in Rust and would not cover `eco window` from a terminal. Leaving out of capture needs Windows 10 2004 or later, and leaves the windows out of the user's own screenshots and recordings too. Qt calls a window active that Windows left behind another program, and kept it so: the daemon sent no system notification while the user was in another program (seen in a desktop test). So `Host.foreground` says whether the system's foreground window is one of the process's, followed through `SetWinEventHook(EVENT_SYSTEM_FOREGROUND)`, and a window is active for `window.active` only while it is; on Linux it is always true and Qt's word holds | `src/ports.rs`, `src/adapters/window_hyprland.rs`, `src/adapters/window_host.rs`, `src/adapters/overlay.rs`, `window/host.h`, `packaging/hypr/eco.lua` |
 | The window host's bridge | `eco-window`'s `EcoHost` module, built with the system's compiler and Qt by Ninja: `Host` gives the QML its pid, its environment and local paths, and copies to the Wayland clipboard through `wl-copy`; `LineSocket` is a `QLocalSocket` to the daemon socket the daemon names in `ECO_SOCKET`; `TextFile` reads and watches files, such as the Omarchy theme under `XDG_STATE_HOME` that `overlay/Eco/Core/Theme.qml` follows | the same module, built with MSVC through CMake's Visual Studio generator against the Qt `scripts/qt-install` puts under `.qt`, with Qt's libraries copied beside `eco-window.exe` by `windeployqt`; `src/adapters/overlay.rs` runs `<prefix>\lib\eco\eco-window.exe` beside an installed `eco`, else the checkout's `target\window\eco-window.exe`. `Host.copy` puts the text on the clipboard through Qt and flushes it to Windows (`OleFlushClipboard`, from `ole32`), `Host.hideFromCapture` sets the windows' display affinity, and `LineSocket` connects to the named pipe and sends `auth <token>` first. `tests/window.rs` and `tests/overlay.rs` run there too, the second with the `qmltestrunner` under `.qt`. There is no Omarchy theme, so the window keeps its own colours | `window/main.cpp`, `window/host.h`, `window/line_socket.h`, `window/text_file.h`, `scripts/window-build`, `scripts/qt-install` |
 | The tray icon | `Qt.labs.platform`'s `SystemTrayIcon`, which Qt exports as a StatusNotifierItem with a D-Bus menu (qt6-base carries Qt D-Bus); the bar's tray shows it | the same type, a notification area icon whose menu is a Qt Widgets menu; `windeployqt` ships Qt Widgets and the `Qt.labs.platform` plugin with `eco-window.exe` | `overlay/tray.qml`, `src/adapters/overlay.rs` |
+| System notifications | the `Notifier` port, adapter `notify-send`: `notify-send` with the app name `eco`, the installed eco icon and the urgency (`normal`, or `critical` for an error); a missing `notify-send` is written to the daemon's log | adapter `Toasts`: a Windows toast notification through the WinRT `ToastNotificationManager` of the `windows` crate's safe projection, `long` for an error, under eco's app id `This-Is-NPC.eco`. eco is not a packaged app, so the app id is registered for the user in `HKCU\Software\Classes\AppUserModelId\This-Is-NPC.eco`, `DisplayName` `eco` and `IconUri` the shipped `share\eco\eco.ico`, through the `windows-registry` crate's safe interface: Windows then labels the toast "eco" with eco's icon, with no Start-menu shortcut. `eco setup` writes the key (adapter `ToastName`), and the notifier writes it again before each toast, writing nothing when it holds these values, so a daemon whose setup never ran or whose key was deleted still shows "eco"; a build that is not installed ships no icon and leaves a registered one alone. A key it cannot write sends the toast under Windows PowerShell's app id, which Windows always has, labelled "Windows PowerShell", and says why in the daemon's log. `install.ps1` deletes the key when it takes eco off. Both chosen with `#[cfg]` in `src/session.rs`. Only with `[ui] notifications` on and no eco window active (§12.2) | `src/ports.rs`, `src/domain/notifications.rs`, `src/session.rs`, `src/adapters/notify_linux.rs`, `src/adapters/notify_windows.rs` |
 | Shortcuts | a global Hyprland bind that runs an `eco window` command, which sends one line to the socket and returns once the daemon has read it: `window.call` for those that open a view, the daemon giving that window the keyboard | the daemon registers `[shortcuts]` (§9) itself, `Win+Alt+A`, `Q`, `C`, `N`, `P`, `H` and `E` by default, the keys of `eco.lua` with the Windows key for SUPER, none of them one Microsoft documents for Windows (`Win+Alt` with a digit opens a taskbar jump list, and was refused on a desktop; the Game Bar holds `G`, `M`, `R` and `T`; Omarchy binds `SUPER+ALT+1` to `5` to a group's windows), through the `windows-hotkeys` crate: `RegisterHotKey` on a hidden message-only window of a thread of its own, which waits for `WM_HOTKEY` in the crate's loop. A pressed key hands the daemon's loop the very line `eco window` builds (`cli::Window::line`), so it is routed as the command would be. A key the system refuses, another program holding it, is written to the daemon's log and greets every client as an `error` with the code `shortcut.unavailable`, which names the config's path, to be created if missing, as the settings window has no place for shortcuts; the others still work. Chosen over `global-hotkey`, which registers the same way but leaves the message loop to the application, and that loop is `unsafe` code eco forbids, and over `livesplit-hotkey`, which installs a low-level keyboard hook: it sees every key pressed in every program, passes the shortcut on to the program in front as well (Win+Alt+1 would also open the first taskbar program's jump list) and cannot tell a key another program holds (read in the crates' sources). The keys are read when the daemon starts. Over ssh the system refuses every key: that session has no interactive window station (`RegisterHotKey` fails with error 1459, `ERROR_REQUIRES_INTERACTIVE_WINDOWSTATION`, measured), so each is reported; on a desktop, `Win+Alt+C`, `N`, `H` and `E` registered and worked when pressed (seen in a desktop test). `eco window` works as on Linux, knowing the daemon has read its line from the `synced` answer to `sync` (§10) | `packaging/hypr/eco.lua`, `src/cli.rs`, `src/shortcuts.rs`, `src/adapters/shortcuts_windows.rs` |
 | The hook shell | `shell()` runs each hook with `sh -c` | `shell()` runs each hook with `cmd /S /C "<command>"`, the command handed over as written, for cmd does not read its line by the quoting rules other programs use; a hook reads `%ECO_SESSION%` and `%ECO_TITLE%`. cmd is on every Windows | `src/adapters/hook_shell.rs` |
 | The omapass keyring | `api_key_omapass` reads a key through the omapass CLI | omapass does not exist: it is never installed, and a key from it fails | `src/adapters/omapass.rs` |
-| The Windows Credential Manager | none: `api_key_credential` and `eco key` fail, naming omapass and the environment | `api_key_credential` reads the generic credential `eco:<name>`; `eco key set`/`remove` write and delete it (§9.1) | `src/adapters/credentials.rs` |
+| Installing a release | `pkexec pacman -U --noconfirm` on the Arch package, else `sudo pacman -U` from a terminal; Hyprland's binds are what `eco doctor` checks for shortcuts | `%LOCALAPPDATA%\Programs\eco` replaced in place, the running `eco.exe` renamed aside and deleted at the next start; the registered keys are what `eco doctor` checks | `src/ports.rs` (`Releases`, `Installer`), `src/installer.rs`, `src/adapters/releases_github.rs`, `src/adapters/installer_linux.rs`, `src/adapters/installer_windows.rs`, `src/session/update.rs`, `src/doctor.rs` (§13) |
+| The Windows Credential Manager | none: `api_key_credential` and `eco key set`/`remove` fail, naming omapass and the environment; the `keys` event's `credentials` is `null` | `api_key_credential` reads the generic credential `eco:<name>`; `eco key set`/`remove` write and delete it; the `keys` command lists them by name (§9.1) | `src/adapters/credentials.rs` |

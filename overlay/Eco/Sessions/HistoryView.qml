@@ -6,8 +6,10 @@ import Eco.Kit
 
 // HistoryView, the SESSIONS screen, filters stored sessions — live ones, by kind,
 // tag, person and what they hold — and opens a selected row: a live one shows in
-// this window, any other is read back. `/` goes to the search; ↓ or Enter back to
-// the rows, ↑ on the first row back to the search.
+// this window, any other is read back. Its bar goes back, starts a new session
+// (N too), imports (I) and opens the people, and counts what it lists. `/`
+// goes to the search; ↓ or Enter back to the rows, ↑ on the first row back to
+// the search.
 ColumnLayout {
   id: history
   spacing: 14
@@ -46,29 +48,29 @@ ColumnLayout {
   }
 
   Keys.onPressed: event => {
-    if (event.key === Qt.Key_I)
-      importButton.press()
+    if (event.key === Qt.Key_N && Eco.connected)
+      Eco.newSessionRequested()
+    else if (event.key === Qt.Key_I)
+      Eco.importRequested("")
     else if (event.text === "/")
       search.forceActiveFocus()
     else
       return
     event.accepted = true
   }
-  Keys.onEscapePressed: backButton.press()
+  Keys.onEscapePressed: Eco.goBack()
 
-  RowLayout {
+  PageBar {
     Layout.fillWidth: true
-    // The buttons wrap rather than run past a narrow window.
-    Flow {
-      Layout.fillWidth: true
-      Layout.preferredWidth: 0
-      spacing: 6
-      TraceButton { id: backButton; dense: true; role: "navigation"; icon: "chevron-left"; text: Eco.backText; tip: "esc"; onClicked: Eco.goBack() }
-      TraceButton { id: importButton; dense: true; role: "action"; icon: "import"; text: I18n.t("start.import"); tip: I18n.t("start.import_tip"); onClicked: Eco.importRequested("") }
+    Layout.preferredHeight: 44
+    readout: I18n.t("history.count", { n: history.shown.length })
+    commands: [
+      { text: Eco.backText, role: "back", run: () => Eco.goBack() },
+      { text: I18n.t("start.begin"), icon: "plus", role: "primary", enabled: Eco.connected, run: () => Eco.newSessionRequested() },
+      { text: I18n.t("start.import"), icon: "import", tip: I18n.t("start.import_tip"), run: () => Eco.importRequested("") },
       // Back already returns to People when the user came from there.
-      TraceButton { visible: Eco.backTo !== "people"; dense: true; role: "navigation"; icon: "people"; text: I18n.t("start.people"); tip: I18n.t("start.people_tip"); onClicked: Eco.openPeople() }
-    }
-    Label { Layout.alignment: Qt.AlignTop | Qt.AlignRight; Layout.topMargin: 8; text: I18n.t("history.count", { n: history.shown.length }); color: Theme.dim; font.pixelSize: 10; font.letterSpacing: 3 }
+      { text: I18n.t("start.people"), icon: "people", tip: I18n.t("start.people_tip"), shown: Eco.backTo !== "people", run: () => Eco.openPeople() }
+    ]
   }
 
   TextBox {
@@ -212,7 +214,7 @@ ColumnLayout {
     onTopLeft: search.forceActiveFocus()
     onOpened: session => Eco.showSession(session.id)
     onDeleteRequested: session => Eco.deleteRequested(session)
-    onBackRequested: backButton.press()
+    onBackRequested: Eco.goBack()
   }
 
   ConfirmDialog {

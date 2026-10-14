@@ -22,6 +22,16 @@ fn entry(name: &str) -> PathBuf {
         .unwrap_or_else(|| Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/overlay")).join(name))
 }
 
+/// The interface texts of the language pack `code` (`pt-BR`), by key; none
+/// when the pack is not there or cannot be read.
+pub fn language_pack(code: &str) -> serde_json::Map<String, serde_json::Value> {
+    let path = entry(&format!("Eco/Core/i18n/{code}.json"));
+    std::fs::read(path)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default()
+}
+
 /// The program that runs it: installed beside the binary
 /// (`<prefix>/lib/eco/eco-window`, `eco-window.exe` on Windows), or this
 /// checkout's build (`mise run window:build`) when eco runs from it.
@@ -199,9 +209,14 @@ impl Windows {
         self.open.iter().map(|window| window.shows.as_str())
     }
 
+    /// The numbers of the windows open, the oldest first.
+    pub fn numbers(&self) -> impl Iterator<Item = u32> {
+        self.open.iter().map(|window| window.number)
+    }
+
     /// The window opened last of those still open.
     pub fn newest(&self) -> Option<u32> {
-        self.open.last().map(|window| window.number)
+        self.numbers().last()
     }
 
     /// Open another window, focused, that shows `show` when it is a live
@@ -373,6 +388,19 @@ fn terminate(child: &mut Child) {
     let _ = child.start_kill();
 }
 
+#[cfg(test)]
+mod packs {
+    use super::*;
+
+    #[test]
+    fn a_language_pack_is_read_by_its_code_and_one_missing_is_empty() {
+        let english = language_pack("en-US");
+        assert_eq!(english["notify.answer"], "{action} · answer ready");
+        assert_eq!(language_pack("pt-BR")["_locale"], "pt_BR");
+        assert!(language_pack("xx-XX").is_empty());
+    }
+}
+
 #[cfg(all(test, windows))]
 mod tests {
     use super::*;
@@ -395,7 +423,7 @@ mod tests {
 
 /// The windows, each run by a stand-in shell script.
 #[cfg(all(test, unix))]
-mod programs {
+pub(crate) mod programs {
     use std::fs;
     use std::path::Path;
     use std::sync::Mutex;
@@ -441,7 +469,7 @@ mod programs {
     /// with 2 a moment after opening when told to show `later`. Run as the
     /// tray, it adds a line to `dir/tray` instead, and exits with 3 at once
     /// when `dir/tray-dies` exists, which it removes.
-    fn windows(dir: &Path, control: Arc<dyn WindowControl>, hidden: bool) -> Windows {
+    pub(crate) fn windows(dir: &Path, control: Arc<dyn WindowControl>, hidden: bool) -> Windows {
         let program = fake_program(
             dir,
             "eco-window",
@@ -651,10 +679,12 @@ exec sleep 30"#,
         windows.open(None, None).await.unwrap();
         windows.open(None, None).await.unwrap();
         let [first, second]: [u32; 2] = pids(&windows).try_into().unwrap();
+        assert_eq!(windows.numbers().collect::<Vec<_>>(), [1, 2]);
         windows.closed(1);
         windows.closed(7);
         assert_eq!(pids(&windows), [second]);
         assert_eq!(windows.newest(), Some(2));
+        assert_eq!(windows.numbers().collect::<Vec<_>>(), [2]);
         tokio::time::sleep(LINGER - Duration::from_millis(100)).await;
         assert!(!ended(first));
         tokio::time::sleep(Duration::from_millis(200)).await;

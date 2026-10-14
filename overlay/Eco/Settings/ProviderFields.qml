@@ -9,8 +9,9 @@ import Eco.Kit
 // three steps: which provider (a preset, or a custom base URL), which model
 // (typed, or picked from the list the provider offers, which LIST opens and
 // closes), and where its key comes from (an environment variable, an omapass
-// password, or on Windows a credential of the Credential Manager, which this
-// window names and never reads).
+// password, or on Windows a credential of the Credential Manager), typed or
+// picked from the names the daemon lists; this window names keys and never
+// reads one.
 ColumnLayout {
   id: frame
 
@@ -78,6 +79,7 @@ ColumnLayout {
       dense: true
       invalid: !!frame.errors.base_url
       value: frame.section.base_url || ""
+      placeholderTextColor: Theme.placeholder
       placeholderText: I18n.t("provider.base_url")
       onTextEdited: {
         frame.edited("base_url", text)
@@ -101,6 +103,7 @@ ColumnLayout {
         invalid: !!frame.errors.model
         value: frame.section.model || ""
         // The model of the chosen preset, or of the first, as an example.
+        placeholderTextColor: Theme.placeholder
         placeholderText: {
           const preset = frame.presets.find(p => p.values.base_url === frame.section.base_url) || frame.presets[0]
           return preset ? I18n.t("provider.model_placeholder", { model: preset.values.model }) : ""
@@ -148,6 +151,7 @@ ColumnLayout {
           id: filter
           Layout.fillWidth: true
           dense: true
+          placeholderTextColor: Theme.placeholder
           placeholderText: I18n.t("provider.filter", { n: Eco.models[frame.target].length })
           onTextChanged: list.currentIndex = 0
           Keys.onDownPressed: list.incrementCurrentIndex()
@@ -188,43 +192,72 @@ ColumnLayout {
     // while it is an omapass password; a variable otherwise.
     readonly property string source: frame.section.api_key_credential !== undefined ? "credential"
       : frame.section.api_key_omapass !== undefined ? "omapass" : "env"
-    Caption { text: I18n.t("provider.key_from") }
-    Flow {
+    readonly property string name: frame.section["api_key_" + source] || ""
+    // The sources this machine offers, in the order the picker lists them.
+    readonly property var sources: ["env"].concat(Eco.credentialManager ? ["credential"] : Eco.omapassInstalled ? ["omapass"] : [])
+
+    // Keeps the key in the field of `source`, under `name`, and clears the others.
+    function choose(source, name) {
+      for (const other of ["env", "credential", "omapass"])
+        if (other !== source)
+          frame.edited("api_key_" + other, null)
+      frame.edited("api_key_" + source, name)
+    }
+    // An option's two parts: {head: "<source>" or "type", name}.
+    function parts(option) {
+      const at = option.indexOf(":")
+      return { head: option.slice(0, at), name: option.slice(at + 1) }
+    }
+    function title(source) {
+      return I18n.t(source === "credential" ? "provider.key_credential" : source === "omapass" ? "provider.key_omapass" : "provider.key_env")
+    }
+
+    Caption { text: I18n.t("provider.key_from_source", { source: key.title(key.source) }) }
+    RowLayout {
       Layout.fillWidth: true
       spacing: 6
-      Chip {
-        text: I18n.t("provider.key_env")
-        checked: key.source === "env"
-        dim: !checked
-        onClicked: {
-          frame.edited("api_key_omapass", null)
-          frame.edited("api_key_credential", null)
-        }
+      SyncedBox {
+        id: keyName
+        Layout.fillWidth: true
+        dense: true
+        value: key.name
+        placeholderTextColor: Theme.placeholder
+        placeholderText: I18n.t(key.source === "credential" ? "provider.credential_placeholder"
+          : key.source === "omapass" ? "provider.omapass_placeholder" : "provider.key_placeholder")
+        onTextEdited: frame.edited("api_key_" + key.source, text)
       }
-      Chip {
-        visible: Eco.credentialManager
-        text: I18n.t("provider.key_credential")
-        checked: key.source === "credential"
-        dim: !checked
-        tip: I18n.t("provider.key_credential_tip")
-        onClicked: {
-          frame.edited("api_key_env", null)
-          frame.edited("api_key_omapass", null)
-          frame.edited("api_key_credential", frame.section.api_key_credential || "")
+      // Each source's names, under its title, then a way to type one by hand.
+      // An option is "<source>:<name>", or "type:<source>".
+      Dropdown {
+        label: I18n.t("provider.pick_key")
+        current: key.source + ":" + key.name
+        options: key.sources.reduce((options, source) => {
+          const names = source === "env" ? Eco.keyNames
+            : source === "credential" ? Eco.credentialNames || [] : Eco.omapassAccounts.map(account => account.account)
+          return options.concat(names.map(name => source + ":" + name), ["type:" + source])
+        }, [])
+        section: option => {
+          const part = key.parts(option)
+          return key.title(part.head === "type" ? part.name : part.head)
         }
-      }
-      Chip {
-        visible: !Eco.credentialManager
-        text: I18n.t("provider.key_omapass")
-        checked: key.source === "omapass"
-        dim: !checked
-        tip: I18n.t("provider.key_omapass_tip")
-        reason: !Eco.omapassInstalled && !checked ? I18n.t("provider.omapass_missing") : ""
-        onClicked: {
-          frame.edited("api_key_env", null)
-          frame.edited("api_key_credential", null)
-          frame.edited("api_key_omapass", frame.section.api_key_omapass || "")
-          Eco.requestOmapass()
+        describe: option => {
+          const part = key.parts(option)
+          if (part.head === "type")
+            return I18n.t("provider.key_type")
+          const account = part.head === "omapass" ? Eco.omapassAccounts.find(a => a.account === part.name) : null
+          return account && account.folder ? account.folder + " · " + part.name : part.name
+        }
+        onOpening: {
+          Eco.requestKeys()
+          if (key.sources.includes("omapass"))
+            Eco.requestOmapass()
+        }
+        onPicked: option => {
+          const part = key.parts(option)
+          if (part.head !== "type")
+            return key.choose(part.head, part.name)
+          key.choose(part.name, part.name === key.source ? key.name : "")
+          keyName.forceActiveFocus()
         }
       }
       IconButton {
@@ -234,26 +267,25 @@ ColumnLayout {
         onClicked: Qt.openUrlExternally(Eco.omapassPage)
       }
     }
-    SyncedBox {
+    Label {
       Layout.fillWidth: true
-      visible: key.source === "env"
-      dense: true
-      value: frame.section.api_key_env || ""
-      placeholderText: I18n.t("provider.key_placeholder")
-      onTextEdited: frame.edited("api_key_env", text)
-    }
-    SyncedBox {
-      Layout.fillWidth: true
-      visible: key.source === "credential"
-      dense: true
-      value: frame.section.api_key_credential || ""
-      placeholderText: I18n.t("provider.credential_placeholder")
-      onTextEdited: frame.edited("api_key_credential", text)
+      text: I18n.t("provider.keys_env_hint") + (Eco.credentialManager ? " " + I18n.t("provider.keys_credential_hint") : "")
+      color: Theme.dim
+      font.pixelSize: 10
+      wrapMode: Text.Wrap
     }
     Label {
       Layout.fillWidth: true
-      visible: key.source === "credential" && (frame.section.api_key_credential || "") !== ""
-      text: I18n.t("provider.credential_how", { name: frame.section.api_key_credential })
+      visible: Eco.credentialManager && Eco.credentialError !== ""
+      text: I18n.t("provider.credentials_unlisted", { detail: Eco.credentialError.split("\n")[0] })
+      color: Theme.error
+      font.pixelSize: 10
+      wrapMode: Text.Wrap
+    }
+    Label {
+      Layout.fillWidth: true
+      visible: key.source === "credential" && key.name !== ""
+      text: I18n.t("provider.credential_how", { name: key.name })
       color: Theme.dim
       font.pixelSize: 10
       wrapMode: Text.Wrap
@@ -266,17 +298,6 @@ ColumnLayout {
       color: !Eco.omapassInstalled || Eco.omapassError !== "" ? Theme.error : Theme.dim
       font.pixelSize: 10
       wrapMode: Text.Wrap
-    }
-    Dropdown {
-      visible: key.source === "omapass" && Eco.omapassAccounts.length > 0
-      options: Eco.omapassAccounts.map(account => account.account)
-      current: frame.section.api_key_omapass || ""
-      label: frame.section.api_key_omapass ? "" : I18n.t("provider.pick_password")
-      describe: name => {
-        const account = Eco.omapassAccounts.find(a => a.account === name)
-        return account && account.folder ? account.folder + " · " + name : name
-      }
-      onPicked: name => frame.edited("api_key_omapass", name)
     }
   }
 

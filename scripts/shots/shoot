@@ -42,13 +42,18 @@ HOME = Path("/tmp/eco-shots")
 WIDE = (720, 720)
 SHORT = (420, 480)
 SETTINGS = (1040, 760)
+# Taller, for the sections whose tables hold every row only so: Audio and General.
+SETTINGS_TALL = (1040, 920)
+# Taller still, for General, whose table ends with UPDATES.
+SETTINGS_GENERAL = (1040, 1170)
 # The live session's lines, answers and note, from fixtures: nothing transcribes.
 LIVE = json.loads((FIXTURES / "live.json").read_text())
 # What comes after them: a sent and an unsent hook, a failed answer and one thinking.
 ANSWERS = json.loads((FIXTURES / "answers.json").read_text())
 # One source's transcription down and the other's back, as the daemon tells them.
 OUTAGE = json.loads((FIXTURES / "outage.json").read_text())
-# PipeWire devices to add to a source: under --replay the daemon lists none.
+# PipeWire devices for the Audio table: the isolated daemon lists only the
+# system defaults.
 DEVICES = json.loads((FIXTURES / "devices.json").read_text())
 
 
@@ -89,7 +94,7 @@ def environment(home):
     env = {
         key: value
         for key, value in os.environ.items()
-        if not key.endswith("_API_KEY")
+        if not key.endswith("_API_KEY") and not key.startswith("ECO_")
         and key not in ("WAYLAND_DISPLAY", "DISPLAY", "HYPRLAND_INSTANCE_SIGNATURE", "QT_IM_MODULE", "QT_SCALE_FACTOR")
     }
     env.update(
@@ -111,6 +116,8 @@ def environment(home):
         # variables must be set; nothing is sent with them.
         OPENROUTER_API_KEY="placeholder-never-sent",
         DEEPGRAM_API_KEY="placeholder-never-sent",
+        # A key of the user's own naming, listed by the model form's key picker.
+        ECO_LAN_KEY="placeholder-never-sent",
     )
     return env
 
@@ -285,13 +292,18 @@ class Shots:
     def take(self, name, which="overlay", offline=False):
         """Save a picture of a window, refusing one taken while the window
         is offline (unless that is the picture) or shows an error, and one
-        that drew nothing."""
+        that drew nothing. Toasts left from earlier steps are closed first,
+        but for the daemon's absence in the offline picture."""
         w = self.window
-        state = json.loads(w.js("return { connected: Eco.connected, error: Eco.messageIsError, message: Eco.message }"))
+        state = json.loads(w.js(
+            "return { connected: Eco.connected,"
+            " errors: Eco.notices.filter(n => n.kind === 'error' && n.topic !== 'offline').map(n => Eco.noticeText(n)) }"
+        ))
         if state["connected"] == offline:
             fail(f"{name}: the overlay is {'still connected' if offline else 'offline'}")
-        if state["error"]:
-            fail(f"{name}: the window shows an error: {state['message']}")
+        if state["errors"]:
+            fail(f"{name}: the window shows an error: {state['errors'][0]}")
+        w.js("Eco.notices.filter(n => n.topic !== 'offline').forEach(n => Eco.dismiss(n.id))")
         path = self.out / f"{name}.png"
         path.unlink(missing_ok=True)
         # What moves on a change settles within 300 ms.
@@ -317,11 +329,6 @@ ACME = "7c41e9a2d035"
 INTERVIEW = "9e2a4f71c8b3"
 PRICING = "3b8f02c6e917"
 TALK = "6e9f3a1b2c48"
-# The settings tabs, with the number of each one's picture.
-SETTINGS_TABS = [
-    ("39", "audio"), ("41", "models"), ("43", "transcription"), ("44", "answers"),
-    ("46", "skills"), ("48", "translation"), ("49", "sessions"), ("50", "interface"),
-]
 # A change another program asked for, as the daemon holds it for the user.
 PENDING = {
     "type": "config_pending",
@@ -446,13 +453,12 @@ def scenes(w, shots, stop):
     w.do("d.blur()")
     shots.take("27-session-speaker")
     w.do("d.object('AssignmentDialog').close()")
-    w.do("return d.click('text=\"COST\"')")
+    w.do("return d.click('name=\"cost\"')")
     shots.until("Eco.cost !== null", "the session's cost")
     shots.take("28-session-cost")
     w.do("return d.click('text=\"SESSION\"')")
     show(INTERVIEW)
-    w.do("return d.click('name=\"more\"')")
-    w.do("return d.click('text=\"COST\"')")
+    w.do("return d.click('name=\"cost\"')")
     shots.until(f"Eco.cost !== null && Eco.costOf === {q(INTERVIEW)}", "the interview's cost")
     shots.take("29-session-cost-unknown")
     w.do("return d.click('text=\"SESSION\"')")
@@ -534,7 +540,9 @@ def scenes(w, shots, stop):
         0.3,
     )
     feed(live, ANSWERS)
-    shots.until("!Eco.messageIsError", "the hook's error to clear")
+    # The hook's and the answer's errors stay as toasts until closed.
+    shots.until("Eco.notices.some(n => n.kind === 'error')", "the answers' errors")
+    w.do("Eco.notices.filter(n => n.kind === 'error').forEach(n => Eco.dismiss(n.id))", 0.3)
     w.do("d.blur()")
     shots.take("08-live-new")
     w.do("d.object('TimelineView').jump()")
@@ -544,56 +552,104 @@ def scenes(w, shots, stop):
     shots.take("09-live-end")
     w.do("Eco.resumeSession()")
 
+    # The settings: each section's table, an item read and written, then a new
+    # model saved empty and the window closed with it unsaved. Nothing saves:
+    # the window has no token, and a save would be held as a pending change.
     w.do("Eco.toggleConfig()", 1.0)
-    shots.until("settings !== null && settings.visible && settings.draft !== null", "the settings")
+    shots.until("settings !== null && settings.visible && Eco.config !== null", "the settings")
     shots.size(*SETTINGS, which="settings")
-    for page, (number, tab) in enumerate(SETTINGS_TABS):
-        w.do(f"Eco.openConfigAt({page})")
-        shots.take(f"{number}-settings-{tab}", "settings")
-        if tab == "audio":
-            w.do(f"Eco.handle({{ type: 'devices', devices: Eco.devices.concat({q(DEVICES)}) }})")
-            menu('label="ADD DEVICE"', 1)
-            shots.take("40-settings-audio-device", "settings")
-            menu('label="ADD DEVICE"', 1, state="close")
-        elif tab == "models":
-            # The chat model open, from its top.
-            w.do("return d.click('title=\"gemini-flash\"')")
-            w.do(
-                "const card = d.find('title=\"gemini-flash\"'); let page = card.parent;"
-                " while (d.kind(page) !== 'ScrollPage') page = page.parent;"
-                " page.contentY = Math.min(card.mapToItem(page.contentItem, 0, 0).y - 12, page.contentHeight - page.height)",
-                0.4,
+
+    def section(name):
+        w.do(f"Eco.openConfigAt(settings.view.at.{name})")
+
+    def item(name, row, number, picture, edit=None, listed=None):
+        """Opens `row` of section `name` read, and written when `edit` names a
+        picture; `listed` names the Dropdown, by its label, open in that picture,
+        nothing chosen from it."""
+        w.do(f"settings.view.open(settings.view.at.{name}, {q(row)})")
+        shots.take(f"{number}-settings-{picture}", "settings")
+        if edit:
+            w.do("return d.click('text=\"EDIT\"')")
+            w.do("d.blur('settings')")
+            dropdown = (
+                "(() => { const out = []; d.walk(settings.contentItem, out, 0);"
+                f" return out.find(i => d.kind(i) === 'Dropdown' && d.shown(i) && i.label === {q(listed)}) }})()"
             )
-            shots.take("42-settings-model", "settings")
-            w.do("return d.click('title=\"gemini-flash\"')")
-        elif tab == "answers":
-            scroll_end("settings.contentItem")
-            shots.take("45-settings-answers-end", "settings")
-        elif tab == "skills":
-            w.do("return d.click('title=\"reply\"')")
-            shots.take("47-settings-skill", "settings")
-            w.do("return d.click('title=\"reply\"')")
-    # A name that cannot be saved, then closing with it unsaved.
-    w.do("Eco.openConfigAt(4)")
-    w.do("return d.click('title=\"minutes\"')")
-    w.do("return d.type('label=\"NAME\" value=\"minutes\"', 'weekly minutes')")
+            if listed:
+                w.do(f"{dropdown}.open()", 0.6)
+            shots.take(f"{edit[0]}-settings-{edit[1]}", "settings")
+            if listed:
+                w.do(f"{dropdown}.data.find(o => d.kind(o) === 'MenuPopup').close()", 0.4)
+            w.do("return d.click('text=\"CANCEL\"')")
+        w.do(f"settings.view.close(settings.view.at.{name})")
+
+    # The daemon lists only the system defaults: the Audio table gets these too.
+    w.do(f"Eco.handle({{ type: 'devices', devices: Eco.devices.concat({q(DEVICES)}) }})")
+    shots.size(*SETTINGS_TALL, which="settings")
+    section("audio")
+    shots.take("39-settings-audio", "settings")
+    # The HEARD AS list of the first device row, open; nothing is chosen from it.
+    heard = (
+        "(() => { const out = []; d.walk(settings.contentItem, out, 0);"
+        " return out.find(i => d.kind(i) === 'Dropdown' && d.shown(i)) })()"
+    )
+    w.do(f"{heard}.open()", 0.4)
+    shots.take("40-settings-audio-heard", "settings")
+    w.do(f"{heard}.data.find(o => d.kind(o) === 'MenuPopup').close()", 0.4)
+    shots.size(*SETTINGS, which="settings")
+    section("models")
+    item("models", "gemini-flash", "42", "model", ("43", "model-edit"), listed="PICK A KEY")
+    # Back on the table with gemini-flash picked: the chat model's defaults on the bar.
+    shots.take("41-settings-models", "settings")
+    section("languages")
+    shots.take("44-settings-languages", "settings")
+    section("kinds")
+    shots.take("45-settings-kinds", "settings")
+    item("kinds", "meeting", "46", "kind")
+    section("prompts")
+    shots.take("47-settings-prompts", "settings")
+    item("prompts", "rules", "48", "prompt")
+    section("context")
+    shots.take("49-settings-context", "settings")
+    section("skills")
+    shots.take("50-settings-skills", "settings")
+    item("skills", "reply", "51", "skill", ("52", "skill-edit"))
+    shots.size(*SETTINGS_GENERAL, which="settings")
+    section("general")
+    # UPDATES as with the latest release running: the fixture keeps the daemon
+    # from asking GitHub, so the switch and the version row are set here, in
+    # the window only; nothing is saved.
+    shots.until("Eco.updateState !== null", "the daemon's version")
+    w.do(
+        "Eco.config = Object.assign({}, Eco.config, { update: { check: true } });"
+        " Eco.handle(Object.assign({}, Eco.updateState,"
+        " { latest: Eco.updateState.current, newer: false, check: true, error: '' }))"
+    )
+    shots.take("53-settings-general", "settings")
+    shots.size(*SETTINGS, which="settings")
+    # A new model saved with nothing filled is refused before it is sent.
+    section("models")
+    w.do("return d.click('text=\"ADD MODEL\"')")
+    w.do("return d.click('text=\"SAVE\"')")
     w.do("d.blur('settings')")
-    shots.take("51-settings-errors", "settings")
+    shots.take("54-settings-errors", "settings")
     w.do("settings.attemptClose()")
-    shots.take("52-settings-unsaved", "settings")
-    w.do("settings.data.filter(o => d.kind(o) === 'ConfirmDialog').forEach(o => o.close()); settings.reset()")
+    shots.take("55-settings-unsaved", "settings")
+    w.do("settings.data.filter(o => d.kind(o) === 'ConfirmDialog').forEach(o => o.close()); settings.view.discardChanged()")
+    shots.until("!settings.dirty", "the new model to be dropped")
     w.do("Eco.toggleConfig()")
 
     # A change to a hook and a context file another program sent, held for the user.
     w.do(f"Eco.handle({q(PENDING)})")
     w.do("d.blur()")
-    shots.take("53-settings-pending")
+    shots.take("56-settings-pending")
     w.do(f"Eco.handle({q(dict(PENDING, id=None, hooks=[], files=[], models=[]))})")
 
     # The start screen once the daemon is gone.
     w.do("Eco.leaveSession(); Eco.go('start')")
     stop()
     shots.until("!Eco.connected", "the window to lose the daemon")
+    shots.until("Eco.notices.some(n => n.topic === 'offline')", "the toast that the daemon is gone")
     shots.take("02-disconnected", offline=True)
 
 

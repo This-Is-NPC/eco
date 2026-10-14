@@ -25,11 +25,12 @@ use crate::adapters::llm_openai::{OpenAIChat, Unavailable, list_models};
 use crate::adapters::omapass;
 use crate::adapters::overlay;
 use crate::adapters::people_files::PeopleFiles;
+use crate::adapters::releases_github::GitHub;
 use crate::adapters::session_files::{NoSessionFiles, SessionFiles};
 use crate::adapters::stt_deepgram::{self, DeepgramBilling, DeepgramTranscriber};
 use crate::adapters::stt_elevenlabs::{self, ElevenLabsTranscriber};
 use crate::adapters::stt_openai::OpenAITranscriber;
-use crate::adapters::terminal::terminal;
+use crate::adapters::terminal::{Terminal, terminal};
 use crate::adapters::vad_silero::{SileroModel, SileroVad};
 use crate::adapters::webvtt;
 use crate::config::{self, Config, ConfigError, Key, ModelConfig, ModelType};
@@ -41,14 +42,20 @@ use crate::domain::channel::{
 use crate::domain::diarization::Diarization;
 use crate::domain::events::{Outages, error};
 use crate::domain::hub::{Capture, Hub};
+use crate::domain::notifications::{Notifications, Texts};
 use crate::domain::segmenter::{Segment, SegmenterConfig};
 use crate::domain::transcribers::{Listening, Transcribers};
 use crate::import;
+use crate::installer;
 use crate::paths;
 use crate::ports::{
-    AudioDevices, AudioError, AudioSource, Device, EchoError, LanguageModel, PeopleStore,
+    AudioDevices, AudioError, AudioSource, Device, EchoError, LanguageModel, Notifier, PeopleStore,
     SessionLog, SpeechToText, StreamingSpeechToText, TranscriptionBilling, WindowControl,
 };
+
+pub mod update;
+
+use update::{Parts, Updates};
 
 // The platform's audio: Linux's, or Windows' (docs/design.md §15).
 #[cfg(unix)]
@@ -69,6 +76,46 @@ fn window_control(emit: &Emit) -> Arc<dyn WindowControl> {
     Arc::new(crate::adapters::window_host::HostWindows::new(Arc::clone(
         emit,
     )))
+}
+
+/// The desktop's notifications (docs/design.md §15): notify-send on Linux.
+#[cfg(unix)]
+fn notifier() -> Arc<dyn Notifier> {
+    Arc::new(crate::adapters::notify_linux::NotifySend)
+}
+
+/// The desktop's notifications (docs/design.md §15): toasts on Windows.
+#[cfg(windows)]
+fn notifier() -> Arc<dyn Notifier> {
+    Arc::new(crate::adapters::notify_windows::Toasts)
+}
+
+/// The texts notifications read: the interface's language pack, in the
+/// system language on "auto", each key it lacks read in English.
+fn interface_texts(config: &Config) -> Texts {
+    let code = config.interface_pack(sys_locale::get_locale().as_deref());
+    let chosen = overlay::language_pack(&code);
+    let english = overlay::language_pack("en-US");
+    Arc::new(move |key| {
+        let text = chosen.get(key).or_else(|| english.get(key))?;
+        text.as_str().map(String::from)
+    })
+}
+
+/// Where every event the daemon emits goes: the terminal, when there is one,
+/// every client, and the notifications, which tell the desktop of some.
+fn emitter<W: std::io::Write + Send + 'static>(
+    terminal: Option<Terminal<W>>,
+    clients: Clients,
+    notifications: Arc<Notifications>,
+) -> Emit {
+    Arc::new(move |event| {
+        if let Some(terminal) = &terminal {
+            terminal.print(&event);
+        }
+        clients.emit(&event);
+        notifications.heard(&event);
+    })
 }
 
 /// The global shortcuts (docs/design.md §15): on Linux Hyprland binds the keys,
@@ -374,7 +421,6 @@ type Models = Arc<HashMap<String, ModelConfig>>;
 
 /// What a session that needs a model is told while the config names none.
 const NO_TRANSCRIPTION_MODEL: &str = "no transcription model is chosen";
-const NO_CHAT_MODEL: &str = "no chat model is chosen";
 
 /// The model `listening` names, built in its language.
 async fn build(models: &Models, listening: &Listening) -> Result<Stt, Unbuilt> {
@@ -864,27 +910,38 @@ async fn pipeline(config: Config, assistant: Assistant, emit: Emit, rig: Rig) {
         let settings = settings.to_string();
         models.insert(name.clone(), Model { llm, id, settings });
     }
-    // A model the config names was built; without one, asking is told so.
-    let none = || Model {
-        llm: Arc::new(Unavailable(NO_CHAT_MODEL.into())),
-        id: String::new(),
-        settings: String::new(),
-    };
-    let model = models.get(&config.llm.model).cloned().unwrap_or_else(none);
+    let model = models.get(&config.llm.model).cloned();
     let kind_models: HashMap<String, Model> = config
         .kinds
         .iter()
         .filter_map(|kind| Some((kind.clone(), models[&kind_chat(kind)?.name].clone())))
         .collect();
+    // What sessions of `kind`, or of no kind configured, use by model name, ""
+    // for none, and the actions a model answers there.
+    let route = |kind: Option<&String>| {
+        let chat = kind
+            .and_then(kind_chat)
+            .map_or(config.llm.model.as_str(), |m| &m.name);
+        let translator = config.translator(kind.map_or("", String::as_str));
+        let actions: Vec<&String> = config
+            .actions
+            .iter()
+            .filter(|action| action.model.is_some() || !chat.is_empty())
+            .map(|action| &action.name)
+            .collect();
+        json!({
+            "transcription": kind.map_or(&config.stt.model, |kind| &kind_transcribers[kind]),
+            "chat": chat,
+            "translation": translator.map_or("", |m| &m.name),
+            "actions": actions,
+        })
+    };
     let routes: serde_json::Map<String, Value> = config
         .kinds
         .iter()
-        .map(|kind| {
-            let chat = kind_chat(kind).map_or(&config.llm.model, |m| &m.name);
-            let used = json!({"transcription": kind_transcribers[kind], "chat": chat});
-            (kind.clone(), used)
-        })
+        .map(|kind| (kind.clone(), route(Some(kind))))
         .collect();
+    let default_route = route(None);
     let reviewer = reviewer.and_then(|on| {
         Some(Reviewer {
             model: models.get(&on.model)?.clone(),
@@ -927,8 +984,7 @@ async fn pipeline(config: Config, assistant: Assistant, emit: Emit, rig: Rig) {
         model: config
             .translator("")
             .and_then(|translator| models.get(&translator.name))
-            .cloned()
-            .unwrap_or_else(none),
+            .cloned(),
         kind_models: config
             .kinds
             .iter()
@@ -945,6 +1001,7 @@ async fn pipeline(config: Config, assistant: Assistant, emit: Emit, rig: Rig) {
         kind_models,
         translation,
         routes: Value::Object(routes),
+        default_route,
         actions: config.actions.clone(),
         rules: config.rules.clone(),
         reviewer,
@@ -1040,6 +1097,14 @@ fn window_closed(payload: &str) -> Option<u32> {
     u32::try_from(request.get("window")?.as_u64()?).ok()
 }
 
+/// `window.active {"window", "active"}`: whether the overlay window `window`
+/// is active now.
+fn window_active(payload: &str) -> Option<(u32, bool)> {
+    let request = serde_json::from_str::<Value>(payload).ok()?;
+    let number = u32::try_from(request.get("window")?.as_u64()?).ok()?;
+    Some((number, request.get("active")?.as_bool()?))
+}
+
 /// `window.call {"call", "path"}`: what a shortcut asks of an overlay window —
 /// "focus", "config", "new_session", "sessions", or "import" with the file's
 /// `path`, which may be left out — as the fields of the `window_call` event;
@@ -1087,6 +1152,8 @@ trait Overlay: Send {
     fn shown(&self) -> Vec<String>;
     /// The window opened last of those still open.
     fn newest(&self) -> Option<u32>;
+    /// The numbers of the windows open.
+    fn numbers(&self) -> Vec<u32>;
     fn is_open(&self) -> bool;
     /// Open another window, focused, that shows `show` and makes `call`.
     fn open<'a>(
@@ -1117,6 +1184,10 @@ impl Overlay for overlay::Windows {
 
     fn newest(&self) -> Option<u32> {
         overlay::Windows::newest(self)
+    }
+
+    fn numbers(&self) -> Vec<u32> {
+        overlay::Windows::numbers(self).collect()
     }
 
     fn is_open(&self) -> bool {
@@ -1317,9 +1388,9 @@ impl Pending {
     }
 }
 
-/// What a client that connects is told first: the daemon, the snapshot, the
-/// sources whose transcription is down, the change held for the user, if any,
-/// and what the windows' `control` tells them.
+/// What a client that connects is told first: the daemon, the snapshot, what
+/// is known of a newer eco, the sources whose transcription is down, the
+/// change held for the user, if any, and what the windows' `control` tells them.
 fn greeting(
     assistant: Assistant,
     overlay_open: Arc<AtomicBool>,
@@ -1327,6 +1398,7 @@ fn greeting(
     pending: Arc<Mutex<Pending>>,
     control: Arc<dyn WindowControl>,
     refused: Vec<Value>,
+    updates: Updates,
 ) -> Greeting {
     Arc::new(move || {
         let mut events = vec![json!({
@@ -1337,6 +1409,7 @@ fn greeting(
             "overlay": overlay_open.load(Ordering::Relaxed),
         })];
         events.extend(assistant.snapshot());
+        events.push(updates.event());
         events.extend(outages.events());
         events.extend(pending.lock().expect("not poisoned").event());
         events.extend(control.greeting());
@@ -1365,6 +1438,11 @@ struct Session {
     windows: Box<dyn Overlay>,
     /// Whether a window is open, as a client that connects is told.
     overlay_open: Arc<AtomicBool>,
+    updates: Updates,
+    /// The daily check for a newer eco, while the config asks for it.
+    daily: Option<JoinHandle<()>>,
+    /// Hears every event emitted; told which windows are active.
+    notifications: Arc<Notifications>,
 }
 
 impl Session {
@@ -1385,6 +1463,7 @@ impl Session {
                 },
                 status = self.windows.exited() => {
                     self.overlay_open.store(self.windows.is_open(), Ordering::Relaxed);
+                    self.notifications.windows_open(&self.windows.numbers());
                     if let Some(status) = status.filter(|status| !status.success()) {
                         eprintln!(
                             "eco: an overlay window exited ({status}); check WAYLAND_DISPLAY, then `eco start`"
@@ -1396,6 +1475,7 @@ impl Session {
         }
         stop(self.pipeline.take()).await;
         stop(self.importing.take()).await;
+        stop(self.daily.take()).await;
         self.background.shutdown().await;
         self.windows.close().await;
     }
@@ -1433,6 +1513,11 @@ impl Session {
                 self.windows.closed(number);
                 self.overlay_open
                     .store(self.windows.is_open(), Ordering::Relaxed);
+                self.notifications.windows_open(&self.windows.numbers());
+            }
+        } else if let ("window.active", Some(payload)) = split(line) {
+            if let Some((number, active)) = window_active(payload) {
+                self.notifications.window_active(number, active);
             }
         } else if !self.command(line).await {
             return false;
@@ -1440,7 +1525,20 @@ impl Session {
         let hidden = self.current.hide_from_share;
         self.windows.hide_from_share(hidden).await;
         self.windows.tray(self.current.tray).await;
+        self.updates.sessions_changed();
         true
+    }
+
+    /// Run the daily check for a newer eco when the config asks for it, and
+    /// only then.
+    async fn check_daily(&mut self) {
+        let check = self.current.update.check;
+        self.updates.set_check(check);
+        match (check, &self.daily) {
+            (true, None) => self.daily = Some(tokio::spawn(self.updates.clone().daily())),
+            (false, Some(_)) => stop(self.daily.take()).await,
+            _ => {}
+        }
     }
 
     /// Opening the app: a window on a live session no window shows, else the
@@ -1498,8 +1596,11 @@ impl Session {
         });
         match saved {
             Ok(config) => {
+                self.notifications
+                    .configure(config.notifications, interface_texts(&config));
                 self.current = config;
                 self.restart().await;
+                self.check_daily().await;
                 (self.emit)(json!({"type": "config_saved"}));
             }
             Err(failure) => (self.emit)(error(
@@ -2037,6 +2138,38 @@ impl Session {
                     ));
                 });
             }
+            ("keys", None) => {
+                self.background.spawn(async move {
+                    let names = std::env::vars_os().map(|(name, _)| name);
+                    emit(keys_listed(names, credentials::names()));
+                });
+            }
+            ("update.check", None) => {
+                let updates = self.updates.clone();
+                self.background.spawn(async move {
+                    updates.check().await;
+                    emit(updates.event());
+                });
+            }
+            ("update.install", payload) => {
+                let request: Value = payload
+                    .and_then(|payload| serde_json::from_str(payload).ok())
+                    .unwrap_or_default();
+                let version = request["version"]
+                    .as_str()
+                    .map(str::trim)
+                    .filter(|version| !version.is_empty())
+                    .map(String::from);
+                if let Some(install) = self.updates.install(version) {
+                    self.background.spawn(install);
+                }
+            }
+            ("daemon.restart", payload) => {
+                let request: Value = payload
+                    .and_then(|payload| serde_json::from_str(payload).ok())
+                    .unwrap_or_default();
+                self.updates.restart(request["force"] == true);
+            }
             ("stop", None) => return false,
             _ => {
                 let verb: String = command.chars().take(40).collect();
@@ -2070,6 +2203,60 @@ fn omapass_listed(
             json!({"type": "omapass", "installed": true, "accounts": [], "error": failure})
         }
     }
+}
+
+/// The `ECO_` variables eco sets or reads for its own work: never a key, so
+/// never listed as one.
+const OWN_VARIABLES: [&str; 18] = [
+    "ECO_ARGUMENTS",
+    "ECO_CALL",
+    "ECO_DIRECTORY",
+    "ECO_DRIVE",
+    "ECO_ICON",
+    "ECO_LINK",
+    "ECO_LOCAL_CHECK_SHA",
+    "ECO_PROGRAM",
+    "ECO_SESSION",
+    "ECO_SHOW",
+    "ECO_SKIP_LOCAL_CHECK",
+    "ECO_SOCKET",
+    "ECO_TARGET",
+    "ECO_TITLE",
+    "ECO_TOKEN",
+    "ECO_TREE",
+    "ECO_UNINSTALL",
+    "ECO_WINDOW",
+];
+
+/// The `keys` event: the names of the daemon's variables that may hold a key —
+/// `ECO_<NAME>` but eco's own, and the presets' that are set, even empty —
+/// and of the Credential Manager's `eco:<name>` keys, `null` where there is
+/// none and `[]` with `credential_error` when it could not be read. Names
+/// only: no value is kept or sent.
+fn keys_listed(
+    variables: impl IntoIterator<Item = std::ffi::OsString>,
+    credentials: Option<Result<Vec<String>, CredentialError>>,
+) -> Value {
+    let key = |name: &str| {
+        (name
+            .strip_prefix("ECO_")
+            .is_some_and(|rest| !rest.is_empty())
+            && !OWN_VARIABLES.contains(&name))
+            || PRESETS.iter().any(|p| p.api_key_env == name)
+    };
+    let mut env: Vec<String> = variables
+        .into_iter()
+        .filter_map(|name| name.into_string().ok())
+        .filter(|name| key(name))
+        .collect();
+    env.sort();
+    env.dedup();
+    let (credentials, credential_error) = match credentials {
+        None => (Value::Null, String::new()),
+        Some(Ok(names)) => (json!(names), String::new()),
+        Some(Err(failure)) => (json!([]), failure.to_string()),
+    };
+    json!({"type": "keys", "env": env, "credentials": credentials, "credential_error": credential_error})
 }
 
 /// A provider the settings window offers by name: its official URL, a default
@@ -2230,16 +2417,16 @@ pub async fn run(
     };
 
     let clients = Clients::default();
-    let emit: Emit = {
-        let clients = clients.clone();
-        let terminal = terminal(std::io::stdout());
-        Arc::new(move |event| {
-            if let Some(terminal) = &terminal {
-                terminal.print(&event);
-            }
-            clients.emit(&event);
-        })
-    };
+    let notifications = Arc::new(Notifications::new(
+        notifier(),
+        current.notifications,
+        interface_texts(&current),
+    ));
+    let emit = emitter(
+        terminal(std::io::stdout()),
+        clients.clone(),
+        Arc::clone(&notifications),
+    );
     let people: Arc<dyn PeopleStore> = Arc::new(PeopleFiles::new(paths::people_dir()));
     let assistant = Assistant::new(
         Arc::clone(&emit),
@@ -2253,6 +2440,21 @@ pub async fn run(
     let outages = Outages::default();
     let control = window_control(&emit);
     let refused = shortcuts(&current, config_path, &commands);
+    let updates = Updates::new(
+        Parts {
+            releases: Arc::new(GitHub::new()?),
+            installer: installer::installer(),
+            restart: Arc::new(restart_detached),
+            live: {
+                let assistant = assistant.clone();
+                Arc::new(move || !assistant.live().is_empty())
+            },
+            emit: Arc::clone(&emit),
+            state: paths::update_state(),
+            now: Arc::new(|| chrono::Utc::now().timestamp()),
+        },
+        current.update.check,
+    );
     let greeting = greeting(
         assistant.clone(),
         Arc::clone(&overlay_open),
@@ -2260,6 +2462,7 @@ pub async fn run(
         Arc::clone(&pending),
         Arc::clone(&control),
         refused,
+        updates.clone(),
     );
     let token = uuid::Uuid::new_v4().simple().to_string();
     let address = Address::user();
@@ -2302,10 +2505,71 @@ pub async fn run(
         importing: None,
         windows: Box::new(windows),
         overlay_open,
+        updates,
+        daily: None,
+        notifications,
     };
     session.restart().await;
+    session.check_daily().await;
     session.serve(received, stop_signal()?).await;
     Ok(())
+}
+
+/// The installed eco: the running executable's path.
+fn installed_exe() -> io::Result<PathBuf> {
+    Ok(undeleted(std::env::current_exe()?))
+}
+
+/// `exe` without the ` (deleted)` Linux adds to a running executable's path
+/// once a package replaces the file.
+fn undeleted(exe: PathBuf) -> PathBuf {
+    match exe
+        .to_str()
+        .and_then(|path| path.strip_suffix(" (deleted)"))
+    {
+        Some(path) => PathBuf::from(path),
+        None => exe,
+    }
+}
+
+/// Restart the daemon as `eco restart` does, from the installed eco, in a
+/// process that outlives this one.
+fn restart_detached() -> io::Result<()> {
+    spawn_quiet(restart_command(&installed_exe()?))
+}
+
+/// Start `command` with nothing to read and its output dropped, without
+/// waiting for it.
+fn spawn_quiet(mut command: std::process::Command) -> io::Result<()> {
+    command
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map(drop)
+}
+
+/// `exe restart` in a transient unit of the user's systemd, so stopping the
+/// daemon's unit does not stop it too.
+#[cfg(unix)]
+fn restart_command(exe: &Path) -> std::process::Command {
+    let mut command = std::process::Command::new("systemd-run");
+    command
+        .args(["--user", "--collect", "--quiet"])
+        .arg(exe)
+        .arg("restart");
+    command
+}
+
+/// `exe restart` with a console of its own that is never shown.
+#[cfg(windows)]
+fn restart_command(exe: &Path) -> std::process::Command {
+    use std::os::windows::process::CommandExt;
+    let mut command = std::process::Command::new(exe);
+    command
+        .arg("restart")
+        .creation_flags(crate::adapters::service_windows::CREATE_NO_WINDOW);
+    command
 }
 
 /// Resolves when the daemon is asked to stop: Ctrl-C or SIGTERM.
@@ -2348,6 +2612,7 @@ mod tests {
     use crate::adapters::http;
     use crate::adapters::session_files::SessionFiles;
     use crate::adapters::window_host::HostWindows;
+    use crate::domain::notifications::testing::Shown;
     use crate::ports::{EchoCancelling, FRAME_SAMPLES, Frame, Heard, TranscriptionError};
 
     fn raw() -> Value {
@@ -3040,6 +3305,18 @@ mod tests {
         (capture, running)
     }
 
+    /// Updates that never check by themselves, their state in `dir`.
+    fn no_updates(emit: &Emit, dir: &Path) -> Updates {
+        let (updates, _) = update::testing::updates(
+            None,
+            update::testing::FakeInstaller::default(),
+            Arc::new(|| false),
+            Arc::clone(emit),
+            dir.join("update.json"),
+        );
+        updates
+    }
+
     /// Window control through events, which tells nobody.
     fn windows_told() -> Arc<HostWindows> {
         Arc::new(HostWindows::new(Arc::new(|_| {})))
@@ -3066,6 +3343,7 @@ mod tests {
             Arc::default(),
             windows_told(),
             Vec::new(),
+            no_updates(&emit, dir.path()),
         );
         let down = Arc::new(AtomicBool::new(true));
         let stt = Stt::Stream(Box::new(Flaky(Arc::clone(&down))));
@@ -3098,6 +3376,7 @@ mod tests {
             Arc::default(),
             windows_told(),
             Vec::new(),
+            no_updates(&emit, dir.path()),
         );
         let stt = Stt::Stream(Box::new(Flaky(Arc::new(AtomicBool::new(true)))));
         let (capture, running) = transcribing(stt, &assistant, &emit, &outages);
@@ -3140,12 +3419,12 @@ mod tests {
         }
 
         fn newest(&self) -> Option<u32> {
-            self.desk
-                .lock()
-                .unwrap()
-                .open
-                .last()
-                .map(|(number, _)| *number)
+            self.numbers().last().copied()
+        }
+
+        fn numbers(&self) -> Vec<u32> {
+            let desk = self.desk.lock().unwrap();
+            desk.open.iter().map(|(number, _)| *number).collect()
         }
 
         fn is_open(&self) -> bool {
@@ -3224,6 +3503,9 @@ mod tests {
         events: Arc<Mutex<Vec<Value>>>,
         desk: Arc<Mutex<Desk>>,
         exits: mpsc::UnboundedSender<ExitStatus>,
+        fakes: update::testing::Fakes,
+        /// The notifications shown.
+        shown: Arc<Shown>,
         dir: tempfile::TempDir,
     }
 
@@ -3249,9 +3531,24 @@ mod tests {
         );
         let desk: Arc<Mutex<Desk>> = Arc::default();
         let (exits, exited) = mpsc::unbounded_channel();
+        let live = assistant.clone();
+        let (updates, fakes) = update::testing::updates(
+            Some("v99.0.0"),
+            update::testing::FakeInstaller::default(),
+            Arc::new(move || !live.live().is_empty()),
+            Arc::clone(&emit),
+            dir.path().join("update.json"),
+        );
+        let current = Config::from_value(raw).unwrap();
+        let shown = Arc::new(Shown::default());
+        let notifications = Arc::new(Notifications::new(
+            Arc::clone(&shown) as Arc<dyn Notifier>,
+            current.notifications,
+            interface_texts(&current),
+        ));
         let session = Session {
             config_path: dir.path().join("config.toml"),
-            current: Config::from_value(raw).unwrap(),
+            current,
             token: "secret".into(),
             pending: Arc::default(),
             rig: Rig {
@@ -3273,12 +3570,17 @@ mod tests {
                 exits: exited,
             }),
             overlay_open: Arc::default(),
+            updates,
+            daily: None,
+            notifications,
         };
         Daemon {
             session,
             events,
             desk,
             exits,
+            fakes,
+            shown,
             dir,
         }
     }
@@ -3730,6 +4032,16 @@ mod tests {
         assert_eq!(devices["devices"], config["devices"]);
     }
 
+    #[tokio::test]
+    async fn the_key_names_are_listed_on_demand_from_the_daemons_environment() {
+        let mut d = daemon(raw());
+        d.line("keys").await;
+        let keys = d.until(|event| event["type"] == "keys").await;
+        let names = std::env::vars_os().map(|(name, _)| name);
+        assert_eq!(keys["env"], keys_listed(names, None)["env"]);
+        assert_eq!(keys["credentials"].is_null(), !credentials::AVAILABLE);
+    }
+
     #[test]
     fn omapass_lists_its_accounts_or_says_why_not() {
         let account = omapass::Account {
@@ -3749,6 +4061,50 @@ mod tests {
             omapass_listed(Err("locked".into()), || true),
             json!({"type": "omapass", "installed": true, "accounts": [], "error": "locked"})
         );
+    }
+
+    #[test]
+    fn keys_lists_eco_and_preset_variables_and_eco_credentials_by_name() {
+        let variables = [
+            "PATH",
+            "ECO_DEEPGRAM",
+            "OPENROUTER_API_KEY",
+            "ECO_SOCKET",
+            "ECO_TOKEN",
+            "ECO_",
+            "eco_lower",
+            "ANTHROPIC_API_KEY",
+            "ECO_DEEPGRAM",
+            "GROQ_API_KEY",
+        ]
+        .map(std::ffi::OsString::from);
+        let windows = Some(Ok(vec!["deepgram".to_string()]));
+        assert_eq!(
+            keys_listed(variables.clone(), windows),
+            json!({"type": "keys",
+                   "env": ["ECO_DEEPGRAM", "GROQ_API_KEY", "OPENROUTER_API_KEY"],
+                   "credentials": ["deepgram"], "credential_error": ""})
+        );
+        assert_eq!(
+            keys_listed(variables.clone(), None),
+            json!({"type": "keys",
+                   "env": ["ECO_DEEPGRAM", "GROQ_API_KEY", "OPENROUTER_API_KEY"],
+                   "credentials": null, "credential_error": ""})
+        );
+        // A failure this platform's store gives.
+        #[cfg(unix)]
+        let failure = || CredentialError::Unavailable;
+        #[cfg(windows)]
+        let failure = || CredentialError::NoStore("1312".into());
+        let event = keys_listed(variables, Some(Err(failure())));
+        assert_eq!(event["credentials"], json!([]));
+        assert_eq!(event["credential_error"], failure().to_string());
+    }
+
+    #[test]
+    fn eco_own_variables_are_never_listed_as_keys() {
+        let own = OWN_VARIABLES.map(std::ffi::OsString::from);
+        assert_eq!(keys_listed(own, None)["env"], json!([]));
     }
 
     #[tokio::test]
@@ -3791,6 +4147,129 @@ mod tests {
             ["config_saved"]
         );
         assert_eq!(tray(&d), Some(false));
+    }
+
+    #[tokio::test]
+    async fn notifications_follow_the_config_and_its_language_at_once() {
+        let mut d = daemon(raw());
+        let failed = error(
+            "hook.failed",
+            "resumo: exit 1",
+            json!({"action": "resumo", "detail": "exit 1"}),
+        );
+        d.session.notifications.heard(&failed);
+        assert!(d.shown.taken().is_empty());
+        let mut saved = raw();
+        saved["ui"] = json!({"notifications": true, "language": "pt-BR"});
+        saved["token"] = json!("secret");
+        assert_eq!(
+            said(&d.line(&format!("config.set {saved}")).await),
+            ["config_saved"]
+        );
+        d.session.notifications.heard(&failed);
+        let pack = overlay::language_pack("pt-BR");
+        let body = pack["error.hook.failed"]
+            .as_str()
+            .unwrap()
+            .replace("{action}", "resumo")
+            .replace("{detail}", "exit 1");
+        assert_eq!(
+            d.shown.taken(),
+            [("eco".to_string(), body, crate::ports::Urgency::Critical)]
+        );
+        saved["ui"] = json!({"notifications": false});
+        d.line(&format!("config.set {saved}")).await;
+        d.session.notifications.heard(&failed);
+        assert!(d.shown.taken().is_empty());
+    }
+
+    #[test]
+    fn every_event_emitted_is_heard_by_the_notifications() {
+        let shown = Arc::new(Shown::default());
+        let notifications = Arc::new(Notifications::new(
+            Arc::clone(&shown) as Arc<dyn Notifier>,
+            true,
+            Arc::new(|_| None),
+        ));
+        let emit = emitter::<Vec<u8>>(None, Clients::default(), notifications);
+        emit(error("stt.down", "the provider closed", Value::Null));
+        assert_eq!(
+            shown.taken(),
+            [(
+                "eco".to_string(),
+                "the provider closed".to_string(),
+                crate::ports::Urgency::Critical
+            )]
+        );
+    }
+
+    #[tokio::test]
+    async fn an_active_window_holds_notifications_until_it_is_not_or_closes() {
+        let mut on = raw();
+        on["ui"] = json!({"notifications": true});
+        let mut d = daemon(on);
+        let failed = error("stt.down", "something broke", Value::Null);
+        let shown = |d: &mut Daemon| {
+            d.session.notifications.heard(&failed);
+            d.shown.taken().len()
+        };
+        d.line("overlay.open").await;
+        assert!(
+            d.line(r#"window.active {"window": 1, "active": true}"#)
+                .await
+                .is_empty()
+        );
+        assert_eq!(shown(&mut d), 0);
+        // Malformed, it changes nothing.
+        for line in [
+            "window.active 1",
+            r#"window.active {"window": 1}"#,
+            r#"window.active {"window": 1, "active": "no"}"#,
+        ] {
+            assert!(d.line(line).await.is_empty());
+        }
+        assert_eq!(shown(&mut d), 0);
+        d.line(r#"window.active {"window": 1, "active": false}"#)
+            .await;
+        assert_eq!(shown(&mut d), 1);
+        d.line(r#"window.active {"window": 1, "active": true}"#)
+            .await;
+        d.line(r#"window.closed {"window": 1}"#).await;
+        assert_eq!(shown(&mut d), 1);
+    }
+
+    #[tokio::test]
+    async fn a_window_that_exits_no_longer_holds_notifications() {
+        let mut on = raw();
+        on["ui"] = json!({"notifications": true});
+        let Daemon {
+            mut session,
+            exits,
+            shown,
+            ..
+        } = daemon(on);
+        session.handle("overlay.open").await;
+        session
+            .handle(r#"window.active {"window": 1, "active": true}"#)
+            .await;
+        let notifications = Arc::clone(&session.notifications);
+        let failed = error("stt.down", "something broke", Value::Null);
+        notifications.heard(&failed);
+        assert!(shown.taken().is_empty());
+        let (lines, received) = mpsc::unbounded_channel();
+        let served = tokio::spawn(session.serve(received, std::future::pending()));
+        #[cfg(unix)]
+        let failed_exit = std::os::unix::process::ExitStatusExt::from_raw(256);
+        #[cfg(windows)]
+        let failed_exit = std::os::windows::process::ExitStatusExt::from_raw(1);
+        exits.send(failed_exit).unwrap();
+        eventually(|| {
+            notifications.heard(&failed);
+            !shown.taken().is_empty()
+        })
+        .await;
+        lines.send("stop".into()).unwrap();
+        served.await.unwrap();
     }
 
     #[tokio::test]
@@ -4117,29 +4596,188 @@ mod tests {
             Arc::clone(&d.session.pending),
             windows.clone(),
             vec![json!({"type": "error", "code": "shortcut.unavailable"})],
+            d.session.updates.clone(),
         );
         let events = greeting();
         assert_eq!(
             said(&events),
-            ["daemon", "snapshot", "shortcut.unavailable"]
+            ["daemon", "snapshot", "update", "shortcut.unavailable"]
         );
         assert_eq!(events[0]["overlay"], true);
         assert_eq!(events[0]["version"], env!("CARGO_PKG_VERSION"));
         let exe = std::env::current_exe().unwrap();
         assert_eq!(events[0]["exe"], *exe.to_string_lossy());
         let held = hold(&mut d.session.pending.lock().unwrap(), "notify-send done");
-        assert_eq!(greeting()[2], held);
+        assert_eq!(greeting()[3], held);
         windows.focus(42).await.unwrap();
         assert_eq!(
             said(&greeting()),
             [
                 "daemon",
                 "snapshot",
+                "update",
                 "config_pending",
                 "window_focus",
                 "shortcut.unavailable"
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn an_update_installed_while_recording_restarts_when_the_session_ends() {
+        let mut d = daemon(raw());
+        d.start("Retro").await;
+        d.line("update.install").await;
+        d.until(|event| event["stage"] == "waiting").await;
+        assert_eq!(d.fakes.restarts(), 0);
+        let events = d.line("session.pause").await;
+        assert!(!said(&events).contains(&"update_progress".to_string()));
+        assert_eq!(d.fakes.restarts(), 0);
+        let events = d.line("session.end").await;
+        let stages: Vec<&Value> = events
+            .iter()
+            .filter(|event| event["type"] == "update_progress")
+            .map(|event| &event["stage"])
+            .collect();
+        assert_eq!(stages, ["restarting", "done"]);
+        assert_eq!(d.fakes.restarts(), 1);
+        assert_eq!(*d.fakes.installer.installed.lock().unwrap(), ["v99.0.0"]);
+    }
+
+    #[tokio::test]
+    async fn an_install_names_its_version_or_takes_the_latest() {
+        let mut d = daemon(raw());
+        d.line(r#"update.install {"version": "0.3.0"}"#).await;
+        d.until(|event| event["stage"] == "done").await;
+        assert_eq!(*d.fakes.installer.installed.lock().unwrap(), ["v0.3.0"]);
+        assert_eq!(d.fakes.releases.asked(), 0);
+        assert_eq!(d.fakes.restarts(), 1);
+    }
+
+    #[tokio::test]
+    async fn restarting_the_daemon_while_recording_needs_force() {
+        let mut d = daemon(raw());
+        d.start("Retro").await;
+        let events = d.line("daemon.restart").await;
+        assert_eq!(said(&events), ["daemon.recording"]);
+        let events = d.line(r#"daemon.restart {"force": false}"#).await;
+        assert_eq!(said(&events), ["daemon.recording"]);
+        assert_eq!(d.fakes.restarts(), 0);
+        d.line(r#"daemon.restart {"force": true}"#).await;
+        assert_eq!(d.fakes.restarts(), 1);
+        d.line("session.end").await;
+        d.line("daemon.restart").await;
+        assert_eq!(d.fakes.restarts(), 2);
+    }
+
+    #[tokio::test]
+    async fn a_check_on_demand_answers_with_what_it_found() {
+        let mut d = daemon(raw());
+        d.line("update.check").await;
+        let update = d.until(|event| event["type"] == "update").await;
+        assert_eq!(update["latest"], "99.0.0");
+        assert_eq!(update["newer"], true);
+        assert_eq!(update["check"], true);
+        assert_eq!(d.fakes.releases.asked(), 1);
+    }
+
+    #[tokio::test]
+    async fn turning_the_check_off_stops_the_daily_check() {
+        let mut d = daemon(raw());
+        d.session.check_daily().await;
+        assert!(d.session.daily.is_some());
+        let mut off = raw();
+        off["update"] = json!({"check": false});
+        let events = d.line(&format!("config.set {off}")).await;
+        let update = events
+            .iter()
+            .find(|event| event["type"] == "update")
+            .unwrap();
+        assert_eq!(update["check"], false);
+        assert!(d.session.daily.is_none());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn real_windows_are_driven_through_the_overlay_port() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut windows: Box<dyn Overlay> = Box::new(overlay::programs::windows(
+            dir.path(),
+            windows_told(),
+            false,
+        ));
+        assert!(!windows.is_open());
+        windows.open(Some("s1"), None).await.unwrap();
+        assert!(windows.is_open());
+        assert_eq!(windows.newest(), Some(1));
+        assert_eq!(windows.numbers(), [1]);
+        assert_eq!(windows.shown(), ["s1"]);
+        windows.shows(1, "s2");
+        assert_eq!(windows.shown(), ["s2"]);
+        windows.focus(1).await.unwrap();
+        windows.hide_from_share(true).await;
+        windows.tray(false).await;
+        windows.closed(1);
+        assert!(!windows.is_open());
+        windows.open(Some("later"), None).await.unwrap();
+        let exited = tokio::time::timeout(Duration::from_secs(10), windows.exited());
+        assert_eq!(
+            exited.await.unwrap().and_then(|status| status.code()),
+            Some(2)
+        );
+        windows.close().await;
+    }
+
+    #[test]
+    fn the_restart_runs_the_file_a_package_replaced() {
+        let replaced = PathBuf::from("/usr/bin/eco (deleted)");
+        assert_eq!(undeleted(replaced), PathBuf::from("/usr/bin/eco"));
+        let running = PathBuf::from("/usr/bin/eco");
+        assert_eq!(undeleted(running.clone()), running);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn the_restart_is_started_and_left_running_or_says_why_not() {
+        let dir = tempfile::tempdir().unwrap();
+        let ran = dir.path().join("ran");
+        let program = crate::adapters::fake_program::fake_program(
+            dir.path(),
+            "restart",
+            &format!("echo \"$@\" > {}", ran.display()),
+        );
+        let mut command = std::process::Command::new(&program);
+        command.arg("restart");
+        spawn_quiet(command).unwrap();
+        for _ in 0..100 {
+            if std::fs::read_to_string(&ran).is_ok_and(|said| said == "restart\n") {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert_eq!(std::fs::read_to_string(&ran).unwrap(), "restart\n");
+        let missing = std::process::Command::new(dir.path().join("missing"));
+        assert!(spawn_quiet(missing).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_restart_runs_in_a_unit_of_its_own() {
+        let command = restart_command(Path::new("/usr/bin/eco"));
+        assert_eq!(command.get_program(), "systemd-run");
+        let args: Vec<_> = command.get_args().collect();
+        assert_eq!(
+            args,
+            ["--user", "--collect", "--quiet", "/usr/bin/eco", "restart"]
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn the_restart_runs_the_installed_eco() {
+        let command = restart_command(Path::new(r"C:\eco\bin\eco.exe"));
+        assert_eq!(command.get_program(), r"C:\eco\bin\eco.exe");
+        assert_eq!(command.get_args().collect::<Vec<_>>(), ["restart"]);
     }
 
     #[tokio::test]
@@ -4340,11 +4978,9 @@ mod tests {
         let mut d = daemon(json!({"participants": raw()["participants"]}));
         assert!(!d.session.config_path.exists());
         let snapshot = d.configured().await;
-        assert_eq!(snapshot["actions"], json!([]));
-        assert_eq!(
-            snapshot["kind_models"]["meeting"],
-            json!({"transcription": "", "chat": ""})
-        );
+        let nothing = json!({"transcription": "", "chat": "", "translation": "", "actions": []});
+        assert_eq!(snapshot["kind_models"]["meeting"], nothing);
+        assert_eq!(snapshot["default_models"], nothing);
         // Nothing is wrong yet: no part names a model it cannot have.
         let problems = d.events.lock().unwrap().clone();
         assert!(
@@ -4355,12 +4991,15 @@ mod tests {
             "{problems:?}"
         );
         // What needs a model says that none is chosen.
-        d.start("Retro").await;
+        let id = d.start("Retro").await;
         let unheard = d.until(|event| event["code"] == "stt.unavailable").await;
         assert_eq!(unheard["params"]["detail"], NO_TRANSCRIPTION_MODEL);
-        d.line("ask which queue?").await;
-        let unanswered = d.until(|event| event["code"] == "completion.failed").await;
-        assert_eq!(unanswered["params"]["detail"], NO_CHAT_MODEL);
+        // What needs a chat model is refused before anything is asked.
+        let events = d.line("ask which queue?").await;
+        assert_eq!(said(&events), ["chat.none"]);
+        let translate = json!({"id": id, "language": "en"});
+        let events = d.line(&format!("session.translation {translate}")).await;
+        assert_eq!(said(&events), ["translation.none"]);
         let path = d.dir.path().join("call.wav");
         std::fs::write(&path, b"RIFF").unwrap();
         let events = d
@@ -4396,13 +5035,37 @@ mod tests {
         assert_eq!(
             snapshot["kind_models"],
             json!({
-                "meeting": {"transcription": "w", "chat": "m"},
-                "conversation": {"transcription": "w", "chat": "m"},
-                "other": {"transcription": "w", "chat": "m"},
-                "idea": {"transcription": "dg", "chat": "fast"},
+                "meeting": {"transcription": "w", "chat": "m", "translation": "m", "actions": ["probe"]},
+                "conversation": {"transcription": "w", "chat": "m", "translation": "m", "actions": ["probe"]},
+                "other": {"transcription": "w", "chat": "m", "translation": "m", "actions": ["probe"]},
+                "idea": {"transcription": "dg", "chat": "fast", "translation": "fast", "actions": ["probe"]},
             })
         );
-        assert_eq!(snapshot["actions"], json!(["probe"]));
+    }
+
+    #[tokio::test]
+    async fn a_kind_with_its_own_chat_model_answers_where_no_default_does() {
+        let mut raw = raw();
+        raw["llm"]["model"] = json!("");
+        raw["models"][1]["kinds"] = json!(["idea"]);
+        raw["actions"] = json!([
+            {"name": "probe", "prompt": "p", "format": "f", "model": "m"},
+            {"name": "ask", "prompt": "p", "format": "f"},
+        ]);
+        let mut d = daemon(raw);
+        let snapshot = d.configured().await;
+        assert_eq!(
+            snapshot["kind_models"]["meeting"],
+            json!({"transcription": "w", "chat": "", "translation": "", "actions": ["probe"]})
+        );
+        assert_eq!(
+            snapshot["kind_models"]["idea"],
+            json!({"transcription": "w", "chat": "m", "translation": "", "actions": ["probe", "ask"]})
+        );
+        assert_eq!(
+            snapshot["default_models"],
+            snapshot["kind_models"]["meeting"]
+        );
     }
 
     #[tokio::test]

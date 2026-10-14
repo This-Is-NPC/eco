@@ -1,7 +1,8 @@
 # How to register models
 
-**The question:** eco needs one model to transcribe and one to answer. Where do
-the keys go, how do I add a model, and how do I say which one does what?
+**The question:** eco needs one model to transcribe, and one to answer and
+translate if you want answers. Where do the keys go, how do I add a model, and
+how do I say which one does what?
 
 This page is enough on its own. It ends with a chat model on OpenRouter and a
 transcription model registered, each with its key, and an answer that proves the
@@ -10,10 +11,12 @@ page: [how to use a model on the LAN](how-to-use-a-model-on-the-lan.md).
 
 ---
 
-A **model** is registered once, in the **Models** tab: a name of yours, a type —
-**chat** or **transcription** —, the provider and the provider's id for it, and
-where its key comes from. Every other tab then picks a model by that name and
-never repeats a provider or a key. Answers go through one adapter, the
+A **model** is registered once, in the **Models** section of the settings: a
+name of yours, a type — **chat** or **transcription** —, the provider and the
+provider's id for it, and where its key comes from. The Models table also
+makes a model the default for chat, translation, review or transcription;
+skills and session kinds may pick another by its name, and never repeat
+a provider or a key. Answers go through one adapter, the
 OpenAI-compatible API, so the provider is only a base URL: OpenRouter, Groq, or a
 server of your own.
 
@@ -56,6 +59,31 @@ The variables eco's presets name are `OPENROUTER_API_KEY`, `DEEPGRAM_API_KEY`,
 the daemon once the session has read the file again: log out and back in, then
 `eco restart`.
 
+**A key of your own: name it `ECO_<NAME>`.** `<NAME>` is a placeholder for a
+name of yours, such as `ECO_LAN_KEY`. The model form lists every variable named
+`ECO_<NAME>` and the presets' variables that are set, by name only, never their
+values; any other variable still works when its name is typed. eco's own
+variables (`ECO_SOCKET`, `ECO_TOKEN`, `ECO_WINDOW` and the others it sets for
+its windows and hooks) are never listed. The daemon reads its environment when
+it starts, so a new variable is listed after `eco restart`:
+
+- **On Linux,** add `export ECO_LAN_KEY=…` to `~/.config/uwsm/env`, log out and
+  back in, then `eco restart`.
+- **On Windows,** add it under **Settings › System › About › Advanced system
+  settings › Environment Variables › User variables** (or run
+  `setx ECO_LAN_KEY "…"` in a terminal), then restart eco from a new terminal
+  or the Start menu, so it starts with the new environment: `eco restart`.
+
+`eco key list` prints the names the daemon can read, as JSON:
+
+```
+$ eco key list
+{"ok":true,"data":{"env":["ECO_LAN_KEY","OPENROUTER_API_KEY"],"credentials":null,"omapass":["openrouter"]}}
+```
+
+`credentials` is `null` on Linux and `omapass` is `null` without omapass
+(always on Windows). That output is read in the code, not run here.
+
 **From omapass.** Save the key as a password in omapass, under an account name
 such as `openrouter`. eco runs `omapass get -- openrouter` each time it builds
 that provider — on start, and on every save of the settings — reading the secret
@@ -81,7 +109,9 @@ Or add it by hand. Open the Credential Manager — search the Start menu for
 Add a generic credential**: **Internet or network address** `eco:deepgram`,
 any **User name**, the key as the **Password**. `eco key remove deepgram`
 deletes it. A daemon that was running reads a new credential after
-`eco restart`. Those outputs are read in the code, not seen: an ssh login by
+`eco restart`. The model form lists the `eco:<name>` credentials by name as
+soon as they exist, without a restart, since the daemon searches the
+Credential Manager each time the list opens. Those outputs are read in the code, not seen: an ssh login by
 key, the only way into the machine eco was built on, has no Credential
 Manager ([on Windows](how-to-install-and-remove.md#on-windows)). On Linux,
 `eco key` says `the Windows Credential Manager is only on Windows; on Linux
@@ -90,17 +120,23 @@ keep the key in omapass (api_key_omapass) or an environment variable
 
 ## 2. Add a chat model
 
-Open the settings (`SUPER+ALT+C`), then **Models** (`Ctrl+2`).
+Open the settings (`SUPER+ALT+C`), then **Models**, section 02 (`Ctrl+2`). It
+is a table of the models registered: each one's name, type, the provider's
+model id, what it is the default for and what else uses it.
 
-![The Models tab: "Register each model once — chat or transcription — with its provider", then four closed cards — whisper-lan (TRANSCRIPTION, whisper-large-v3-turbo, used by DEFAULT TRANSCRIPTION, MEETING…), deepgram (TRANSCRIPTION, nova-3, used by INTERVIEW), gemini-flash (CHAT, google/gemini-2.5-flash, used by ASSISTANT, TRANSLATION…), claude-haiku (CHAT, anthropic/claude-haiku-4.5, used by minutes) — and ADD MODEL.](img/41-settings-models.png)
+![The Models section: the rail of sections down the left, with 02 marked; the bar with ADD MODEL, VIEW, EDIT, the defaults by their short names, a dimmed FOR CHAT, a dimmed FOR TRANSLATION and FOR REVIEW, and a dimmed DELETE; "Register each model once — chat or transcription — with its provider, and make it a default from the bar"; and a table of whisper-lan (TRANSCRIPTION, whisper-large-v3-turbo, default TRANSCRIPTION, used by MEETING, CONVERSATION…), deepgram (TRANSCRIPTION, nova-3, INTERVIEW), gemini-flash (CHAT, google/gemini-2.5-flash, default CHAT · TRANSLATION, MEETING…, picked) and claude-haiku (CHAT, anthropic/claude-haiku-4.5, default REVIEW, minutes).](img/41-settings-models.png)
 
-A closed card says what the model is and what uses it. **ADD MODEL** opens a new
-one, its name field focused, starting from the provider and key source of the
-last model of its type. Fill it top to bottom:
+**A chat model is optional.** Without one eco records, transcribes and keeps
+notes; the **Prompts**, **Context** and **Skills** sections say NO CHAT MODEL, with **REGISTER A CHAT MODEL** back here. Skip to step 3 if you only want
+transcripts.
+
+**ADD MODEL** opens a new model, marked NEW and EDITING, starting from the
+provider and key source of the last model of its type. A new model is the
+default of nothing: step 4 makes it one. Fill it top to bottom:
 
 - **TYPE** — **CHAT**. It can change only while nothing uses the model.
-- **Name** — yours, such as `gemini`. It is what every other tab shows. Renaming
-  it later renames it everywhere.
+- **NAME** — yours, such as `gemini`. It is what every other section shows.
+  Renaming it later renames it everywhere.
 - **REASONING** — how long the model thinks before it answers:
   **PROVIDER'S** (the provider decides), **OFF**, **LOW**, **MEDIUM** or
   **HIGH**. **OFF** starts the answer at once, which is what a live
@@ -111,25 +147,38 @@ last model of its type. Fill it top to bottom:
 - **MODEL** — the provider's id, such as `google/gemini-3.5-flash-lite`. Type
   it, or press **LIST** to ask the provider which models it offers and pick one;
   the list filters as you type.
-- **KEY FROM** — **ENV**, with the variable's name (`OPENROUTER_API_KEY`), or
-  **OMAPASS**, with **PICK A PASSWORD** listing omapass's accounts. Only their
-  names are listed, never a secret. Without omapass on the machine, **OMAPASS**
-  cannot be pressed and an info button beside it opens omapass's install page in
-  the browser. On Windows **CREDENTIAL MANAGER** takes the place of
-  **OMAPASS**: a field for the key's name (`deepgram` for `eco:deepgram`),
-  and below it how to store that key with `eco key set` or by hand.
-- **ADVANCED** — extra fields sent with every request, as a JSON object, such as
+- **KEY FROM** — the key's name, picked with **PICK A KEY**: one list, a
+  title per source, of the names step 1 put where the daemon reads them —
+  **ENVIRONMENT** (the `ECO_<NAME>` variables and the presets' variables that
+  are set), then **OMAPASS** (its accounts) on Linux when omapass is
+  installed, or **CREDENTIAL MANAGER** (the `eco:<name>` credentials) on
+  Windows. Only names are listed, never a secret. **TYPE A NAME…** under a
+  source keeps that source and lets you type a name the list does not show.
+  Without omapass on the machine, an info button beside the picker opens
+  omapass's install page in the browser. With a credential named, a line says
+  how to store that key with `eco key set` or by hand.
+- **EXTRA (JSON)** — extra fields sent with every request, as a JSON object, such as
   `{"temperature": 0.2}`. A reasoning chosen above wins over one written here.
 
-A registered chat model, open — it has no TYPE row, since it is in use:
+**SAVE** (`Ctrl+S`) saves this model alone. A toast says
+`settings saved`, and the model's screen shows it read. A save with a field
+missing marks that field and saves nothing:
 
-![The gemini-flash card open: "used by ASSISTANT, TRANSLATION, MEETING, …" in full; NAME "gemini-flash"; REASONING with OFF lit; PROVIDER with OPENROUTER lit, GROQ and CUSTOM; MODEL "google/gemini-2.5-flash" with LIST; KEY FROM with ENV lit and OMAPASS, holding "OPENROUTER_API_KEY"; ADVANCED, closed.](img/42-settings-model.png)
+![A new model saved empty: MODEL NEW EDITING over "new model"; NAME outlined in red with "Give it a name." under it, and MODEL outlined in red with "Set the provider's model id."; SAVE and CANCEL in the bar.](img/54-settings-errors.png)
 
-**SAVE** (`Ctrl+S`). The status line says `settings saved`.
+A registered model, read: ABOUT says what it is and what it is the default
+for, and RELATED what else uses it, each a link to where that use is set. **EDIT** (`Ctrl+E`) opens the same form; a model
+in use has no TYPE row.
+
+![The gemini-flash model read: BACK, EDIT and DELETE in the bar; ABOUT with TYPE CHAT, DEFAULT FOR CHAT · TRANSLATION, PROVIDER OPENROUTER, BASE URL https://openrouter.ai/api/v1, MODEL ID google/gemini-2.5-flash, KEY FROM env OPENROUTER_API_KEY and REASONING OFF; RELATED with the session kinds, each once, under SESSION KINDS · ASSISTANT + TRANSLATION.](img/42-settings-model.png)
+
+![The gemini-flash model being edited: SAVE and CANCEL in the bar; NAME "gemini-flash"; REASONING with OFF lit; PROVIDER with OPENROUTER lit, GROQ and CUSTOM; MODEL "google/gemini-2.5-flash" with LIST; KEY FROM · ENVIRONMENT with "OPENROUTER_API_KEY", an info button and PICK A KEY open below it: ENVIRONMENT with DEEPGRAM_API_KEY, ECO_LAN_KEY, OPENROUTER_API_KEY (chosen) and TYPE A NAME…; the line on eco restart under the field; EXTRA (JSON) holding "{}".](img/43-settings-model-edit.png)
+
+**BACK** returns to the table.
 
 ## 3. Add a transcription model
 
-**ADD MODEL** again, type **TRANSCRIPTION**. The provider presets are:
+**ADD MODEL** again, **TYPE** **TRANSCRIPTION**. The provider presets are:
 
 | preset | how it transcribes | key |
 |---|---|---|
@@ -142,27 +191,43 @@ The base URL decides how: a `wss://` URL streams, an `http(s)://` one is the
 OpenAI-compatible `/v1/audio/transcriptions`. How fast each is, measured, is in
 [benchmarks](benchmarks.md).
 
-A transcription model takes one more field, **Fallback price per minute, USD**.
-Leave it empty unless the provider reports no cost of its own; it only stands in
-where nothing else does.
+A transcription model takes one more field, **FALLBACK PRICE PER MINUTE, USD
+(OPTIONAL)**. Leave it empty unless the provider reports no cost of its own; it
+only stands in where nothing else does. **SAVE**.
 
 ## 4. Say which model does what
 
-Each tab picks from the registry, and owns its own choice:
+**The defaults are set on the Models table.** Pick a model and press, in the
+bar:
 
-| tab | picks |
-|---|---|
-| **Transcription** | the default transcription model |
-| **Answers** | the default assistant — questions, and skills that name no model — and the reviewer's model |
-| **Skills** | a model per skill, or the default |
-| **Translation** | the model that writes translations, or the assistant's |
-| **Sessions** | per kind of session, its own transcription, assistant and translation models |
+| model | command | sets | used by |
+|---|---|---|---|
+| chat | **DEFAULT FOR CHAT** | `[llm] model` | the assistant: questions, and the skills and session kinds that pick no model |
+| chat | **DEFAULT FOR TRANSLATION** | `[translation] model` | translations in sessions whose kind picks no translation model |
+| chat | **DEFAULT FOR REVIEW** | `[reviewer] model` | the reviewer, which rewrites every answer before it shows while REVIEW ANSWERS is on |
+| transcription | **DEFAULT FOR TRANSCRIPTION** | `[stt] model` | sessions whose kind picks no transcription model |
 
-![The Transcription tab: DEFAULT MODEL whisper-lan, "Transcribes sessions whose kind picks no transcription model", then the offered spoken languages AUTO, EN, ES and PT, and DEFAULT SPOKEN LANGUAGE EN · American English.](img/43-settings-transcription.png)
+Each saves at once; the DEFAULT column then says so. A command is dimmed on
+the model that is already that default. Until a translation default is set,
+the chat default translates, and its DEFAULT reads CHAT · TRANSLATION
+(INHERITED).
 
-![The Sessions tab: the kinds Meeting (DEFAULT), Conversation, Other and Idea, each "transcribes with whisper-lan · answers with gemini-flash", and interview, which "transcribes with deepgram".](img/49-settings-sessions.png)
+DEFAULT FOR REVIEW only picks the reviewer's model; it does not turn review on.
+That is **REVIEW ANSWERS**, under the title REVIEWER in **General** (`Ctrl+8`),
+an ON/OFF saved at once; its row names the reviewer's model beside the value.
+Turned on with no reviewer model picked, the chat default reviews.
 
-**A kind can run on its own models.** Open a kind in **Sessions** to give it a
+**Anything more specific picks in its own section.** Open the item, **EDIT**,
+pick, **SAVE**:
+
+| section | item | picks |
+|---|---|---|
+| **Session kinds** (`Ctrl+4`) | each kind | per kind of session, its own transcription, assistant and translation models |
+| **Skills** (`Ctrl+7`) | each skill | a model per skill, or the default |
+
+![The Session kinds section: ADD KIND, VIEW, EDIT, MAKE DEFAULT and DELETE in the bar; "The default kind is suggested when you create or import a session…"; and a table of Meeting (DEFAULT), Conversation, Other and Idea, each transcribing with "default · whisper-lan" and answering with "default · gemini-flash", and interview, transcribing with deepgram.](img/45-settings-kinds.png)
+
+**A kind can run on its own models.** Open a kind in **Session kinds** to give it a
 transcription, assistant and translation model of its own — an `idea` session on
 a free model, an interview on the best one. A skill that names a model answers
 with it in every kind.
@@ -217,14 +282,14 @@ api_key_omapass = "Deepgram"
 ```
 
 `kinds = ["idea"]` on a model makes it that kind's model of its type;
-`extra = { … }` is ADVANCED. Every field: [`design.md` §9](design.md#9-configuration).
+`extra = { … }` is EXTRA (JSON). Every field: [`design.md` §9](design.md#9-configuration).
 
 ---
 
 ## What can go wrong
 
 **The key is not set.** The daemon still starts, and everything that does not
-use that model works. The window's status line says
+use that model works. An error toast in the window says
 `Model gemini unavailable: OPENROUTER_API_KEY is not set. Everything else works;
 what uses this model fails until it is fixed in Settings › Models.` From the
 command line, a skill on that model fails the same way:
@@ -236,14 +301,25 @@ command line, a skill on that model fails the same way:
 A transcription model in the same state leaves the inputs measured and nothing
 transcribed, and says `Transcription unavailable: …`.
 
-**omapass is not installed.** **OMAPASS** says `omapass is not installed.` on
-hover and cannot be pressed; the info button beside it opens the install page.
-A model whose key already comes from omapass says the same under **KEY FROM**;
-switch it to **ENV**, or install omapass. The daemon, building that provider,
+**omapass is not installed.** **PICK A KEY** lists no **OMAPASS**; the info
+button beside it opens the install page. A model whose key already comes from
+omapass says `omapass is not installed.` under **KEY FROM**; pick a key from
+another source, or install omapass. The daemon, building that provider,
 fails with
 `omapass is not installed (https://plugins.omarchy.org/plugin.html?id=io.github.this-is-npc.omapass)`.
-With omapass and no passwords in it, **PICK A PASSWORD** says
+With omapass and no passwords in it, **PICK A KEY** says
 `No passwords in omapass yet; add one there first.`
+
+**A new `ECO_` variable is not listed.** The daemon reads its environment when
+it starts: set the variable as step 1 says, then `eco restart`. A variable not
+named `ECO_<NAME>` and not a preset's is not listed; choose **TYPE A NAME…**
+under **ENVIRONMENT** and type it.
+
+**The Credential Manager could not be listed** (Windows). The picker says
+`The Credential Manager could not be listed:` and why, and lists no
+credentials; `eco key list` prints the same reason as `credential_error`. Over
+an ssh login by key there is no Credential Manager; run eco from the desktop.
+**TYPE A NAME…** still takes a credential's name.
 
 **Two sources for one key.** Refused, by the window and by the daemon at start:
 `a provider's key comes from one of api_key_env, api_key_omapass or api_key_credential`.
@@ -261,7 +337,7 @@ a saved model at its own base URL, or for a preset's variable at the preset's
 URL. A new model with **CUSTOM** and a key, or with a key from **OMAPASS** or **CREDENTIAL MANAGER**, says
 `no model list: save the model first; its key is read only for a saved model or
 a preset (<base URL>)`, where `<base URL>` is a placeholder for the one typed.
-Press **SAVE**, then **LIST** again. A custom base URL with no key lists at
+Press **SAVE**, then **EDIT** and **LIST** again. A custom base URL with no key lists at
 once.
 
 **A wrong model id, or a base URL without `/v1`.** The answer fails with the
@@ -273,9 +349,16 @@ moves a model's address or key source. Nothing is saved until you choose: the
 dialog names the address and where the key comes from
 ([screens §12](screens.md#12-settings)). REJECT unless you asked for it.
 
-**A model cannot be removed.** The assistant's and the default transcription
-model cannot. Removing any other asks first, listing what falls back to which
-model and whether the reviewer turns off.
+**Asking or translating says no chat model answers.** No chat model answers or
+translates that session's kind: `chat.none` or `translation.none`. Make one
+the default for chat or translation on the **Models** table, or pick one for
+the kind under **Session kinds**.
+
+**A model cannot be deleted.** For the chat default and the transcription
+default, **DELETE** is dimmed, and its hint says `The default for chat or
+transcription: make another model that default first.` Deleting any
+other asks first, listing what falls back to which model and whether the
+reviewer turns off, then saves at once.
 
 ---
 

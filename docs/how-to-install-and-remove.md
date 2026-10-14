@@ -4,7 +4,8 @@
 what is left when I remove it?
 
 This page is enough on its own. It ends with eco installed from its package,
-its window open, and the one command that takes it back off. Registering models
+its window open, how it updates itself, and the one command that takes it
+back off. Registering models
 and choosing what eco hears are their own pages; this one only gets the program
 on the machine.
 
@@ -38,7 +39,9 @@ Every GitHub release carries the Arch package and a `SHA256SUMS` beside it.
 `install.sh` downloads the package, refuses it when the checksum does not match,
 and installs it with `pacman -U`.
 
-**Installing a newer release is the upgrade.** `pacman -U` replaces the last
+**Installing a newer release is the upgrade.** eco does it for you from the
+window or with `eco update` ([Update](#update)). Run by hand, `install.sh`
+does the same: `pacman -U` replaces the last
 one. A daemon that was running goes on running the old binary, which cannot
 serve the new window. The next `eco start`, launcher or global shortcut
 restarts it on the new one first and says so on stderr:
@@ -88,10 +91,10 @@ change each of them. Start eco (step 5) and its window opens; `SUPER+ALT+C` open
 settings. **Models** registers a transcription model and a chat model, each
 with where its key comes from ([how to register models](how-to-register-models.md)),
 and **Audio** says who is heard
-([how to set up audio sources](how-to-set-up-audio-sources.md)). The settings
-ask for a default transcription model and the assistant's model before they
-save, and the first save writes the file; from then on the settings window
-edits it. Every field is in [`design.md` §9](design.md#9-configuration).
+([how to set up audio sources](how-to-set-up-audio-sources.md)). Each change
+is saved on its own — a value in a row, such as a device's **HEARD AS**, saves
+at once; an item such as a model opens, **EDIT**, **SAVE** — and the first save
+writes the file; from then on the settings window edits it. Every field is in [`design.md` §9](design.md#9-configuration).
 
 Until then, what needs a model says so: a session started transcribes nothing
 and says `no transcription model is chosen`, and an answer fails with `no chat
@@ -193,11 +196,12 @@ eco: daemon running (pid 434054, version 0.1.0)
 `eco status` prints `eco: daemon stopped` and exits 3 when nothing answers, so a
 script can test it.
 
-**To have eco in the tray,** open **Settings › Interface**, turn on **SHOW
-ECO IN THE TRAY** and save: the icon shows in the bar's tray at once (on
+**To have eco in the tray,** open **Settings › General** (`Ctrl+8`) and
+press the **OFF** chip of **SHOW ECO IN THE TRAY** to turn it **ON**: it saves at once, and the
+icon shows in the bar's tray at once (on
 Omarchy it may sit in the drawer behind the `<` arrow). A click opens the
 window; its menu opens a window, starts a session, opens the settings or stops
-eco. Turn it off and save, and it goes. It is off until you turn it on, and
+eco. Turn it off, and it goes. It is off until you turn it on, and
 it shows only while the daemon runs. The same in `config.toml`:
 
 ```toml
@@ -208,6 +212,12 @@ tray = true
 **The service is not enabled.** The package carries the unit, and nothing more:
 the daemon is not running after a login until `eco start` or the launcher
 starts it. A crash restarts it (`Restart=on-failure`).
+
+**To restart the daemon from the window,** open **Settings › General** and
+press **RESTART** in the **DAEMON** row of **UPDATES**. It does what `eco
+restart` does, and the window reconnects on its own. While a session records
+it asks first: if you go on, the session stops recording and comes back
+paused, as after any stop of the daemon.
 
 ---
 
@@ -233,7 +243,8 @@ the repository, installs that zip for your account.
    that is running, puts the zip's `eco` folder in
    `%LOCALAPPDATA%\Programs\eco` in place of the one there, adds its `bin`
    to your `PATH` (your account's, not the machine's) and runs `eco setup`,
-   which downloads the models and adds eco to the Start menu (step 2). A
+   which downloads the models, adds eco to the Start menu and registers the
+   name and icon of eco's notifications (step 2). A
    daemon that was running is started again. Every line it writes starts
    with `eco: `; it ends with how to start eco and how to take it off. On a
    machine with no eco, from the `v0.3.0` release:
@@ -245,6 +256,7 @@ the repository, installs that zip for your account.
    eco: saved C:\Users\you\AppData\Local\eco\models\silero_vad.onnx
    eco: saved C:\Users\you\AppData\Local\eco\models\wespeaker_campplus.onnx
    eco: Start menu entry added in C:\Users\you\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\eco.lnk
+   eco: notifications registered as eco's (This-Is-NPC.eco)
    eco: installed. Next: open eco from the Start menu, or run eco start
    eco: take it off again with: $env:ECO_UNINSTALL = "keep"; irm https://raw.githubusercontent.com/This-Is-NPC/eco/master/install.ps1 | iex
    ```
@@ -298,7 +310,8 @@ the repository, installs that zip for your account.
    `eco start` or shortcut, as on Linux.
 
 2. **The models and the Start menu.** The installer ran `eco setup`, which
-   does what step 2 does on Linux and adds eco to the Start menu; run it
+   does what step 2 does on Linux, adds eco to the Start menu and names its
+   notifications; run it
    again whenever a model is missing:
 
    ```
@@ -306,6 +319,7 @@ the repository, installs that zip for your account.
    eco: C:\Users\you\AppData\Local\eco\models\silero_vad.onnx is up to date
    eco: C:\Users\you\AppData\Local\eco\models\wespeaker_campplus.onnx is up to date
    eco: Start menu entry added in C:\Users\you\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\eco.lnk
+   eco: notifications registered as eco's (This-Is-NPC.eco)
    ```
 
    (`C:\Users\you` stands for your profile directory.) A first run says
@@ -410,7 +424,8 @@ Remove-Item env:ECO_UNINSTALL
 
 It stops the daemon and its window, then removes
 `%LOCALAPPDATA%\Programs\eco`, the Start menu entry, the login script an
-older eco wrote and the `bin` entry of your `PATH`, saying `eco: removed`
+older eco wrote, the registry key that names eco's notifications and the
+`bin` entry of your `PATH`, saying `eco: removed`
 and the path for each, and `eco: kept` for the data folders it leaves.
 `everything` also removes `%APPDATA%\eco` and `%LOCALAPPDATA%\eco`: the
 config, the sessions, the people, the models, the token and the log. With
@@ -422,6 +437,7 @@ eco: removed C:\Users\you\AppData\Local\Programs\eco
 eco: removed C:\Users\you\AppData\Roaming\eco
 eco: removed C:\Users\you\AppData\Local\eco
 eco: removed C:\Users\you\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\eco.lnk
+eco: removed HKCU:\Software\Classes\AppUserModelId\This-Is-NPC.eco
 eco: removed C:\Users\you\AppData\Local\Programs\eco\bin from your PATH
 ```
 
@@ -430,6 +446,7 @@ With `keep` and `$env:DRY_RUN = "1"`:
 ```
 eco: would remove C:\Users\you\AppData\Local\Programs\eco
 eco: would remove C:\Users\you\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\eco.lnk
+eco: would remove HKCU:\Software\Classes\AppUserModelId\This-Is-NPC.eco
 eco: would remove C:\Users\you\AppData\Local\Programs\eco\bin from your PATH
 ```
 
@@ -493,12 +510,12 @@ refused and says so for each. On a desktop, `Win+Alt+C`, `N`, `H` and `E`
 were pressed and worked; `Win+Alt+A` and `Q` were chosen after `Win+Alt+1` and
 `2` were refused there, and were not pressed on a desktop yet.
 
-**Hiding from screen sharing** (**Settings › Interface › HIDE FROM SCREEN
+**Hiding from screen sharing** (**Settings › General › HIDE FROM SCREEN
 SHARING**) leaves eco's windows out of every capture, your own screenshots and
 recordings too; Microsoft documents this for Windows 10 2004 and later
 (read, not seen).
 
-**The tray icon** is turned on the same way, in **Settings › Interface ›
+**The tray icon** is turned on the same way, in **Settings › General ›
 SHOW ECO IN THE TRAY**; it shows in the notification area, perhaps among the
 hidden icons behind its `^` arrow, from which Windows lets you drag it onto
 the taskbar. Its click and menu do what they do on Linux.
@@ -546,13 +563,29 @@ exits with status 1. Over ssh the shortcut's command was run and started and
 stopped the daemon; a click in the Start menu was not seen, as the machine
 eco was built on has no desktop at hand.
 
+**The notifications' name.** `eco setup` also registers eco's app id, the
+name and icon Windows shows on eco's notifications, in your account's
+registry under `HKCU\Software\Classes\AppUserModelId\This-Is-NPC.eco`:
+`DisplayName` `eco` and `IconUri` the `share\eco\eco.ico` of the install.
+
+```
+eco: notifications registered as eco's (This-Is-NPC.eco)
+```
+
+Run again, it says nothing; from an eco that has moved, `notifications
+updated as eco's (This-Is-NPC.eco)`. The daemon registers it again before
+each notification, so they say "eco" even if setup never ran. A key it cannot
+write is a warning, `eco setup` exits with status 1, and the notifications say
+"Windows PowerShell".
+
 **To take eco off Windows** installed by hand, without the installer, stop
-it, delete the Start menu entry, the folder you unzipped (or the checkout),
-and its `bin` folder from your `PATH`:
+it, delete the Start menu entry, the notifications' registry key, the folder
+you unzipped (or the checkout), and its `bin` folder from your `PATH`:
 
 ```powershell
 eco stop
 Remove-Item "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\eco.lnk"
+Remove-Item -Recurse "HKCU:\Software\Classes\AppUserModelId\This-Is-NPC.eco"
 Remove-Item -Recurse "$env:LOCALAPPDATA\Programs\eco"
 ```
 
@@ -564,6 +597,187 @@ it, one command each:
 
 ```powershell
 [Environment]::SetEnvironmentVariable("OPENROUTER_API_KEY", $null, "User")
+```
+
+---
+
+## Update
+
+eco says when a newer release is out, and installs it when you ask, on Linux
+and on Windows. The outputs below are real: they came from the checkout's eco
+in a home of its own under `/tmp`, asking the real GitHub, with stand-ins for
+`pkexec` and `systemd-run` that only noted what they were asked. `0.4.0` was
+the latest release then; `0.5.0` below is an example.
+
+**How it knows.** The daemon asks GitHub for the tag of the latest release:
+when it starts, if the last check is older than 24 hours, then every 24 hours
+while it runs. It is one GET with `User-Agent: eco/<version>` (`<version>` is
+a placeholder for the installed one); nothing about you is sent, and there is
+no telemetry. What it found is kept in `~/.local/state/eco/update.json`
+(`$XDG_STATE_HOME/eco/` when that is set; `%LOCALAPPDATA%\eco\update.json` on
+Windows), so a restart does not ask again:
+
+```json
+{"checked_at":1791997033,"latest":"0.4.0","notes":"https://github.com/This-Is-NPC/eco/releases/tag/v0.4.0"}
+```
+
+When the latest release is newer than the one running, the main window shows a
+small notice, `ECO 0.5.0 AVAILABLE`, in the masthead, except on a
+session and on its cost. A press opens the release notes in your browser; its
+× hides it until the window opens again. With **SYSTEM NOTIFICATIONS** on
+(**Settings › General › INTERFACE**) and no eco window active, the system also
+notifies you, once per version.
+
+**To never ask on its own,** turn **CHECK FOR UPDATES** off in **Settings ›
+General › UPDATES**, or in `config.toml`:
+
+```toml
+[update]
+check = false
+```
+
+The daemon then never asks GitHub by itself, and the window shows no notice.
+What you start still asks, once: **CHECK NOW**, `eco update`, and `eco
+version` when no daemon runs.
+
+### From the window
+
+1. Open **Settings › General** (`Ctrl+8`). The **UPDATES** group has three rows:
+   **CHECK FOR UPDATES**, an ON/OFF chip; **VERSION**, with **CHECK NOW** and
+   `0.4.0 · up to date` (or `0.4.0 · not checked`, `0.4.0 · could not check`),
+   or **UPDATE** and `0.4.0 · 0.5.0 available` when a newer one is out; and
+   **DAEMON**, with **RESTART** and `running`.
+2. Press **UPDATE**. The row and a toast say each step: `downloading eco
+   0.5.0`, `checking the checksum of eco 0.5.0`, `installing eco 0.5.0`,
+   `restarting eco`, `eco 0.5.0 is running` — or `update failed:` and the
+   reason, in an error toast. A release GitHub does not have said:
+   `update failed: could not download v0.4.1/SHA256SUMS: 404 Not Found`.
+3. **On Linux,** at installing, `pkexec` asks for your password in a window of
+   its own, and installs the package with `pacman -U`, as `install.sh` does.
+   (Read in the code: the runs behind this page used a stand-in `pkexec`.)
+4. The daemon restarts on the new version, as `eco restart` does, and the
+   window reopens if it was open. On Linux the restart runs as `systemd-run
+   --user --collect --quiet /usr/bin/eco restart`, so stopping the service does
+   not stop the restart with it.
+
+**RESTART** in the **DAEMON** row restarts the daemon the same way. While a
+session records it asks first, **RESTART ECO**: "A session is recording.
+Restarting eco now stops its recording." **CANCEL** leaves it; **RESTART**
+restarts it, and the session comes back paused, as after any stop of the
+daemon.
+
+### From a terminal
+
+`eco update --check` only asks:
+
+```console
+$ eco update --check
+{"ok":true,"data":{"current":"0.4.0","latest":"0.4.0","newer":false,"notes":"https://github.com/This-Is-NPC/eco/releases/tag/v0.4.0"}}
+```
+
+`eco update` installs the latest release when it is newer, and does nothing
+otherwise; `eco update --version <version>` installs that release, an older
+one too:
+
+```console
+$ eco update
+{"ok":true,"data":{"current":"0.4.0","version":"0.4.0","installed":false,"restart":"none"}}
+$ eco update --version 0.4.0
+eco: downloading 0.4.0
+eco: checking 0.4.0 against its SHA256SUMS
+eco: installing 0.4.0
+{"ok":true,"data":{"current":"0.4.0","version":"0.4.0","installed":true,"restart":"none"}}
+```
+
+The steps go to stderr, the JSON to stdout. Who installs depends on the
+daemon:
+
+- **A daemon runs:** it installs the release, the same code as **UPDATE**, and
+  restarts. `restart` is `"now"`, or `"when_session_ends"` while a session
+  records. Until that restart, another `eco update` is refused with
+  `update.busy`.
+- **No daemon runs,** or one older than 0.5.0 that does not know updates:
+  `eco update` installs it itself and `restart` is `"none"`. An older daemon
+  goes on running the old binary until the next `eco start` restarts it, as
+  above.
+
+On Linux it runs `pkexec pacman -U --noconfirm` on the package. Without
+`pkexec`, in a terminal, it runs `sudo pacman -U` and `sudo` asks there.
+Without either it installs nothing and downloads nothing:
+
+```json
+{"ok":false,"code":"update.failed","message":"pkexec is not installed, and there is no terminal for sudo to ask for the password; install polkit, or run eco update in a terminal"}
+```
+
+A password prompt closed or refused:
+
+```json
+{"ok":false,"code":"update.failed","message":"the password was not given; nothing was installed"}
+```
+
+The codes: `update.unavailable` (GitHub could not be asked, or has no such
+release: `GitHub answered 404 for releases/tags/v9.9.9`), `update.failed` (the
+download, the checksum or the install failed; the message says which) and
+`update.busy`.
+
+### What it checks
+
+Every release carries a `SHA256SUMS`. eco downloads it, picks the asset for
+this system from it — the Arch package `eco-<version>-1-x86_64.pkg.tar.zst`,
+or the Windows zip `eco-<version>-windows-x86_64.zip` — downloads that into a
+folder of its own under the temporary directory and checks its sha256. When it
+does not match, the file is deleted, nothing is installed, and the update
+fails with `eco-<version>-1-x86_64.pkg.tar.zst does not match the release's
+SHA256SUMS; nothing was installed` (tested against a local server; a real
+release has never mismatched). The folder goes once the install ends.
+
+### A recording is never cut
+
+The install happens while a session records; the restart waits. The row and
+a toast say `eco 0.5.0 installed · restarts when the session ends`, and
+the daemon restarts once the last live or paused session ends. Until then it
+keeps running the old version.
+
+### On Windows
+
+There is no password prompt: eco replaces `%LOCALAPPDATA%\Programs\eco` for
+your account, as `install.ps1` does. Windows does not let a running `eco.exe`
+or a loaded library be overwritten, but lets it be renamed: each file of the
+folder is renamed aside, `<file>.<id>.eco-old`, the new ones are moved in, and
+each file aside is deleted at once when nothing holds it, else when the daemon
+next starts. A file another program has open for a moment, such as a window
+reading its language packs, is waited for up to 5 seconds; if it is still held,
+the update fails and puts back every file it moved. The Start menu entry and
+the `PATH` entry stay as they are. Run on Windows: with the daemon and its
+window running, `eco update --version 0.4.0` replaced `eco.exe` and the Qt
+libraries, restarted the daemon and reopened the window, and the next start
+deleted the 34 files left aside.
+
+### Which version, and is everything in place
+
+`eco version` prints the installed version, the running daemon's (`null` when
+none runs), the latest release, and the channel, always `release`:
+
+```console
+$ eco version
+{"ok":true,"data":{"installed":"0.4.0","daemon":"0.4.0","latest":"0.4.0","channel":"release"}}
+```
+
+With a daemon, `latest` is what that daemon last found, `null` before its
+first check; with none, `eco version` asks GitHub itself.
+
+`eco doctor` checks the installed files, the VAD and speaker models, that the
+config loads, that each model's key source resolves (by name; it never reads
+out a key), that the daemon runs and is this eco, and the global shortcuts
+(that the Hyprland config loads eco's rules on Linux; the keys the daemon
+registered on Windows). It prints one JSON object, a list of `{check, ok,
+detail, fix}`, and exits 1 when any check fails. From the checkout's eco, in
+the home under `/tmp` with no speaker model and no Hyprland config
+(`/home/you/eco` is a placeholder for the checkout):
+
+```console
+$ eco doctor
+{"ok":false,"data":[{"check":"installed","ok":false,"detail":"/home/you/eco/target/debug/eco runs without lib/eco/eco-window, share/eco/overlay/shell.qml beside it","fix":"install eco again (docs/how-to-install-and-remove.md)"},{"check":"models","ok":false,"detail":"missing: WeSpeaker CAM++ (/tmp/eco-r7/.local/share/eco/models/wespeaker_campplus.onnx)","fix":"run eco setup"},{"check":"config","ok":true,"detail":"/tmp/eco-r7/.config/eco/config.toml loads","fix":""},{"check":"key:whisper-lan","ok":true,"detail":"needs no key","fix":""},{"check":"key:deepgram","ok":true,"detail":"DEEPGRAM_API_KEY is set","fix":""},{"check":"key:gemini-flash","ok":true,"detail":"OPENROUTER_API_KEY is set","fix":""},{"check":"key:claude-haiku","ok":true,"detail":"OPENROUTER_API_KEY is set","fix":""},{"check":"daemon","ok":true,"detail":"running, version 0.4.0","fix":""},{"check":"shortcuts","ok":false,"detail":"cannot read /tmp/eco-r7/.config/hypr/bindings.lua: No such file or directory (os error 2)","fix":"run eco setup"}]}
 ```
 
 ---
@@ -609,6 +823,9 @@ write.
 
 ## Taking it off
 
+Removing eco keeps your data: the config, the sessions, the people and the
+models stay.
+
 ```bash
 eco stop
 sudo pacman -R eco
@@ -637,6 +854,9 @@ Keys you put in `~/.config/uwsm/env` stay there until you delete those lines.
 
 ## What can go wrong
 
+**Something is missing, and you do not know what.** `eco doctor` runs every
+check and names the fix for each that fails ([Update](#which-version-and-is-everything-in-place)).
+
 **The models are missing.** The daemon will not start without them, and says
 which:
 
@@ -664,7 +884,7 @@ start`: nothing answers on `$XDG_RUNTIME_DIR/eco.sock`. `eco status`, then
 `eco start`; the window reconnects on its own. Service failures
 are in `journalctl --user -u eco.service`.
 
-![eco's start screen with no daemon: the masthead "ECO / OFFLINE", the buttons dimmed, and under them, in amber, "Daemon disconnected · eco start".](img/02-disconnected.png)
+![eco's start screen with no daemon: the masthead "ECO / OFFLINE", the buttons dimmed, under them, in amber, "Daemon disconnected · eco start", and in the bottom-right corner an error toast saying the daemon is disconnected.](img/02-disconnected.png)
 
 ---
 

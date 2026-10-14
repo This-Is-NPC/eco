@@ -7,7 +7,7 @@ On Linux it builds with Ninja, the system's compiler and the system's Qt. On
 Windows it builds with MSVC, which CMake finds through its Visual Studio
 generator, and the Qt scripts/qt-install put under .qt, in target/window-msvc,
 then copies beside target/window/eco-window.exe the Qt libraries and QML
-modules it runs with (the offscreen platform too, for the tests), so that
+modules it runs with (the offscreen platform and QtTest too, for the tests), so that
 target/window holds the program and its runtime alone, as scripts/package
 ships it."""
 
@@ -35,7 +35,7 @@ if sys.platform == "win32":
     run(
         str(qt / "bin" / "windeployqt.exe"), "--release", "--verbose", "0", "--no-translations",
         "--no-system-d3d-compiler", "--no-system-dxc-compiler", "--no-opengl-sw", "--no-compiler-runtime",
-        "--include-plugins", "qoffscreen", "--qmldir", "overlay",
+        "--include-plugins", "qoffscreen", "--qmldir", "overlay", "--qmldir", "tests/window",
         str(BUILD / "eco-window.exe"),
     )
 else:

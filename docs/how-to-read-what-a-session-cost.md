@@ -21,8 +21,8 @@ are reported and which estimated, and why a part can be unknown.
   `eco sessions`.
 
 **A cost is shown in two places, and only there:** the session's cost screen in
-the window, opened from inside the session, and `eco sessions` in the CLI. The
-sessions list, the session header and the answer cards never show one.
+the window, opened from the top of the session, and `eco sessions` in the CLI.
+The sessions list, the session header and the answer cards never show one.
 
 ---
 
@@ -106,7 +106,7 @@ api_key_env = "DEEPGRAM_API_KEY"
 price_per_minute = 0.0077                 # USD; only where the provider reports no cost
 ```
 
-In the window it is the model's **Fallback price per minute, USD (optional)**
+In the window it is the model's **FALLBACK PRICE PER MINUTE, USD (OPTIONAL)**
 field, in **Settings › Models**, on transcription models only.
 
 An import of 35 seconds on that model, with a key that cannot read usage, so
@@ -124,8 +124,10 @@ nothing: nothing transcribes it.
 
 ## In the window
 
-Open the session, its details (`⋯`), and press **COST**. The masthead says
-`COST · <title>`; **SESSION** or Esc goes back:
+Open the session and press the cost button (`$`) in its masthead; on a short,
+narrow live window, where the masthead has no room for it, press **COST** in
+its details (`⋯`) instead. The masthead says `COST · <title>`; **SESSION** or
+Esc goes back:
 
 ![The cost screen of "Acme onboarding kickoff": TOTAL US$ 0.27 at the top right; "LLM US$ 0.00068  answers US$ 0.00068" and "TRANSCRIPTION US$ 0.27 (35 MIN)"; then three charges — Transcription · 35 min at 14:34 on deepgram, US$ 0.27; Answer · What did we agree on the deadline? at 14:02 on google/gemini-2.5-flash, US$ 0.00027; and Answer · reply at 14:00, US$ 0.00041.](img/28-session-cost.png)
 

@@ -13,6 +13,8 @@ Item {
   property string chosen
   // What automatic resolves to now, shown when nothing is chosen.
   property color automatic: Theme.dim
+  // Its tip shows below it rather than above, where it would cover what is there.
+  property bool tipBelow: false
   signal picked(string color)
 
   implicitWidth: 22
@@ -53,7 +55,7 @@ Item {
     cursorShape: Qt.PointingHandCursor
     onClicked: grid.opened ? grid.close() : grid.open()
   }
-  Hint { visible: (mouse.containsMouse || picker.activeFocus) && !grid.opened; text: picker.chosen ? I18n.t("color.tip", { color: picker.chosen }) : I18n.t("color.tip_auto") }
+  Hint { y: picker.tipBelow ? picker.height + 3 : -implicitHeight - 3; visible: (mouse.containsMouse || picker.activeFocus) && !grid.opened; text: picker.chosen ? I18n.t("color.tip", { color: picker.chosen }) : I18n.t("color.tip_auto") }
 
   PopupFrame {
     id: grid

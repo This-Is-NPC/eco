@@ -1,4 +1,10 @@
-#!/usr/bin/env bash
-set -euo pipefail
-cargo fmt --check
-cargo clippy --all-targets --locked -- -D warnings
+#!/usr/bin/env python3
+"""Fail when the Rust sources are not formatted or clippy warns."""
+
+import subprocess
+import sys
+
+for command in (["cargo", "fmt", "--check"], ["cargo", "clippy", "--all-targets", "--locked", "--", "-D", "warnings"]):
+    status = subprocess.run(command).returncode
+    if status:
+        sys.exit(status)

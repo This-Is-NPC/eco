@@ -96,9 +96,13 @@ An answer's card has a translate button of its own, for one answer in a session
 that does not translate: it goes into the session's translation language when
 there is one, else into the interface's.
 
-The model that writes them is chosen in **Settings › Translation**:
-
-![Settings on the Translation tab: "A session translates its lines and answers only once it is turned on in that session, on the TRANSLATION line of its details. Here you pick the model that writes the translations." and a DEFAULT MODEL dropdown on gemini-flash.](img/48-settings-translation.png)
+The model that writes them by default is set on the **Settings › Models**
+table (`Ctrl+2`): pick a chat model and press **DEFAULT FOR TRANSLATION**. It
+saves at once, and the model's DEFAULT column says TRANSLATION. Until one is
+set, the chat default translates, and its DEFAULT reads CHAT · TRANSLATION
+(INHERITED). A session kind may pick its own, on its screen in **Settings ›
+Session kinds**. [How to register models](how-to-register-models.md#4-say-which-model-does-what)
+shows the table.
 
 ---
 
@@ -106,10 +110,11 @@ The model that writes them is chosen in **Settings › Translation**:
 
 The first that applies ([design.md §6](design.md#6-answers)):
 
-1. the session kind's own translation model — in **Settings › Sessions**, or
+1. the session kind's own translation model — the kind's screen in
+   **Settings › Session kinds**, or
    `translates = ["idea"]` on a chat model in `config.toml`;
 2. the default translation model, `[translation] model`;
-3. the assistant's model, `[llm] model`.
+3. the chat default, `[llm] model`.
 
 Each translation is one request with only the text to translate — no
 transcript, no context — so it stays fast and cheap. **Translations never reach
@@ -157,6 +162,17 @@ eco translate a110f46d050d --lang pt
 ```
 
 The translation stays as it was.
+
+**No model translates this session's kind.** The session's details have no
+TRANSLATION line, and an answer's card has no translate button. From the command
+line:
+
+```json
+{"ok":false,"code":"translation.none","message":"no model translates sessions of this kind"}
+```
+
+Register a chat model; it translates once it is the default for chat or for
+translation on the **Settings › Models** table.
 
 ---
 

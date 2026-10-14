@@ -1,15 +1,33 @@
 //! The Windows Credential Manager: a provider's key kept as the generic
 //! credential `eco:<name>`, read when the provider is built, stored and removed
-//! by `eco key`. Other systems have none; there keys come from omapass or the
-//! environment.
+//! by `eco key`, and listed by name for the model form. Other systems have
+//! none; there keys come from omapass or the environment.
 
 /// Whether this system has the Credential Manager, so the window offers it.
 pub const AVAILABLE: bool = cfg!(windows);
 
+/// What starts the address of every credential eco keeps.
+#[cfg(any(windows, test))]
+const PREFIX: &str = "eco:";
+
 /// The credential that holds the key `name`: its "Internet or network address".
 #[cfg(any(windows, test))]
 pub fn target(name: &str) -> String {
-    format!("eco:{name}")
+    format!("{PREFIX}{name}")
+}
+
+/// The key names in the credential addresses `targets`: each `eco:<name>`
+/// with a valid name, sorted, once.
+#[cfg(any(windows, test))]
+fn named(targets: impl IntoIterator<Item = String>) -> Vec<String> {
+    let mut names: Vec<String> = targets
+        .into_iter()
+        .filter_map(|target| target.strip_prefix(PREFIX).map(str::to_string))
+        .filter(|name| valid_name(name))
+        .collect();
+    names.sort();
+    names.dedup();
+    names
 }
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
@@ -66,6 +84,12 @@ pub fn remove(name: &str) -> Result<String, CredentialError> {
     platform::remove(name)
 }
 
+/// The names of the keys kept as `eco:<name>`, never their values; `None`
+/// where there is no Credential Manager.
+pub fn names() -> Option<Result<Vec<String>, CredentialError>> {
+    platform::names()
+}
+
 #[cfg(unix)]
 mod platform {
     use super::CredentialError;
@@ -81,6 +105,10 @@ mod platform {
     pub fn remove(_name: &str) -> Result<String, CredentialError> {
         Err(CredentialError::Unavailable)
     }
+
+    pub fn names() -> Option<Result<Vec<String>, CredentialError>> {
+        None
+    }
 }
 
 #[cfg(windows)]
@@ -92,7 +120,7 @@ mod platform {
     use keyring_core::{Entry, Error};
     use windows_native_keyring_store::Store;
 
-    use super::{CredentialError, target, valid_name};
+    use super::{CredentialError, PREFIX, named, target, valid_name};
 
     /// The generic credential `eco:<name>`, kept on this computer only.
     fn entry(name: &str) -> Result<Entry, CredentialError> {
@@ -111,9 +139,41 @@ mod platform {
     fn failed(name: &str, error: Error) -> CredentialError {
         match error {
             Error::NoEntry => CredentialError::Missing(name.into()),
+            other => unreached(other),
+        }
+    }
+
+    /// `error` when the store could not be read at all: `NoStore` when this
+    /// logon session cannot reach it.
+    fn unreached(error: Error) -> CredentialError {
+        match error {
             Error::NoStorageAccess(reason) => CredentialError::NoStore(reason.to_string()),
             other => CredentialError::Failed(other.to_string()),
         }
+    }
+
+    /// The generic credentials whose address starts with `eco:`, by name. Only
+    /// their attributes are read, never their passwords; one gone between the
+    /// search and the read is left out.
+    pub fn names() -> Option<Result<Vec<String>, CredentialError>> {
+        Some(addresses().map(named))
+    }
+
+    fn addresses() -> Result<Vec<String>, CredentialError> {
+        let pattern = format!("^{PREFIX}");
+        let spec = HashMap::from([("pattern", pattern.as_str())]);
+        let found = Store::new()
+            .and_then(|store| store.search(&spec))
+            .map_err(unreached)?;
+        let mut addresses = Vec::new();
+        for entry in found {
+            match entry.get_attributes() {
+                Ok(mut attributes) => addresses.extend(attributes.remove("target_name")),
+                Err(Error::NoEntry) => {}
+                Err(error) => return Err(unreached(error)),
+            }
+        }
+        Ok(addresses)
     }
 
     pub fn read(name: &str) -> Result<String, CredentialError> {
@@ -198,6 +258,25 @@ mod platform {
                 failed("x", Error::NoEntry),
                 CredentialError::Missing("x".into())
             );
+            assert_eq!(
+                unreached(Error::NoStorageAccess("1312".into())),
+                CredentialError::NoStore("1312".into())
+            );
+        }
+
+        #[test]
+        fn a_stored_key_is_listed_by_name_and_gone_once_removed() {
+            if super::super::testing::no_store() {
+                return;
+            }
+            let name = test_name("listed");
+            let entry = entry(&name).unwrap();
+            entry.set_password("sk-listed").unwrap();
+            let listed = names().unwrap().unwrap();
+            entry.delete_credential().unwrap();
+            assert!(listed.contains(&name), "{listed:?}");
+            let after = names().unwrap().unwrap();
+            assert!(!after.contains(&name), "{after:?}");
         }
 
         #[test]
@@ -304,9 +383,24 @@ mod tests {
         }
     }
 
+    #[test]
+    fn only_eco_addresses_with_a_valid_name_are_listed_once_and_sorted() {
+        let targets = [
+            "eco:openrouter",
+            "git:https://github.com",
+            "eco:deepgram",
+            "eco:",
+            "eco:two words",
+            "Eco:upper",
+            "eco:deepgram",
+        ];
+        assert_eq!(named(targets.map(String::from)), ["deepgram", "openrouter"]);
+    }
+
     #[cfg(unix)]
     #[test]
     fn on_linux_there_is_no_credential_manager() {
+        assert_eq!(names(), None);
         assert_eq!(read("deepgram"), Err(CredentialError::Unavailable));
         assert_eq!(set("deepgram"), Err(CredentialError::Unavailable));
         assert_eq!(remove("deepgram"), Err(CredentialError::Unavailable));

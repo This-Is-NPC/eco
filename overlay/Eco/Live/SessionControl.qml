@@ -42,8 +42,8 @@ Rectangle {
 
   Connections {
     target: Eco
-    function onNoticeCountChanged() {
-      if (capsule.ending && Eco.messageIsError)
+    function onNoticed(notice) {
+      if (capsule.ending && notice.kind === "error")
         capsule.ending = false
     }
     function onRecordingChanged() { capsule.settled = false; settle.restart() }

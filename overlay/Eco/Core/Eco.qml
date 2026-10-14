@@ -10,7 +10,6 @@ Singleton {
   id: root
 
   readonly property bool connected: link.connected
-  property var actions: []
   // The actions with a hook: their answers can be sent to it.
   property var hooks: []
   property var participants: []
@@ -21,8 +20,11 @@ Singleton {
   property var languages: []
   // The kinds a session can be given, as configured.
   property var kinds: []
-  // What sessions of each kind run on, by model name: {kind: {transcription, chat}}.
+  // What sessions of each kind run on, by model name, "" where none, and the
+  // skills a model answers there: {kind: {transcription, chat, translation, actions}}.
   property var kindModels: ({})
+  // The same for sessions of a kind no longer configured.
+  property var defaultModels: ({ transcription: "", chat: "", translation: "", actions: [] })
   // The language codes eco offers to transcribe in and to translate into, as the
   // daemon lists them.
   property var languageCodes: []
@@ -160,17 +162,16 @@ Singleton {
   // The answers streaming or waiting to, by id: {session, action, at}. Each
   // session answers on its own, so each composer shows only its session's.
   property var answers: ({})
-  // The status notice as parts — {key, args} to translate, or {text} as given —
-  // rendered in the current language, so it follows a language switch.
-  property var notice: []
-  readonly property string message: notice.map(part => part.key ? I18n.t(part.key, part.args) : part.text).join("  ·  ")
-  property bool messageIsError: false
-  // Whether the notice is an error of the live capture or its transcription,
-  // which a session that ends or is left takes with it.
-  property bool noticeLive: false
-  // Counts notices, so the status line shows a new one without re-showing an
-  // old one whose text merely changed language.
-  property int noticeCount: 0
+  // The notices the windows show as toasts, oldest first: {id, kind ("info",
+  // "success" or "error"), parts — {key, args} to translate, or {text} as
+  // given — so they follow a language switch, time, and what replaces them:
+  // `topic`, a notice of the same topic; `live`, an error of the live capture
+  // that a session ending or left takes with it; `pinned`, kept while newer
+  // ones push the oldest out.
+  property var notices: []
+  // The last notice's id.
+  property int lastNotice: 0
+  signal noticed(var notice)
 
   property bool configOpen: false
   signal configCloseRequested()
@@ -204,7 +205,20 @@ Singleton {
     .concat(pendingConfig.files.map(file => I18n.t("pending.file", { path: file })))
     .concat(pendingConfig.models.map(model => I18n.t(model.api_key_env ? "pending.model_env" : model.api_key_omapass ? "pending.model_omapass" : model.api_key_credential ? "pending.model_credential" : "pending.model_keyless", model)))
     .join("\n")
-  onConnectedChanged: if (!connected) pendingConfig = null
+  // Met again, the warning that the daemon was not reached goes. Gone, it
+  // takes the held change with it, and a save under way never answers.
+  onConnectedChanged: {
+    if (connected) {
+      removeNotices(notice => notice.topic === "offline")
+      return
+    }
+    pendingConfig = null
+    updateChecking = false
+    if (configSaving) {
+      configSaving = false
+      configSaveFailed(I18n.t("start.offline"))
+    }
+  }
   // Approve or reject the held change `id`, the one the window shows.
   function approveConfig(id) { send("config.approve " + token + " " + id) }
   function rejectConfig(id) { send("config.reject " + token + " " + id) }
@@ -218,6 +232,12 @@ Singleton {
   // The passwords omapass keeps ({account, folder}), and why they could not be listed.
   property var omapassAccounts: []
   property string omapassError: ""
+  // The key names the daemon can read, never their values: its environment
+  // variables, the Credential Manager's (null where there is none), and why
+  // those could not be listed.
+  property var keyNames: []
+  property var credentialNames: null
+  property string credentialError: ""
   // Whether omapass is on this machine, and the page that tells how to install it.
   property bool omapassInstalled: true
   // Whether keys can come from the Windows Credential Manager: on Windows, in place of omapass.
@@ -274,8 +294,66 @@ Singleton {
   // §10.2): "focus" opens a window or brings the newest forward, "new_session"
   // and "config" open those in it.
   function callWindow(call) { send("window.call " + JSON.stringify({ call: call })) }
+  // Whether one of this process's windows has the keyboard, as Qt says it.
+  property bool shellActive: false
+  // Whether one of this process's windows has the keyboard and is the system's
+  // foreground: the daemon notifies the system only while none is.
+  readonly property bool windowActive: shellActive && Host.foreground
+  // The daemon hears of it once the windows settle: the keyboard moving from
+  // one window to the other is no change.
+  onWindowActiveChanged: Qt.callLater(settleActive)
+  function setActive(active) { shellActive = active }
+  property bool sentActive: false
+  function settleActive() {
+    if (windowActive !== sentActive)
+      sendActive()
+  }
+  function sendActive() {
+    if (!connected)
+      return
+    sentActive = windowActive
+    send("window.active " + JSON.stringify({ window: window, active: windowActive }))
+  }
   // stopDaemon stops eco, as `eco stop` does.
   function stopDaemon() { send("stop") }
+
+  // What the daemon last said of the releases ({current, latest, newer, notes,
+  // checked_at, check, error}), or null until it says.
+  property var updateState: null
+  // A check asked for and not answered yet.
+  property bool updateChecking: false
+  // The install under way or last ended ({stage, version, detail}), or null.
+  property var updateProgress: null
+  // Whether an install runs: its commands wait for it to end.
+  readonly property bool updating: updateProgress !== null && updateProgress.stage !== "done" && updateProgress.stage !== "failed"
+  // The release whose notice the user closed in this window.
+  property string updateDismissed: ""
+  // The newer release the main window tells about while checks are on, or "".
+  readonly property string updateNotice: updateState !== null && updateState.check && updateState.newer && updateState.latest
+    && updateState.latest !== updateDismissed && !updating ? updateState.latest : ""
+  // A daemon restart refused because a session records: the window asks first.
+  signal restartRefused()
+  // checkUpdate asks the releases now; an install that ended is left behind.
+  function checkUpdate() {
+    updateProgress = null
+    updateChecking = true
+    send("update.check")
+  }
+  // installUpdate installs release `version`, or the latest for "".
+  function installUpdate(version) {
+    updateProgress = { stage: "downloading", version: version || "", detail: "" }
+    send("update.install " + JSON.stringify(version ? { version: version } : {}))
+  }
+  // restartDaemon restarts eco as `eco restart` does; `force` cuts a session
+  // that records.
+  function restartDaemon(force) {
+    send("daemon.restart " + JSON.stringify({ force: force }))
+  }
+  function dismissUpdate() { updateDismissed = updateNotice }
+  function openReleaseNotes() {
+    if (updateState !== null && updateState.notes)
+      Qt.openUrlExternally(updateState.notes)
+  }
   // Tells the daemon this window closes, then ends the process.
   function quit() {
     send("window.closed " + JSON.stringify({ window: window }))
@@ -502,7 +580,17 @@ Singleton {
   function setLanguage(sessionId, code) { send("session.language " + JSON.stringify({ id: sessionId, language: code })) }
   function requestConfig() { send("config") }
   function requestDevices() { send("devices") }
-  function saveConfig(draft) { send("config.set " + JSON.stringify(Object.assign({ token: token }, draft))) }
+  // A config.set is out, its answer not back yet: one save at a time.
+  property bool configSaving: false
+  // Sends `draft` to be saved; without the daemon it fails at once.
+  function saveConfig(draft) {
+    if (!connected) {
+      configSaveFailed(I18n.t("start.offline"))
+      return
+    }
+    configSaving = true
+    send("config.set " + JSON.stringify(Object.assign({ token: token }, draft)))
+  }
   // requestModels lists a provider's models, with its key from `section`.
   function requestModels(target, section) {
     if (!connected)
@@ -516,6 +604,7 @@ Singleton {
     }))
   }
   function requestOmapass() { send("omapass") }
+  function requestKeys() { send("keys") }
   // clearModels forgets a provider's model list: it belonged to another provider.
   function clearModels(target) {
     const found = Object.assign({}, models)
@@ -530,29 +619,58 @@ Singleton {
 
   // tell shows translated parts: tell([["status.saved"]]) or with arguments.
   function tell(parts, isError) {
-    notice = parts.map(part => ({ key: part[0], args: part[1] || {} }))
-    messageIsError = isError
-    noticeLive = false
-    noticeCount += 1
+    const keys = parts.map(part => ({ key: part[0], args: part[1] || {} }))
+    post(keys, isError ? "error" : successes.includes(parts[0][0]) ? "success" : "info", {})
   }
 
-  // say shows text as it is: what the daemon wrote, or nothing ("").
+  // say shows text as it is: what the daemon wrote; "" shows nothing.
   function say(text, isError) {
-    notice = text ? [{ text: text }] : []
-    messageIsError = isError
-    noticeLive = false
-    noticeCount += 1
+    if (text)
+      post([{ text: text }], isError ? "error" : "info", {})
+  }
+
+  // The notices that tell of something done.
+  readonly property var successes: ["status.saved", "status.copied", "status.transcript_copied", "status.imported",
+    "status.session_deleted", "update.stage.done"]
+
+  // post adds a notice of `kind` with `parts`; `marks` sets its topic, live
+  // and pinned. One of the same topic, or saying the same, gives way to it.
+  function post(parts, kind, marks) {
+    const said = JSON.stringify(parts)
+    const notice = { id: ++lastNotice, kind: kind, parts: parts, time: Date.now(), topic: marks.topic || "",
+      live: marks.live === true, pinned: marks.pinned === true }
+    notices = notices.filter(old => (notice.topic === "" || old.topic !== notice.topic)
+      && (old.kind !== kind || JSON.stringify(old.parts) !== said)).concat([notice])
+    noticed(notice)
+  }
+
+  // noticeText is what `notice` says, in the interface language.
+  function noticeText(notice) {
+    return notice.parts.map(part => part.key ? I18n.t(part.key, part.args) : part.text).join("  ·  ")
+  }
+
+  // dismiss removes the notice `id`.
+  function dismiss(id) { removeNotices(notice => notice.id === id) }
+
+  // removeNotices removes the notices `test` picks, if any.
+  function removeNotices(test) {
+    if (notices.some(test))
+      notices = notices.filter(notice => !test(notice))
   }
 
   // The codes of errors about the live capture and its transcription.
   readonly property var liveCodes: ["capture.", "transcription.", "echo_cancel.", "diarization.", "stt."]
-  // forgetLive clears a notice about the live capture once the session it was
-  // about ends or is left: the sessions would read it as their own.
-  function forgetLive() {
-    if (noticeLive)
-      say("", false)
-  }
+  // forgetLive removes the notices about the live capture once the session they
+  // were about ends or is left: the sessions would read them as their own.
+  function forgetLive() { removeNotices(notice => notice.live) }
 
+  // What sessions of `kind` run on, as in kindModels.
+  function modelsOf(kind) { return kindModels[kind] || defaultModels }
+  // Whether anything answers in sessions of `kind`: a chat model, or a skill that names its own.
+  function answersIn(kind) {
+    const models = modelsOf(kind)
+    return models.chat !== "" || models.actions.length > 0
+  }
   // kindName labels a kind: the four built in read in the interface language,
   // the user's own as they wrote them.
   function kindName(kind) {
@@ -767,7 +885,6 @@ Singleton {
   function handle(event) {
     switch (event.type) {
     case "snapshot":
-      actions = event.actions
       hooks = event.hooks || []
       participants = event.participants
       inputs = event.inputs
@@ -776,6 +893,7 @@ Singleton {
       languageCodes = event.language_codes
       kinds = event.kinds
       kindModels = event.kind_models || {}
+      defaultModels = event.default_models || defaultModels
       contexts = event.contexts || []
       uiLanguage = event.ui_language
       transcribers = event.transcribers || []
@@ -788,6 +906,8 @@ Singleton {
       follow()
       send("people")
       send("tags")
+      // It forgets, when it restarts, whether this window is active.
+      sendActive()
       if (opening) {
         act(JSON.parse(opening))
         opening = ""
@@ -859,7 +979,7 @@ Singleton {
       // A failed import already showed its error.
       if (event.complete)
         tell([["status.imported"]], false)
-      else if (!messageIsError)
+      else if (notices.length === 0 || notices[notices.length - 1].kind !== "error")
         tell([["status.import_stopped"]], false)
       if (view === "history")
         send("sessions")
@@ -1052,8 +1172,6 @@ Singleton {
       if (list)
         addSuggestion(event.id, event.action, event.model, event.prompt, "", true, event.at, list)
       answerStarted(event.id, event.session, event.action, event.at)
-      if (list)
-        say("", false)
       break
     }
     case "suggestion_delta":
@@ -1117,12 +1235,31 @@ Singleton {
     case "devices":
       devices = event.devices
       break
+    case "update":
+      updateState = event
+      updateChecking = false
+      // The daemon met again after an install runs the release installed.
+      if (updateProgress !== null && updateProgress.stage === "restarting" && event.current === updateProgress.version) {
+        updateProgress = { stage: "done", version: event.current, detail: "" }
+        post([{ key: "update.stage.done", args: updateProgress }], "success", { topic: "update" })
+      }
+      break
+    case "update_progress":
+      updateProgress = { stage: event.stage, version: event.version || "", detail: event.detail || "" }
+      post([{ key: "update.stage." + event.stage, args: updateProgress }], event.stage === "failed" ? "error" : "info", { topic: "update" })
+      break
     case "config_pending":
       pendingConfig = event.hooks.length + event.files.length + event.models.length > 0 ? event : null
       break
     case "config_saved":
+      configSaving = false
       tell([["status.saved"]], false)
       configSaveSucceeded()
+      break
+    case "keys":
+      keyNames = event.env
+      credentialNames = event.credentials
+      credentialError = event.credential_error || ""
       break
     case "omapass":
       omapassAccounts = event.accounts
@@ -1142,6 +1279,11 @@ Singleton {
       break
     }
     case "error": {
+      // A restart refused while a session records: the window asks, then forces it.
+      if (event.code === "daemon.recording") {
+        restartRefused()
+        break
+      }
       flushStream()
       const about = event.params && event.params.session
       const answer = event.code === "completion.failed" && event.params && event.params.id
@@ -1158,20 +1300,31 @@ Singleton {
         if (found)
           found.list.setProperty(found.index, "hook", "failed")
       }
-      if (event.code === "config.invalid")
-        configSaveFailed((event.params && event.params.detail) || event.message || "")
+      // A save not taken: refused, held for approval, or behind one held.
+      if (configSaving && ["config.invalid", "config.pending", "config.busy"].includes(event.code)) {
+        configSaving = false
+        configSaveFailed(event.code === "config.invalid" ? (event.params && event.params.detail) || event.message || ""
+          : I18n.t("error." + event.code))
+      }
       // An error about one session or answer shows only in the window showing it.
       if (about ? onScreen === null || onScreen.id !== about : answer && failed === null)
         break
       // A coded error reads in the interface language; others as the daemon wrote them.
-      if (event.code && I18n.has("error." + event.code))
-        tell([["error." + event.code, event.params]], true)
-      else
-        say(event.message, true)
-      noticeLive = liveCodes.some(code => (event.code || "").startsWith(code))
+      const coded = event.code && I18n.has("error." + event.code)
+      if (coded || event.message)
+        post(coded ? [{ key: "error." + event.code, args: event.params || {} }] : [{ text: event.message }],
+          "error", { live: liveCodes.some(code => (event.code || "").startsWith(code)) })
       break
     }
     }
+  }
+
+  // A daemon not reached for a moment is said, in an error that stays until
+  // it is met again; a quick restart says nothing.
+  Timer {
+    interval: 1500
+    running: !root.connected
+    onTriggered: root.post([{ key: "start.offline", args: {} }], "error", { topic: "offline", pinned: true })
   }
 
   Timer {

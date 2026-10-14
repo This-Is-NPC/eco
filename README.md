@@ -50,6 +50,11 @@ your `PATH`, and runs `eco setup`. `$env:ECO_UNINSTALL = "keep"` before the
 same line takes it off again, keeping your data
 ([on Windows](docs/how-to-install-and-remove.md#on-windows)).
 
+**Updating.** When a newer release is out, the window says so. **Settings ›
+General › UPDATES › UPDATE**, or `eco update`, installs it and restarts eco;
+a session that records is never cut, the restart waits for it to end
+([Update](docs/how-to-install-and-remove.md#update)).
+
 Released under the MIT license. [How to install it, and how to take it off
 again](docs/how-to-install-and-remove.md) is the whole of it.
 
@@ -60,13 +65,20 @@ daemon starts with an empty one, and the settings window writes the file at
 its first save ([the install page](docs/how-to-install-and-remove.md#3-register-the-models-in-the-window)).
 Then, in the window:
 
-1. `SUPER+ALT+C` opens the settings. **Audio** first: one audio source for you
-   on the default microphone, marked THIS IS ME, and one for everybody else on
-   the default output — what the laptop plays.
-2. **Models**: a chat model and a transcription model, each named once. Their
+1. `SUPER+ALT+C` opens the settings, a section at a time down the left, each
+   a table: a value in a row saves at once; an item opens, **EDIT**, **SAVE**.
+   **Audio** first: a row per device. On the default microphone, **HEARD AS**
+   › **New source…** names a source for you; under **AUDIO SOURCES**, light its
+   **YOU**. On the default output — what the laptop plays — **New source…**
+   names one for everybody else.
+2. **Models**: a transcription model and, for answers and translation, a chat
+   model, each named once; pick one and press **DEFAULT FOR TRANSCRIPTION**,
+   or **DEFAULT FOR CHAT**. eco records and transcribes with no chat model. Their
    keys come from the daemon's environment (`OPENROUTER_API_KEY`,
    `DEEPGRAM_API_KEY`, `ELEVEN_LABS_API_KEY`, `GROQ_API_KEY`, `OPENAI_API_KEY`,
-   kept in `~/.config/uwsm/env`) or from your omapass keyring.
+   or one of yours named `ECO_<NAME>`, kept in `~/.config/uwsm/env`) or from
+   your omapass keyring, and **PICK A KEY** lists their names
+   ([how to register models](docs/how-to-register-models.md)).
 3. **NEW SESSION** on the start screen, or `SUPER+ALT+N` from anywhere: a title,
    a kind, a language, START.
 
@@ -114,7 +126,8 @@ decoded through a pipe.
 **The window never holds a secret.** Only the daemon reads keys, when it builds
 a provider; the window sends a draft of the settings and the daemon validates
 and saves it. Keys are never logged, nor transcript text at info level. No
-telemetry.
+telemetry: once a day eco asks GitHub for the latest release's tag, and
+sends nothing about you.
 
 **What a session cost is shown in one place.** The window shows it only on the
 session's cost screen, opened from that session's details — never in the list,
@@ -151,7 +164,7 @@ where they work:
 - `Esc` — close what is open, or go back
 - start screen: `N` new session · `H` sessions · `I` import · `P` people
 - sessions and people: `↑` / `↓` choose · `Enter` open · `Delete` remove,
-  asking first · `I` import · `/` search
+  asking first · `N` new session · `I` import · `/` search
 - a tag chip in sessions: `F2` rename the tag · `Delete` delete it, asking
   first · menu key its menu
 - people screen: `F2` rename · `M` merge with someone else
@@ -160,8 +173,16 @@ where they work:
   `Home` / `End` · `N` name the line's speaker · `Tab` the line's tools
 - question box: `Enter` send · `Shift+Enter` keep as a note · `/` list the
   skills · `Alt+1…9` run the skill with that number
-- settings: `Ctrl+1…8` tab · `Ctrl+S` save · `Alt+↑` / `Alt+↓` move a skill ·
-  `Esc` close
+- settings: `1…8` section, outside a field being written, and `Ctrl+1…8`
+  anywhere · `Ctrl+Tab` / `Ctrl+Shift+Tab` next or
+  previous section · on the rail `↑` / `↓` / `Home` / `End` move and
+  `Enter` / `Space` open the section · `↑` / `↓` pick a row · `Enter` /
+  `Space` open it · `Delete` delete it, asking first · in a table inside an
+  item, `Enter` add the row on an add screen, `Delete` remove it ·
+  `Ctrl+E` edit the row picked or the item open · on a row with a value,
+  `Enter` / `Space` open its list, turn its switch or start writing it,
+  `Enter` saves and `Esc` puts it back · `Ctrl+S` save · `Esc`
+  back one level, then close
 - anywhere, through Hyprland, or eco itself on Windows with `Win` for
   `SUPER`: `SUPER+ALT+N` new session · `SUPER+ALT+H`
   sessions · `SUPER+ALT+C` settings · `SUPER+ALT+P` pause or resume ·
@@ -195,7 +216,7 @@ again on the page where you meet it.
 
 - **The window shows in a shared screen, unless you hide it.** By default,
   sharing the whole screen in a call shows eco's answers. **Settings ›
-  Interface › HIDE FROM SCREEN SHARING** hides eco's windows in the share:
+  General › HIDE FROM SCREEN SHARING** hides eco's windows in the share:
   black on Linux, left out on Windows. Neither system can tell a screen share
   from a screenshot, so they are hidden in your own screenshots and recordings
   too. With it off, share a window, not the screen.
@@ -224,6 +245,10 @@ again on the page where you meet it.
 - **No Credential Manager over ssh.** An ssh login by key has no Windows
   Credential Manager: `eco key` fails there, and a daemon started there cannot
   read keys kept in it; run eco from the desktop.
+- **An update on Linux asks for your password.** pacman installs for the
+  whole machine, so `pkexec` asks in its own window; without `pkexec`,
+  `eco update` in a terminal asks through `sudo`
+  ([Update](docs/how-to-install-and-remove.md#update)).
 - **Sessions recorded before eco kept costs stay unknown.** Their logs hold no
   cost records, and nothing brings those costs back.
 

@@ -5,9 +5,9 @@ import Eco.Core
 import Eco.Kit
 
 // StartDialog opens a session: an optional title, its kind, the language it is
-// held in, optional tags and the context slots it sends (those of its kind to begin with); it
-// says which models its kind runs on and lists who will be heard, so a wrong
-// model or device shows before starting.
+// held in, optional tags and the context slots it sends (those of its kind to begin with,
+// while anything answers in it); it says which models its kind runs on and lists
+// who will be heard, so a wrong model or device shows before starting.
 ModalDialog {
   id: dialog
 
@@ -113,8 +113,9 @@ ModalDialog {
 
           Label {
             Layout.fillWidth: true
-            visible: !!Eco.kindModels[dialog.kind]
-            text: Eco.kindModels[dialog.kind] ? I18n.t("dialog.kind_models", Eco.kindModels[dialog.kind]) : ""
+            readonly property var models: Eco.kindModels[dialog.kind]
+            visible: !!models
+            text: models ? I18n.t(models.chat ? "dialog.kind_models" : "dialog.kind_transcribes", models) : ""
             color: Theme.dim
             font.pixelSize: 11
             wrapMode: Text.Wrap
@@ -136,7 +137,7 @@ ModalDialog {
 
           ColumnLayout {
             Layout.fillWidth: true
-            visible: Eco.contexts.length > 0
+            visible: Eco.contexts.length > 0 && Eco.answersIn(dialog.kind)
             spacing: 4
             Caption { text: I18n.t("contexts.short") }
             ContextChips {

@@ -34,7 +34,8 @@ inputs; nothing is transcribed or kept. Inside one, the lines are kept as text.
 - **KIND** — what it is. The line under it says which models a session of that
   kind transcribes and answers with.
 - **LANGUAGE** — what will be spoken, from the languages offered in
-  **Settings › Transcription**. `AUTO` leaves it to the transcriber.
+  **Settings › Languages**, where ADD LANGUAGE offers another. `AUTO`
+  leaves it to the transcriber.
 - **TAGS** — optional, several. The tags you already use are offered as you
   type.
 - **CONTEXT** — the context slots this session starts with; those of its kind
@@ -153,7 +154,7 @@ runs skills about what it holds.
 
 ![The NEW SESSION dialog with, under WHO WILL BE HEARD, "No input configured: nothing would be heard." in amber and an AUDIO SETTINGS button; START dimmed.](img/04-new-session-no-input.png)
 
-**Nothing is transcribed.** The status line says why:
+**Nothing is transcribed.** An error toast says why:
 `Transcription unavailable: <why>. Inputs are measured but nothing is
 transcribed; fix it in Settings › Models.` — usually a key that is not set.
 
@@ -182,10 +183,10 @@ by itself. Reopen it to go on.
 (`eco stop`, then `eco daemon --no-save`) keeps sessions in memory only.
 
 **The others see eco in a shared screen.** By default the window is not
-hidden from captures. Turn on **Settings › Interface › HIDE FROM SCREEN
-SHARING**, and eco's windows are hidden in the share, at once and in every
-window that opens later: on Linux they show black, on Windows they are left out
-of the picture. Neither Hyprland's `no_screen_share` nor Windows' capture
+hidden from captures. In **Settings › General**, under INTERFACE, press the **OFF** chip of **HIDE
+FROM SCREEN SHARING** to turn it **ON**, and eco's windows are hidden in the share,
+at once and in every window that opens later: on Linux they show black, on
+Windows they are left out of the picture. Neither Hyprland's `no_screen_share` nor Windows' capture
 exclusion can tell a screen share from a screenshot, so they are hidden in your
 own screenshots and recordings too. With it off, share a window in the call,
 not the whole screen.

@@ -10,6 +10,7 @@ pub mod echo;
 pub mod events;
 pub mod hub;
 pub mod loudness;
+pub mod notifications;
 pub mod people;
 pub mod prompts;
 pub mod segmenter;

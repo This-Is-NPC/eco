@@ -21,9 +21,10 @@ Every command prints one JSON object: `{"ok": true, "data": …}`, or
 `{"ok": false, "code": "…", "message": "…"}` with exit status 1. Check `ok`.
 Codes: `argument.invalid`, `daemon.offline`, `daemon.access_denied`, `daemon.unavailable`,
 `session.not_found`, `session.invalid`, `session.delete_failed`, `action.unknown`,
-`completion.failed`, `suggestion.removed`, `import.busy`, `import.failed`, `import.no_ffmpeg` (install ffmpeg and ffprobe),
+`chat.none`, `translation.none`, `completion.failed`, `suggestion.removed`, `import.busy`, `import.failed`, `import.no_ffmpeg` (install ffmpeg and ffprobe),
 `person.not_found`, `person.invalid`, `person.exists`, `people.failed`,
-`line.not_found`.
+`line.not_found`, `update.unavailable` (GitHub could not be asked),
+`update.failed`, `update.busy`.
 
 The commands talk to the running eco daemon. On `daemon.offline`, tell the
 user; run `eco start --headless` only if they agree. On
@@ -34,6 +35,25 @@ On `argument.invalid`, an argument held a line break (a line feed or a
 carriage return) and nothing was sent; pass ids and names on one line.
 `eco status` checks whether the daemon is running. `eco stop` and `eco restart`
 control it; use them only when the user asks.
+
+## Version and health
+
+```bash
+eco version          # {installed, daemon, latest, channel}; daemon is null when none runs
+eco doctor           # [{check, ok, detail, fix}]; exit status non-zero when a check fails
+eco update --check   # whether a newer release is out; installs nothing
+```
+
+`eco doctor` checks the installed files, the VAD and speaker models (`eco
+setup` downloads them), that the config loads, that each model's key source
+resolves (by name only; it prints no key), that the daemon runs and the global
+shortcuts. When something fails, tell the user its `fix`; do not apply it on
+your own. `eco update` (the latest) and `eco update --version X` install a
+release and restart eco, which may ask the user for their password: run them
+only when the user asks for the update. They print `{current, version,
+installed, restart}`: `restart` is `now`, `when_session_ends` (a session that
+records is never cut; the restart waits for it to end) or `none` (no daemon
+restarted).
 
 ## Read
 
@@ -71,7 +91,8 @@ When a session translates (`session.translating` is its language code), lines
 and answers carry a `translation` in that language. `eco translate` turns it
 on, changes the language or stops it (`--off`), and returns
 `{session, translating}`; a language eco does not translate into fails with
-`translation.unknown`, the session's own with `translation.own`. What the
+`translation.unknown`, the session's own with `translation.own`, and a session
+whose kind no model translates with `translation.none`. What the
 session already holds is translated in the background, and `eco show` brings
 the translations once they arrive. Quote
 the original `text`; the translation is a model's.
@@ -88,7 +109,10 @@ eco note <id> I migrated a WPF app to MVVM   # a fact later answers use, not a q
 returns at once with `{session, id, text, at}`: the note stays in the session,
 where the user sees it, and every later answer reads it. The answer is kept
 in the session, where the user sees it. Actions are the user's `[[actions]]` in
-`~/.config/eco/config.toml`; an unknown name fails with `action.unknown`. Each
+`~/.config/eco/config.toml`; an unknown name fails with `action.unknown`. A chat
+model is optional: where none answers the session's kind, `ask` and an action
+that names no model fail with `chat.none`; tell the user, who registers one in
+the eco window. Each
 session streams one answer at a time: a request made meanwhile on the same
 session waits for it and sees its answer; a newer request replaces the one
 waiting (`suggestion.removed`). Different sessions answer at once, so asking
@@ -231,6 +255,16 @@ does not change WebVTT or audio import names, and can be run again safely.
 - `ask`, `action`, `rename`, `tag` (except `tag list`), `import`, `speaker`, `assign`, `delete`, `participant` and `people` change the
   user's sessions and people: run them when the user asked for that, not to
   explore. `delete` and `people forget` cannot be undone.
+- `eco key list` prints the names a model's key can come from, never a key:
+  `{"env": [...], "credentials": [...] | null, "omapass": [...] | null}`.
+  `env` holds the daemon's variables named `ECO_<NAME>` (except eco's own) and
+  the provider variables that are set (`OPENROUTER_API_KEY`,
+  `DEEPGRAM_API_KEY`, `ELEVEN_LABS_API_KEY`, `GROQ_API_KEY`,
+  `OPENAI_API_KEY`); `credentials` the Windows Credential Manager's
+  `eco:<name>` keys by name (`null` on Linux); `omapass` omapass's accounts
+  (`null` when omapass is not installed, always on Windows). A source that
+  could not be listed adds `credential_error` or `omapass_error`. Use it to
+  tell the user which key names exist; registering a model stays theirs.
 - `eco key set <name>` and `eco key remove <name>` (Windows only) store and
   delete a provider's key in the Windows Credential Manager. They print plain
   `eco: …` lines, not JSON. Never run them: a key is the user's to type, and

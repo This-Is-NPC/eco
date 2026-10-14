@@ -10,7 +10,8 @@ import Eco.Sessions
 // how long, with the way to resume it. On a short window the capsule may join
 // the masthead and the voice guesses are only counted on the details button.
 // The details lie in a panel opened over the top of the conversation, where
-// the guesses are reviewed; the composer asks and notes either one.
+// the guesses are reviewed, with cost only when the masthead has no room for
+// it; the composer asks and notes either one.
 // Esc closes the details, else goes back to the sessions like the close button
 // (a live one keeps recording); E edits, R resumes a stored one.
 ColumnLayout {
@@ -24,6 +25,8 @@ ColumnLayout {
   // language picker in the details.
   property bool joined: false
   property bool detailsOpen: false
+  // Whether the masthead holds the session's COST; else the details do.
+  property bool costInMast: true
   signal detailsRequested()
   signal detailsClosed()
 
@@ -35,6 +38,10 @@ ColumnLayout {
   spacing: short ? 8 : 14
 
   function focusEntry() { composer.focusEntry() }
+  // The height the composer takes at the bottom, with the space above it,
+  // and the conversation's above that.
+  readonly property real composerRoom: composer.height + spacing
+  readonly property real conversationHeight: conversation.height
 
   function resume() {
     if (!resumable || resuming)
@@ -49,8 +56,8 @@ ColumnLayout {
       if (Eco.session !== null)
         view.resuming = false
     }
-    function onNoticeCountChanged() {
-      if (view.resuming && Eco.messageIsError)
+    function onNoticed(notice) {
+      if (view.resuming && notice.kind === "error")
         view.resuming = false
     }
   }
@@ -138,6 +145,7 @@ ColumnLayout {
   }
 
   Item {
+    id: conversation
     Layout.fillWidth: true
     Layout.fillHeight: true
 
@@ -156,9 +164,18 @@ ColumnLayout {
       shown: view.detailsOpen
       compact: view.compact
       languageShown: view.joined && view.compact
+      costShown: !view.costInMast
       visible: opacity > 0
       opacity: view.detailsOpen ? 1 : 0
       Behavior on opacity { NumberAnimation { duration: 140 } }
+      // The close leaves with the panel: the keyboard goes where Esc puts it.
+      onCloseRequested: {
+        view.detailsClosed()
+        if (view.live)
+          view.focusEntry()
+        else
+          view.forceActiveFocus()
+      }
     }
   }
 
@@ -166,15 +183,8 @@ ColumnLayout {
     id: composer
     Layout.fillWidth: true
     Layout.fillHeight: false
-    sessionId: Eco.onScreen ? Eco.onScreen.id : ""
+    session: Eco.onScreen
     compact: view.compact
     actionsShown: !view.short
-  }
-
-  StatusLine {
-    Layout.alignment: Qt.AlignRight
-    message: Eco.message
-    error: Eco.messageIsError
-    maxWidth: Math.max(0, view.width)
   }
 }

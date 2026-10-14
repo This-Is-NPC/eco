@@ -128,8 +128,8 @@ does the same through the `eco` skill —
 
 Every request is one conversation, built so the provider can reuse its start:
 
-1. **The rules** for every answer — **Settings › Answers** edits them. A skill's
-   own prompt and format override them.
+1. **The rules** for every answer — **RULES FOR EVERY ANSWER**, in
+   **Settings › Prompts**. A skill's own prompt and format override them.
 2. **Your context**: the global context files, always sent, and the **context
    slots** this session has on, each under its name.
 3. **The session**: its kind, its title, the lines heard and the notes kept,
@@ -141,7 +141,7 @@ A **context slot** is a name and some files — a résumé for interviews, a
 project's notes for its meetings. A kind can start with slots on; in a session,
 the **CONTEXT** line of its details turns them on and off:
 
-![A session's details panel: the session's state, start, length and counts; its path with COPY PATH; PEOPLE; SPEAKERS; TAGS #Acme and #Q2; CONTEXT with a chip "resume"; TRANSLATION: OFF; and COST, COPY VTT and DELETE.](img/20-session-details.png)
+![A session's details panel: the session's state, start, length and counts with the edit and close buttons; its path with COPY PATH; PEOPLE; SPEAKERS; TAGS #Acme and #Q2; CONTEXT with a chip "resume"; TRANSLATION: OFF; and COPY VTT and DELETE.](img/20-session-details.png)
 
 From the command line:
 
@@ -151,13 +151,23 @@ eco context c7fe3528d507 --add resume       # turn one on
 eco context c7fe3528d507 --remove resume    # and off
 ```
 
+The files are set in **Settings › Context**. Open **Global**, or a
+slot, and press **ADD FILE**: type the file's **PATH** and press **ADD FILE**,
+or **BROWSE** and choose files, which are added at once. Files are sent in the
+order they were added. Pick a file in the item's **FILES** table and press
+**REMOVE FILE** to take it off; it saves at once. A new slot comes from **ADD CONTEXT
+SLOT**: its name and the kinds it is on from the start in, **SAVE**, then its
+files.
+
 Context files are read when the daemon builds its setup: an edit to one counts
 once the settings are saved or the daemon restarts.
 
-**A second model can check every answer.** With the reviewer on
-(**Settings › Answers**), each answer is first drafted unseen, and a second model
-rewrites it, cutting what the transcript, the notes and the context do not
-support. Only the rewrite shows and is kept. It costs a few seconds per answer.
+**A second model can check every answer.** With **REVIEW ANSWERS** on
+(**Settings › General**, under REVIEWER, saved at once), each answer is first drafted unseen, and a second model rewrites it, cutting
+what the transcript, the notes and the context do not support. Only the rewrite shows and is kept. It costs a few seconds per answer.
+The reviewer's model is the chat model made **DEFAULT FOR REVIEW** on the
+**Settings › Models** table, or the chat default while none is; what it is
+asked is **REVIEWER PROMPT**, in **Settings › Prompts**.
 
 ---
 
@@ -172,6 +182,17 @@ followed by more words, or a path such as `/etc/hosts`, is asked as written.
 ```
 {"ok":false,"code":"action.unknown","message":"unknown action \"minutes\""}
 ```
+
+**No chat model answers this session.** Without one for its kind, the composer
+has no SEND: Enter keeps the text as a note, and only the skills that name a
+model of their own show. From the command line:
+
+```
+{"ok":false,"code":"chat.none","message":"no chat model answers sessions of this kind"}
+```
+
+Register a chat model and make it the default for chat on the **Settings ›
+Models** table ([how to register models](how-to-register-models.md#4-say-which-model-does-what)).
 
 **The model failed.** The card stays, in red, with `No answer: <why>` (the ASK
 card in the picture in step 1). From the command line the code is `completion.failed`, with the same reason.

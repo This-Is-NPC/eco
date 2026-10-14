@@ -24,7 +24,7 @@ EXTERNAL = re.compile(r"^[a-z][a-z0-9+.-]*:", re.I)
 def prose(path):
     """The lines of a Markdown file outside fenced code, numbered from 1."""
     fenced = False
-    for number, line in enumerate(path.read_text().splitlines(), 1):
+    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         if FENCE.match(line):
             fenced = not fenced
             continue

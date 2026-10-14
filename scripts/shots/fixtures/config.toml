@@ -101,3 +101,7 @@ format = "Two sentences at most."
 
 [ui]
 language = "en-US"
+
+# The pictures never ask GitHub for a release: the scene sets what it shows.
+[update]
+check = false

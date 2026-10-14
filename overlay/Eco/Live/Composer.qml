@@ -4,16 +4,19 @@ import Eco.Core
 ComposerSurface {
   id: composer
 
-  property string sessionId: ""
+  // The session it writes to: {id, kind}.
+  property var session: null
 
-  actions: Eco.actions
-  // The session it writes to: the one given, or the one this window shows.
-  readonly property string target: sessionId || (Eco.session ? Eco.session.id : "")
+  readonly property string target: session ? session.id : ""
+  readonly property var models: Eco.modelsOf(session ? session.kind : "")
+  actions: models.actions
+  asks: models.chat !== ""
   // What this composer's session is answering; another session's answer never holds it.
   readonly property string answering: Eco.answering(target)
   selectedAction: answering
   busy: answering !== ""
-  placeholder: compact ? I18n.t("composer.placeholder_short") : I18n.t("composer.placeholder")
+  placeholder: I18n.t((asks ? "composer.placeholder" : actions.length ? "composer.placeholder_note" : "composer.placeholder_note_only")
+    + (compact ? "_short" : ""))
 
   onActionChosen: name => Eco.triggerOn(target, name)
   onSubmitted: text => Eco.askOn(target, text.replace(/\n/g, " "))

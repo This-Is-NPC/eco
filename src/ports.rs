@@ -284,3 +284,67 @@ pub trait WindowControl: Send + Sync {
         Vec::new()
     }
 }
+
+/// A published release of eco.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Release {
+    /// The release's tag, `v0.5.0`.
+    pub tag: String,
+    /// The release's page, with its notes.
+    pub html_url: String,
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("{0}")]
+pub struct ReleaseError(pub String);
+
+/// The releases eco is published as.
+pub trait Releases: Send + Sync {
+    /// The newest published release.
+    fn latest(&self) -> BoxFuture<'static, Result<Release, ReleaseError>>;
+    /// The release tagged `tag` (`v0.5.0`).
+    fn tagged(&self, tag: String) -> BoxFuture<'static, Result<Release, ReleaseError>>;
+}
+
+/// How far an install has come.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum InstallStage {
+    Downloading,
+    Verifying,
+    Installing,
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("{0}")]
+pub struct InstallError(pub String);
+
+/// Told each stage as an install reaches it.
+pub type InstallProgress = Box<dyn Fn(InstallStage) + Send + Sync>;
+
+/// Installs a release of eco over the installed one.
+pub trait Installer: Send + Sync {
+    /// Download release `tag`'s package (`v0.5.0`), check it against the
+    /// release's SHA256SUMS and install it; nothing is installed when it does
+    /// not match. Calls `progress` as each stage starts.
+    fn install(
+        &self,
+        tag: String,
+        progress: InstallProgress,
+    ) -> BoxFuture<'static, Result<(), InstallError>>;
+}
+
+/// How much a notification asks of the user's attention.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Urgency {
+    Normal,
+    /// It stays until the user closes it, where the desktop allows.
+    Critical,
+}
+
+/// The desktop's notifications.
+pub trait Notifier: Send + Sync {
+    /// Show `title` and `body` without waiting for the desktop; a failure is
+    /// written to the daemon's log.
+    fn notify(&self, title: &str, body: &str, urgency: Urgency);
+}

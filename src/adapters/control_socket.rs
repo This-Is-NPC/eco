@@ -369,7 +369,7 @@ mod tests {
     async fn receives_commands_and_broadcasts_events() {
         let directory = tempfile::tempdir().unwrap();
         let path = Address::scratch(directory.path());
-        let greeting = vec![json!({"type": "snapshot", "actions": ["ask"]})];
+        let greeting = vec![json!({"type": "snapshot", "kinds": ["meeting"]})];
         let (socket, clients, mut commands) = bound(&path, greeting.clone()).await;
         let stream = connect(&path).await;
         let (reader, mut writer) = local_socket::split(stream);

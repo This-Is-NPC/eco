@@ -368,7 +368,7 @@ those adapters came in.
 | `src/setup.rs` | 90.62% | `run()` over the production model URLs and the user's paths; `desktop()`, one composition line. `fetch` is at 100%. |
 | `src/adapters/omapass.rs` | 95.18% | `program()`, `installed()`, `accounts()`, `secret()`: they read the real PATH and home and would run the user's keyring; `find`, `accounts_of` and `secret_of` are tested. |
 | `src/adapters/diarizer_process.rs`, `service_systemd.rs`, `echo_cancel.rs`, `pipewire_devices.rs`, `window_hyprland.rs`, `overlay.rs` | 95.4–98.5% | the one-line entry points into the real `eco diarize`, `systemctl`, `pw-cli`, `pw-dump`, `hyprctl` and `eco-window`, and `Windows::new`, which runs the real `eco-window`; branches only timing reaches (a child already reaped, no event follower). |
-| `src/domain/assistant.rs` | 99.60% | states no command sequence reaches (2365, 2368, 2808, 2815, 2884–2885). |
+| `src/domain/assistant.rs` | 99.62% | states no command sequence reaches (2390, 2393, 2848, 2855, 2924–2925). |
 | `src/domain/session.rs` | 98.21% | an `unreachable!` (527). |
 | `src/adapters/control_socket.rs`, `local_socket.rs`, `pipe.rs`, `speaker_tract.rs`, `config.rs` | 97–99.7% | a closed listener's accept loop, a pipe read error and tract's input-fact error, which no input provokes; waits inside test helpers; `Address::user()`, the user's own socket and token, which a test never touches. |
 | `src/cli.rs`, `src/lifecycle.rs` | 99.6–99.8% | as in the CLI section above. |
@@ -379,3 +379,42 @@ started in the same second sharing a log file; a failed delete reported as
 a garbled streaming event followed by lines that depended on how bytes
 arrived; import progress past the end of the file; a window that connected
 during an outage not told the source was down.
+
+## Update and doctor coverage (2026-10-14)
+
+Measured with `mise run coverage` (cargo-llvm-cov 0.9.1, unit and integration
+tests) on the tree that added `eco update`, `eco version`, `eco doctor` and the
+window's UPDATES group; line numbers read from `cargo llvm-cov report
+--show-missing-lines`. Before is the commit the change started from. `src/`
+without `src/bench/`, the whole crate: 96.91% of lines before, 96.93% after.
+The Windows installer (`src/adapters/installer_windows.rs`) is
+`#[cfg(windows)]`: it is not counted here, and its tests run on Windows.
+
+| File | Lines before | Lines after | Left without a test, and why |
+|---|---|---|---|
+| `src/session/update.rs` | new | 99.61% (2 of 518) | the fake releases' `tagged`, an `unreachable!` of the tests: the daemon always names the tag it installs. |
+| `src/adapters/releases_github.rs` | new | 99.23% (1 of 130) | the end of a test server's task. |
+| `src/adapters/installer_linux.rs` | new | 97.06% (7 of 238) | `Pacman::new`: reads the real `PATH` and whether stdin is a terminal; `on_path` and the choice between pkexec and sudo are tested with their inputs given. |
+| `src/installer.rs` | new | 94.94% (26 of 514) | `installer()` and the empty Linux `tidy()`, one composition line each; `run()` and `run_version()`, which ask the real GitHub through the user's socket (`update()` and `version()` behind them are tested with fake releases and a fake daemon); the end of a fake daemon's task. |
+| `src/doctor.rs` | new | 88.92% (41 of 370) | `run()` and `Places::here()`: the user's real executable, models, config and Hyprland file (`checks()` is tested on a temporary home); in `sources()`, a key variable that is set, which a test cannot set without `unsafe`, and omapass's accounts, which run the user's keyring; a Credential Manager that fails, Windows only. |
+| `src/session.rs` | 96.23% | 96.79% | as in the daemon section: `run()` now also builds the updates from GitHub, the platform's installer and the user's state file; `restart_detached()` and `installed_exe()`, which run the real `systemd-run` from the running executable (`spawn_quiet`, `undeleted` and `restart_command` are tested). The tests added for this change also drive `impl Overlay for overlay::Windows` with stand-in windows, which had none. |
+| `src/main.rs` | 88.74% | 88.90% | the new arms of `main()`, one line each; as before. |
+| `src/paths.rs` | 89.24% | 89.89% | as before; `update_state()` is tested. |
+| `src/cli.rs`, `src/config.rs`, `src/adapters/desktop_hyprland.rs` | 99.89%, 99.79%, 98.37% | 99.90%, 99.80%, 98.47% | as before. |
+
+## Notifications coverage (2026-10-14)
+
+Measured with `mise run coverage` (cargo-llvm-cov 0.9.1, unit and integration
+tests) on the tree that added the system notifications and the window's
+toasts; line numbers read from `cargo llvm-cov report --show-missing-lines`.
+Before is the commit the change started from. `src/` without `src/bench/`, the
+whole crate: 96.93% of lines before, 96.95% after. The Windows adapter
+(`src/adapters/notify_windows.rs`) is `#[cfg(windows)]`: it is not counted
+here, and its tests run on Windows.
+
+| File | Lines before | Lines after | Left without a test, and why |
+|---|---|---|---|
+| `src/domain/notifications.rs` | new | 100.00% (0 of 370) | — |
+| `src/adapters/notify_linux.rs` | new | 84.48% (9 of 58) | `NotifySend::notify`, which runs the real `notify-send` on a thread of its own and would show a notification on the desktop of whoever runs the tests; the arguments it builds and what it says when the program fails or is missing (`command`, `run`) are tested. |
+| `src/session.rs` | 96.79% | 96.81% | as in the update section; `notifier()`, one composition line that builds the real `NotifySend`; in `emitter()`, the terminal's line, which needs a terminal (`emitter()` is tested without one, and the terminal's printing in `src/adapters/terminal.rs`). |
+| `src/adapters/overlay.rs`, `src/config.rs` | 96.25%, 99.80% | 96.36%, 99.80% | as before. |

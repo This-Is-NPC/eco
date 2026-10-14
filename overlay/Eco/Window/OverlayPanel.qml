@@ -32,6 +32,8 @@ Window {
   // capsule in the masthead; a compact one then drops the name and folds the
   // language picker into the details.
   readonly property bool joined: short && width >= 360 && current === "session" && Eco.session !== null
+  // Whether the session's COST button fits in the masthead; else it is in the details.
+  readonly property bool costInMast: !(joined && compact)
   // Whether the session's details lie open over the conversation; another
   // session on screen starts with them closed.
   property bool details: false
@@ -83,15 +85,24 @@ Window {
           : panel.current === "start"
             ? I18n.t(Eco.connected ? "section.start" : "section.offline")
             : I18n.t("section." + panel.current)
-        StatusLine {
-          message: panel.current === "session" || panel.current === "cost" ? "" : Eco.message
-          error: Eco.messageIsError
-          // Start already says it in its section.
-          offline: !Eco.connected && panel.current !== "start"
-          maxWidth: Math.max(0, panel.width - 360)
+        // A newer release, out of a session's way: it opens the release notes.
+        NoticeChip {
+          id: updateNotice
+          shown: Eco.updateNotice !== "" && panel.current !== "session" && panel.current !== "cost"
+          text: Eco.updateNotice === "" ? "" : I18n.t(panel.compact ? "update.notice_short" : "update.notice", { version: Eco.updateNotice })
+          tip: I18n.t("update.notice_tip")
+          closeTip: I18n.t("update.dismiss_tip")
+          onOpened: Eco.openReleaseNotes()
+          onDismissed: Eco.dismissUpdate()
         }
         SessionControl { visible: panel.joined; dense: true }
         LanguagePicker { visible: Eco.session !== null && panel.current === "session" && !(panel.joined && panel.compact); compact: panel.compact || panel.short }
+        IconButton {
+          visible: panel.current === "session" && panel.costInMast
+          name: "cost"
+          tip: I18n.t("cost.tip")
+          onClicked: Eco.openCost(Eco.onScreen.id)
+        }
         IconButton {
           readonly property int guesses: panel.short && Eco.onScreen !== null ? Eco.guessesOf(Eco.onScreen.id).length : 0
           visible: panel.current === "session"
@@ -118,6 +129,7 @@ Window {
       }
 
       Item {
+        id: stages
         Layout.fillWidth: true
         Layout.fillHeight: true
 
@@ -282,6 +294,7 @@ Window {
             compact: panel.compact
             short: panel.short
             joined: panel.joined
+            costInMast: panel.costInMast
             detailsOpen: panel.details
             onDetailsRequested: panel.details = true
             onDetailsClosed: panel.details = false
@@ -343,6 +356,16 @@ Window {
         Icon { anchors.horizontalCenter: parent.horizontalCenter; name: "import"; size: 28; color: Theme.primary }
         Label { text: I18n.t("import.drop"); color: Theme.primary; font.pixelSize: 11; font.letterSpacing: 3 }
       }
+    }
+    // What happened, in toasts over the window's corner: in a session over
+    // the conversation, above the composer; elsewhere under the view's bar.
+    ToastStack {
+      anchors { right: parent.right; bottom: parent.bottom; margins: panel.short ? 10 : 20 }
+      anchors.bottomMargin: anchors.margins + (panel.current === "session" ? sessionView.composerRoom : 0)
+      width: Math.min(340, panel.width - 2 * anchors.margins)
+      maxHeight: panel.current === "session" ? sessionView.conversationHeight : stages.height - 60
+      notices: Eco.notices
+      onDismissed: id => Eco.dismiss(id)
     }
     Connections {
       target: Eco

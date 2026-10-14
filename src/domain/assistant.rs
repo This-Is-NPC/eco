@@ -38,6 +38,11 @@ const TRANSLATIONS_AT_ONCE: usize = 3;
 /// the least recently used idle one leaves, its log still holding all of it.
 const LOADED_STORED: usize = 8;
 
+/// Why an answer is not asked for while no chat model answers its session.
+const NO_CHAT: &str = "no chat model answers sessions of this kind";
+/// Why a translation is not asked for while no model translates its session.
+const NO_TRANSLATOR: &str = "no model translates sessions of this kind";
+
 /// A named slot of the user's context, read from its files.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ContextSlot {
@@ -57,15 +62,15 @@ impl Setup {
     }
 
     /// The model that answers `action` in a session of `kind`: the one the action
-    /// names, then the kind's own, then the assistant's.
-    fn model_for(&self, kind: &str, action: &str) -> &Model {
+    /// names, then the kind's own, then the assistant's; `None` when there is none.
+    fn model_for(&self, kind: &str, action: &str) -> Option<&Model> {
         self.actions
             .iter()
             .find(|a| a.name == action)
             .and_then(|a| a.model.as_ref())
             .and_then(|name| self.models.get(name))
             .or_else(|| self.kind_models.get(kind))
-            .unwrap_or(&self.model)
+            .or(self.model.as_ref())
     }
 
     /// What a session listens with: its kind's transcription model, in its language.
@@ -89,8 +94,8 @@ impl Setup {
                 reviewer.verbose,
             ))
         };
-        self.model_for(kind, action).settings == other.model_for(kind, action).settings
-            && reviewer(self) == reviewer(other)
+        let settings = |setup: &Setup| setup.model_for(kind, action).map(|m| m.settings.clone());
+        settings(self) == settings(other) && reviewer(self) == reviewer(other)
     }
 
     /// The context slots a session has on: the ones the user chose, or those of its kind.
@@ -119,17 +124,18 @@ impl Setup {
 
 /// What translates a session's lines and answers, below each one.
 pub struct Translating {
-    pub model: Model,
+    /// The translation default, or the assistant's; `None` when there is none.
+    pub model: Option<Model>,
     /// The translator of each session kind that has its own.
     pub kind_models: HashMap<String, Model>,
 }
 
 impl Setup {
-    fn translator(&self, kind: &str) -> &Model {
+    fn translator(&self, kind: &str) -> Option<&Model> {
         self.translation
             .kind_models
             .get(kind)
-            .unwrap_or(&self.translation.model)
+            .or(self.translation.model.as_ref())
     }
 }
 
@@ -155,15 +161,19 @@ type Chunks = futures::stream::BoxStream<'static, Result<Chunk, crate::ports::Co
 
 /// What a configuration gives the assistant; replaced whenever the user saves.
 pub struct Setup {
-    /// The assistant's model: it answers questions and every action that names none.
-    pub model: Model,
+    /// The assistant's model: it answers questions and every action that names
+    /// none; `None` while the user has chosen none.
+    pub model: Option<Model>,
     /// The models actions name, by name.
     pub models: HashMap<String, Model>,
     /// The chat model of each session kind that has one: in those sessions it
     /// answers questions, actions that name no model, and the reviewer's pass.
     pub kind_models: HashMap<String, Model>,
-    /// What each kind uses, by model name, for clients: `{kind: {"transcription", "chat"}}`.
+    /// What each kind uses, by model name, for clients:
+    /// `{kind: {"transcription", "chat", "translation", "actions"}}`.
     pub routes: Value,
+    /// The same for a session of a kind no longer configured.
+    pub default_route: Value,
     pub translation: Translating,
     pub actions: Vec<Action>,
     /// The rules every answer follows unless its request says otherwise.
@@ -2223,7 +2233,10 @@ impl Assistant {
             ));
         };
         let kind = state.pick(&target).kind.clone();
-        let model = setup.model_for(&kind, &action.name).id.clone();
+        let Some(model) = setup.model_for(&kind, &action.name) else {
+            return self.emit(no_chat(&kind));
+        };
+        let model = model.id.clone();
         let request = action_request(&action);
         self.launch(
             &mut state,
@@ -2249,7 +2262,10 @@ impl Assistant {
         let question = question.trim();
         if !question.is_empty() {
             let kind = state.pick(&target).kind.clone();
-            let model = setup.model_for(&kind, "chat").id.clone();
+            let Some(model) = setup.model_for(&kind, "chat") else {
+                return self.emit(no_chat(&kind));
+            };
+            let model = model.id.clone();
             self.launch(
                 &mut state,
                 &target,
@@ -2393,7 +2409,8 @@ impl Assistant {
             &entries,
             &suggestion.request,
         );
-        let model = setup.model_for(&session.kind, &suggestion.action).clone();
+        // The setup may have lost the model while the answer waited.
+        let model = setup.model_for(&session.kind, &suggestion.action).cloned();
         let reviewer = setup.reviewer.clone().map(|mut reviewer| {
             if let Some(model) = setup.kind_models.get(&session.kind) {
                 reviewer.model = model.clone();
@@ -2407,6 +2424,9 @@ impl Assistant {
         let task = tokio::spawn(async move {
             // Held until the answer ends: past the limit, an answer waits here.
             let _streaming = limit.acquire_owned().await;
+            let Some(model) = model else {
+                return assistant.fail(&id, NO_CHAT);
+            };
             let started = Instant::now();
             let draft = model.llm.stream(&model.id, messages.clone());
             let (stream, by) = match reviewer {
@@ -2622,8 +2642,11 @@ impl Assistant {
             return;
         };
         let changed = self.edit_session(&mut state, session_id, |session| {
+            if !language.is_empty() && setup.translator(&session.kind).is_none() {
+                return Err(session.kind.clone());
+            }
             if !session.set_translation(language) {
-                return None;
+                return Ok(None);
             }
             let target = session.translation().map(String::from);
             let missing = target
@@ -2634,18 +2657,19 @@ impl Assistant {
                 .as_deref()
                 .map(|l| kept_translations(session, l))
                 .unwrap_or_default();
-            Some((session.kind.clone(), target, missing, kept))
+            Ok(Some((session.kind.clone(), target, missing, kept)))
         });
         let (kind, target, missing, kept) = match changed {
             None => return self.not_found(session_id),
-            Some(None) => {
+            Some(Err(kind)) => return self.emit(no_translator(&kind)),
+            Some(Ok(None)) => {
                 return self.emit(error(
                     "translation.own",
                     format!("the session is already in {language:?}"),
                     json!({"language": language}),
                 ));
             }
-            Some(Some(changed)) => changed,
+            Some(Ok(Some(changed))) => changed,
         };
         if state.is_live(session_id) {
             self.announce(&mut state);
@@ -2681,6 +2705,9 @@ impl Assistant {
         });
         drop(state);
         match found {
+            Some((kind, _, Some(_))) if setup.translator(&kind).is_none() => {
+                self.emit(no_translator(&kind))
+            }
             Some((kind, language, Some(text))) => self.translate(
                 &setup,
                 session_id,
@@ -2709,6 +2736,11 @@ impl Assistant {
         of: Source,
         text: String,
     ) {
+        // Turning translation on was refused without one; a setup that lost it
+        // since leaves the session's lines untranslated.
+        let Some(model) = setup.translator(kind).cloned() else {
+            return;
+        };
         let key = format!("{session_id}|{language}|{}", of.fields());
         if !self
             .inner
@@ -2719,7 +2751,6 @@ impl Assistant {
         {
             return;
         }
-        let model = setup.translator(kind).clone();
         let (assistant, session_id, language) =
             (self.clone(), session_id.to_string(), language.to_string());
         let slots = Arc::clone(&self.inner.translating);
@@ -2912,7 +2943,6 @@ impl Assistant {
         let setup = state.setup.as_deref();
         let session = json!({
             "type": "snapshot",
-            "actions": setup.map(|s| s.actions.iter().map(|a| a.name.clone()).collect::<Vec<_>>()).unwrap_or_default(),
             "hooks": setup
                 .map(|s| s.actions.iter().filter(|a| s.hook_of(&a.name).is_some()).map(|a| a.name.clone()).collect::<Vec<_>>())
                 .unwrap_or_default(),
@@ -2925,6 +2955,7 @@ impl Assistant {
             "language_codes": LANGUAGES.map(|(code, _)| code),
             "kinds": setup.map(|s| s.kinds.clone()).unwrap_or_default(),
             "kind_models": setup.map_or(Value::Null, |s| s.routes.clone()),
+            "default_models": setup.map_or(Value::Null, |s| s.default_route.clone()),
             "contexts": setup
                 .map(|s| s.slots.iter().map(|slot| json!({"name": slot.name, "kinds": slot.kinds})).collect::<Vec<_>>())
                 .unwrap_or_default(),
@@ -2943,6 +2974,14 @@ impl Assistant {
 
 fn invalid_tag(params: Value) -> Event {
     error("tag.invalid", "a tag needs a name", params)
+}
+
+fn no_chat(kind: &str) -> Event {
+    error("chat.none", NO_CHAT, json!({"kind": kind}))
+}
+
+fn no_translator(kind: &str) -> Event {
+    error("translation.none", NO_TRANSLATOR, json!({"kind": kind}))
 }
 
 /// The session shown, or null.
@@ -3220,18 +3259,19 @@ mod tests {
             settings: String::new(),
         };
         Arc::new(Setup {
-            model: Model {
+            model: Some(Model {
                 llm,
                 id: "default/model".into(),
                 settings: String::new(),
-            },
+            }),
             models: HashMap::from([("cheap".into(), cheap)]),
             kind_models: HashMap::new(),
             translation: Translating {
-                model: translator,
+                model: Some(translator),
                 kind_models: HashMap::new(),
             },
             routes: json!({"meeting": {"transcription": "whisper", "chat": "default"}}),
+            default_route: json!({"transcription": "whisper", "chat": "default"}),
             actions: vec![probe(), ask_action()],
             rules: crate::domain::prompts::DEFAULT_RULES.into(),
             reviewer: None,
@@ -3554,11 +3594,11 @@ mod tests {
         let english = llm(&["In English."]);
         let (assistant, events) = with_log(&answers, Arc::clone(&log), false);
         let mut on = Arc::into_inner(setup(&answers)).expect("only reference");
-        on.translation.model = Model {
+        on.translation.model = Some(Model {
             llm: Arc::new(english.clone()),
             id: "translate/model".into(),
             settings: String::new(),
-        };
+        });
         assistant.configure(Arc::new(on));
         let translated = |language: &str| {
             events
@@ -4518,23 +4558,112 @@ mod tests {
     fn a_skill_naming_a_model_answers_with_it_in_a_kind_with_its_own() {
         let mut own = Arc::into_inner(setup(&llm(&[]))).expect("only reference");
         own.kind_models.insert("idea".into(), named("local/model"));
-        assert_eq!(own.model_for("idea", "probe").id, "cheap/model");
+        assert_eq!(own.model_for("idea", "probe").unwrap().id, "cheap/model");
     }
 
     #[test]
     fn a_kind_model_answers_what_names_no_model_instead_of_the_default() {
         let mut own = Arc::into_inner(setup(&llm(&[]))).expect("only reference");
         own.kind_models.insert("idea".into(), named("local/model"));
-        assert_eq!(own.model_for("idea", "ask").id, "local/model");
-        assert_eq!(own.model_for("idea", "chat").id, "local/model");
-        assert_eq!(own.model_for("meeting", "ask").id, "default/model");
+        assert_eq!(own.model_for("idea", "ask").unwrap().id, "local/model");
+        assert_eq!(own.model_for("idea", "chat").unwrap().id, "local/model");
+        assert_eq!(own.model_for("meeting", "ask").unwrap().id, "default/model");
     }
 
     #[test]
     fn without_skill_or_kind_model_the_default_answers() {
         let own = setup(&llm(&[]));
-        assert_eq!(own.model_for("idea", "ask").id, "default/model");
-        assert_eq!(own.model_for("idea", "chat").id, "default/model");
+        assert_eq!(own.model_for("idea", "ask").unwrap().id, "default/model");
+        assert_eq!(own.model_for("idea", "chat").unwrap().id, "default/model");
+    }
+
+    /// The setup of `llm` with no assistant and no translator, as before a chat
+    /// model is chosen; the skill `probe` still names its own.
+    fn chatless(llm: &FakeLlm) -> Arc<Setup> {
+        let mut none = Arc::into_inner(setup(llm)).expect("only reference");
+        none.model = None;
+        none.translation.model = None;
+        Arc::new(none)
+    }
+
+    #[tokio::test]
+    async fn without_a_chat_model_only_a_skill_naming_its_own_is_answered() {
+        let cheap = llm(&["Barato."]);
+        let (assistant, events) = make(&cheap, false);
+        assistant.configure(chatless(&cheap));
+        assistant.start("Daily", "meeting", "pt", None);
+        assistant.ask(None, "E agora?");
+        assert_eq!(last_code(&events), "chat.none");
+        assert_eq!(last_of(&events, "error")["params"]["kind"], "meeting");
+        assistant.trigger(None, "ask");
+        assert_eq!(last_code(&events), "chat.none");
+        assert_eq!(count(&events, "suggestion_start"), 0);
+        assistant.trigger(None, "probe");
+        settle().await;
+        assert_eq!(last_of(&events, "suggestion_end")["type"], "suggestion_end");
+        assert_eq!(cheap.calls.lock().unwrap()[0].0, "cheap/model");
+    }
+
+    #[tokio::test]
+    async fn a_question_waiting_when_the_chat_model_goes_fails_without_asking() {
+        let slow = FakeLlm {
+            delay: Duration::from_millis(20),
+            ..llm(&["Devagar."])
+        };
+        let (assistant, events) = make(&slow, false);
+        assistant.start("Daily", "meeting", "pt", None);
+        assistant.trigger(None, "probe");
+        assistant.ask(None, "E agora?");
+        assistant.configure(chatless(&slow));
+        settle().await;
+        let failed = last_of(&events, "error");
+        assert_eq!(failed["code"], "completion.failed");
+        assert_eq!(failed["params"]["detail"], NO_CHAT);
+        let asked: Vec<String> = slow
+            .calls
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|c| c.0.clone())
+            .collect();
+        assert_eq!(asked, ["cheap/model"]);
+    }
+
+    #[tokio::test]
+    async fn without_a_translator_translation_is_refused_and_nothing_is_asked() {
+        let answers = llm(&["Resposta."]);
+        let (assistant, events) = make(&answers, false);
+        let mut answering = Arc::into_inner(chatless(&answers)).expect("only reference");
+        let local = Model {
+            llm: Arc::new(answers.clone()),
+            id: "local/model".into(),
+            settings: String::new(),
+        };
+        answering.kind_models.insert("meeting".into(), local);
+        assistant.configure(Arc::new(answering));
+        let id = assistant.start("Daily", "meeting", "pt", None);
+        assistant.set_translation(&id, "en");
+        assert_eq!(last_code(&events), "translation.none");
+        assert_eq!(count(&events, "session_translation"), 0);
+        assistant.ask(None, "E agora?");
+        settle().await;
+        let answer = last_of(&events, "suggestion_end")["id"].clone();
+        assistant.translate_answer(&id, answer.as_str().unwrap(), "en");
+        assert_eq!(last_code(&events), "translation.none");
+        assert_eq!(answers.calls.lock().unwrap().len(), 1, "the question alone");
+    }
+
+    #[tokio::test]
+    async fn a_session_translating_when_the_translator_goes_asks_nothing_more() {
+        let answers = llm(&["Resposta."]);
+        let (assistant, events) = make(&answers, false);
+        let id = assistant.start("Daily", "meeting", "pt", None);
+        assistant.set_translation(&id, "en");
+        assistant.configure(chatless(&answers));
+        assistant.hear(&heard(), &utterance("Recrutador", "Bom dia."));
+        settle().await;
+        assert!(answers.calls.lock().unwrap().is_empty());
+        assert_eq!(count(&events, "error"), 0);
     }
 
     #[tokio::test]
@@ -4779,9 +4908,8 @@ mod tests {
         let unavailable =
             crate::adapters::llm_openai::Unavailable("OPENROUTER_API_KEY is not set".into());
         assistant.configure(setup_with(Arc::new(unavailable), vec![problem]));
-        // Actions and participants still reach clients, and so does why the model is missing.
+        // Participants still reach clients, and so does why the model is missing.
         let snapshot = assistant.snapshot();
-        assert_eq!(snapshot[0]["actions"], json!(["probe", "ask"]));
         assert_eq!(
             snapshot[0]["participants"][0],
             json!({"name": "Eu", "user": true})
@@ -4854,7 +4982,8 @@ mod tests {
         assistant.hear(&heard(), &utterance("Eu", "Eu usaria Redis."));
         let [session] = assistant.snapshot().try_into().unwrap();
         let [speech] = shown_timeline(&assistant).try_into().unwrap();
-        assert_eq!(session["actions"], json!(["probe", "ask"]));
+        assert_eq!(session["kind_models"]["meeting"]["chat"], "default");
+        assert_eq!(session["default_models"]["chat"], "default");
         assert_eq!(
             session["participants"],
             json!([{"name": "Eu", "user": true}, {"name": "Recrutador", "user": false}])
@@ -6645,11 +6774,11 @@ mod tests {
         };
         let (assistant, events) = make(&answers, false);
         let mut on = Arc::into_inner(setup(&answers)).expect("only reference");
-        on.translation.model = Model {
+        on.translation.model = Some(Model {
             llm: Arc::new(broken.clone()),
             id: "translate/model".into(),
             settings: String::new(),
-        };
+        });
         assistant.configure(Arc::new(on));
         let id = assistant.start("Daily", "meeting", "pt", None);
         assistant.set_translation(&id, "en");

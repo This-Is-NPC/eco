@@ -1,0 +1,53 @@
+import QtQuick
+import QtTest
+import "../../overlay/Eco/Core/draft.js" as Draft
+
+// The answers settings: the reviewer turned on takes the assistant's model
+// when it has none, and the files of the global context and of a slot are
+// added and removed.
+TestCase {
+  name: "Answers"
+
+  function draft() {
+    return {
+      models: [{ name: "m", type: "chat" }, { name: "r", type: "chat" }],
+      llm: { model: "m" }
+    }
+  }
+
+  function test_a_reviewer_turned_on_without_a_model_takes_the_assistants() {
+    const d = draft()
+    Draft.review(d, true)
+    compare(d.reviewer, { model: "m", enabled: true })
+  }
+
+  function test_a_reviewer_keeps_its_model_on_and_off() {
+    const d = draft()
+    d.reviewer = { enabled: false, model: "r", verbose: true }
+    Draft.review(d, true)
+    compare(d.reviewer, { enabled: true, model: "r", verbose: true })
+    Draft.review(d, false)
+    compare(d.reviewer, { enabled: false, model: "r", verbose: true })
+  }
+
+  function contexts() {
+    return { context: { files: ["a.md"] }, contexts: [{ name: "work", files: ["w.md", "x.md"], kinds: [] }, { name: "home", files: [], kinds: [] }] }
+  }
+
+  function test_files_are_added_last_once_each() {
+    const d = contexts()
+    Draft.addFiles(Draft.contextFiles(d, ""), ["b.md", "a.md", "b.md", "c.md"])
+    compare(d.context.files, ["a.md", "b.md", "c.md"])
+    Draft.addFiles(Draft.contextFiles(d, "home"), ["h.md"])
+    compare(d.contexts[1].files, ["h.md"])
+    compare(d.contexts[0].files, ["w.md", "x.md"])
+  }
+
+  function test_a_slot_file_is_removed_by_name() {
+    const d = contexts()
+    Draft.removeFile(d, "work", "w.md")
+    compare(d.contexts[0].files, ["x.md"])
+    Draft.removeFile(d, "", "a.md")
+    compare(d.context.files, [])
+  }
+}

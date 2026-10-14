@@ -19,7 +19,6 @@ Window {
   property string chosenColor: ""
   property string fieldValue: I18n.t("lab.sample_session")
   property int fieldNumber: 60000
-  property var listItems: [I18n.t("lab.option_first"), I18n.t("lab.option_second")]
   property string lastAction: ""
   property string areaValue: I18n.t("lab.sample_prompt")
   property var labTags: [I18n.t("lab.sample_tag")]
@@ -203,6 +202,7 @@ Window {
               Row {
                 spacing: 14
                 Dropdown {
+                  id: sampleDropdown
                   options: ["first", "second", "third"]
                   current: lab.selectedOption
                   emphasized: true
@@ -216,6 +216,23 @@ Window {
                   label: I18n.t("settings.pick_model")
                   invalid: true
                   describe: option => option === "first" ? I18n.t("lab.option_first") : I18n.t("lab.option_second")
+                }
+                // Options under group titles, as a model's key picker lists them.
+                Dropdown {
+                  options: ["first", "second", "third"]
+                  current: lab.selectedOption
+                  label: I18n.t("lab.grouped_list")
+                  section: option => I18n.t(option === "third" ? "lab.group_second" : "lab.group_first")
+                  describe: option => option === "first" ? I18n.t("lab.option_first")
+                    : option === "second" ? I18n.t("lab.option_second") : I18n.t("lab.option_third")
+                  onPicked: option => lab.selectedOption = option
+                }
+                // Opens the first list from outside it, as a table row's act does.
+                TraceButton {
+                  dense: true
+                  icon: "chevron-down"
+                  text: I18n.t("lab.open_list")
+                  onClicked: sampleDropdown.open()
                 }
               }
             }
@@ -355,11 +372,21 @@ Window {
             ControlLabRow {
               width: parent.width
               title: I18n.t("lab.number_field")
-              NumberField {
-                width: Math.min(420, parent.width)
-                label: I18n.t("lab.sample_label")
-                number: lab.fieldNumber
-                onNumberEdited: number => lab.fieldNumber = number
+              Column {
+                spacing: 14
+                NumberField {
+                  width: Math.min(420, lab.width - 260)
+                  label: I18n.t("lab.sample_label")
+                  number: lab.fieldNumber
+                  onNumberEdited: number => lab.fieldNumber = number
+                }
+                // Inline, as a row's value: committed on Enter or leaving, Esc puts it back.
+                NumberField {
+                  width: 120
+                  inline: true
+                  number: lab.fieldNumber
+                  onNumberEdited: number => lab.fieldNumber = number
+                }
               }
             }
             ControlLabRow {
@@ -369,6 +396,14 @@ Window {
                 spacing: 8
                 TextBox { width: Math.min(420, lab.width - 260); placeholderText: I18n.t("lab.sample_placeholder") }
                 TextBox { width: Math.min(420, lab.width - 260); dense: true; placeholderText: I18n.t("lab.dense_placeholder") }
+                // Inline, as a row's value: committed on Enter or leaving, Esc puts it back.
+                SyncedBox {
+                  width: Math.min(220, lab.width - 260)
+                  dense: true
+                  inline: true
+                  value: lab.fieldValue
+                  onEditingFinished: if (text.trim() !== "") lab.fieldValue = text.trim()
+                }
               }
             }
             ControlLabRow {
@@ -380,51 +415,6 @@ Window {
                 known: [I18n.t("lab.sample_tag"), I18n.t("lab.sample_tag_second")]
                 onAdded: tag => lab.labTags = lab.labTags.concat([tag])
                 onRemoved: tag => lab.labTags = lab.labTags.filter(kept => kept !== tag)
-              }
-            }
-            ControlLabRow {
-              width: parent.width
-              title: I18n.t("lab.settings_list")
-              Column {
-                width: Math.min(420, lab.width - 260)
-                spacing: 18
-                SettingsList {
-                  width: parent.width
-                  items: lab.listItems
-                  label: I18n.t("lab.list_typed")
-                  placeholder: I18n.t("lab.sample_placeholder")
-                  browse: true
-                  nameFilters: Eco.textFileFilters()
-                  onChanged: items => lab.listItems = items
-                }
-              }
-            }
-            ControlLabRow {
-              width: parent.width
-              title: I18n.t("lab.settings_card")
-              ColumnLayout {
-                width: Math.min(420, lab.width - 260)
-                SettingsCard {
-                  id: labCard
-                  title: lab.fieldValue
-                  placeholder: I18n.t("lab.sample_placeholder")
-                  note: I18n.t("lab.sample_label")
-                  removeTip: I18n.t("settings.remove")
-                  movable: true
-                  first: true
-                  onToggled: expanded = !expanded
-                  onRemoved: lab.fieldValue = ""
-                  Field { Layout.fillWidth: true; label: I18n.t("lab.sample_label"); value: lab.fieldValue; onEdited: text => lab.fieldValue = text }
-                }
-                SettingsCard {
-                  title: I18n.t("lab.sample_kept")
-                  note: I18n.t("lab.sample_label")
-                  removable: false
-                  movable: true
-                  last: true
-                  onToggled: expanded = !expanded
-                  Field { Layout.fillWidth: true; label: I18n.t("lab.sample_label"); value: lab.fieldValue; onEdited: text => lab.fieldValue = text }
-                }
               }
             }
             ControlLabRow {
@@ -462,6 +452,8 @@ Window {
             visible: lab.section === "data"
             Kicker { width: parent.width; text: I18n.t("lab.data_table") }
             LabSessionsTable { width: parent.width }
+            Kicker { width: parent.width; text: I18n.t("lab.data_table_picks") }
+            LabPickTable { width: parent.width }
             LabDataSamples { width: parent.width }
           }
 
@@ -469,6 +461,7 @@ Window {
             width: parent.width
             spacing: 14
             visible: lab.section === "surfaces"
+            LabPageSamples { width: parent.width }
             LabSurfaceSamples { width: parent.width }
           }
 

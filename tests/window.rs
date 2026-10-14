@@ -4,7 +4,11 @@
 //! a watched file and raising a window, run offscreen against `tests/window/bridge.qml`;
 //! on Windows, a copied text that outlives the window, on the real platform;
 //! the overlay's views driven as the daemon drives them, in
-//! `tests/window/views.qml`; and the eco window closed with the settings open,
+//! `tests/window/views.qml`; the settings window's section keys, in
+//! `tests/window/settings_keys.qml`; the toast stack, in
+//! `tests/window/toasts.qml`; the bars and tables of the views, pressed
+//! as a keyboard and a pointer press them, in `tests/window/bars.qml`; and the
+//! eco window closed with the settings open,
 //! saying so to the daemon before it exits,
 //! in `tests/window/close.qml`; and the tray icon's states and menu, in
 //! `tests/window/tray.qml`. Needs `mise run window:build`.
@@ -145,18 +149,33 @@ fn program() -> PathBuf {
     program
 }
 
-#[tokio::test]
-async fn the_overlay_views_pass_their_checks() {
-    let dir = tempfile::tempdir().unwrap();
-    let run = Command::new(program())
-        .arg(Path::new(ROOT).join("tests/window/views.qml"))
+/// eco-window running `tests/window/<qml>.qml` offscreen, with the overlay's
+/// modules, its runtime and cache in `dir`, and no display of the user's.
+fn offscreen(qml: &str, dir: &Path) -> Command {
+    let mut window = Command::new(program());
+    window
+        .arg(Path::new(ROOT).join(format!("tests/window/{qml}.qml")))
         .env_remove("WAYLAND_DISPLAY")
         .env_remove("DISPLAY")
         .env("QML_IMPORT_PATH", Path::new(ROOT).join("overlay"))
         .env("QT_QPA_PLATFORM", "offscreen")
         .env("QT_QPA_PLATFORMTHEME", "")
-        .env("XDG_RUNTIME_DIR", dir.path())
-        .env("XDG_CACHE_HOME", dir.path().join("cache"))
+        .env("XDG_RUNTIME_DIR", dir)
+        .env("XDG_CACHE_HOME", dir.join("cache"));
+    // Offscreen Qt on Windows reads fonts from a directory, by default one
+    // beside the program that windeployqt leaves empty: the system's instead.
+    #[cfg(windows)]
+    window.env(
+        "QT_QPA_FONTDIR",
+        Path::new(&std::env::var_os("WINDIR").expect("WINDIR is set")).join("Fonts"),
+    );
+    window
+}
+
+#[tokio::test]
+async fn the_overlay_views_pass_their_checks() {
+    let dir = tempfile::tempdir().unwrap();
+    let run = offscreen("views", dir.path())
         .env("ECO_SOCKET", dir.path().join("no-daemon"))
         .kill_on_drop(true)
         .output();
@@ -171,22 +190,87 @@ async fn the_overlay_views_pass_their_checks() {
     );
 }
 
-/// Closing the eco window tells the daemon and ends its process, even with
+/// The settings window's section keys, pressed as a keyboard presses them:
+/// a section's number, bare or with Ctrl, a field keeping its digits, and the
+/// rail unfolding under the keyboard.
+#[tokio::test]
+async fn the_settings_keys_choose_sections() {
+    let dir = tempfile::tempdir().unwrap();
+    let run = offscreen("settings_keys", dir.path())
+        .env("ECO_SOCKET", dir.path().join("no-daemon"))
+        .kill_on_drop(true)
+        .output();
+    let output = tokio::time::timeout(Duration::from_secs(30), run)
+        .await
+        .expect("the keys did not finish")
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+/// The toast stack: three at most, the pinned one kept, information closing
+/// after its time unless held by the pointer or the keyboard, errors staying,
+/// Esc and Tab, and a notice replacing one of its topic or text.
+#[tokio::test]
+async fn the_toasts_come_stay_and_go_as_they_should() {
+    let dir = tempfile::tempdir().unwrap();
+    let run = offscreen("toasts", dir.path())
+        .env("ECO_SOCKET", dir.path().join("no-daemon"))
+        .kill_on_drop(true)
+        .output();
+    let output = tokio::time::timeout(Duration::from_secs(30), run)
+        .await
+        .expect("the toasts did not finish")
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+/// The bars and tables of the views, pressed as a keyboard and a pointer
+/// press them, with a daemon socket that answers nothing: a row's own act, the
+/// guarded command's hairline, a bar's readout, the sessions' NEW SESSION and
+/// N, and the details' close.
+#[tokio::test]
+async fn the_bars_and_tables_answer_their_keys() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut listener = Listener::bind(dir.path());
+    let mut window = offscreen("bars", dir.path())
+        .env("ECO_SOCKET", listener.name())
+        .env("ECO_TOKEN", "secret")
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .unwrap();
+    let _daemon = accept(&mut listener, &mut window).await;
+    let mut stderr = window.stderr.take().unwrap();
+    let mut said = String::new();
+    let status = tokio::time::timeout(Duration::from_secs(30), async {
+        tokio::io::AsyncReadExt::read_to_string(&mut stderr, &mut said)
+            .await
+            .unwrap();
+        window.wait().await.unwrap()
+    })
+    .await
+    .expect("the bars did not finish");
+    assert!(status.success(), "{said}");
+}
+
+/// The eco window says whether it is active once the daemon greets it; closing
+/// it tells the daemon and ends its process, even with
 /// the settings open and unsaved: Qt's quit asks every window to close, and
 /// the settings refuse.
 #[tokio::test]
 async fn closing_the_window_tells_the_daemon_and_ends_the_process() {
     let dir = tempfile::tempdir().unwrap();
     let mut listener = Listener::bind(dir.path());
-    let mut window = Command::new(program())
-        .arg(Path::new(ROOT).join("tests/window/close.qml"))
-        .env_remove("WAYLAND_DISPLAY")
-        .env_remove("DISPLAY")
-        .env("QML_IMPORT_PATH", Path::new(ROOT).join("overlay"))
-        .env("QT_QPA_PLATFORM", "offscreen")
-        .env("QT_QPA_PLATFORMTHEME", "")
-        .env("XDG_RUNTIME_DIR", dir.path())
-        .env("XDG_CACHE_HOME", dir.path().join("cache"))
+    let mut window = offscreen("close", dir.path())
         .env("ECO_SOCKET", listener.name())
         .env("ECO_TOKEN", "secret")
         .env("ECO_WINDOW", "3")
@@ -196,6 +280,12 @@ async fn closing_the_window_tells_the_daemon_and_ends_the_process() {
         .spawn()
         .unwrap();
     let mut daemon = accept(&mut listener, &mut window).await;
+    daemon
+        .write_all(
+            b"{\"type\":\"snapshot\",\"language\":\"en\",\"ui_language\":\"auto\",\"live\":[]}\n",
+        )
+        .await
+        .unwrap();
     let mut stderr = BufReader::new(window.stderr.take().unwrap()).lines();
     let closing = async {
         while let Some(line) = stderr.next_line().await.unwrap() {
@@ -209,13 +299,16 @@ async fn closing_the_window_tells_the_daemon_and_ends_the_process() {
         status = window.wait() => panic!("eco-window exited with {} before closing", status.unwrap()),
         _ = tokio::time::sleep(Duration::from_secs(30)) => panic!("the window never closed"),
     }
+    let mut active = false;
     loop {
         let line = read(&mut daemon).await;
         assert!(!line.is_empty(), "the window never said it closed");
+        active |= line.starts_with(r#"window.active {"window":3,"active":"#);
         if line == r#"window.closed {"window":3}"# {
             break;
         }
     }
+    assert!(active, "the window never said whether it is active");
     let status = tokio::time::timeout(Duration::from_secs(2), window.wait())
         .await
         .expect("eco-window still runs 2 s after its window closed")
@@ -230,15 +323,7 @@ async fn closing_the_window_tells_the_daemon_and_ends_the_process() {
 async fn the_tray_shows_the_state_and_its_menu_sends_the_cli_lines() {
     let dir = tempfile::tempdir().unwrap();
     let mut listener = Listener::bind(dir.path());
-    let mut tray = Command::new(program())
-        .arg(Path::new(ROOT).join("tests/window/tray.qml"))
-        .env_remove("WAYLAND_DISPLAY")
-        .env_remove("DISPLAY")
-        .env("QML_IMPORT_PATH", Path::new(ROOT).join("overlay"))
-        .env("QT_QPA_PLATFORM", "offscreen")
-        .env("QT_QPA_PLATFORMTHEME", "")
-        .env("XDG_RUNTIME_DIR", dir.path())
-        .env("XDG_CACHE_HOME", dir.path().join("cache"))
+    let mut tray = offscreen("tray", dir.path())
         .env("ECO_SOCKET", listener.name())
         .env("ECO_TOKEN", "secret")
         .stdout(Stdio::null())
@@ -275,14 +360,8 @@ async fn the_tray_shows_the_state_and_its_menu_sends_the_cli_lines() {
 /// eco-window running `tests/window/bridge.qml` on the Qt `platform`,
 /// connecting to `listener`, its runtime in `dir` and its watched file `file`.
 fn bridge(platform: &str, dir: &Path, listener: &Listener, file: &Path) -> Child {
-    Command::new(program())
-        .arg(Path::new(ROOT).join("tests/window/bridge.qml"))
-        .env_remove("WAYLAND_DISPLAY")
-        .env_remove("DISPLAY")
+    offscreen("bridge", dir)
         .env("QT_QPA_PLATFORM", platform)
-        .env("QT_QPA_PLATFORMTHEME", "")
-        .env("XDG_RUNTIME_DIR", dir)
-        .env("XDG_CACHE_HOME", dir.join("cache"))
         .env("ECO_TEST_SOCKET", listener.name())
         .env("ECO_TEST_TOKEN", "secret")
         .env("ECO_TEST_FILE", file)
@@ -309,6 +388,9 @@ async fn the_bridge_carries_lines_reconnects_reads_files_and_exits_cleanly() {
     assert_eq!(answer["text"], "first");
     assert_eq!(answer["pid"], window.id().unwrap());
     assert_eq!(Path::new(answer["path"].as_str().unwrap()), file);
+    // No offscreen window is in front of Windows, whatever Qt calls active;
+    // elsewhere the bridge leaves it to Qt.
+    assert_eq!(answer["foreground"], cfg!(unix));
     assert_eq!(ask(&mut first, "raise").await["line"], "raise");
 
     std::fs::write(&file, "second").unwrap();

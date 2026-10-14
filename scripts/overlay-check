@@ -59,7 +59,7 @@ def qml_js_files(directory):
 def parse_qmldir(path):
     """{type name: declared file name} of a qmldir, "module" lines dropped."""
     declared = {}
-    for number, line in enumerate(path.read_text().splitlines(), 1):
+    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         parts = line.split()
         if not parts or parts[0] == "module":
             continue
@@ -79,7 +79,7 @@ def parse_qmldir(path):
 
 def check_relative_imports(all_files):
     for path in all_files:
-        for number, line in enumerate(path.read_text().splitlines(), 1):
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
             if RELATIVE_IMPORT.match(line):
                 fail(path, number, f"relative import, import by module name instead: {line.strip()}")
 
@@ -103,7 +103,7 @@ def imports_of(path):
     """[(line number, imported name)] of a file's `import X` lines, X's
     version and `as alias` dropped; relative imports excluded."""
     found = []
-    for number, line in enumerate(path.read_text().splitlines(), 1):
+    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         if RELATIVE_IMPORT.match(line):
             continue
         match = IMPORT_LINE.match(line)
@@ -125,7 +125,7 @@ def check_module_imports(module_dirs, allowed):
 
 
 def referenced_types(path):
-    text = path.read_text()
+    text = path.read_text(encoding="utf-8")
     text = BLOCK_COMMENT.sub("", text)
     text = LINE_COMMENT.sub("", text)
     return set(TYPE_USE.findall(text))

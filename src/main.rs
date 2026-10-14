@@ -5,8 +5,10 @@ mod adapters;
 mod bench;
 mod cli;
 mod config;
+mod doctor;
 mod domain;
 mod import;
+mod installer;
 mod lifecycle;
 mod paths;
 mod ports;
@@ -58,6 +60,21 @@ enum Command {
     Stop,
     /// Restart the daemon and reopen its window if it was visible.
     Restart,
+    /// Install the latest release when it is newer, or the one named; a running
+    /// daemon installs it and restarts once no session records.
+    Update {
+        /// The release to install, e.g. 0.5.0; an older one too.
+        #[arg(long)]
+        version: Option<String>,
+        /// Only say whether a newer release is out.
+        #[arg(long, conflicts_with = "version")]
+        check: bool,
+    },
+    /// Print the installed version, the running daemon's and the newest release's, as JSON.
+    Version,
+    /// Check that eco is installed, set up and running; prints each check as
+    /// JSON and exits non-zero when one fails.
+    Doctor,
     /// Show whether the daemon is running.
     Status {
         /// Fail if the daemon is running a different executable.
@@ -90,7 +107,8 @@ enum Command {
     /// Print the usage spec (KDL) that docs/cli.md and the shell completions are generated from.
     #[command(hide = true)]
     Usage,
-    /// Keep a provider's key in the Windows Credential Manager (Windows only).
+    /// List the names a model's key can come from, or keep a key in the Windows
+    /// Credential Manager (set and remove are Windows only).
     Key {
         #[command(subcommand)]
         action: KeyCommand,
@@ -272,6 +290,16 @@ enum AssignTarget {
 
 #[derive(Debug, Subcommand)]
 enum KeyCommand {
+    /// The names, never the keys, a model's key can come from: the daemon's ECO_
+    /// and provider variables, the Credential Manager's eco:<name> (null off
+    /// Windows) and omapass's accounts (null without omapass).
+    List,
+    #[command(flatten)]
+    Change(KeyChange),
+}
+
+#[derive(Debug, Subcommand)]
+enum KeyChange {
     /// Store a key as the credential eco:<name>, which a model names with
     /// api_key_credential; typed hidden, or read from stdin when it is not a terminal.
     Set { name: String },
@@ -376,6 +404,12 @@ enum Run {
     },
     Stop,
     Restart,
+    Update {
+        version: Option<String>,
+        check: bool,
+    },
+    Version,
+    Doctor,
     Status {
         expect_current_exe: bool,
         window_open: bool,
@@ -391,7 +425,7 @@ enum Run {
         model: PathBuf,
     },
     Usage,
-    Key(KeyCommand),
+    Key(KeyChange),
     BenchLlm,
     BenchDiarization(bench::diarization::Options),
     BenchPeople {
@@ -413,6 +447,9 @@ impl From<Command> for Run {
             }
             Command::Stop => return Run::Stop,
             Command::Restart => return Run::Restart,
+            Command::Update { version, check } => return Run::Update { version, check },
+            Command::Version => return Run::Version,
+            Command::Doctor => return Run::Doctor,
             Command::Status {
                 expect_current_exe,
                 window_open,
@@ -437,7 +474,12 @@ impl From<Command> for Run {
             Command::Detach => return Run::Detach,
             Command::Diarize { model } => return Run::Diarize { model },
             Command::Usage => return Run::Usage,
-            Command::Key { action } => return Run::Key(action),
+            Command::Key {
+                action: KeyCommand::Change(change),
+            } => return Run::Key(change),
+            Command::Key {
+                action: KeyCommand::List,
+            } => cli::Request::Keys,
             Command::Bench { target } => {
                 return match target {
                     Bench::Llm => Run::BenchLlm,
@@ -605,18 +647,23 @@ async fn main() -> Result<()> {
         }
         Run::Stop => lifecycle::stop(&Address::user()).await,
         Run::Restart => lifecycle::restart(&PlatformService, &Address::user()).await,
+        Run::Update { version, check } => {
+            exit_with(cli::print(installer::run(version, check).await))
+        }
+        Run::Version => exit_with(cli::print(installer::run_version().await)),
+        Run::Doctor => exit_with(doctor::run(&Address::user()).await),
         Run::Status {
             expect_current_exe,
             window_open,
-        } => match lifecycle::status(&Address::user(), expect_current_exe, window_open).await? {
-            0 => Ok(()),
-            code => std::process::exit(code),
-        },
+        } => exit_with(lifecycle::status(&Address::user(), expect_current_exe, window_open).await?),
         Run::Daemon {
             replay,
             headless,
             save_sessions,
-        } => session::run(&paths::config_file(), replay, headless, save_sessions).await,
+        } => {
+            installer::tidy();
+            session::run(&paths::config_file(), replay, headless, save_sessions).await
+        }
         #[cfg(windows)]
         Run::Detach => adapters::service_windows::detach(),
         Run::Diarize { model } => adapters::diarizer_process::serve(&model),
@@ -630,10 +677,7 @@ async fn main() -> Result<()> {
         Run::BenchPeople { dir, series } => bench::people::run(dir, series).await,
         // The client prints its JSON; its code is the exit status.
         Run::Client(request) => {
-            match lifecycle::ask(&PlatformService, &Address::user(), request).await? {
-                0 => Ok(()),
-                code => std::process::exit(code),
-            }
+            exit_with(lifecycle::ask(&PlatformService, &Address::user(), request).await?)
         }
     };
     // A bad config is the user's to fix: say what is wrong, without a trace.
@@ -646,12 +690,20 @@ async fn main() -> Result<()> {
     ran
 }
 
+/// End with exit status `code`: return for 0, so what is owned is dropped.
+fn exit_with(code: i32) -> Result<()> {
+    match code {
+        0 => Ok(()),
+        code => std::process::exit(code),
+    }
+}
+
 /// `eco key`: store or remove a key in the Windows Credential Manager; what
 /// was done. A failure is the user's to fix, said as a bad config is.
-fn key(command: KeyCommand) -> Result<String> {
+fn key(command: KeyChange) -> Result<String> {
     let done = match command {
-        KeyCommand::Set { name } => credentials::set(&name),
-        KeyCommand::Remove { name } => credentials::remove(&name),
+        KeyChange::Set { name } => credentials::set(&name),
+        KeyChange::Remove { name } => credentials::remove(&name),
     };
     Ok(done.map_err(|failure| config::ConfigError(failure.to_string()))?)
 }
@@ -816,11 +868,11 @@ mod tests {
     fn key_sets_and_removes_one_named_key() {
         assert!(matches!(
             run(&["key", "set", "deepgram"]),
-            Run::Key(KeyCommand::Set { name }) if name == "deepgram"
+            Run::Key(KeyChange::Set { name }) if name == "deepgram"
         ));
         assert!(matches!(
             run(&["key", "remove", "groq"]),
-            Run::Key(KeyCommand::Remove { name }) if name == "groq"
+            Run::Key(KeyChange::Remove { name }) if name == "groq"
         ));
         assert_eq!(
             rejected(&["key", "set"]),
@@ -832,12 +884,21 @@ mod tests {
         );
     }
 
+    #[test]
+    fn key_list_asks_the_daemon_for_the_key_names() {
+        assert!(matches!(request(&["key", "list"]), cli::Request::Keys));
+        assert_eq!(
+            rejected(&["key", "list", "deepgram"]),
+            ErrorKind::UnknownArgument
+        );
+    }
+
     #[cfg(unix)]
     #[test]
     fn on_linux_key_says_to_keep_keys_in_omapass_as_a_config_error_does() {
         for command in [
-            KeyCommand::Set { name: "dg".into() },
-            KeyCommand::Remove { name: "dg".into() },
+            KeyChange::Set { name: "dg".into() },
+            KeyChange::Remove { name: "dg".into() },
         ] {
             let failure = key(command).unwrap_err();
             let said = failure.downcast_ref::<config::ConfigError>().unwrap();
@@ -853,6 +914,44 @@ mod tests {
         assert!(matches!(run(&["stop"]), Run::Stop));
         assert!(matches!(run(&["restart"]), Run::Restart));
         assert_eq!(rejected(&["stop", "now"]), ErrorKind::UnknownArgument);
+    }
+
+    #[test]
+    fn update_installs_the_latest_or_a_version_or_only_checks() {
+        assert!(matches!(
+            run(&["update"]),
+            Run::Update {
+                version: None,
+                check: false
+            }
+        ));
+        assert!(matches!(
+            run(&["update", "--version", "0.3.0"]),
+            Run::Update { version: Some(version), check: false } if version == "0.3.0"
+        ));
+        assert!(matches!(
+            run(&["update", "--check"]),
+            Run::Update {
+                version: None,
+                check: true
+            }
+        ));
+        assert_eq!(
+            rejected(&["update", "--check", "--version", "0.3.0"]),
+            ErrorKind::ArgumentConflict
+        );
+    }
+
+    #[test]
+    fn a_command_that_succeeds_returns_to_drop_what_it_owns() {
+        assert!(exit_with(0).is_ok());
+    }
+
+    #[test]
+    fn version_and_doctor_take_no_arguments() {
+        assert!(matches!(run(&["version"]), Run::Version));
+        assert!(matches!(run(&["doctor"]), Run::Doctor));
+        assert_eq!(rejected(&["doctor", "now"]), ErrorKind::UnknownArgument);
     }
 
     #[test]

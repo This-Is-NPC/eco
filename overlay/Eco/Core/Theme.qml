@@ -28,6 +28,8 @@ Singleton {
   readonly property color highlight: Qt.tint(background, Qt.alpha(foreground, mode === "light" ? 0.07 : 0.05))
   readonly property color line: Qt.alpha(foreground, 0.12)
   readonly property color dim: readable(palette.muted || foreground, background, foreground)
+  // An example in an empty field: fainter than any value, so it never reads as typed.
+  readonly property color placeholder: Qt.alpha(dim, 0.55)
   readonly property color badgeForeground: background
   readonly property string fontFamily: "monospace"
 

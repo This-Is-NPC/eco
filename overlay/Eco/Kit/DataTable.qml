@@ -1,13 +1,18 @@
 pragma ComponentBehavior: Bound
 import QtQuick
+import QtQuick.Controls.Basic as C
 import Eco.Core
 
 // DataTable lists records as rows of columns under a header; below 700 px each
-// row stacks its cells into lines instead. A row opens on click or Enter; ↑/↓
-// move, ↑ on the first asks to leave upward, Delete asks to remove it, Esc asks
-// to go back. Each row may carry tools on its right, from `tools` (its root gets
-// the row's record as `entry`): Tab reaches those of the selected row only. Rows
-// may also carry a status cell, and be listed under group titles.
+// row stacks its cells into lines instead. A row opens on click, Enter or
+// Space, or, when the table `picks`, a click picks it and a double click opens
+// it; ↑/↓ move, ↑ on the first asks to leave upward, Delete asks to remove it,
+// Esc asks to go back. Each row may carry tools on its right, from `tools` (its
+// root gets the row's record as `entry`): Tab reaches those of the selected row
+// only, or, `toolsLive`, every row's, row by row. Tools whose root has `act()`
+// take the row's Enter, Space and double click instead of opening it; Esc, or
+// Enter a tool leaves, goes back to the rows. Rows may also carry a status
+// cell, and be listed under group titles.
 Item {
   id: table
 
@@ -29,13 +34,20 @@ Item {
   property string section: ""
   property Component tools
   property real toolsWidth: 0
-  // The tools are one menu button, small enough to stay on every row however
-  // narrow the table.
-  property bool toolsFolded: false
+  // The title over the tools in the header, or "".
+  property string toolsTitle: ""
+  // The tools stay on every row however narrow the table.
+  property bool toolsAlways: false
+  // Every row's tools work, as values do, rather than the selected row's
+  // only: Tab from the rows reaches the selected row's, and walks on row by
+  // row, picking each row it enters.
+  property bool toolsLive: false
   // A record that steps back, as when it cannot be picked.
   property var dimmed: entry => false
   property var idOf: entry => entry.id
   property string selectedId: ""
+  // Whether a click picks a row rather than opening it.
+  property bool picks: false
   property string emptyText
   // What the empty list offers to do about it, or "", and its icon.
   property string emptyAction
@@ -54,6 +66,7 @@ Item {
   readonly property var currentEntry: list.currentItem ? list.currentItem.modelData : null
 
   signal opened(var entry)
+  signal picked(var entry)
   signal removeRequested(var entry)
   signal backRequested()
   signal topLeft()
@@ -66,6 +79,43 @@ Item {
     listed = new Set(rows.map(entry => idOf(entry)))
     if (active)
       Qt.callLater(() => table.reveal(before))
+    Qt.callLater(table.follow)
+  }
+  onSelectedIdChanged: follow()
+
+  // Whether the keyboard was last on the rows or a row's tools, a list or a
+  // dialog they opened in between.
+  property bool held: false
+  readonly property Item overlay: C.Overlay.overlay
+  // New rows destroy the row the keyboard was on, which leaves the window
+  // with none: the rows take it back.
+  Connections {
+    target: table.Window.window
+    function onActiveFocusItemChanged() {
+      const item = table.Window.activeFocusItem
+      if (table.held && table.visible && (item === null || item === table.Window.contentItem)) {
+        list.forceActiveFocus()
+        return
+      }
+      let at = item
+      while (at !== null && at !== list && at !== table.overlay)
+        at = at.parent
+      if (at !== table.overlay)
+        table.held = at !== null
+    }
+  }
+
+  // Picking, the keyboard's row is the picked one, wherever the rows put it.
+  function follow() {
+    const at = picks && selectedId !== "" ? rows.findIndex(entry => idOf(entry) === selectedId) : -1
+    if (at >= 0)
+      list.currentIndex = at
+  }
+  // The keyboard moves to the row `step` away, which, picking, is picked.
+  function step(by) {
+    list.currentIndex += by
+    if (picks && list.currentItem)
+      picked(list.currentItem.modelData)
   }
 
   // Decode the rows that were not listed `before`.
@@ -80,8 +130,9 @@ Item {
   // Give the keyboard to the rows.
   function focusRows() { list.forceActiveFocus() }
 
+  // A column the columns lost before the rows were rebuilt takes no room.
   function columnWidth(index) {
-    return Math.max(0, width - 24 - toolsWidth) * columns[index].weight
+    return index < columns.length ? Math.max(0, width - 24 - toolsWidth) * columns[index].weight : 0
   }
 
   Rectangle {
@@ -108,6 +159,17 @@ Item {
           elide: Text.ElideRight
         }
       }
+      Label {
+        visible: table.toolsTitle !== ""
+        width: table.toolsWidth
+        height: header.height
+        verticalAlignment: Text.AlignVCenter
+        text: table.toolsTitle.toUpperCase()
+        color: Theme.dim
+        font.pixelSize: 9
+        font.letterSpacing: 1
+        elide: Text.ElideRight
+      }
     }
   }
 
@@ -128,15 +190,23 @@ Item {
       height: 26
       text: section
     }
-    keyNavigationEnabled: true
     activeFocusOnTab: true
-    onActiveFocusChanged: if (activeFocus && currentIndex < 0 && count > 0) currentIndex = 0
-    Keys.onReturnPressed: if (currentItem) currentItem.open()
+    onActiveFocusChanged: {
+      if (activeFocus && currentIndex < 0 && count > 0)
+        currentIndex = 0
+      // The row the keyboard lands on is the one picked.
+      if (activeFocus && table.picks && currentItem)
+        table.picked(currentItem.modelData)
+    }
+    Keys.onReturnPressed: if (currentItem) currentItem.act()
+    Keys.onSpacePressed: if (currentItem) currentItem.act()
     Keys.onDeletePressed: if (currentItem) table.removeRequested(currentItem.modelData)
+    Keys.onTabPressed: event => event.accepted = table.toolsLive && currentItem !== null && currentItem.enterTools()
     Keys.onEscapePressed: table.backRequested()
-    Keys.onUpPressed: event => {
+    Keys.onDownPressed: if (currentIndex < count - 1) table.step(1)
+    Keys.onUpPressed: {
       if (currentIndex > 0) {
-        event.accepted = false
+        table.step(-1)
         return
       }
       positionViewAtBeginning()
@@ -153,12 +223,41 @@ Item {
       readonly property int lineCount: table.stacked.filter((line, i) => i === 0 || line.some(column => texts[column])).length
       readonly property bool current: ListView.isCurrentItem
       readonly property bool marked: table.selectedId !== "" && table.selectedId === table.idOf(modelData) || (current && (list.activeFocus || toolScope.activeFocus))
-      readonly property bool tooled: table.tools !== null && (!table.narrow || table.toolsFolded || hover.hovered || marked)
+      readonly property bool tooled: table.tools !== null && (!table.narrow || table.toolsAlways || hover.hovered || marked)
       readonly property real reserved: tooled ? table.toolsWidth : 0
 
       function open() {
         list.currentIndex = index
         table.opened(modelData)
+      }
+      // Enter, Space or a double click: the tools' own act, else opening it.
+      function act() {
+        if (tools.item && typeof tools.item.act === "function") {
+          list.currentIndex = index
+          tools.item.act()
+        } else {
+          open()
+        }
+      }
+      // Gives the keyboard to the first of its tools; false when it has none.
+      function enterTools() {
+        const first = toolScope.nextItemInFocusChain(true)
+        if (!toolScope.visible || first === null || !isWithin(first))
+          return false
+        first.forceActiveFocus(Qt.TabFocusReason)
+        return true
+      }
+      function isWithin(item) {
+        for (let at = item; at !== null; at = at.parent) {
+          if (at === toolScope)
+            return true
+        }
+        return false
+      }
+      function pick() {
+        list.currentIndex = index
+        list.forceActiveFocus()
+        table.picked(modelData)
       }
 
       function color(column) {
@@ -260,14 +359,27 @@ Item {
         anchors.fill: parent
         hoverEnabled: true
         cursorShape: Qt.PointingHandCursor
-        onClicked: row.open()
+        onClicked: table.picks ? row.pick() : row.open()
+        onDoubleClicked: if (table.picks) row.act()
       }
 
-      // Only the selected row's tools are Tab stops; the pointer reaches any.
+      // Only the selected row's tools are Tab stops, unless every row's are
+      // live; the pointer reaches any.
       FocusScope {
         id: toolScope
         visible: row.tooled
-        enabled: row.current || hover.hovered
+        enabled: table.toolsLive || row.current || hover.hovered
+        // A live tool the keyboard or the pointer reaches picks its row.
+        onActiveFocusChanged: {
+          if (activeFocus && table.toolsLive && !row.current) {
+            // The list hands the keyboard to its new current row: give it back.
+            const tool = Window.activeFocusItem
+            list.currentIndex = row.index
+            if (table.picks)
+              table.picked(row.modelData)
+            tool.forceActiveFocus(Qt.TabFocusReason)
+          }
+        }
         anchors { right: parent.right; rightMargin: 6; verticalCenter: parent.verticalCenter }
         width: tools.width
         height: tools.height
@@ -276,7 +388,16 @@ Item {
           sourceComponent: table.tools
           onLoaded: item.entry = Qt.binding(() => row.modelData)
         }
-        Keys.onEscapePressed: list.forceActiveFocus()
+        // Esc, and Enter a tool leaves, as a field confirming what was typed,
+        // give the keyboard back to the rows: the tool lets it go first, or
+        // the list would hand it straight back.
+        function leave() {
+          focus = false
+          list.forceActiveFocus()
+        }
+        Keys.onEscapePressed: leave()
+        Keys.onReturnPressed: leave()
+        Keys.onEnterPressed: leave()
       }
     }
   }

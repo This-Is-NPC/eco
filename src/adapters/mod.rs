@@ -24,14 +24,23 @@ pub mod fake_program;
 pub mod fbank;
 pub mod hook_shell;
 pub mod http;
+#[cfg(unix)]
+pub mod installer_linux;
+#[cfg(windows)]
+pub mod installer_windows;
 pub mod llm_openai;
 pub mod local_socket;
+#[cfg(unix)]
+pub mod notify_linux;
+#[cfg(windows)]
+pub mod notify_windows;
 pub mod omapass;
 pub mod overlay;
 pub mod people_files;
 pub mod pipe;
 #[cfg(unix)]
 pub mod pipewire_devices;
+pub mod releases_github;
 #[cfg(unix)]
 pub mod service_systemd;
 #[cfg(windows)]
