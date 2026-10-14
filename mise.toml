@@ -48,7 +48,7 @@ run = "scripts/install-windows"
 run_windows = [{ task = "package" }, "python scripts/install-windows"]
 
 [tasks."uninstall:windows"]
-description = "Windows only: stop eco and remove the install with install.ps1, its PATH entry, login script and Start-menu shortcut; asks whether to delete your sessions, config and models too"
+description = "Windows only: stop eco and remove the install with install.ps1, its PATH entry, login script, Start-menu shortcut and notification app id; asks whether to delete your sessions, config and models too"
 raw = true
 usage = '''
 flag "--keep-data" help="Keep the sessions, config and models without asking"

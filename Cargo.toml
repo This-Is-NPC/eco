@@ -44,6 +44,8 @@ windows-native-keyring-store = { version = "1.1.0", default-features = false, fe
 windows-hotkeys = { version = "0.2.1", default-features = false }
 # Toast notifications, through the safe WinRT projection.
 windows = { version = "0.62.2", features = ["Data_Xml_Dom", "UI_Notifications"] }
+# The registry key that names eco's toasts, through a safe interface.
+windows-registry = "0.6.1"
 
 [lints.rust]
 unsafe_code = "forbid"

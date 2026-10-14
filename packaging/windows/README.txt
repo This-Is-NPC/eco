@@ -5,7 +5,8 @@ window, live or afterwards.
 This folder is the whole program. Keep it where it is, for example
 %LOCALAPPDATA%\Programs\eco, and add its bin folder to your PATH.
 
-    eco setup             download the models and add eco to the Start menu
+    eco setup             download the models, add eco to the Start menu
+                          and name its notifications
     eco start             start eco and open its window
     eco status            say whether eco runs
     eco stop              stop it

@@ -1,12 +1,13 @@
-//! Windows: eco opened from an entry in the user's Start menu, and never
-//! started at login: the script an earlier `eco setup` put into their Startup
-//! folder is removed.
+//! Windows: eco opened from an entry in the user's Start menu, its toasts
+//! named "eco" with eco's icon, and never started at login: the script an
+//! earlier `eco setup` put into their Startup folder is removed.
 
 use std::fs;
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+use crate::adapters::notify_windows::{self, APP_ID, Registered};
 use crate::adapters::overlay;
 use crate::adapters::service_windows::CREATE_NO_WINDOW;
 use crate::ports::DesktopIntegration;
@@ -72,6 +73,24 @@ impl DesktopIntegration for StartMenu {
             })?;
         said(&link, &output).map(Some)
     }
+}
+
+/// Registers eco's app id, which names eco's toasts "eco" with its icon.
+pub struct ToastName;
+
+impl DesktopIntegration for ToastName {
+    fn integrate(&self) -> Result<Option<String>, String> {
+        toast_name(APP_ID, notify_windows::icon().as_deref())
+    }
+}
+
+/// Register the app id `id` with the icon at `icon`, saying what was done.
+fn toast_name(id: &str, icon: Option<&Path>) -> Result<Option<String>, String> {
+    Ok(match notify_windows::register(id, icon)? {
+        Registered::Current => None,
+        Registered::Added => Some(format!("notifications registered as eco's ({id})")),
+        Registered::Updated => Some(format!("notifications updated as eco's ({id})")),
+    })
 }
 
 /// The shortcut's name in the Start menu.
@@ -172,6 +191,25 @@ mod tests {
                 path.display()
             )),
             "{warning}"
+        );
+    }
+
+    #[test]
+    fn setup_says_what_it_did_to_the_toasts_name() {
+        let test = notify_windows::testing::TestId::new("This-Is-NPC.eco-test-setup");
+        let icon = Path::new(r"C:\eco\share\eco\eco.ico");
+        assert_eq!(
+            toast_name(test.0, Some(icon)),
+            Ok(Some(
+                "notifications registered as eco's (This-Is-NPC.eco-test-setup)".into()
+            ))
+        );
+        assert_eq!(toast_name(test.0, Some(icon)), Ok(None));
+        assert_eq!(
+            toast_name(test.0, Some(Path::new(r"D:\eco.ico"))),
+            Ok(Some(
+                "notifications updated as eco's (This-Is-NPC.eco-test-setup)".into()
+            ))
         );
     }
 

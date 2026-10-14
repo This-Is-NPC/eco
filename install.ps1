@@ -90,11 +90,13 @@ function Uninstall-Eco([bool] $everything) {
     $programs = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs'
     $folders = @($eco) + $(if ($everything) { $data } else { @() })
     $files = @((Join-Path $programs 'Startup\eco.cmd'), (Join-Path $programs 'eco.lnk'))
+    # The app id key `eco setup` writes, which names eco's notifications.
+    $appId = 'HKCU:\Software\Classes\AppUserModelId\This-Is-NPC.eco'
     $value, $kind = Get-UserPath
     $entries = @($value -split ';')
     $kept = @($entries | Where-Object { -not ($_ -and (Test-SameDirectory $_)) })
     if ($dryRun) {
-        foreach ($path in $folders + $files) { if (Test-Path -LiteralPath $path) { Say "would remove $path" } }
+        foreach ($path in $folders + $files + $appId) { if (Test-Path -LiteralPath $path) { Say "would remove $path" } }
         if ($kept.Count -ne $entries.Count) { Say "would remove $bin from your PATH" }
         return
     }
@@ -105,6 +107,7 @@ function Uninstall-Eco([bool] $everything) {
     foreach ($path in $files) {
         if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Force; Say "removed $path" }
     }
+    if (Test-Path -LiteralPath $appId) { Remove-Item -LiteralPath $appId -Recurse -Force; Say "removed $appId" }
     if ($kept.Count -ne $entries.Count) {
         Set-UserPath ($kept -join ';') $kind
         Say "removed $bin from your PATH"

@@ -1,18 +1,88 @@
 //! Windows: notifications as toasts, through the WinRT toast notifier of the
-//! `windows` crate's safe projection. eco is not a packaged app and registers
-//! no app id of its own, so its toasts go out under Windows PowerShell's,
-//! which every Windows has: they work from the zip install, and show as
-//! PowerShell's (docs/design.md §15).
+//! `windows` crate's safe projection, under eco's own app id: a key in the
+//! user's registry names it "eco" with eco's icon. Each toast registers it
+//! first; a toast that cannot goes out under Windows PowerShell's app id
+//! (docs/design.md §15).
+
+use std::path::Path;
 
 use windows::Data::Xml::Dom::XmlDocument;
 use windows::UI::Notifications::{ToastNotification, ToastNotificationManager};
 use windows::core::HSTRING;
+use windows_registry::CURRENT_USER;
 
+use crate::paths;
 use crate::ports::{Notifier, Urgency};
 
+/// eco's app id, the name Windows files its toasts under.
+pub const APP_ID: &str = "This-Is-NPC.eco";
+
 /// Windows PowerShell's app id, which Windows always has registered.
-const APP_ID: &str =
+const POWERSHELL: &str =
     "{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\WindowsPowerShell\\v1.0\\powershell.exe";
+
+/// The key, under the user's hive, that registers the app id `id`.
+fn key(id: &str) -> String {
+    format!(r"Software\Classes\AppUserModelId\{id}")
+}
+
+/// The icon eco ships for its toasts, when this eco is installed.
+pub fn icon() -> Option<std::path::PathBuf> {
+    paths::shipped("eco.ico")
+}
+
+/// The values the key of an app id holds: the name its toasts show, and the
+/// icon at `icon` when there is one.
+fn values(icon: Option<&Path>) -> Vec<(&'static str, String)> {
+    let mut values = vec![("DisplayName", "eco".to_owned())];
+    if let Some(icon) = icon {
+        values.push(("IconUri", icon.display().to_string()));
+    }
+    values
+}
+
+/// What registering an app id did.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Registered {
+    Added,
+    Updated,
+    Current,
+}
+
+/// Register the app id `id` for the user, named "eco" with the icon at
+/// `icon`; without one, an icon already registered stays. Writes nothing
+/// when the key already holds these values. `Err` says why it could not.
+pub fn register(id: &str, icon: Option<&Path>) -> Result<Registered, String> {
+    write(id, icon).map_err(|error| {
+        format!(
+            "could not register eco's notifications, so they show as Windows PowerShell's: {error}"
+        )
+    })
+}
+
+/// [`register`], with the registry's error.
+fn write(id: &str, icon: Option<&Path>) -> windows_registry::Result<Registered> {
+    let path = key(id);
+    let found = CURRENT_USER.open(&path).ok();
+    let wanted = values(icon);
+    let current = found.as_ref().is_some_and(|key| {
+        wanted
+            .iter()
+            .all(|(name, value)| key.get_string(name).is_ok_and(|held| held == *value))
+    });
+    if current {
+        return Ok(Registered::Current);
+    }
+    let key = CURRENT_USER.create(&path)?;
+    for (name, value) in &wanted {
+        key.set_string(name, value)?;
+    }
+    Ok(if found.is_some() {
+        Registered::Updated
+    } else {
+        Registered::Added
+    })
+}
 
 pub struct Toasts;
 
@@ -46,12 +116,21 @@ fn content(title: &str, body: &str, urgency: Urgency) -> String {
     )
 }
 
-/// Show the toast `xml`.
-fn show(xml: &str) -> windows::core::Result<()> {
+/// The app id to show a toast under: eco's, registered now; PowerShell's,
+/// with why, when eco's cannot be.
+fn app_id() -> (&'static str, Option<String>) {
+    match register(APP_ID, icon().as_deref()) {
+        Ok(_) => (APP_ID, None),
+        Err(why) => (POWERSHELL, Some(why)),
+    }
+}
+
+/// Show the toast `xml` under the app id `id`.
+fn show(id: &str, xml: &str) -> windows::core::Result<()> {
     let document = XmlDocument::new()?;
     document.LoadXml(&HSTRING::from(xml))?;
     let toast = ToastNotification::CreateToastNotification(&document)?;
-    ToastNotificationManager::CreateToastNotifierWithId(&HSTRING::from(APP_ID))?.Show(&toast)
+    ToastNotificationManager::CreateToastNotifierWithId(&HSTRING::from(id))?.Show(&toast)
 }
 
 impl Notifier for Toasts {
@@ -59,16 +138,96 @@ impl Notifier for Toasts {
         let xml = content(title, body, urgency);
         // On a thread of its own: no caller waits on Windows.
         std::thread::spawn(move || {
-            if let Err(error) = show(&xml) {
+            let (id, why) = app_id();
+            if let Some(why) = why {
+                eprintln!("eco: {why}");
+            }
+            if let Err(error) = show(id, &xml) {
                 eprintln!("eco: the notification could not show: {error}");
             }
         });
     }
 }
 
+/// A test's own app id, registered by the test alone.
+#[cfg(test)]
+pub mod testing {
+    use super::{CURRENT_USER, key};
+
+    /// The app id `id`, unregistered now and again when dropped, also when
+    /// the test fails.
+    pub struct TestId(pub &'static str);
+
+    impl TestId {
+        pub fn new(id: &'static str) -> Self {
+            let _ = CURRENT_USER.remove_tree(key(id));
+            Self(id)
+        }
+    }
+
+    impl Drop for TestId {
+        fn drop(&mut self) {
+            let _ = CURRENT_USER.remove_tree(key(self.0));
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use super::testing::TestId;
     use super::*;
+
+    /// The strings the key of the app id `id` holds, by name.
+    fn held(id: &str) -> Vec<(String, String)> {
+        let key = CURRENT_USER.open(key(id)).unwrap();
+        let mut held: Vec<_> = key
+            .values()
+            .unwrap()
+            .map(|(name, _)| {
+                let value = key.get_string(&name).unwrap();
+                (name, value)
+            })
+            .collect();
+        held.sort();
+        held
+    }
+
+    #[test]
+    fn eco_s_app_id_is_named_eco_with_its_icon() {
+        assert_eq!(
+            key(APP_ID),
+            r"Software\Classes\AppUserModelId\This-Is-NPC.eco"
+        );
+        assert_eq!(
+            values(Some(Path::new(r"C:\eco\share\eco\eco.ico"))),
+            [
+                ("DisplayName", "eco".to_owned()),
+                ("IconUri", r"C:\eco\share\eco\eco.ico".to_owned())
+            ]
+        );
+        assert_eq!(values(None), [("DisplayName", "eco".to_owned())]);
+    }
+
+    #[test]
+    fn registers_the_app_id_and_a_rerun_changes_nothing() {
+        let test = TestId::new("This-Is-NPC.eco-test-register");
+        let id = test.0;
+        let icon = Path::new(r"C:\eco\share\eco\eco.ico");
+        assert_eq!(register(id, Some(icon)), Ok(Registered::Added));
+        let expected = [
+            ("DisplayName".to_owned(), "eco".to_owned()),
+            ("IconUri".to_owned(), icon.display().to_string()),
+        ];
+        assert_eq!(held(id), expected);
+        assert_eq!(register(id, Some(icon)), Ok(Registered::Current));
+        // Without an icon, as from a build that is not installed, the one
+        // registered stays.
+        assert_eq!(register(id, None), Ok(Registered::Current));
+        assert_eq!(held(id), expected);
+        let moved = Path::new(r"D:\eco\share\eco\eco.ico");
+        assert_eq!(register(id, Some(moved)), Ok(Registered::Updated));
+        assert_eq!(held(id)[1].1, moved.display().to_string());
+    }
 
     #[test]
     fn a_toast_carries_its_title_and_body_escaped_and_its_urgency_as_duration() {

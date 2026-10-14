@@ -861,8 +861,10 @@ down, and back; a newer release, once per version; an answer finished, named
 by its skill or question, not its text; and an error the window would show as
 an error toast. While an eco window has the focus, its toasts say it and no
 notification is sent. Nothing else is notified. On Windows the notification
-is labelled "Windows PowerShell", not eco: eco registers no app id of its own.
-None is pictured: a notification is drawn by the system, not by eco.
+is labelled "eco", with eco's icon: `eco setup` registers eco's app id, and
+the daemon registers it again before each notification, so it also holds
+when setup never ran; if it cannot, the notification goes out labelled
+"Windows PowerShell". None is pictured: a notification is drawn by the system, not by eco.
 
 SHOW ECO IN THE TRAY turned on puts an icon in the system tray at once — on
 Omarchy the bar's tray, on Windows the notification area — and turned off, it
