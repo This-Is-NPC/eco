@@ -5,7 +5,8 @@ import EcoHost
 
 // I18n holds the language packs: one JSON file per language in ./i18n, found
 // on their own and reloaded when edited, so fixing or adding a translation
-// never touches code. `t` looks a key up in the chosen pack, then in en-US,
+// never touches code; a text a reloaded pack no longer has stays until the
+// window restarts. `t` looks a key up in the chosen pack, then in en-US,
 // and shows the key itself when neither has it.
 Singleton {
   id: root
@@ -113,7 +114,7 @@ Singleton {
       onTextChanged: {
         try {
           const next = Object.assign({}, root.packs)
-          next[fileBaseName] = JSON.parse(text)
+          next[fileBaseName] = Packs.reread(root.packs[fileBaseName], text)
           root.packs = next
         } catch (error) {
           console.warn("i18n: " + fileBaseName + ".json is not valid JSON: " + error)

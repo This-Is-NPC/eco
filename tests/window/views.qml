@@ -108,6 +108,7 @@ Item {
       // Each stage of an install is said; a failure as an error, with its reason.
       Eco.handle({ type: "update_progress", stage: "installing", version: "0.5.0", detail: "" })
       root.check("an install under way is said", Eco.updating && Eco.message === I18n.t("update.stage.installing", { version: "0.5.0" }))
+      root.check("the stage is said in words, not as its key", Eco.message.indexOf("update.stage.") < 0)
       Eco.handle({ type: "update_progress", stage: "failed", version: "0.5.0", detail: "pkexec was dismissed" })
       root.check("a failed install says why", !Eco.updating && Eco.messageIsError && Eco.message.indexOf("pkexec was dismissed") >= 0)
       // A restart refused while recording asks in the window, not in the status line.

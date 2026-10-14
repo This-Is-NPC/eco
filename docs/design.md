@@ -134,7 +134,7 @@ files import modules by name (`import Eco.Kit`), never by relative path:
 
 | Module | Holds | Imports of the overlay |
 |---|---|---|
-| `Eco.Core` | the singletons `Eco` (the socket and the state), `Theme`, `I18n`, their root `Singleton`, `InputSignal`, the language packs in `i18n/`, and the JavaScript libraries `Draft` (`draft.js`), `Focus` (`focus.js`) and `Markdown` (`markdown.js`), declared in its `qmldir` | none |
+| `Eco.Core` | the singletons `Eco` (the socket and the state), `Theme`, `I18n`, their root `Singleton`, `InputSignal`, the language packs in `i18n/`, and the JavaScript libraries `Draft` (`draft.js`), `Focus` (`focus.js`), `Markdown` (`markdown.js`) and `Packs` (`packs.js`), declared in its `qmldir` | none |
 | `Eco.Kit` | the generic components every view composes: buttons, chips, fields, dropdowns, menus, dialogs' frames, tables, panels, status lines, the tab rail and command bar, `Stage` | `Eco.Core` |
 | `Eco.Live` | the live session: timeline, speech turns, answer and note cards, composer, session control, speaker guesses | `Eco.Core`, `Eco.Kit` |
 | `Eco.Sessions` | history, a session's details (attendees, speakers, context, translation), people, cost, the import strip | `Eco.Core`, `Eco.Kit` |
