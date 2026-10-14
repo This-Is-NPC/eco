@@ -37,6 +37,18 @@ build() {
 
 package() {
   cd "$srcdir/tree"
+  # eco-window needs the Qt minor release it was built against or a newer one
+  # (Qt versions its symbols, Qt_6.12): pacman then brings that Qt along, or
+  # refuses, instead of installing a window that cannot start.
+  local qt dep pinned=()
+  qt="$(pacman -Q qt6-base | awk '{ split($2, v, "."); print v[1] "." v[2] }')"
+  for dep in "${depends[@]}"; do
+    case "$dep" in
+      qt6-base | qt6-declarative) pinned+=("$dep>=$qt") ;;
+      *) pinned+=("$dep") ;;
+    esac
+  done
+  depends=("${pinned[@]}")
   source scripts/lib/stage.sh
   install -Dm755 target/release/eco "$pkgdir/usr/bin/eco"
   stage_files "$pkgdir" /usr
