@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.5.0](https://github.com/This-Is-NPC/eco/compare/v0.4.0...v0.5.0) (2026-10-14)
+
+
+### Features
+
+* **chat:** make the chat model optional ([e0ee546](https://github.com/This-Is-NPC/eco/commit/e0ee546f57dfc327319b746b603c8ddf46bf9c27))
+* **keys:** list key names to pick from ([0e7ebf3](https://github.com/This-Is-NPC/eco/commit/0e7ebf327e6b4cc4c40098b7ce02fd98045fec86))
+* **notifications:** name Windows toasts eco with its icon ([156f226](https://github.com/This-Is-NPC/eco/commit/156f226d83230bf531f194ec6145d1d45b5cb31e))
+* **notifications:** stacked toasts and system notifications ([1fe546a](https://github.com/This-Is-NPC/eco/commit/1fe546a323bed0514403a469cc1503070bf4b5fc))
+* optional chat, settings rework, updates and notifications ([d8789bc](https://github.com/This-Is-NPC/eco/commit/d8789bc95a223ff8b50df04ff6468ed1ebb4c652))
+* **settings:** devices, prompts and a general tab ([e05da8c](https://github.com/This-Is-NPC/eco/commit/e05da8c906ad53cc4e3274a172c2b5e394a03ba4))
+* **update:** check for releases and update in place ([41b0231](https://github.com/This-Is-NPC/eco/commit/41b02310be090d3c8b874a2b064cbce80c2a2aca))
+
+
+### Bug Fixes
+
+* **installer:** wait for a file held open for a moment ([be2c853](https://github.com/This-Is-NPC/eco/commit/be2c853774382f5bd0b77b09830c9508eaeec782))
+* **overlay:** clearer bars, context tab, cost at top ([2feaf19](https://github.com/This-Is-NPC/eco/commit/2feaf19c5faca356ba842d83b2ab05e3bb0015a1))
+* **overlay:** keep texts a reloaded language pack lacks ([de28b61](https://github.com/This-Is-NPC/eco/commit/de28b61dc5415e501d68951bc676dc2282ddbe1a))
+* **overlay:** let a new model choose its type ([42a3b21](https://github.com/This-Is-NPC/eco/commit/42a3b21630db09504accec2b2d581d55535090ea))
+* **scripts:** read docs and QML as UTF-8 ([589910b](https://github.com/This-Is-NPC/eco/commit/589910be62435f6ba0015011e592b77e192989b7))
+* **settings:** defaults on models, tables everywhere ([91935eb](https://github.com/This-Is-NPC/eco/commit/91935ebe8222a264fa1d1a898ad2be051db8bb8e))
+* **settings:** drop inline lists, fix bar and rail ([0e29230](https://github.com/This-Is-NPC/eco/commit/0e292306080b053747c84552af39046ad80aac33))
+* **window:** count a window active only in front ([5ffba7f](https://github.com/This-Is-NPC/eco/commit/5ffba7f75d1d0f46cb1c5fac6fcb7e2025f40883))
+* **window:** deploy QtTest beside eco-window on windows ([6e5e26f](https://github.com/This-Is-NPC/eco/commit/6e5e26f428813aef1ad6040460a762129dd8b539))
+
 ## [0.4.0](https://github.com/This-Is-NPC/eco/compare/v0.3.0...v0.4.0) (2026-10-11)
 
 
