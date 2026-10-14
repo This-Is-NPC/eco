@@ -3,7 +3,7 @@ import QtQuick
 import Eco.Core
 
 // GlobalContextView is the [context] table: the files sent with every answer,
-// in every session, a child table whose rows are added, moved and removed,
+// in every session, a child table whose rows are added and removed,
 // each saved at once; beside it the context slots a session turns on, each a
 // link. It has no fields to edit.
 ItemPage {

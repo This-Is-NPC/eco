@@ -13,9 +13,10 @@ page: [how to use a model on the LAN](how-to-use-a-model-on-the-lan.md).
 
 A **model** is registered once, in the **Models** section of the settings: a
 name of yours, a type — **chat** or **transcription** —, the provider and the
-provider's id for it, and where its key comes from. Every other section then
-picks a model by that name and
-never repeats a provider or a key. Answers go through one adapter, the
+provider's id for it, and where its key comes from. The Models table also
+makes a model the default for chat, translation or transcription; skills,
+session kinds and the reviewer may pick another by its name, and never repeat
+a provider or a key. Answers go through one adapter, the
 OpenAI-compatible API, so the provider is only a base URL: OpenRouter, Groq, or a
 server of your own.
 
@@ -94,18 +95,17 @@ keep the key in omapass (api_key_omapass) or an environment variable
 
 Open the settings (`SUPER+ALT+C`), then **Models**, section 02 (`Ctrl+2`). It
 is a table of the models registered: each one's name, type, the provider's
-model id and what uses it.
+model id, what it is the default for and what else uses it.
 
-![The Models section: the rail of sections down the left, 01 AUDIO to 08 INTERFACE, with 02 MODELS marked; the bar with ADD MODEL, VIEW and DELETE; "Register each model once — chat or transcription — with its provider"; and a table of whisper-lan (TRANSCRIPTION, whisper-large-v3-turbo, used by DEFAULT TRANSCRIPTION, MEETING, CONVERSATION…), deepgram (TRANSCRIPTION, nova-3, INTERVIEW), gemini-flash (CHAT, google/gemini-2.5-flash, ASSISTANT, TRANSLATION, MEETING…) and claude-haiku (CHAT, anthropic/claude-haiku-4.5, minutes).](img/41-settings-models.png)
+![The Models section: the rail of sections down the left, with 02 marked; the bar with ADD MODEL, VIEW, a dimmed DEFAULT FOR TRANSCRIPTION and a dimmed DELETE; "Register each model once — chat or transcription — with its provider, and make it a default from the bar"; and a table of whisper-lan (TRANSCRIPTION, whisper-large-v3-turbo, default TRANSCRIPTION, used by MEETING, CONVERSATION…, picked), deepgram (TRANSCRIPTION, nova-3, INTERVIEW), gemini-flash (CHAT, google/gemini-2.5-flash, default CHAT · TRANSLATION, MEETING…) and claude-haiku (CHAT, anthropic/claude-haiku-4.5, minutes).](img/41-settings-models.png)
 
 **A chat model is optional.** Without one eco records, transcribes and keeps
-notes; the **Answers**, **Skills** and **Translation** sections say NO CHAT
-MODEL, with **REGISTER A CHAT MODEL** back here. Skip to step 3 if you only want
+notes; the **Answers** and **Skills** sections say NO CHAT MODEL, with **REGISTER A CHAT MODEL** back here. Skip to step 3 if you only want
 transcripts.
 
 **ADD MODEL** opens a new model, marked NEW and EDITING, starting from the
 provider and key source of the last model of its type. A new model is the
-default of nothing: step 4 picks what uses it. Fill it top to bottom:
+default of nothing: step 4 makes it one. Fill it top to bottom:
 
 - **TYPE** — **CHAT**. It can change only while nothing uses the model.
 - **NAME** — yours, such as `gemini`. It is what every other section shows.
@@ -136,11 +136,11 @@ missing marks that field and saves nothing:
 
 ![A new model saved empty: MODEL NEW EDITING over "new model"; NAME outlined in red with "Give it a name." under it, and MODEL outlined in red with "Set the provider's model id."; SAVE and CANCEL in the bar.](img/54-settings-errors.png)
 
-A registered model, read: ABOUT says what it is, and RELATED what uses it, each
-a link to where that use is set. **EDIT** (`Ctrl+E`) opens the same form; a model
+A registered model, read: ABOUT says what it is and what it is the default
+for, and RELATED what else uses it, each a link to where that use is set. **EDIT** (`Ctrl+E`) opens the same form; a model
 in use has no TYPE row.
 
-![The gemini-flash model read: BACK, EDIT and DELETE in the bar; ABOUT with TYPE CHAT, PROVIDER OPENROUTER, BASE URL https://openrouter.ai/api/v1, MODEL ID google/gemini-2.5-flash, KEY FROM env OPENROUTER_API_KEY and REASONING OFF; RELATED with ASSISTANT under ANSWERS, TRANSLATION under TRANSLATION, and the session kinds, each once, under SESSIONS · ASSISTANT + TRANSLATION.](img/42-settings-model.png)
+![The gemini-flash model read: BACK, EDIT and DELETE in the bar; ABOUT with TYPE CHAT, DEFAULT FOR CHAT · TRANSLATION, PROVIDER OPENROUTER, BASE URL https://openrouter.ai/api/v1, MODEL ID google/gemini-2.5-flash, KEY FROM env OPENROUTER_API_KEY and REASONING OFF; RELATED with the session kinds, each once, under SESSIONS · ASSISTANT + TRANSLATION.](img/42-settings-model.png)
 
 ![The gemini-flash model being edited: SAVE and CANCEL in the bar; NAME "gemini-flash"; REASONING with OFF lit; PROVIDER with OPENROUTER lit, GROQ and CUSTOM; MODEL "google/gemini-2.5-flash" with LIST; KEY FROM with ENV lit and OMAPASS, holding "OPENROUTER_API_KEY"; EXTRA (JSON) holding "{}".](img/43-settings-model-edit.png)
 
@@ -167,23 +167,28 @@ only stands in where nothing else does. **SAVE**.
 
 ## 4. Say which model does what
 
-Each section picks from the registry, and owns its own choice. Open the item,
-**EDIT**, pick, **SAVE**:
+**The defaults are set on the Models table.** Pick a model and press, in the
+bar:
+
+| model | command | sets | used by |
+|---|---|---|---|
+| chat | **DEFAULT FOR CHAT** | `[llm] model` | the assistant: questions, and the skills and session kinds that pick no model |
+| chat | **DEFAULT FOR TRANSLATION** | `[translation] model` | translations in sessions whose kind picks no translation model |
+| transcription | **DEFAULT FOR TRANSCRIPTION** | `[stt] model` | sessions whose kind picks no transcription model |
+
+Each saves at once; the DEFAULT column then says so. A command is dimmed on
+the model that is already that default. Until a translation default is set,
+the chat default translates, and its DEFAULT reads CHAT · TRANSLATION
+(INHERITED).
+
+**Anything more specific picks in its own section.** Open the item, **EDIT**,
+pick, **SAVE**:
 
 | section | item | picks |
 |---|---|---|
-| **Transcription** (`Ctrl+3`) | the section itself | the default transcription model |
-| **Answers** (`Ctrl+4`) | assistant, reviewer | the default assistant — questions, and skills that name no model — and the reviewer's model |
+| **Answers** (`Ctrl+4`) | reviewer | the reviewer's model |
 | **Skills** (`Ctrl+5`) | each skill | a model per skill, or the default |
-| **Translation** (`Ctrl+6`) | the section itself | the model that writes translations, or the assistant's |
-| **Sessions** (`Ctrl+7`) | each kind | per kind of session, its own transcription, assistant and translation models |
-
-![The Transcription section, read: EDIT and, on the right, ADD LANGUAGE in the bar; ABOUT with DEFAULT MODEL whisper-lan and DEFAULT SPOKEN LANGUAGE "EN · American English"; RELATED with the model whisper-lan; "Transcribes sessions whose kind picks no transcription model"; and the table OFFERED SPOKEN LANGUAGES: AUTO · detect, EN · American English (DEFAULT), ES · español de España, PT · português](img/44-settings-transcription.png)
-
-On Transcription, EDIT holds only the default model. The spoken languages
-sessions may start in are the table under it: **ADD LANGUAGE** offers another,
-and with a row picked **MAKE DEFAULT**, **MOVE UP**, **MOVE DOWN** and
-**REMOVE** change them, each saved at once.
+| **Sessions** (`Ctrl+6`) | each kind | per kind of session, its own transcription, assistant and translation models |
 
 ![The Sessions section: ADD KIND, VIEW, MAKE DEFAULT and DELETE in the bar; "The default kind is suggested when you create or import a session…"; and a table of Meeting (DEFAULT), Conversation, Other and Idea, each transcribing with "default · whisper-lan" and answering with "default · gemini-flash", and interview, transcribing with deepgram.](img/51-settings-sessions.png)
 
@@ -299,12 +304,13 @@ dialog names the address and where the key comes from
 ([screens §12](screens.md#12-settings)). REJECT unless you asked for it.
 
 **Asking or translating says no chat model answers.** No chat model answers or
-translates that session's kind: `chat.none` or `translation.none`. Pick one
-under **Answers** or **Translation**, or for the kind under **Sessions**.
+translates that session's kind: `chat.none` or `translation.none`. Make one
+the default for chat or translation on the **Models** table, or pick one for
+the kind under **Sessions**.
 
-**A model cannot be deleted.** For the assistant's model and the default
-transcription model, **DELETE** is dimmed, and its hint says `In use as the
-assistant or the default transcription: pick another there first.` Deleting any
+**A model cannot be deleted.** For the chat default and the transcription
+default, **DELETE** is dimmed, and its hint says `The default for chat or
+transcription: make another model that default first.` Deleting any
 other asks first, listing what falls back to which model and whether the
 reviewer turns off, then saves at once.
 

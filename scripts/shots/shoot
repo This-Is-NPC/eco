@@ -581,8 +581,6 @@ def scenes(w, shots, stop):
     section("skills")
     shots.take("47-settings-skills", "settings")
     item("skills", "reply", "48", "skill", ("49", "skill-edit"))
-    section("translation")
-    shots.take("50-settings-translation", "settings")
     section("sessions")
     shots.take("51-settings-sessions", "settings")
     item("sessions", "meeting", "52", "kind")

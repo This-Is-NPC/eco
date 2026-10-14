@@ -13,13 +13,12 @@ import Eco.Kit
 // back, edit and delete it, add to its child tables and change the child row
 // picked, which saves at once, or, editing, save, discard and cancel, then its
 // own `extra`. A child table adds through a child screen opened over the
-// item, and a child row may open one of its own. The item of a section that is
-// only that item is never deleted.
+// item, and a child row may open one of its own.
 Item {
   id: page
 
-  // What kind of item it is, as read: "model", "skill", ...; "" for the item of
-  // a section that is only that item, which the section names.
+  // What kind of item it is, as read: "model", "skill", ...; "" when its title
+  // says it.
   property string kind: ""
   property string title: ""
   // Shown in the title's place while it has none, as a model not named yet.
@@ -29,10 +28,6 @@ Item {
   // The config it shows: the draft while edited, else the saved one.
   readonly property var config: draft !== null && draft.active ? draft.draft : Eco.config
   property bool editing: false
-  // The section is this item alone: it is never deleted, and it has a way
-  // back only when it was followed to.
-  property bool single: false
-  property bool backable: !single
   // A part of the config that is never removed: it has no DELETE.
   property bool fixed: false
   // Whether DELETE may remove it, and why not when it may not.
@@ -49,7 +44,7 @@ Item {
   default property alias form: formColumn.data
   // The collections it holds, each a titled table read under what it is, in
   // order: [{name, title, note, empty, columns, stacked, tone, rows, add, open,
-  // remove, move, makeDefault, commands}], as .temp/settings-contract.md says.
+  // remove, commands}], as .temp/settings-contract.md says.
   property var tables: []
   // Child table name -> the id of its row picked; the table picked in last,
   // whose row's commands the bar shows.
@@ -73,8 +68,6 @@ Item {
   signal followed(int section, string id)
   // `change` to save at once to the saved config, then `done` (SettingsView.saveNow).
   signal storing(var change, var done)
-  // Esc that it had nothing to go back from.
-  signal escaped()
 
   readonly property var commands: childScreen !== null ? [
     { text: I18n.t("settings.back"), role: "back", tip: I18n.t("settings.child_back_tip"), run: () => page.closeScreen() }
@@ -87,11 +80,11 @@ Item {
       shown: !!draft && draft.dirty && (!draft.isNew || draft.conflict), enabled: !!draft && !draft.saving, run: () => page.discard() },
     { text: I18n.t("dialog.cancel"), icon: "close", tip: I18n.t("settings.cancel_tip"), enabled: !draft || !draft.saving, run: () => page.cancel() }
   ] : [
-    { text: I18n.t("settings.back"), role: "back", tip: I18n.t("settings.back_tip"), shown: backable, run: () => page.back() },
+    { text: I18n.t("settings.back"), role: "back", tip: I18n.t("settings.back_tip"), run: () => page.back() },
     { text: I18n.t("settings.edit"), icon: "edit", role: "primary", tip: I18n.t("settings.edit_tip"), shown: draft !== null, run: () => page.edit() }
   ].concat(childCommands).concat(extra).concat([
     { text: I18n.t("settings.delete"), icon: "trash", role: "guarded", tip: removable ? I18n.t("settings.delete_tip") : keptReason,
-      shown: !single && !fixed, enabled: removable, run: () => page.removing() }
+      shown: !fixed, enabled: removable, run: () => page.removing() }
   ])
 
   // Each child table's ADD, the first the main action of an item with no
@@ -105,24 +98,11 @@ Item {
     return adds.concat(row === null ? [] : rowCommands(table, row))
   }
 
-  // The commands of the child row `row` of `table`: open it, make it the
-  // default, move it, the table's own, and remove it; each saves at once.
+  // The commands of the child row `row` of `table`: open it, the table's own,
+  // and remove it; each saves at once.
   function rowCommands(table, row) {
-    const at = table.rows.findIndex(entry => entry.id === row.id)
-    const isDefault = !!table.makeDefault && table.makeDefault.is(row)
     const idle = !Eco.configSaving
-    const commands = []
-    if (table.open)
-      commands.push({ text: table.open.text, icon: table.open.icon || "enter", tip: table.open.tip || "", run: () => page.openRow(table, row) })
-    if (table.makeDefault)
-      commands.push({ text: I18n.t("settings.default"), icon: "check", tip: isDefault ? table.makeDefault.isTip : table.makeDefault.tip,
-        enabled: idle && !isDefault, run: () => page.store(d => table.makeDefault.change(d, row), table.name, row.id) })
-    if (table.move)
-      commands.push(
-        { text: I18n.t("settings.move_up"), icon: "chevron-up", tip: table.move.up, enabled: idle && at > 0,
-          run: () => page.store(d => table.move.change(d, row, -1), table.name, row.id) },
-        { text: I18n.t("settings.move_down"), icon: "chevron-down", tip: table.move.down, enabled: idle && at < table.rows.length - 1,
-          run: () => page.store(d => table.move.change(d, row, 1), table.name, row.id) })
+    const commands = table.open ? [{ text: table.open.text, icon: table.open.icon || "enter", tip: table.open.tip || "", run: () => page.openRow(table, row) }] : []
     return commands.concat(table.commands ? table.commands(row) : []).concat(table.remove ? [
       { text: I18n.t("settings.child_remove"), icon: "trash", role: "guarded",
         tip: row.removable === false ? row.keptReason || "" : I18n.t("settings.child_remove_tip"),
@@ -141,12 +121,13 @@ Item {
     else
       page.forceActiveFocus()
   }
-  // Saves `change` to the saved config at once; then any child screen closes
-  // and the row `pick` of the child table `table` is picked, with the keyboard.
+  // Closes any child screen first, so its table is gone before the save
+  // changes its rows; then saves `change` to the saved config at once and picks
+  // the row `pick` of the child table `table`, with the keyboard.
   function store(change, table, pick) {
+    if (childScreen !== null)
+      closeScreen()
     storing(change, () => {
-      if (page.childScreen !== null)
-        page.dropScreen()
       page.pickChild(table, pick)
       Qt.callLater(() => page.focusChild(table))
     })
@@ -252,20 +233,14 @@ Item {
     if (fresh)
       back()
   }
-  // Esc: out of the child screen, out of editing, then back; a save under way keeps it. Returns whether
-  // it took the key.
+  // Esc: out of the child screen, out of editing, then back; a save under way keeps it.
   function leave() {
     if (childScreen !== null)
       closeScreen()
-    else if (editing && draft !== null && draft.saving)
-      return true
-    else if (editing)
+    else if (editing && !(draft !== null && draft.saving))
       cancel()
-    else if (backable)
+    else if (!editing)
       back()
-    else
-      return false
-    return true
   }
 
   // Editing starts from the saved config, unless a new item began it already.
@@ -326,8 +301,8 @@ Item {
       width: Math.min(scroll.width, 880)
       spacing: 14
 
-      // What it is, and how far its edit is: the item of a single section, which
-      // its title names, has the line only while it is edited.
+      // What it is, and how far its edit is: an item whose title says what it
+      // is has the line only while it is edited.
       Row {
         visible: page.kind !== "" || page.childScreen !== null || page.editing
         spacing: 12
@@ -470,7 +445,7 @@ Item {
               onPicked: entry => page.pickChild(block.table.name, entry.id)
               onOpened: entry => page.openRow(block.table, entry)
               onRemoveRequested: entry => page.removeChild(block.table, entry)
-              onBackRequested: if (!page.leave()) page.escaped()
+              onBackRequested: page.leave()
             }
           }
         }

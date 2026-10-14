@@ -4,7 +4,8 @@
 //! a watched file and raising a window, run offscreen against `tests/window/bridge.qml`;
 //! on Windows, a copied text that outlives the window, on the real platform;
 //! the overlay's views driven as the daemon drives them, in
-//! `tests/window/views.qml`; and the eco window closed with the settings open,
+//! `tests/window/views.qml`; the settings window's section keys, in
+//! `tests/window/settings_keys.qml`; and the eco window closed with the settings open,
 //! saying so to the daemon before it exits,
 //! in `tests/window/close.qml`; and the tray icon's states and menu, in
 //! `tests/window/tray.qml`. Needs `mise run window:build`.
@@ -163,6 +164,35 @@ async fn the_overlay_views_pass_their_checks() {
     let output = tokio::time::timeout(Duration::from_secs(30), run)
         .await
         .expect("the views did not finish")
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+/// The settings window's section keys, pressed as a keyboard presses them:
+/// a section's number, bare or with Ctrl, a field keeping its digits, and the
+/// rail unfolding under the keyboard.
+#[tokio::test]
+async fn the_settings_keys_choose_sections() {
+    let dir = tempfile::tempdir().unwrap();
+    let run = Command::new(program())
+        .arg(Path::new(ROOT).join("tests/window/settings_keys.qml"))
+        .env_remove("WAYLAND_DISPLAY")
+        .env_remove("DISPLAY")
+        .env("QML_IMPORT_PATH", Path::new(ROOT).join("overlay"))
+        .env("QT_QPA_PLATFORM", "offscreen")
+        .env("QT_QPA_PLATFORMTHEME", "")
+        .env("XDG_RUNTIME_DIR", dir.path())
+        .env("XDG_CACHE_HOME", dir.path().join("cache"))
+        .env("ECO_SOCKET", dir.path().join("no-daemon"))
+        .kill_on_drop(true)
+        .output();
+    let output = tokio::time::timeout(Duration::from_secs(30), run)
+        .await
+        .expect("the keys did not finish")
         .unwrap();
     assert!(
         output.status.success(),

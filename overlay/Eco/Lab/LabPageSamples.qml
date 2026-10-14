@@ -3,9 +3,9 @@ import QtQuick
 import Eco.Core
 import Eco.Kit
 
-// A page's chrome: the tab rail down the left, labelled and folded, its
-// second page marked, the page bar beside it with the commands of the page on
-// screen, and a command row on its own.
+// A page's chrome: the tab rail down the left, its second page marked, the
+// page bar beside its head with the commands of the page on screen, and a
+// command row on its own.
 Column {
   id: samples
 
@@ -38,36 +38,19 @@ Column {
   Item {
     width: parent.width
     height: rail.height
+    PageBar {
+      x: rail.foldedWidth + rail.gap
+      width: parent.width - x
+      height: rail.headHeight
+      commands: samples.commands
+      section: samples.page
+    }
     TabRail {
       id: rail
+      z: 1
       tabs: samples.pages
       current: samples.page
       onChosen: index => samples.page = index
-    }
-    PageBar {
-      x: rail.width + 16
-      width: parent.width - x
-      height: 44
-      commands: samples.commands
-      section: samples.page
-    }
-  }
-  Item {
-    width: parent.width
-    height: folded.height
-    TabRail {
-      id: folded
-      labelled: false
-      tabs: samples.pages
-      current: samples.page
-      onChosen: index => samples.page = index
-    }
-    PageBar {
-      x: folded.width + 16
-      width: Math.min(parent.width - x, 300)
-      height: 44
-      commands: samples.commands
-      section: samples.page
     }
   }
 

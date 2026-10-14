@@ -5,7 +5,7 @@ import Eco.Core
 import Eco.Kit
 
 // SlotView is one context slot: the files a session sends with its answers
-// while the slot is on there, a child table whose rows are added, moved and
+// while the slot is on there, a child table whose rows are added and
 // removed, each saved at once, and the session kinds it starts on in, each a
 // link. Edited: its name and those kinds. A new slot gets files once saved.
 ItemPage {

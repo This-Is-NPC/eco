@@ -6,13 +6,12 @@ import Eco.Kit
 
 // SettingsView is the settings one section at a time, each a table of its
 // items: a click picks one, a double click or Enter opens it on a screen of
-// its own, read, where it may be edited and saved alone. A section that is one
-// item opens it at once. What is picked or open decides the commands the bar
-// shows. Removing an item, or moving one, saves at once, after asking.
+// its own, read, where it may be edited and saved alone. What is picked or open decides the commands the bar
+// shows. Removing an item saves at once, after asking.
 Item {
   id: view
 
-  // The section on screen, 0 to 7.
+  // The section on screen, 0 to 6.
   property int page: 0
   // A section asked for, as when a related item is followed.
   signal wanted(int page)
@@ -20,18 +19,17 @@ Item {
   signal closeRequested()
 
   // The sections' places, for links: settings.link(settings.at.answers, "assistant").
-  readonly property var at: ({ audio: 0, models: 1, transcription: 2, answers: 3, skills: 4, translation: 5, sessions: 6, interface: 7 })
-  readonly property var sections: [audio, models, transcription, answers, skills, translation, sessions, interfaceSection]
+  readonly property var at: ({ audio: 0, models: 1, transcription: 2, answers: 3, skills: 4, sessions: 5, interface: 6 })
+  readonly property var sections: [audio, models, transcription, answers, skills, sessions, interfaceSection]
   AudioSection { id: audio; settings: view }
   ModelsSection { id: models; settings: view }
   TranscriptionSection { id: transcription; settings: view }
   AnswersSection { id: answers; settings: view }
   SkillsSection { id: skills; settings: view }
-  TranslationSection { id: translation; settings: view }
   SessionsSection { id: sessions; settings: view }
   InterfaceSection { id: interfaceSection; settings: view }
 
-  // A chat model is registered: until then answers, skills and translation have nothing to run on.
+  // A chat model is registered: until then answers and skills have nothing to run on.
   readonly property bool chats: Eco.config !== null && Draft.chats(Eco.config)
 
   // Section index -> the id of the row picked, and of the item open ("+" for a
@@ -69,13 +67,24 @@ Item {
     const row = config === null ? null : section.rows(config).find(entry => entry.id === (picked[index] || "")) || null
     return [
       { text: section.add, icon: "plus", role: "primary", shown: section.add !== "" && config !== null, run: () => view.create(index) },
-      { text: I18n.t("settings.view"), icon: "enter", tip: I18n.t("settings.view_tip"), shown: row !== null, run: () => view.open(index, row.id) }
+      row === null ? { shown: false } : row.open ? Object.assign({ icon: "enter", enabled: !Eco.configSaving }, row.open, { run: () => view.enter(index, row) })
+        : { text: I18n.t("settings.view"), icon: "enter", tip: I18n.t("settings.view_tip"), shown: view.screenOf(index, row) !== "", run: () => view.enter(index, row) }
     ].concat(config === null ? [] : section.commands(config, row)).concat([
       { text: I18n.t("settings.delete"), icon: "trash", role: "guarded", tip: row && row.removable === false ? row.keptReason || "" : I18n.t("settings.delete_tip"),
         shown: row !== null && section.remove !== null && !row.fixed, enabled: row !== null && row.removable !== false, run: () => view.remove(index, row) }
     ])
   }
 
+  // The screen file `row` of section `index` opens, or "" when it has none.
+  function screenOf(index, row) { return row.file || sections[index].file }
+  // A row's own command, from its button, Enter or a double click: its
+  // `open.run`, or else opening it on its screen, when it has one.
+  function enter(index, row) {
+    if (row.open && row.open.run)
+      row.open.run()
+    else if (screenOf(index, row) !== "")
+      open(index, row.id)
+  }
   // Opens the item `id` of the section `index`; "+", a new one, to be written.
   function open(index, id) {
     picked = setOf(picked, index, id)
@@ -117,23 +126,27 @@ Item {
   // Opens a related item in its own section; BACK there comes back here.
   function follow(index, id) {
     history = history.concat([{ section: page, id: shown[page] || "" }])
-    if (reach(index, id) && !sections[index].single)
+    if (reach(index, id))
       open(index, id)
   }
   // Choosing a section elsewhere starts the way back over.
   function forget() { history = [] }
 
-  // Asks before deleting `row` of section `index`, saying what follows, then saves at once.
+  // Asks before deleting `row` of section `index`, saying what follows; then
+  // closes its screen, so its tables are gone before the save changes their
+  // rows, and saves at once.
   function remove(index, row) {
     if (row.fixed || row.removable === false || sections[index].remove === null)
       return
     const asked = sections[index].remove(Eco.config, row)
     confirmRemove.asked = asked
-    confirmRemove.after = () => {
+    confirmRemove.then = () => {
       if (view.shown[index] === row.id)
         view.shown = view.setOf(view.shown, index, "")
-      view.picked = view.setOf(view.picked, index, "")
-      Qt.callLater(view.takeFocus)
+      view.saveNow(asked.change, () => {
+        view.picked = view.setOf(view.picked, index, "")
+        Qt.callLater(view.takeFocus)
+      })
     }
     confirmRemove.open()
   }
@@ -159,7 +172,10 @@ Item {
   }
   // Esc: out of the open item; returns whether there was one to leave.
   function leave() {
-    return openPage !== null && openPage.leave()
+    if (openPage === null)
+      return false
+    openPage.leave()
+    return true
   }
   // The open items with changes not saved, the one on screen first.
   function changed() {
@@ -243,8 +259,8 @@ Item {
         readonly property var section: view.sections[index]
         readonly property bool waiting: section.chats && !view.chats
         readonly property var rows: Eco.config === null || waiting ? [] : section.rows(Eco.config)
-        // The id of the item open: the one item of a single section.
-        readonly property string open: waiting ? "" : section.single ? (rows.length ? rows[0].id : "") : view.shown[index] || ""
+        // The id of the item open.
+        readonly property string open: waiting ? "" : view.shown[index] || ""
         readonly property Item screenItem: screen.item
         readonly property bool dirty: screen.item !== null && screen.item.draft !== null && screen.item.draft.dirty
         readonly property bool conflict: dirty && screen.item.draft.conflict
@@ -300,7 +316,7 @@ Item {
             loading: Eco.config === null && Eco.connected
             emptyText: Eco.config === null ? (Eco.connected ? I18n.t("config.loading") : I18n.t("start.offline")) : I18n.t("settings.empty")
             onPicked: row => view.picked = view.setOf(view.picked, stage.index, row.id)
-            onOpened: row => view.open(stage.index, row.id)
+            onOpened: row => view.enter(stage.index, row)
             onRemoveRequested: row => view.remove(stage.index, row)
             onBackRequested: view.closeRequested()
           }
@@ -312,7 +328,8 @@ Item {
           id: screen
           anchors.fill: parent
           active: stage.open !== ""
-          readonly property var row: stage.open === "+" ? { id: "+", file: "" } : stage.rows.find(entry => entry.id === stage.open) || null
+          // A new item, never deleted: on the screen ADD opens.
+          readonly property var row: stage.open === "+" ? { id: "+", file: stage.section.adds, fixed: true } : stage.rows.find(entry => entry.id === stage.open) || null
           onRowChanged: load()
           onActiveChanged: load()
           function load() {
@@ -331,24 +348,22 @@ Item {
             setSource(row.file || stage.section.file, { settings: view, section: stage.section, key: row.id })
           }
           onLoaded: {
-            item.single = stage.section.single
-            item.backable = Qt.binding(() => !stage.section.single || view.history.length > 0)
             item.fixed = Qt.binding(() => screen.row !== null && !!screen.row.fixed)
             item.removable = Qt.binding(() => screen.row !== null && screen.row.removable !== false)
             item.keptReason = Qt.binding(() => screen.row !== null ? screen.row.keptReason || "" : "")
-            item.editing = item.key === "+"
+            // A new item is written, unless it has nothing to write: it is chosen.
+            item.editing = item.key === "+" && item.draft !== null
             // The keyboard goes with the screen that opens.
             Qt.callLater(() => { if (screen.item) screen.item.takeFocus() })
             item.back.connect(() => view.close(stage.index))
             item.followed.connect((section, id) => view.follow(section, id))
             item.removing.connect(() => view.remove(stage.index, screen.row))
             item.storing.connect((change, done) => view.saveNow(change, done))
-            item.escaped.connect(() => view.closeRequested())
             // Saved, under a new name or for the first time, the screen follows it.
             if (item.draft)
               item.draft.saved.connect(() => {
                 const key = screen.item.nextKey
-                if (key === "" || stage.section.single)
+                if (key === "")
                   return
                 screen.item.key = key
                 view.shown = view.setOf(view.shown, stage.index, key)
@@ -369,12 +384,12 @@ Item {
 
   ConfirmDialog {
     id: confirmRemove
-    property var asked: ({ title: "", question: "", warning: "", change: null })
-    property var after: null
+    property var asked: ({ title: "", question: "", warning: "" })
+    property var then: null
     title: asked.title
     question: asked.question
     warning: asked.warning || ""
     confirmText: I18n.t("settings.remove_confirm")
-    onConfirmed: view.saveNow(asked.change, after)
+    onConfirmed: then()
   }
 }

@@ -13,20 +13,23 @@ QtObject {
   // columns on each line of a row stacked on a narrow window.
   property var columns: []
   property var stacked: [[0]]
-  // The section is one item, opened at once: no table, no BACK.
-  property bool single: false
   // It needs a chat model: until one is registered it says so instead.
   property bool chats: false
   // The text of its ADD command, or "" when nothing is added here.
   property string add: ""
   // The rows of the saved config `config`: [{id, cells, file, fixed, removable,
-  // keptReason}]; `file` overrides `file` below, `fixed` marks a part of the
-  // config that is never removed (no DELETE), `removable` false keeps DELETE
-  // off for now and `keptReason` says why.
+  // keptReason, open}]; `file` overrides `file` below, `fixed` marks a part of
+  // the config that is never removed (no DELETE), `removable` false keeps DELETE
+  // off for now and `keptReason` says why. `open`, a command as PageBar takes
+  // it, stands for VIEW: its `run`, or else opening the row's screen, is what
+  // the command, Enter and a double click do. A row with no screen and no
+  // `open.run` has no VIEW.
   property var rows: config => []
   // The screen a row opens, an ItemPage file beside SettingsView; a new item's
   // row has the id "+".
   property string file: ""
+  // The screen ADD opens, when it is not `file`: there the new item is chosen.
+  property string adds: ""
   // What deleting `row` from `config` asks and does: {title, question,
   // warning, change}, `change` applied to a copy of the saved config; null
   // when the section deletes nothing.

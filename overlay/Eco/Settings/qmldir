@@ -1,14 +1,16 @@
 module Eco.Settings
 AddFileScreen 1.0 AddFileScreen.qml
+AddLanguageView 1.0 AddLanguageView.qml
 AnswersSection 1.0 AnswersSection.qml
 AssistantView 1.0 AssistantView.qml
 AudioSection 1.0 AudioSection.qml
 ChildScreen 1.0 ChildScreen.qml
+ChooseView 1.0 ChooseView.qml
 ConfigWindow 1.0 ConfigWindow.qml
 EchoView 1.0 EchoView.qml
 GlobalContextView 1.0 GlobalContextView.qml
+InterfaceLanguageView 1.0 InterfaceLanguageView.qml
 InterfaceSection 1.0 InterfaceSection.qml
-InterfaceView 1.0 InterfaceView.qml
 ItemDraft 1.0 ItemDraft.qml
 ItemNote 1.0 ItemNote.qml
 ItemPage 1.0 ItemPage.qml
@@ -28,6 +30,3 @@ SkillsSection 1.0 SkillsSection.qml
 SlotView 1.0 SlotView.qml
 SourceView 1.0 SourceView.qml
 TranscriptionSection 1.0 TranscriptionSection.qml
-TranscriptionView 1.0 TranscriptionView.qml
-TranslationSection 1.0 TranslationSection.qml
-TranslationView 1.0 TranslationView.qml

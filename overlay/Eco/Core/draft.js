@@ -2,11 +2,6 @@
 
 // Reads and edits of the settings draft that several views share.
 
-// A copy of the draft's translation settings, {} when it has none.
-function translation(draft) {
-  return Object.assign({}, draft.translation)
-}
-
 // The names of the draft's registered models of `type`, "chat" or "transcription".
 function named(draft, type) {
   return draft.models.filter(model => model.type === type && model.name).map(model => model.name)
@@ -70,6 +65,33 @@ function answering(draft, use, kind, action) {
 // a session of `kind`, as `answering` picks it; one with no name answers nothing.
 function serves(draft, entry, use, kind, action) {
   return !!entry.name && answering(draft, use, kind, action).name === entry.name
+}
+
+// What the model `name` of `draft` is the default for, as the daemon picks
+// it: [{use, inherited}], `use` "chat", "translation" or "transcription";
+// translation `inherited` when no translation default is set and it follows
+// the chat one.
+function defaults(draft, name) {
+  const found = []
+  const is = use => !!name && answering(draft, use, "", null).name === name
+  if (is("chat"))
+    found.push({ use: "chat", inherited: false })
+  if (is("translation"))
+    found.push({ use: "translation", inherited: !answering(draft, "translation", "", null).own })
+  if (is("transcription"))
+    found.push({ use: "transcription", inherited: false })
+  return found
+}
+
+// Make the model `name` the draft `d`'s default for `use`: "chat",
+// "translation" or "transcription".
+function makeDefault(d, use, name) {
+  if (use === "chat")
+    d.llm.model = name
+  else if (use === "transcription")
+    d.stt.model = name
+  else
+    d.translation = Object.assign({}, d.translation, { model: name })
 }
 
 // Name the model at `index` in the draft `d` as `text` is typed. The defaults,
@@ -334,25 +356,10 @@ function sourceRemoval(draft, index, devices) {
     noUser: !!source.user }
 }
 
-// Move the entry at `from` of `list` by `step` places: -1 up, 1 down.
-function shift(list, from, step) {
-  list.splice(from + step, 0, list.splice(from, 1)[0])
-}
-
-// Move the skill named `name` in the draft `d` by `step` places: -1 up, 1 down.
-function moveSkill(d, name, step) {
-  shift(d.actions, d.actions.findIndex(action => action.name === name), step)
-}
-
 // Offer the spoken language `code` in the draft `d`, last, unless it is offered.
 function addLanguage(d, code) {
   if (!d.stt.languages.includes(code))
     d.stt.languages.push(code)
-}
-
-// Move the offered spoken language `code` in the draft `d` by `step` places.
-function moveLanguage(d, code, step) {
-  shift(d.stt.languages, d.stt.languages.indexOf(code), step)
 }
 
 // The language that becomes the default when `code` is no longer offered in
@@ -411,13 +418,11 @@ function review(d, on) {
 }
 
 // What answers with the assistant's model because it names none of its own,
-// as `answering` picks it: {skills, kinds, translation}, the names of the
-// skills and the kinds, and whether the translation default does.
+// as `answering` picks it: {skills, kinds}, the names of the skills and the kinds.
 function inheriting(draft) {
   return {
     skills: draft.actions.filter(action => !answering(draft, "chat", "", action).own).map(action => action.name),
-    kinds: draft.kinds.filter(kind => !serving(draft, "chat", kind)),
-    translation: !answering(draft, "translation", "", null).own
+    kinds: draft.kinds.filter(kind => !serving(draft, "chat", kind))
   }
 }
 
@@ -432,12 +437,6 @@ function addFiles(list, paths) {
   for (const path of paths)
     if (!list.includes(path))
       list.push(path)
-}
-
-// Move the file `path` of the context `slot` in the draft `d` by `step` places.
-function moveFile(d, slot, path, step) {
-  const files = contextFiles(d, slot)
-  shift(files, files.indexOf(path), step)
 }
 
 // Stop sending the file `path` with the context `slot` of the draft `d`.

@@ -96,10 +96,13 @@ An answer's card has a translate button of its own, for one answer in a session
 that does not translate: it goes into the session's translation language when
 there is one, else into the interface's.
 
-The model that writes them is chosen in **Settings › Translation**
-(`Ctrl+6`): **EDIT**, pick the **DEFAULT MODEL**, **SAVE**.
-
-![The Translation section, read: an EDIT button in the bar; ABOUT with DEFAULT MODEL gemini-flash; "A session translates its lines and answers only once it is turned on in that session, on the TRANSLATION line of its details. Here you pick the model that writes the translations." and "Translates sessions whose kind picks no translation model; on the default, the assistant's model does"; RELATED with the model gemini-flash.](img/50-settings-translation.png)
+The model that writes them by default is set on the **Settings › Models**
+table (`Ctrl+2`): pick a chat model and press **DEFAULT FOR TRANSLATION**. It
+saves at once, and the model's DEFAULT column says TRANSLATION. Until one is
+set, the chat default translates, and its DEFAULT reads CHAT · TRANSLATION
+(INHERITED). A session kind may pick its own, on its screen in **Settings ›
+Sessions**. [How to register models](how-to-register-models.md#4-say-which-model-does-what)
+shows the table.
 
 ---
 
@@ -168,8 +171,8 @@ line:
 {"ok":false,"code":"translation.none","message":"no model translates sessions of this kind"}
 ```
 
-Register a chat model; it translates once it is the assistant or the default
-under **Settings › Translation**.
+Register a chat model; it translates once it is the default for chat or for
+translation on the **Settings › Models** table.
 
 ---
 

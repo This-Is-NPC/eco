@@ -109,6 +109,26 @@ TestCase {
     compare(Draft.users(d, "gone"), [])
   }
 
+  // A model's defaults are what it answers when nothing more specific picks a
+  // model; translation follows the chat default until one of its own is set.
+  function test_a_model_is_made_the_default_for_each_use() {
+    const d = draft(JSON.parse(JSON.stringify(registered)), "", "")
+    d.models.push({ name: "x", type: "chat", base_url: "http://llm", model: "x" })
+    compare(Draft.defaults(d, "m"), [])
+    Draft.makeDefault(d, "chat", "m")
+    compare(d.llm.model, "m")
+    compare(Draft.defaults(d, "m"), [{ use: "chat", inherited: false }, { use: "translation", inherited: true }])
+    Draft.makeDefault(d, "translation", "x")
+    compare(d.translation, { model: "x" })
+    compare(Draft.defaults(d, "m"), [{ use: "chat", inherited: false }])
+    compare(Draft.defaults(d, "x"), [{ use: "translation", inherited: false }])
+    Draft.makeDefault(d, "translation", "m")
+    compare(Draft.defaults(d, "m"), [{ use: "chat", inherited: false }, { use: "translation", inherited: false }])
+    Draft.makeDefault(d, "transcription", "w")
+    compare([d.stt.model, Draft.defaults(d, "w")], ["w", [{ use: "transcription", inherited: false }]])
+    compare(Draft.problems(d), [])
+  }
+
   function test_a_renamed_kind_follows_into_models_and_slots() {
     const d = draft([{ name: "m", type: "chat", base_url: "http://llm", model: "m", kinds: ["meeting", "talk"], translates: ["talk"] }], "", "m")
     d.contexts = [{ name: "notes", kinds: ["talk"] }]

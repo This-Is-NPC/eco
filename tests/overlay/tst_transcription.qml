@@ -2,7 +2,7 @@ import QtQuick
 import QtTest
 import "../../overlay/Eco/Core/draft.js" as Draft
 
-// The offered spoken languages are added once, moved and removed by code; the
+// The offered spoken languages are added once and removed by code; the
 // default removed passes to the first one left, and the draft still saves.
 TestCase {
   name: "Transcription"
@@ -18,15 +18,6 @@ TestCase {
     Draft.addLanguage(d, "en")
     compare(d.stt.languages, ["en", "pt", "auto", "ja"])
     compare(Draft.problems(d), [])
-  }
-
-  function test_a_language_moves_by_code() {
-    const d = draft()
-    Draft.moveLanguage(d, "auto", -1)
-    compare(d.stt.languages, ["en", "auto", "pt"])
-    Draft.moveLanguage(d, "en", 1)
-    compare(d.stt.languages, ["auto", "en", "pt"])
-    compare(d.stt.language, "pt")
   }
 
   function test_removing_another_language_keeps_the_default() {

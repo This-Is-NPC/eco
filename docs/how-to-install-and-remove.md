@@ -193,9 +193,9 @@ eco: daemon running (pid 434054, version 0.1.0)
 `eco status` prints `eco: daemon stopped` and exits 3 when nothing answers, so a
 script can test it.
 
-**To have eco in the tray,** open **Settings › Interface** (`Ctrl+8`),
-**EDIT**, turn on **SHOW ECO IN THE TRAY** and **SAVE**: the icon shows in the
-bar's tray at once (on
+**To have eco in the tray,** open **Settings › Interface** (`Ctrl+7`),
+pick **SHOW ECO IN THE TRAY** and press **TURN ON**: it saves at once, and the
+icon shows in the bar's tray at once (on
 Omarchy it may sit in the drawer behind the `<` arrow). A click opens the
 window; its menu opens a window, starts a session, opens the settings or stops
 eco. Turn it off and **SAVE**, and it goes. It is off until you turn it on, and

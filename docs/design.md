@@ -1300,10 +1300,12 @@ kit lives in `overlay/Eco/Kit/` (`Panel`, `SurfaceFrame`, `TraceButton`, `Chip`,
 `TextBox`, `Field`, `NumberField`, `Kicker`, `Masthead`, `StatusMessage`,
 `Icon`, `EcgTrace`, `DataTable`, `TabRail`, `PageBar`, `CommandRow`); views
 compose it and hold no logic beyond binding `Eco`, the singleton that owns the
-socket. `TabRail` is an app's pages down the left edge in their fixed order,
-`labelled` with number and name or folded to their numbers, a page `marked`
-with a dot, one stop of the Tab chain that ↑/↓/Home/End move along;
-`PageBar`, beside it, the commands of the page on screen; `CommandRow`, a
+socket. `TabRail` is an app's pages as a carousel down the left edge, the
+one on screen at its head and the others after it in order, folded to their
+numbers and unfolding over what is beside it, with their names, under the
+pointer, with the keyboard on it or after a tap on its head; a page `marked`
+shows a dot, and ↑/↓/Home/End move along the carousel;
+`PageBar`, beside its head, the commands of the page on screen; `CommandRow`, a
 bar's actions ranked, the main one solid (`TraceButton`'s `filled`) and, when
 `spread`, on the left with the others on the right and the guarded ones last,
 each falling back to its short name when the names do not fit, or, with
@@ -1598,15 +1600,21 @@ the rule in `packaging/hypr/eco.lua` gives it no size, so it keeps that one, and
 centres it on the screen (without `center`, Hyprland would centre it on the
 overlay, past the screen's edge).
 
-**Sections.** Eight, down the left in the kit's `TabRail`: 01 Audio, 02
-Models, 03 Transcription, 04 Answers, 05 Skills, 06 Translation, 07 Sessions,
-08 Interface — Audio first and Models second, since the sections after it
-pick from it. The rail keeps that order and marks the section on screen; each
-tab shows its number and name, and on a window narrower than 760 pixels only
-its number, the name in its hint. It is one stop of the Tab chain (rail, bar,
-section, then the close button): ↑/↓/Home/End move along it, Enter or Space
-chooses and leaves the keyboard on it. `Ctrl+1`…`Ctrl+8` choose one,
-`Ctrl+Tab` and `Ctrl+Shift+Tab` the next or the one before. Each section
+**Sections.** Seven, down the left in the kit's `TabRail`: 01 Audio, 02
+Models, 03 Transcription, 04 Answers, 05 Skills, 06 Sessions, 07 Interface —
+Audio first and Models second, since the sections after it pick from it, and
+Models sets the defaults: the chat, translation and transcription models used
+where nothing more specific picks one. The rail is a carousel in that order: the section on screen at
+its head beside the bar, the ones after it below, the ones before it coming
+round after the last. Folded, each tab shows only its number; under the
+pointer, with the keyboard on one of its tabs, or after a tap on its head, it
+unfolds over the bar and the section with the names. Each tab is a stop of the
+Tab chain (rail, bar, section, then the close button): ↑/↓/Home/End move along
+the carousel, Enter or Space chooses, and the chosen section takes the
+keyboard, so the rail folds. A section's number chooses it unless a field
+being written holds the keyboard and takes the digit; Ctrl with the number
+chooses it anywhere in the window, and `Ctrl+Tab` and `Ctrl+Shift+Tab` turn
+to the next or the one before. Each section
 owns its own fields: no section edits another's, and what another decides is
 only read there, as a link to it. A section whose open item has changes not
 saved shows a dot on its tab.
@@ -1620,26 +1628,33 @@ still the main action too, each name in its tip, and narrower again one menu
 holds them all. The window's close is a corner button on the masthead line,
 with the last message (`StatusLine`) left of it while there is one.
 
-**Tables.** A section that lists items (Audio, Models, Answers, Skills,
-Sessions) is a `DataTable` of them under its name and what it is for. A click
-or ↑/↓ picks a row; a double click or Enter opens it. The bar offers ADD
-(ADD AUDIO SOURCE, ADD MODEL, ADD CONTEXT SLOT, ADD SKILL, ADD KIND), and with
-a row picked VIEW and DELETE, among the section's own: REFRESH DEVICES on
-Audio, which sends `devices` and changes nothing else; MOVE UP and MOVE DOWN on
-Skills, which order the composer's skills; MAKE DEFAULT on Sessions, which
-moves the kind first. Each of these saves at once. DELETE, or Delete on a
+**Tables.** A section that lists items (Audio, Models, Transcription, Answers,
+Skills, Sessions) is a `DataTable` of them under its name and what it is for.
+A click or ↑/↓ picks a row; a double click or Enter opens it, when it has a
+screen: a spoken language has none, so it has no VIEW. The bar offers ADD
+(ADD AUDIO SOURCE, ADD MODEL, ADD LANGUAGE, ADD CONTEXT SLOT, ADD SKILL, ADD
+KIND), and with a row picked VIEW and DELETE, among the section's own: REFRESH
+DEVICES on Audio, which sends `devices` and changes nothing else; DEFAULT FOR
+CHAT and DEFAULT FOR TRANSLATION on a chat model and DEFAULT FOR TRANSCRIPTION
+on a transcription one, which set `[llm] model`, `[translation] model` and
+`[stt] model`, each dimmed on the model already that default; MAKE DEFAULT on
+Transcription, which sets `[stt] language`, and on Sessions, which moves the
+kind first. Each of these saves at once. ADD LANGUAGE opens a screen in the
+section, the languages not offered yet as a table, where choosing one saves it
+and returns to the table. Lists keep the order their entries were added in:
+nothing moves an entry. Models' DEFAULT column says which defaults a model is;
+a translation default that is not set follows the chat one and reads
+inherited there. DELETE, or Delete on a
 row, asks first in a dialog that says what follows, then saves at once.
 A part of the config that is not a list item — Audio's YOUR MICROPHONE row,
 Answers' assistant, reviewer and global context rows — has no DELETE; an item
-that may not go yet, as the assistant's model, has it dimmed, with why in its
-tip. Transcription, Translation and Interface are one item each, opened
-directly, with no table of items and no BACK. Until a chat model is registered, Answers,
-Skills and Translation hold only NO CHAT MODEL, what it means, and REGISTER A
-CHAT MODEL, which opens a new model in Models; a kind offers no assistant or
-translation model then.
+that may not go yet, as the chat default, has it dimmed, with why in its
+tip. Until a chat model is registered, Answers and Skills hold only NO CHAT
+MODEL, what it means, and REGISTER A CHAT MODEL, which opens a new model in
+Models; a kind offers no assistant or translation model then.
 
-**An item's screen.** An item opens read (`ItemPage`): its kind (none for the
-one item of Transcription, Translation and Interface, which the title names),
+**An item's screen.** An item opens read (`ItemPage`): its kind (none where
+its title says it, as YOUR MICROPHONE),
 its name, ABOUT — its facts — and RELATED, what it uses and what uses it, side
 by side from 640 px wide; with nothing related, RELATED is left out and ABOUT
 takes the width. Long texts, such as a skill's prompt, follow across the
@@ -1656,26 +1671,28 @@ inside. Number fields take digits only and keep the last valid number. A
 form holds only single values — text, pickers, and chips that choose among
 fixed options, as a slot's kinds — never a collection.
 
-**Child tables.** A collection that belongs to an item — Transcription's
-offered spoken languages, an audio source's devices, the files of the global
-context and of each context slot — is a titled `DataTable` on the item's read
-screen, under ABOUT and RELATED (`tables` in `ItemPage`). Its rows are changed
-from the bar: the table's ADD (ADD LANGUAGE, ADD DEVICE, ADD FILE) — the main
+**Child tables.** A collection that belongs to an item — an audio source's
+devices, the files of the global context and of each context slot — is a
+titled `DataTable` on the item's read screen, under ABOUT and RELATED
+(`tables` in `ItemPage`), its rows in the order they were added. Its rows are
+changed from the bar: the table's ADD (ADD DEVICE, ADD FILE) — the main
 action of an item with no form, as the global context, otherwise beside the
-others —, then, for the row picked last, its own screen (a device's COLOUR),
-MAKE DEFAULT, MOVE UP and MOVE DOWN where the order counts, and REMOVE, which
-asks first only when something follows (removing the default language, a
-source's last device, the last output). Each **saves at once**, as DELETE
+others —, then, for the row picked last, its own screen (a device's COLOUR)
+and REMOVE, which asks first only when something follows (a source's last
+device, the last output). Each **saves at once**, as DELETE
 does, on a copy of the saved config, finding what it changes by its name, and
 the row stays picked. ADD and a row's own screen open a **child screen**
 (`ChildScreen`) inside the item: the item's name small over its title, BACK
 (or Esc) back to the item without saving, and either a table of what can be
-added — the languages eco knows that are not offered, the devices the source
-does not have with the source each is heard as now — where ADD or Enter adds
+added — the devices the source does not have with the source each is heard
+as now — where ADD or Enter adds
 the row picked, or a small form: a file's PATH with BROWSE, which adds every
 file chosen in the file dialog at once, or a device's colour picker with SAVE.
 A new item opens in its form, so its collections fill only after its first
-SAVE.
+SAVE. A screen that saves and closes — a child screen, a section's choosing
+screen (`ChooseView`: ADD LANGUAGE, the interface language), an item
+deleted — closes first, then saves: a table destroyed while the save
+changes its rows crashed the window.
 
 **Saving one item.** An item is edited in an `ItemDraft`: a copy of the saved
 config that its form changes only where the item is. SAVE (`Ctrl+S`) sends
@@ -1704,12 +1721,12 @@ error colour and the reason under it — and the first such field takes the
 keyboard: a repeated name or a space in a skill's name as it is typed, a
 missing value once a save is tried. Each clears as soon as its field is fixed.
 A problem outside the item's fields, and a daemon's refusal, shows under its
-title until the item changes again; a refused DELETE or move shows as the
+title until the item changes again; a refused DELETE or quick change shows as the
 window's message, on the masthead line. The default models are not required, as the daemon does not
 require them (§9): a config with no model registered saves, and a default it
 names must be a registered model of its type (`overlay/Eco/Core/draft.js`,
 `problems`). Naming a new model makes it the default of nothing; each default
-is picked in the section that owns it.
+is set on the Models table.
 
 Closing the window with an item unsaved asks first: SAVE AND CLOSE saves
 each changed item in turn, the one on screen first, and closes once none is
@@ -1720,7 +1737,7 @@ asking: unsaved changes are dropped. Leaving is what the user asked for, and
 Qt's own quit, which asks every window first, would stop at the kept settings
 window, which never closes, and leave the process running unseen.
 
-**Keys.** `Ctrl+1`…`Ctrl+8` a section, `Ctrl+Tab` / `Ctrl+Shift+Tab` the next
+**Keys.** `Ctrl+1`…`Ctrl+7` a section, `Ctrl+Tab` / `Ctrl+Shift+Tab` the next
 or previous one; on the rail ↑/↓/Home/End move and Enter or Space opens the
 section. In a section's table ↑/↓ pick a row, Enter opens it, Delete deletes
 it (asking first); in a child table ↑/↓ pick, Enter opens the row's own screen
@@ -1745,15 +1762,21 @@ table, then closes the window. Keys show only in the shortcuts dialog
   only output device) and whether nobody is the user any more. YOUR MICROPHONE
   holds DROP ECHOES and ECHO CANCELLATION, each beside what it does, or why
   echo cancellation cannot run here.
-- **Models:** the registry only — a row per model, chat and transcription
-  alike: its name, type, the provider's model id and what uses it. Read: its
-  type, provider, base URL, model id, where its key comes from, and for chat
-  its REASONING and extra fields, for transcription its price per minute;
-  RELATED, what uses it, grouped by the section that sets each use (the
-  assistant, the reviewer, the default transcription, the translation default,
-  the skills that name it, and each kind once, under a group that says what the
-  kinds in it use it for: assistant, translation or both, as the overlay's one resolver, `answering`
-  in `overlay/Eco/Core/draft.js`, mirrors the daemon's precedence). Edited: its
+- **Models:** the registry and the defaults — a row per model, chat and
+  transcription alike: its name, type, the provider's model id, DEFAULT (what
+  it is the default for: CHAT, TRANSLATION, TRANSCRIPTION, or TRANSLATION
+  (INHERITED) on the chat default while no translation default is set) and
+  what else uses it. With a row picked, DEFAULT FOR CHAT and DEFAULT FOR
+  TRANSLATION on a chat model, DEFAULT FOR TRANSCRIPTION on a transcription
+  one, each saved at once and dimmed on the model that is already that
+  default (`Draft.defaults`, `Draft.makeDefault`). Read: its type, what it is
+  the default for, provider, base URL, model id, where its key comes from, and
+  for chat its REASONING and extra fields, for transcription its price per
+  minute; RELATED, what else uses it, grouped by the section that sets each
+  use (the reviewer, the skills that name it, and each kind once, under a
+  group that says what the kinds in it use it for: assistant, translation or
+  both, as the overlay's one resolver, `answering` in
+  `overlay/Eco/Core/draft.js`, mirrors the daemon's precedence). Edited: its
   TYPE while nothing uses it (changing it keeps the name and model id; the
   provider and key change only when its base URL does not fit the new type),
   its NAME, for chat REASONING (the provider's — or IN EXTRA FIELDS when
@@ -1763,27 +1786,31 @@ table, then closes the window. Keys show only in the shortcuts dialog
   (typed, with the preset's model as an example, or picked from LIST, which
   closes the list again, as Esc does), key from an environment variable or an
   omapass password, for transcription a fallback price per minute and, for
-  chat, the extra JSON sent with each request (EXTRA (JSON)). The assistant's model and the default
-  transcription cannot be deleted; deleting another asks first, listing what
+  chat, the extra JSON sent with each request (EXTRA (JSON)). The chat and
+  transcription defaults cannot be deleted; deleting another asks first, listing what
   falls back to which model (as `answering` picks it) and whether the reviewer
   turns off. A new model starts from the base URL and key source of the last
   model of its type.
-- **Transcription:** the default transcription model, which sessions whose
-  kind picks none use, with a link to it, the only field EDIT holds; the
-  default spoken language new sessions start in; and the child table OFFERED
-  SPOKEN LANGUAGES, with ADD LANGUAGE, MAKE DEFAULT, MOVE UP, MOVE DOWN and
-  REMOVE (the last language stays).
-- **Answers:** the assistant — the default model, which answers questions and
-  the skills and kinds that pick none, the rules for every answer, the context
-  size and the answers running at the same time across all sessions, with the
-  skills, kinds and translation that answer with it as links; the reviewer (on,
-  verbose, its model and prompt); the global context, whose files, sent with
-  every answer in their order, are its child table FILES (ADD FILE, MOVE UP,
-  MOVE DOWN, REMOVE), with no form; and a row per context slot (its name, files
+- **Transcription:** a row per offered spoken language, DEFAULT on the one
+  new sessions start in; a language has no screen. ADD LANGUAGE opens
+  `AddLanguageView`, the languages eco knows that are not offered as a table,
+  where ADD LANGUAGE or Enter offers the one picked, saves and returns to the
+  table with it picked. With a row picked, MAKE DEFAULT and DELETE, which asks
+  first and, for the default, names the first language left, the new default;
+  the last language stays. The default transcription model is set on Models.
+- **Answers:** the assistant — its model, the chat default set on Models,
+  read only, as a link; it answers questions and the skills and kinds that
+  pick none; the rules for every answer, the context size and the answers
+  running at the same time across all sessions, the only fields EDIT holds,
+  with the skills and kinds that answer with it as links; the reviewer (on,
+  verbose, its own model and prompt); the global context, whose files, sent
+  with every answer in the order they were added, are its child table FILES
+  (ADD FILE, REMOVE), with no form; and a row per context slot (its name, files
   and the kinds that start with it on), the only rows ADD and DELETE reach — a
   slot's files are the same child table, its form only its name and kinds, and
   deleting one says which kinds no longer start with it on.
-- **Skills:** the actions in the composer's order, each row its name, its
+- **Skills:** the actions in the composer's order, the order they were added
+  in, each row its name, its
   model — or the default, named with the model it inherits (`default ·
   <model>`) — and its hook. Read: its model, hook and whether the hook sends on
   its own, then its prompt and output format, its model a link. Edited: its
@@ -1793,10 +1820,6 @@ table, then closes the window. Keys show only in the shortcuts dialog
   skill's name; renaming one warns that global shortcuts call it by name
   (`action <name>`), and deleting one asks first, saying those shortcuts stop
   working and the skills after it move up.
-- **Translation:** the default translation model — or the default, the
-  assistant's, named — with links to the model that translates and, on the
-  default, the assistant. Whether a session translates, and into which
-  language, is chosen in that session only.
 - **Sessions:** the kinds, the default first (suggested by the start and
   import dialogs), each row the kind, DEFAULT on the first and the models its
   sessions transcribe and, once a chat model is registered, answer with. Read:
@@ -1809,9 +1832,15 @@ table, then closes the window. Keys show only in the shortcuts dialog
   slots; the last kind cannot be deleted, and deleting another asks first,
   saying that its sessions keep it, which kind becomes the default and that
   its own models and slots stop applying.
-- **Interface:** interface language, HIDE FROM SCREEN SHARING (off by
-  default), whose help says eco then shows black in the user's screenshots and
-  recordings too (§13), and SHOW ECO IN THE TRAY (off by default, §12.7).
+- **Interface:** a table of three rows, no EDIT: interface language, HIDE
+  FROM SCREEN SHARING (off by default), whose help says eco then shows black
+  in the user's screenshots and recordings too (§13), and SHOW ECO IN THE
+  TRAY (off by default, §12.7). The note says what the picked row does. A
+  switch's row has TURN ON or TURN OFF; the language's has CHANGE, which opens
+  `InterfaceLanguageView`, a table of `auto` and the packs, where Enter or
+  CHOOSE saves the one picked. Each saves at once. A row's own command is its
+  `open` (`SettingsSection`): it stands for VIEW, Enter and a double click run
+  it, and a row with no screen and no `open.run` has no VIEW.
 
 ### 12.7 The tray icon
 

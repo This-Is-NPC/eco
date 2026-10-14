@@ -387,8 +387,9 @@ From then on every line and answer carries its translation under it:
 
 ![The stored session "REVISIÓN DE PRECIOS": Sofia Alvarez's and the user's lines in Spanish, each with its English translation in italics under it, and an ASK card "¿Qué falta decidir?" answered in Spanish with the English under it.](img/26-session-translated.png)
 
-The model that translates is chosen in Settings › Translation; whether a
-session translates is chosen only here. Where no model translates the session's
+The model that translates is set in Settings › Models (DEFAULT FOR
+TRANSLATION), or for a session kind in Settings › Sessions; whether a session
+translates is chosen only here. Where no model translates the session's
 kind, there is no TRANSLATION line (unless the session still translates, to turn
 it off) and no translate button on its answers; CONTEXT goes too when nothing
 answers in that kind.
@@ -502,7 +503,7 @@ as in a live session (section 3):
 
 The dialog scrolls (arrows, `PgUp`, `PgDn`). Its end:
 
-![The keyboard shortcuts dialog scrolled to its end: STORED SESSION (R resume or reopen, E edit title and kind), CONVERSATION (↑ · ↓ · PgUp · PgDn, Home · End, N, Tab, Enter · Esc save or cancel the correction of a line), QUESTION BOX (Enter, Shift+Enter, / with ↑ · ↓, Tab and Enter, Alt+1…9), MENUS AND OPTION LISTS (↑ · ↓ · Home · End, Enter · Space, Esc) and SETTINGS (Ctrl+1…8 switch tab, Ctrl+Tab · Ctrl+Shift+Tab over two lines, next · previous tab, ↑ · ↓ · Home · End and Enter · Space on the rail, ↑ · ↓ pick a row, Enter open the item picked, Delete delete the item picked, Enter and Delete in a table inside an item, Ctrl+E edit the item open, Ctrl+S save, Esc back one level, then close).](img/38-shortcuts-end.png)
+![The keyboard shortcuts dialog scrolled to its end: STORED SESSION (R resume or reopen, E edit title and kind), CONVERSATION (↑ · ↓ · PgUp · PgDn, Home · End, N, Tab, Enter · Esc save or cancel the correction of a line), QUESTION BOX (Enter, Shift+Enter, / with ↑ · ↓, Tab and Enter, Alt+1…9), MENUS AND OPTION LISTS (↑ · ↓ · Home · End, Enter · Space, Esc) and SETTINGS (1…7 · Ctrl+1…7 switch tab, Ctrl+Tab · Ctrl+Shift+Tab over two lines, next · previous tab, ↑ · ↓ · Home · End and Enter · Space on the rail, ↑ · ↓ pick a row, Enter open the item picked, Delete delete the item picked, Enter and Delete in a table inside an item, Ctrl+E edit the item open, Ctrl+S save, Esc back one level, then close).](img/38-shortcuts-end.png)
 
 The GLOBAL keys are not the window's: `packaging/hypr/eco.lua` binds them in
 Hyprland to `eco window` commands, and on Windows the daemon registers them
@@ -523,12 +524,15 @@ second window, `eco · settings` to Hyprland, 1040×760 or its screen less a
 1040×760). The window never writes the config itself: **each item is saved on
 its own**, and the daemon validates the whole config and writes it.
 
-Down the left are the eight sections, `01` to `08`, always in that order, the
-one on screen marked in the accent. Each shows its number and its name; on a
-window narrower than 760 pixels, only its number, with the name in its hint.
-`Tab` moves from the rail to the bar of commands and then into the section;
-on the rail, `↑`, `↓`, `Home` and `End` move along it and `Enter` or `Space`
-opens the section. The bar holds BACK first, then the main action, solid, on
+Down the left are the sections, numbered from `01`, as a carousel: the one on
+screen at its head, in the accent, beside the bar, the others after it in
+order, the ones before it coming round after the last. Folded, it shows only
+their numbers; under the pointer, with the keyboard on it, or after a tap on
+its head, it unfolds over the section with their names. `Tab` moves from the
+rail to the bar of commands and then into the section; on the rail, `↑`, `↓`,
+`Home` and `End` move along it and `Enter` or `Space` opens the section. A
+section's number opens it, unless you are writing in a field, which keeps the
+digit; `Ctrl` with the number opens it anywhere in the window. The bar holds BACK first, then the main action, solid, on
 the left, and the other actions on the right, DELETE, REMOVE or DISCARD last. `×` in
 the top-right corner closes the window; the last message shows beside it while
 there is one.
@@ -548,24 +552,24 @@ was followed from. **EDIT** turns the screen into its form. SAVE saves this
 item alone; DISCARD drops its changes and reads it again; CANCEL stops editing.
 The kicker over the title says NEW, UNSAVED, EDITING, or CHANGED ELSEWHERE when
 the saved config changed under changes that cannot be made again on it.
-Transcription, Translation and Interface are one item each: they open on that
-item, with no table of items, no BACK and no DELETE.
+A row with nothing more to show than its cells, such as a spoken language,
+has no screen of its own: no VIEW, and `Enter` does nothing on it.
 
-Some items hold a list of their own: the spoken languages Transcription
-offers, the devices an audio source is heard through, the files a context
-sends. Such a list is **a table inside the item**, under a caption, on its read
-screen; it is never edited in the form. A click or `↑`/`↓` picks a row, and the
-bar then adds what can be done to it: MAKE DEFAULT, MOVE UP and MOVE DOWN where
-the order counts, the row's own screen where it has one, and REMOVE. Each of
-these **saves at once**; REMOVE asks first only when something follows from it.
-ADD (ADD LANGUAGE, ADD DEVICE, ADD FILE) opens **a screen inside the item**:
+Some items hold a list of their own: the devices an audio source is heard
+through, the files a context sends. Such a list is **a table inside the item**,
+under a caption, on its read screen; it is never edited in the form. A click or
+`↑`/`↓` picks a row, and the bar then adds what can be done to it: the row's
+own screen where it has one, and REMOVE. Each of these **saves at once**;
+REMOVE asks first only when something follows from it. A list keeps the order
+its rows were added in. ADD (ADD DEVICE, ADD FILE) opens **a screen inside the item**:
 the item's name small above its title, and either a table of what can be added,
 where ADD or `Enter` adds the row picked, or a short form. BACK, or `Esc`,
 returns to the item and adds nothing.
 
 | where | key | what it does |
 |---|---|---|
-| anywhere | `Ctrl+1` … `Ctrl+8` | show that section |
+| outside a field being written | `1` … `7` | show that section |
+| anywhere | `Ctrl+1` … `Ctrl+7` | show that section |
 | anywhere | `Ctrl+Tab`, `Ctrl+Shift+Tab` | the next, the previous section |
 | the rail | `↑` `↓` `Home` `End` | move along the sections |
 | the rail | `Enter`, `Space` | open the section the rail is on |
@@ -602,15 +606,24 @@ device picked, COLOUR opens its own screen, the colour picker and SAVE, and
 REMOVE stops hearing the source through it; REMOVE asks first when the source
 is left with no device, or when it was the last output any source had.
 
-**Models** — every model, registered once:
+**Models** — every model, registered once, and the defaults:
 
-![Settings, 02 MODELS: the bar with ADD MODEL, VIEW and a dimmed DELETE; "Register each model once — chat or transcription — with its provider…"; a table NAME · TYPE · MODEL ID · USED BY: whisper-lan (TRANSCRIPTION · whisper-large-v3-turbo · DEFAULT TRANSCRIPTION, MEETING, CONVERSATION…, picked), deepgram (TRANSCRIPTION · nova-3 · INTERVIEW), gemini-flash (CHAT · google/gemini-2.5-flash · ASSISTANT, TRANSLATION, MEETING, MEETING TRA…), claude-haiku (CHAT · anthropic/claude-haiku-4.5 · minutes).](img/41-settings-models.png)
+![Settings, 02 MODELS: the bar with ADD MODEL, VIEW, a dimmed DEFAULT FOR TRANSCRIPTION and a dimmed DELETE; "Register each model once — chat or transcription — with its provider, and make it a default from the bar…"; a table NAME · TYPE · MODEL ID · DEFAULT · USED BY: whisper-lan (TRANSCRIPTION · whisper-large-v3-turbo · TRANSCRIPTION · MEETING, CONVERSATION…, picked), deepgram (TRANSCRIPTION · nova-3 · · INTERVIEW), gemini-flash (CHAT · google/gemini-2.5-flash · CHAT · TRANSLATION · MEETING, CONVERSATION…), claude-haiku (CHAT · anthropic/claude-haiku-4.5 · · minutes).](img/41-settings-models.png)
 
-The assistant's model and the default transcription cannot be deleted, so
-DELETE is dimmed on them; deleting another says what falls back to which model.
-Opened, a model shows its facts, and under RELATED everything that uses it:
+DEFAULT says what the model runs when nothing more specific picks one: CHAT
+(questions, and the skills and session kinds that pick no model), TRANSLATION
+and TRANSCRIPTION. With no translation default of its own, translation follows
+the chat default, and that model reads CHAT · TRANSLATION (INHERITED). With a
+chat model picked, the bar adds DEFAULT FOR CHAT and DEFAULT FOR TRANSLATION;
+with a transcription model, DEFAULT FOR TRANSCRIPTION. Each saves at once, and
+is dimmed on the model that is already that default, with why in its hint.
+USED BY lists what else picks the model: the reviewer, skills and session
+kinds. The chat and transcription defaults cannot be deleted, so DELETE is
+dimmed on them; deleting another says what falls back to which model. Opened,
+a model shows its facts, what it is the default for among them, and under
+RELATED what else uses it:
 
-![The model gemini-flash, read: the bar with BACK, EDIT and a dimmed DELETE; ABOUT with TYPE CHAT, PROVIDER OPENROUTER, BASE URL https://openrouter.ai/api/v1, MODEL ID google/gemini-2.5-flash, KEY FROM env OPENROUTER_API_KEY, REASONING OFF; RELATED with ANSWERS › ASSISTANT, TRANSLATION › TRANSLATION, and SESSIONS · ASSISTANT + TRANSLATION › MEETING, CONVERSATION, OTHER, IDEA, INTERVIEW.](img/42-settings-model.png)
+![The model gemini-flash, read: the bar with BACK, EDIT and a dimmed DELETE; ABOUT with TYPE CHAT, DEFAULT FOR CHAT · TRANSLATION, PROVIDER OPENROUTER, BASE URL https://openrouter.ai/api/v1, MODEL ID google/gemini-2.5-flash, KEY FROM env OPENROUTER_API_KEY, REASONING OFF; RELATED with SESSIONS · ASSISTANT + TRANSLATION › MEETING, CONVERSATION, OTHER, IDEA, INTERVIEW.](img/42-settings-model.png)
 
 Edited, it has its type while nothing uses it, its name, the reasoning for a
 chat model, the provider (CUSTOM takes any base URL), the model (LIST shows the
@@ -627,18 +640,19 @@ shows it:
 
 Renaming a model renames it wherever it is used.
 
-**Transcription** — the default transcriber and the spoken languages:
+**Transcription** — the spoken languages a session may start in:
 
-![Settings, 03, the TRANSCRIPTION item, read: the bar with EDIT and, on the right, ADD LANGUAGE; ABOUT with DEFAULT MODEL whisper-lan and DEFAULT SPOKEN LANGUAGE EN · American English; RELATED with MODELS › whisper-lan; "Transcribes sessions whose kind picks no transcription model"; and OFFERED SPOKEN LANGUAGES, a table LANGUAGE · DEFAULT with AUTO · detect, EN · American English (DEFAULT), ES · español de España and PT · português.](img/44-settings-transcription.png)
+![Settings, 03 TRANSCRIPTION: the bar with ADD LANGUAGE, MAKE DEFAULT and DELETE; "The spoken languages a session can start in; the default is chosen first. The default transcription model is set on the Models table."; a table LANGUAGE · DEFAULT with AUTO · detect (picked), EN · American English (DEFAULT), ES · español de España and PT · português.](img/44-settings-transcription.png)
 
-EDIT holds only the default model. The languages a session may start in are
-the table OFFERED SPOKEN LANGUAGES, in the order the dropdowns show them. ADD
-LANGUAGE lists the languages eco knows that are not offered yet, AUTO among
-them; ADD LANGUAGE or `Enter` on the one picked offers it. With a language
-picked, MAKE DEFAULT makes new sessions start in it, MOVE UP and MOVE DOWN
-change its place, and REMOVE stops offering it; removing the default asks first
-and names the language that becomes the default. The last language cannot be
-removed.
+A row per language, in the order the dropdowns show them, the order they were
+added in. A language has no screen of its own, so there is no VIEW. ADD
+LANGUAGE opens a screen in the section that lists the languages eco knows that
+are not offered yet, AUTO among them; ADD LANGUAGE or `Enter` on the one picked
+offers it, saves, and returns to the table with it picked; BACK or `Esc` adds
+nothing. With a language picked, MAKE DEFAULT makes new sessions start in it,
+and DELETE stops offering it, after asking; deleting the default names the
+first language left, which becomes the default. The last language cannot be
+deleted. The default transcription model is set on the Models table.
 
 **Answers** — the assistant, its reviewer, and what they are told:
 
@@ -652,21 +666,23 @@ slots are added and deleted; deleting one says which kinds lose it. The global
 context and each slot, opened, show their files as the table FILES, in the
 order they are sent. ADD FILE opens a screen with a PATH field: ADD FILE, or
 `Enter`, adds the path typed, and BROWSE adds at once every file chosen in the
-file dialog. With a file picked, MOVE UP and MOVE DOWN change its place and
-REMOVE takes it off; each saves at once. The global context has no EDIT, so ADD
+file dialog. Files are sent in the order they were added. With a file picked,
+REMOVE takes it off, and saves at once. The global context has no EDIT, so ADD
 FILE is its main action; a slot's EDIT holds only its name and the kinds it is
-on from the start in, and a new slot gets its files once it is saved. Opened,
-the assistant:
+on from the start in, and a new slot gets its files once it is saved. The
+assistant's model is the chat default, set on the Models table: the assistant
+shows it, as a link, and its EDIT holds only the rules, the context limit and
+how many answers run at once. The reviewer picks its own model. Opened, the
+assistant:
 
-![The assistant, read: the bar with BACK and EDIT; ABOUT with DEFAULT MODEL gemini-flash, CONTEXT LIMIT 60000 characters, AT THE SAME TIME 8 answers, all sessions; under it "Answers questions, and skills and session kinds that pick no model" and RULES FOR EVERY ANSWER, four lines of rules; RELATED with MODELS › gemini-flash, SKILLS › reply, explain, and SESSIONS › MEETING, CONVERSATION, OTHER, IDEA, INTERVIEW.](img/46-settings-assistant.png)
+![The assistant, read: the bar with BACK and EDIT; ABOUT with MODEL gemini-flash, CONTEXT LIMIT 60000 characters, AT THE SAME TIME 8 answers, all sessions; under it "Answers questions, and skills and session kinds that pick no model" and RULES FOR EVERY ANSWER, four lines of rules; RELATED with MODELS › gemini-flash, SKILLS › reply, explain, and SESSIONS › MEETING, CONVERSATION, OTHER, IDEA, INTERVIEW.](img/46-settings-assistant.png)
 
 **Skills** — what the composer's chips do:
 
-![Settings, 05 SKILLS: the bar with ADD SKILL, VIEW, a dimmed MOVE UP, MOVE DOWN and DELETE; a table NAME · MODEL · HOOK: reply (default · gemini-flash · HOOK · ON SEND, picked), minutes (claude-haiku), explain (default · gemini-flash).](img/47-settings-skills.png)
+![Settings, 05 SKILLS: the bar with ADD SKILL, VIEW and DELETE; a table NAME · MODEL · HOOK: reply (default · gemini-flash · HOOK · ON SEND, picked), minutes (claude-haiku), explain (default · gemini-flash).](img/47-settings-skills.png)
 
-The order here is the order of the chips and of `Alt+1…9`; MOVE UP and MOVE
-DOWN change it and save at once. A skill with no model of its own names the one
-it inherits:
+The order here, the order the skills were added in, is the order of the chips
+and of `Alt+1…9`. A skill with no model of its own names the one it inherits:
 
 ![The skill reply, read: the bar with BACK, EDIT and DELETE; ABOUT with MODEL default · gemini-flash, HOOK ~/bin/post-to-notes, SEND ON ITS OWN off; PROMPT and OUTPUT FORMAT in full below; RELATED with MODELS › gemini-flash.](img/48-settings-skill.png)
 
@@ -676,19 +692,16 @@ Edited, it has the name, the prompt, the format, the model and its hook:
 
 A new name warns that global shortcuts call skills by name.
 
-**Translation** — only the model:
-
-![Settings, 06, the TRANSLATION item, read: the bar with EDIT only; ABOUT with DEFAULT MODEL gemini-flash; a sentence saying a session translates its lines and answers only once it is turned on in that session, on the TRANSLATION line of its details, and that here you pick the model; "Translates sessions whose kind picks no translation model; on the default, the assistant's model does"; RELATED with MODELS › gemini-flash.](img/50-settings-translation.png)
-
-**Until a chat model is registered**, ANSWERS, SKILLS and TRANSLATION hold only
-NO CHAT MODEL and "eco records and transcribes without one. Answers, skills and
-translation need a chat model: register one under Models, then pick it here.",
-and their bar holds only REGISTER A CHAT MODEL, which opens a new model under
-Models. It is not pictured: the pictures run with chat models registered.
+**Until a chat model is registered**, ANSWERS and SKILLS hold only NO CHAT
+MODEL and "eco records and transcribes without one. Answers, skills and
+translation need a chat model: register one under Models and make it the
+default for chat there.", and their bar holds only REGISTER A CHAT MODEL, which
+opens a new model under Models. Models works as ever. It is not pictured: the
+pictures run with chat models registered.
 
 **Sessions** — the kinds, and what each runs on:
 
-![Settings, 07 SESSIONS: the bar with ADD KIND, VIEW, a dimmed MAKE DEFAULT and DELETE; a sentence on the default kind and the kinds' own models; a table NAME · DEFAULT · TRANSCRIBES WITH · ANSWERS WITH: Meeting (DEFAULT · default · whisper-lan · default · gemini-flash, picked), Conversation, Other and Idea with the same defaults, interview (deepgram · default · gemini-flash).](img/51-settings-sessions.png)
+![Settings, 06 SESSIONS: the bar with ADD KIND, VIEW, a dimmed MAKE DEFAULT and DELETE; a sentence on the default kind and the kinds' own models; a table NAME · DEFAULT · TRANSCRIBES WITH · ANSWERS WITH: Meeting (DEFAULT · default · whisper-lan · default · gemini-flash, picked), Conversation, Other and Idea with the same defaults, interview (deepgram · default · gemini-flash).](img/51-settings-sessions.png)
 
 The default kind is the one the start and import dialogs suggest; MAKE DEFAULT
 makes the picked kind it. Deleting a kind says its sessions keep it and the
@@ -702,17 +715,24 @@ translation models — only the transcription one until a chat model is
 registered.
 
 **Interface** — the interface language, whether eco hides from screen
-sharing, and whether it shows in the tray:
+sharing, and whether it shows in the tray, as a table of three rows with no
+EDIT:
 
-![Settings, 08, the INTERFACE item, read: the bar with EDIT only; ABOUT with INTERFACE LANGUAGE English (US), HIDE FROM SCREEN SHARING off, SHOW ECO IN THE TRAY off, across the screen: nothing else in the settings uses it, so there is no RELATED.](img/53-settings-interface.png)
+![Settings, 07 INTERFACE: the bar with CHANGE; the note says what the picked row does, "The language of eco's windows; automatic follows the system's"; a table SETTING · VALUE: INTERFACE LANGUAGE English (US), picked, HIDE FROM SCREEN SHARING off, SHOW ECO IN THE TRAY off.](img/53-settings-interface.png)
 
-English, Brazilian Portuguese or Japanese, or `auto` to follow the system;
-see [i18n.md](i18n.md). HIDE FROM SCREEN SHARING is off by default; on, it
-applies to every eco window at once, and to each one that opens later.
+The note above the table says what the picked row does. Each command saves
+at once. On a switch the bar has one command, TURN ON or TURN OFF, which
+Enter runs too. On the language it has CHANGE, which Enter runs too: it opens
+the INTERFACE LANGUAGE screen, a table of Automatic (system) and each
+language pack by its own name (English, Brazilian Portuguese, Japanese), the
+one in use marked. Enter or CHOOSE saves the picked one and goes back to the
+table; BACK or Esc goes back without saving. The windows change language at
+once; see [i18n.md](i18n.md). HIDE FROM SCREEN SHARING is off by default; on,
+it applies to every eco window at once, and to each one that opens later.
 
-SHOW ECO IN THE TRAY is off by default. Saved on, an icon shows in the
+SHOW ECO IN THE TRAY is off by default. Turned on, an icon shows in the
 system tray at once — on Omarchy the bar's tray, on Windows the notification
-area — and saved off, it goes; no restart. The icon is eco's bars in white,
+area — and turned off, it goes; no restart. The icon is eco's bars in white,
 with a red dot while a session records; its tooltip says `eco · idle` or
 `eco · recording · <title>` (`<title>` is a placeholder for the session's
 title). A click opens the eco window, or brings the open one forward, as `eco

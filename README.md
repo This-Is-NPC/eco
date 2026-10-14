@@ -66,7 +66,8 @@ Then, in the window:
    one for everybody else; once each is saved, **ADD DEVICE** on it gives it
    the default microphone, or the default output — what the laptop plays.
 2. **Models**: a transcription model and, for answers and translation, a chat
-   model, each named once. eco records and transcribes with no chat model. Their
+   model, each named once; pick one and press **DEFAULT FOR TRANSCRIPTION**,
+   or **DEFAULT FOR CHAT**. eco records and transcribes with no chat model. Their
    keys come from the daemon's environment (`OPENROUTER_API_KEY`,
    `DEEPGRAM_API_KEY`, `ELEVEN_LABS_API_KEY`, `GROQ_API_KEY`, `OPENAI_API_KEY`,
    kept in `~/.config/uwsm/env`) or from your omapass keyring.
@@ -163,7 +164,8 @@ where they work:
   `Home` / `End` · `N` name the line's speaker · `Tab` the line's tools
 - question box: `Enter` send · `Shift+Enter` keep as a note · `/` list the
   skills · `Alt+1…9` run the skill with that number
-- settings: `Ctrl+1…8` section · `Ctrl+Tab` / `Ctrl+Shift+Tab` next or
+- settings: `1…7` section, outside a field being written, and `Ctrl+1…7`
+  anywhere · `Ctrl+Tab` / `Ctrl+Shift+Tab` next or
   previous section · on the rail `↑` / `↓` / `Home` / `End` move and
   `Enter` / `Space` open the section · `↑` / `↓` pick a row · `Enter` open it ·
   `Delete` delete it, asking first · in a table inside an item, `Enter` open

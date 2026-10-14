@@ -1,10 +1,10 @@
 import QtQuick
 import Eco.Core
 
-// SkillsSection is the skills, in the order the composer offers them: each row
-// its name, the model it answers with and its hook; a row opens SkillView. The
-// picked skill moves up or down at once; deleting one says that shortcuts
-// calling it stop and the ones after it move up.
+// SkillsSection is the skills, in the order the composer offers them, the
+// order they were added: each row its name, the model it answers with and its
+// hook; a row opens SkillView. Deleting one says that shortcuts calling it
+// stop and the ones after it move up.
 SettingsSection {
   name: I18n.t("settings.skills")
   columns: [{ title: I18n.t("settings.column_name"), weight: 0.3 }, { title: I18n.t("settings.action_model"), weight: 0.4 },
@@ -22,15 +22,6 @@ SettingsSection {
       warning: [I18n.t("settings.remove_action_shortcut", { name: row.id })].concat(last ? [] : [I18n.t("settings.remove_action_order")]).join("\n"),
       change: d => d.actions.splice(d.actions.findIndex(action => action.name === row.id), 1)
     }
-  }
-  commands: (config, row) => {
-    const at = row === null ? -1 : config.actions.findIndex(action => action.name === row.id)
-    const move = step => settings.saveNow(d => Draft.moveSkill(d, row.id, step))
-    return [
-      { text: I18n.t("settings.move_up"), icon: "chevron-up", tip: I18n.t("settings.move_up_tip"), shown: row !== null, enabled: at > 0, run: () => move(-1) },
-      { text: I18n.t("settings.move_down"), icon: "chevron-down", tip: I18n.t("settings.move_down_tip"), shown: row !== null,
-        enabled: at >= 0 && at < config.actions.length - 1, run: () => move(1) }
-    ]
   }
 
   // The model the skill `action` answers with in `config`: its own, or the

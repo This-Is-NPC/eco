@@ -153,9 +153,9 @@ eco context c7fe3528d507 --remove resume    # and off
 
 The files are set in **Settings › Answers**. Open **global context**, or a
 slot, and press **ADD FILE**: type the file's **PATH** and press **ADD FILE**,
-or **BROWSE** and choose files, which are added at once. Pick a file in the
-item's **FILES** table for **MOVE UP**, **MOVE DOWN** (they are sent in that
-order) or **REMOVE**; each saves at once. A new slot comes from **ADD CONTEXT
+or **BROWSE** and choose files, which are added at once. Files are sent in the
+order they were added. Pick a file in the item's **FILES** table and press
+**REMOVE** to take it off; it saves at once. A new slot comes from **ADD CONTEXT
 SLOT**: its name and the kinds it is on from the start in, **SAVE**, then its
 files.
 
@@ -189,8 +189,8 @@ model of their own show. From the command line:
 {"ok":false,"code":"chat.none","message":"no chat model answers sessions of this kind"}
 ```
 
-Register a chat model and pick it for the assistant under **Settings › Answers**
-([how to register models](how-to-register-models.md)).
+Register a chat model and make it the default for chat on the **Settings ›
+Models** table ([how to register models](how-to-register-models.md#4-say-which-model-does-what)).
 
 **The model failed.** The card stays, in red, with `No answer: <why>` (the ASK
 card in the picture in step 1). From the command line the code is `completion.failed`, with the same reason.

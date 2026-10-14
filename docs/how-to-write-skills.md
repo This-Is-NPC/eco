@@ -29,7 +29,7 @@ Open the settings (`SUPER+ALT+C`), then **Skills**, section 05 (`Ctrl+5`): a
 table of the skills in the composer's order, each with the model it answers
 with and its hook.
 
-![The Skills section: ADD SKILL, VIEW, MOVE UP, MOVE DOWN and DELETE in the bar; a table of reply ("default · gemini-flash", "HOOK · ON SEND"), minutes (claude-haiku) and explain ("default · gemini-flash").](img/47-settings-skills.png)
+![The Skills section: ADD SKILL, VIEW and DELETE in the bar; a table of reply ("default · gemini-flash", "HOOK · ON SEND"), minutes (claude-haiku) and explain ("default · gemini-flash").](img/47-settings-skills.png)
 
 **ADD SKILL** opens a new skill, being edited:
 
@@ -40,7 +40,8 @@ with and its hook.
 - **PROMPT** — what to do.
 - **OUTPUT FORMAT** — what the answer looks like.
 - **MODEL** — a registered chat model, or the default, shown as
-  `default · <model>`, which follows the assistant in **Settings › Answers**. A
+  `default · <model>`, which follows the chat default set on the **Settings ›
+Models** table. A
   skill that names a model answers with it in every kind of session.
 - **HOOK** — optional; step 6.
 
@@ -88,11 +89,11 @@ eco action c7fe3528d507 probe
 
 `model` is the one `probe` names, not the default assistant's.
 
-## 4. Put it in order
+## 4. Know its place
 
-In the Skills table, pick the skill and press **MOVE UP** or **MOVE DOWN**;
-each move saves at once. The order is the composer's: the first skill is chip 1
-and **Alt+1**, up to nine.
+The Skills table lists the skills in the order they were added, and that is
+the composer's order: the first skill is chip 1 and **Alt+1**, up to nine. A
+new skill goes last.
 
 ## 5. Give it a key
 

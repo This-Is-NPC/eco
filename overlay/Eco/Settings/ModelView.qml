@@ -4,10 +4,10 @@ import QtQuick.Layouts
 import Eco.Core
 import Eco.Kit
 
-// ModelView is one registered model. Read, what it is — its type, provider,
-// model id, where its key comes from, how much a chat model reasons, what a
-// minute of audio costs a transcription model — and what uses it, each use a
-// link to where it is set. Edited: its type while nothing uses it, its name,
+// ModelView is one registered model. Read, what it is — its type, what it is
+// the default for, provider, model id, where its key comes from, how much a
+// chat model reasons, what a minute of audio costs a transcription model — and
+// what else uses it, each use a link to where it is set. Edited: its type while nothing uses it, its name,
 // its reasoning, its provider, its price per minute and, for chat, the extra
 // fields sent with each request. Renaming it renames it wherever it is used. A new
 // model starts from the provider of the last one of its type.
@@ -24,6 +24,8 @@ ItemPage {
     || ({ name: "", type: "chat", model: "", base_url: "" })
   readonly property bool chat: entry.type === "chat"
   readonly property var links: config ? section.links(config, entry.name) : []
+  // Anything answers with it, a default too: its type stays.
+  readonly property bool used: config !== null && Draft.users(config, entry.name).length > 0
   // The prefix of its fields' paths in the draft's errors.
   readonly property string path: "models." + at + "."
   // The name what uses it knows it by in the draft (see Draft.rename): its
@@ -92,6 +94,7 @@ ItemPage {
       : I18n.t("settings.key_none")
     return [
       [I18n.t("settings.model_type"), section.typeName(entry.type)],
+      [I18n.t("settings.fact_default"), config ? section.defaultsText(config, entry.name) : ""],
       [I18n.t("provider.provider"), preset ? preset.name : I18n.t("provider.custom")],
       [I18n.t("provider.base_url"), entry.base_url],
       [I18n.t("settings.column_model_id"), entry.model],
@@ -111,7 +114,7 @@ ItemPage {
   }
 
   ColumnLayout {
-    visible: page.links.length === 0
+    visible: !page.used
     spacing: 6
     Caption { text: I18n.t("settings.model_type") }
     Flow {

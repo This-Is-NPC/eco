@@ -2,9 +2,8 @@ import QtQuick
 import QtTest
 import "../../overlay/Eco/Core/draft.js" as Draft
 
-// Skills move in the draft by name; a kind renamed as it is typed takes its
-// models and context slots along only under a name that is its own, and a kind
-// removed says what follows.
+// A kind renamed as it is typed takes its models and context slots along only
+// under a name that is its own, and a kind removed says what follows.
 TestCase {
   name: "Skills"
 
@@ -13,14 +12,6 @@ TestCase {
       actions: [{ name: "a" }, { name: "b" }, { name: "c" }],
       models: [{ name: "m", type: "chat", base_url: "http://llm", model: "m", kinds: ["meeting", "talk"], translates: ["talk"] }],
       stt: { model: "", language: "auto", languages: ["auto"] }, llm: { model: "m" } }
-  }
-
-  function test_a_skill_moves_by_name() {
-    const d = draft()
-    Draft.moveSkill(d, "c", -1)
-    compare(d.actions.map(action => action.name), ["a", "c", "b"])
-    Draft.moveSkill(d, "a", 1)
-    compare(d.actions.map(action => action.name), ["c", "a", "b"])
   }
 
   function test_a_kind_renamed_as_typed_takes_its_models_along() {

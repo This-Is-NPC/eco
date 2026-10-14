@@ -92,14 +92,11 @@ word by word.
 
 The same in the window: **Settings › Models**, **ADD MODEL**, **TYPE**
 **TRANSCRIPTION**, provider **CUSTOM** with the base URL above and the key
-left empty, then **SAVE**:
+left empty, then **SAVE**. **BACK** returns to the table; pick whisper-lan
+there and press **DEFAULT FOR TRANSCRIPTION**. It saves at once, and its
+DEFAULT column says TRANSCRIPTION:
 
-![The Models section: ADD MODEL, VIEW and DELETE in the bar, and a table of whisper-lan (TRANSCRIPTION, whisper-large-v3-turbo, used by DEFAULT TRANSCRIPTION, MEETING, CONVERSATION…), deepgram (TRANSCRIPTION, nova-3, INTERVIEW), gemini-flash (CHAT, google/gemini-2.5-flash, ASSISTANT, TRANSLATION, MEETING…) and claude-haiku (CHAT, anthropic/claude-haiku-4.5, minutes).](img/41-settings-models.png)
-
-Then **Settings › Transcription** makes it the default: **EDIT**, **DEFAULT
-MODEL** whisper-lan, **SAVE**:
-
-![The Transcription section, read: EDIT and ADD LANGUAGE in the bar; ABOUT with DEFAULT MODEL whisper-lan and DEFAULT SPOKEN LANGUAGE "EN · American English"; RELATED with the model whisper-lan; "Transcribes sessions whose kind picks no transcription model"; and the table OFFERED SPOKEN LANGUAGES with AUTO, EN (DEFAULT), ES and PT](img/44-settings-transcription.png)
+![The Models section: ADD MODEL, VIEW, a dimmed DEFAULT FOR TRANSCRIPTION and a dimmed DELETE in the bar, and a table of whisper-lan (TRANSCRIPTION, whisper-large-v3-turbo, default TRANSCRIPTION, used by MEETING, CONVERSATION…, picked), deepgram (TRANSCRIPTION, nova-3, INTERVIEW), gemini-flash (CHAT, google/gemini-2.5-flash, default CHAT · TRANSLATION, MEETING…) and claude-haiku (CHAT, anthropic/claude-haiku-4.5, minutes).](img/41-settings-models.png)
 
 ## 5. Or only for some kinds of session
 

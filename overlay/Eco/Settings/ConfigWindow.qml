@@ -3,9 +3,9 @@ import QtQuick
 import Eco.Core
 import Eco.Kit
 
-// ConfigWindow is the settings: the sections down the left, beside them the
-// bar of the commands of the one on screen, and under the bar the section
-// itself (SettingsView), where each item is saved on its own; the daemon
+// ConfigWindow is the settings: the sections a carousel down the left, the one
+// on screen at its head beside the bar of its commands, and under the bar the
+// section itself (SettingsView), where each item is saved on its own; the daemon
 // validates each save, writes config.toml and restarts capture.
 Window {
   id: window
@@ -36,12 +36,12 @@ Window {
 
   property int page: 0
 
-  // Chooses a section and gives it the keyboard, unless the keyboard is to
-  // stay where it is, as on the rail.
-  function choose(index, stay) {
+  // Chooses a section and gives it the keyboard, so the carousel folds away.
+  function choose(index) {
     settings.forget()
     page = (index + settings.sections.length) % settings.sections.length
-    Qt.callLater(stay ? () => rail.forceActiveFocus() : settings.takeFocus)
+    rail.pinned = false
+    Qt.callLater(settings.takeFocus)
   }
   function attemptClose() {
     if (dirty)
@@ -57,7 +57,8 @@ Window {
   }
 
   Shortcut { sequences: ["?", "F1"]; onActivated: shortcuts.open() }
-  // Ctrl with 1 to 8 chooses a section; Ctrl+Tab and Ctrl+Shift+Tab the next or the one before.
+  // Ctrl with a section's number chooses it; Ctrl+Tab and Ctrl+Shift+Tab turn
+  // the carousel.
   Repeater {
     model: settings.sections.length
     delegate: Item {
@@ -69,12 +70,20 @@ Window {
   Shortcut { sequences: ["Ctrl+Shift+Tab", "Ctrl+Backtab"]; onActivated: window.choose(window.page - 1) }
 
   // Esc that nothing inside took (an open list or dialog takes its own) closes
-  // the window.
+  // the window. A section's number that nothing inside took chooses it: a
+  // field being written takes its digits.
   Item {
     anchors.fill: parent
     anchors.margins: 28
     focus: true
     Keys.onEscapePressed: window.attemptClose()
+    Keys.onPressed: event => {
+      const number = event.key - Qt.Key_0
+      if ((event.modifiers & ~Qt.KeypadModifier) !== Qt.NoModifier || number < 1 || number > settings.sections.length)
+        return
+      window.choose(number - 1)
+      event.accepted = true
+    }
 
     // Declared in the order Tab follows: the rail, the bar, the section, the
     // window's close.
@@ -82,24 +91,23 @@ Window {
       id: rail
       anchors.top: masthead.bottom
       anchors.topMargin: 20
-      labelled: window.width >= 760
-      // The tabs shorten on a short window, down to a least height.
-      tabHeight: Math.max(20, Math.min(34, (window.height - 56 - masthead.height - 20) / settings.sections.length - 5))
+      // Over the bar and the section while it unfolds.
+      z: 1
       // A section with an item whose changes are not saved is marked.
       tabs: settings.sections.map((section, index) => ({ name: section.name, marked: settings.unsaved.includes(index) }))
       current: window.page
-      onChosen: index => window.choose(index, rail.activeFocus)
+      onChosen: index => window.choose(index)
     }
 
     PageBar {
       id: bar
-      anchors { left: rail.right; leftMargin: 16; right: parent.right; top: rail.top }
-      height: 44
+      anchors { left: parent.left; leftMargin: rail.foldedWidth + 16; right: parent.right; top: rail.top }
+      height: rail.headHeight
       commands: settings.commands
       section: window.page
     }
 
-    // The section on screen, beside the rail and under its bar.
+    // The section on screen, framed beside the carousel and under its bar.
     Rectangle {
       anchors { left: bar.left; right: parent.right; top: bar.bottom; topMargin: 16; bottom: parent.bottom }
       color: "transparent"
