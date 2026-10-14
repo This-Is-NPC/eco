@@ -25,6 +25,7 @@ use crate::adapters::llm_openai::{OpenAIChat, Unavailable, list_models};
 use crate::adapters::omapass;
 use crate::adapters::overlay;
 use crate::adapters::people_files::PeopleFiles;
+use crate::adapters::releases_github::GitHub;
 use crate::adapters::session_files::{NoSessionFiles, SessionFiles};
 use crate::adapters::stt_deepgram::{self, DeepgramBilling, DeepgramTranscriber};
 use crate::adapters::stt_elevenlabs::{self, ElevenLabsTranscriber};
@@ -44,11 +45,16 @@ use crate::domain::hub::{Capture, Hub};
 use crate::domain::segmenter::{Segment, SegmenterConfig};
 use crate::domain::transcribers::{Listening, Transcribers};
 use crate::import;
+use crate::installer;
 use crate::paths;
 use crate::ports::{
     AudioDevices, AudioError, AudioSource, Device, EchoError, LanguageModel, PeopleStore,
     SessionLog, SpeechToText, StreamingSpeechToText, TranscriptionBilling, WindowControl,
 };
+
+pub mod update;
+
+use update::{Parts, Updates};
 
 // The platform's audio: Linux's, or Windows' (docs/design.md §15).
 #[cfg(unix)]
@@ -1327,9 +1333,9 @@ impl Pending {
     }
 }
 
-/// What a client that connects is told first: the daemon, the snapshot, the
-/// sources whose transcription is down, the change held for the user, if any,
-/// and what the windows' `control` tells them.
+/// What a client that connects is told first: the daemon, the snapshot, what
+/// is known of a newer eco, the sources whose transcription is down, the
+/// change held for the user, if any, and what the windows' `control` tells them.
 fn greeting(
     assistant: Assistant,
     overlay_open: Arc<AtomicBool>,
@@ -1337,6 +1343,7 @@ fn greeting(
     pending: Arc<Mutex<Pending>>,
     control: Arc<dyn WindowControl>,
     refused: Vec<Value>,
+    updates: Updates,
 ) -> Greeting {
     Arc::new(move || {
         let mut events = vec![json!({
@@ -1347,6 +1354,7 @@ fn greeting(
             "overlay": overlay_open.load(Ordering::Relaxed),
         })];
         events.extend(assistant.snapshot());
+        events.push(updates.event());
         events.extend(outages.events());
         events.extend(pending.lock().expect("not poisoned").event());
         events.extend(control.greeting());
@@ -1375,6 +1383,9 @@ struct Session {
     windows: Box<dyn Overlay>,
     /// Whether a window is open, as a client that connects is told.
     overlay_open: Arc<AtomicBool>,
+    updates: Updates,
+    /// The daily check for a newer eco, while the config asks for it.
+    daily: Option<JoinHandle<()>>,
 }
 
 impl Session {
@@ -1406,6 +1417,7 @@ impl Session {
         }
         stop(self.pipeline.take()).await;
         stop(self.importing.take()).await;
+        stop(self.daily.take()).await;
         self.background.shutdown().await;
         self.windows.close().await;
     }
@@ -1450,7 +1462,20 @@ impl Session {
         let hidden = self.current.hide_from_share;
         self.windows.hide_from_share(hidden).await;
         self.windows.tray(self.current.tray).await;
+        self.updates.sessions_changed();
         true
+    }
+
+    /// Run the daily check for a newer eco when the config asks for it, and
+    /// only then.
+    async fn check_daily(&mut self) {
+        let check = self.current.update.check;
+        self.updates.set_check(check);
+        match (check, &self.daily) {
+            (true, None) => self.daily = Some(tokio::spawn(self.updates.clone().daily())),
+            (false, Some(_)) => stop(self.daily.take()).await,
+            _ => {}
+        }
     }
 
     /// Opening the app: a window on a live session no window shows, else the
@@ -1510,6 +1535,7 @@ impl Session {
             Ok(config) => {
                 self.current = config;
                 self.restart().await;
+                self.check_daily().await;
                 (self.emit)(json!({"type": "config_saved"}));
             }
             Err(failure) => (self.emit)(error(
@@ -2053,6 +2079,32 @@ impl Session {
                     emit(keys_listed(names, credentials::names()));
                 });
             }
+            ("update.check", None) => {
+                let updates = self.updates.clone();
+                self.background.spawn(async move {
+                    updates.check().await;
+                    emit(updates.event());
+                });
+            }
+            ("update.install", payload) => {
+                let request: Value = payload
+                    .and_then(|payload| serde_json::from_str(payload).ok())
+                    .unwrap_or_default();
+                let version = request["version"]
+                    .as_str()
+                    .map(str::trim)
+                    .filter(|version| !version.is_empty())
+                    .map(String::from);
+                if let Some(install) = self.updates.install(version) {
+                    self.background.spawn(install);
+                }
+            }
+            ("daemon.restart", payload) => {
+                let request: Value = payload
+                    .and_then(|payload| serde_json::from_str(payload).ok())
+                    .unwrap_or_default();
+                self.updates.restart(request["force"] == true);
+            }
             ("stop", None) => return false,
             _ => {
                 let verb: String = command.chars().take(40).collect();
@@ -2323,6 +2375,21 @@ pub async fn run(
     let outages = Outages::default();
     let control = window_control(&emit);
     let refused = shortcuts(&current, config_path, &commands);
+    let updates = Updates::new(
+        Parts {
+            releases: Arc::new(GitHub::new()?),
+            installer: installer::installer(),
+            restart: Arc::new(restart_detached),
+            live: {
+                let assistant = assistant.clone();
+                Arc::new(move || !assistant.live().is_empty())
+            },
+            emit: Arc::clone(&emit),
+            state: paths::update_state(),
+            now: Arc::new(|| chrono::Utc::now().timestamp()),
+        },
+        current.update.check,
+    );
     let greeting = greeting(
         assistant.clone(),
         Arc::clone(&overlay_open),
@@ -2330,6 +2397,7 @@ pub async fn run(
         Arc::clone(&pending),
         Arc::clone(&control),
         refused,
+        updates.clone(),
     );
     let token = uuid::Uuid::new_v4().simple().to_string();
     let address = Address::user();
@@ -2372,10 +2440,70 @@ pub async fn run(
         importing: None,
         windows: Box::new(windows),
         overlay_open,
+        updates,
+        daily: None,
     };
     session.restart().await;
+    session.check_daily().await;
     session.serve(received, stop_signal()?).await;
     Ok(())
+}
+
+/// The installed eco: the running executable's path.
+fn installed_exe() -> io::Result<PathBuf> {
+    Ok(undeleted(std::env::current_exe()?))
+}
+
+/// `exe` without the ` (deleted)` Linux adds to a running executable's path
+/// once a package replaces the file.
+fn undeleted(exe: PathBuf) -> PathBuf {
+    match exe
+        .to_str()
+        .and_then(|path| path.strip_suffix(" (deleted)"))
+    {
+        Some(path) => PathBuf::from(path),
+        None => exe,
+    }
+}
+
+/// Restart the daemon as `eco restart` does, from the installed eco, in a
+/// process that outlives this one.
+fn restart_detached() -> io::Result<()> {
+    spawn_quiet(restart_command(&installed_exe()?))
+}
+
+/// Start `command` with nothing to read and its output dropped, without
+/// waiting for it.
+fn spawn_quiet(mut command: std::process::Command) -> io::Result<()> {
+    command
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map(drop)
+}
+
+/// `exe restart` in a transient unit of the user's systemd, so stopping the
+/// daemon's unit does not stop it too.
+#[cfg(unix)]
+fn restart_command(exe: &Path) -> std::process::Command {
+    let mut command = std::process::Command::new("systemd-run");
+    command
+        .args(["--user", "--collect", "--quiet"])
+        .arg(exe)
+        .arg("restart");
+    command
+}
+
+/// `exe restart` with a console of its own that is never shown.
+#[cfg(windows)]
+fn restart_command(exe: &Path) -> std::process::Command {
+    use std::os::windows::process::CommandExt;
+    let mut command = std::process::Command::new(exe);
+    command
+        .arg("restart")
+        .creation_flags(crate::adapters::service_windows::CREATE_NO_WINDOW);
+    command
 }
 
 /// Resolves when the daemon is asked to stop: Ctrl-C or SIGTERM.
@@ -3110,6 +3238,18 @@ mod tests {
         (capture, running)
     }
 
+    /// Updates that never check by themselves, their state in `dir`.
+    fn no_updates(emit: &Emit, dir: &Path) -> Updates {
+        let (updates, _) = update::testing::updates(
+            None,
+            update::testing::FakeInstaller::default(),
+            Arc::new(|| false),
+            Arc::clone(emit),
+            dir.join("update.json"),
+        );
+        updates
+    }
+
     /// Window control through events, which tells nobody.
     fn windows_told() -> Arc<HostWindows> {
         Arc::new(HostWindows::new(Arc::new(|_| {})))
@@ -3136,6 +3276,7 @@ mod tests {
             Arc::default(),
             windows_told(),
             Vec::new(),
+            no_updates(&emit, dir.path()),
         );
         let down = Arc::new(AtomicBool::new(true));
         let stt = Stt::Stream(Box::new(Flaky(Arc::clone(&down))));
@@ -3168,6 +3309,7 @@ mod tests {
             Arc::default(),
             windows_told(),
             Vec::new(),
+            no_updates(&emit, dir.path()),
         );
         let stt = Stt::Stream(Box::new(Flaky(Arc::new(AtomicBool::new(true)))));
         let (capture, running) = transcribing(stt, &assistant, &emit, &outages);
@@ -3294,6 +3436,7 @@ mod tests {
         events: Arc<Mutex<Vec<Value>>>,
         desk: Arc<Mutex<Desk>>,
         exits: mpsc::UnboundedSender<ExitStatus>,
+        fakes: update::testing::Fakes,
         dir: tempfile::TempDir,
     }
 
@@ -3319,6 +3462,14 @@ mod tests {
         );
         let desk: Arc<Mutex<Desk>> = Arc::default();
         let (exits, exited) = mpsc::unbounded_channel();
+        let live = assistant.clone();
+        let (updates, fakes) = update::testing::updates(
+            Some("v99.0.0"),
+            update::testing::FakeInstaller::default(),
+            Arc::new(move || !live.live().is_empty()),
+            Arc::clone(&emit),
+            dir.path().join("update.json"),
+        );
         let session = Session {
             config_path: dir.path().join("config.toml"),
             current: Config::from_value(raw).unwrap(),
@@ -3343,12 +3494,15 @@ mod tests {
                 exits: exited,
             }),
             overlay_open: Arc::default(),
+            updates,
+            daily: None,
         };
         Daemon {
             session,
             events,
             desk,
             exits,
+            fakes,
             dir,
         }
     }
@@ -4241,29 +4395,187 @@ mod tests {
             Arc::clone(&d.session.pending),
             windows.clone(),
             vec![json!({"type": "error", "code": "shortcut.unavailable"})],
+            d.session.updates.clone(),
         );
         let events = greeting();
         assert_eq!(
             said(&events),
-            ["daemon", "snapshot", "shortcut.unavailable"]
+            ["daemon", "snapshot", "update", "shortcut.unavailable"]
         );
         assert_eq!(events[0]["overlay"], true);
         assert_eq!(events[0]["version"], env!("CARGO_PKG_VERSION"));
         let exe = std::env::current_exe().unwrap();
         assert_eq!(events[0]["exe"], *exe.to_string_lossy());
         let held = hold(&mut d.session.pending.lock().unwrap(), "notify-send done");
-        assert_eq!(greeting()[2], held);
+        assert_eq!(greeting()[3], held);
         windows.focus(42).await.unwrap();
         assert_eq!(
             said(&greeting()),
             [
                 "daemon",
                 "snapshot",
+                "update",
                 "config_pending",
                 "window_focus",
                 "shortcut.unavailable"
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn an_update_installed_while_recording_restarts_when_the_session_ends() {
+        let mut d = daemon(raw());
+        d.start("Retro").await;
+        d.line("update.install").await;
+        d.until(|event| event["stage"] == "waiting").await;
+        assert_eq!(d.fakes.restarts(), 0);
+        let events = d.line("session.pause").await;
+        assert!(!said(&events).contains(&"update_progress".to_string()));
+        assert_eq!(d.fakes.restarts(), 0);
+        let events = d.line("session.end").await;
+        let stages: Vec<&Value> = events
+            .iter()
+            .filter(|event| event["type"] == "update_progress")
+            .map(|event| &event["stage"])
+            .collect();
+        assert_eq!(stages, ["restarting", "done"]);
+        assert_eq!(d.fakes.restarts(), 1);
+        assert_eq!(*d.fakes.installer.installed.lock().unwrap(), ["v99.0.0"]);
+    }
+
+    #[tokio::test]
+    async fn an_install_names_its_version_or_takes_the_latest() {
+        let mut d = daemon(raw());
+        d.line(r#"update.install {"version": "0.3.0"}"#).await;
+        d.until(|event| event["stage"] == "done").await;
+        assert_eq!(*d.fakes.installer.installed.lock().unwrap(), ["v0.3.0"]);
+        assert_eq!(d.fakes.releases.asked(), 0);
+        assert_eq!(d.fakes.restarts(), 1);
+    }
+
+    #[tokio::test]
+    async fn restarting_the_daemon_while_recording_needs_force() {
+        let mut d = daemon(raw());
+        d.start("Retro").await;
+        let events = d.line("daemon.restart").await;
+        assert_eq!(said(&events), ["daemon.recording"]);
+        let events = d.line(r#"daemon.restart {"force": false}"#).await;
+        assert_eq!(said(&events), ["daemon.recording"]);
+        assert_eq!(d.fakes.restarts(), 0);
+        d.line(r#"daemon.restart {"force": true}"#).await;
+        assert_eq!(d.fakes.restarts(), 1);
+        d.line("session.end").await;
+        d.line("daemon.restart").await;
+        assert_eq!(d.fakes.restarts(), 2);
+    }
+
+    #[tokio::test]
+    async fn a_check_on_demand_answers_with_what_it_found() {
+        let mut d = daemon(raw());
+        d.line("update.check").await;
+        let update = d.until(|event| event["type"] == "update").await;
+        assert_eq!(update["latest"], "99.0.0");
+        assert_eq!(update["newer"], true);
+        assert_eq!(update["check"], true);
+        assert_eq!(d.fakes.releases.asked(), 1);
+    }
+
+    #[tokio::test]
+    async fn turning_the_check_off_stops_the_daily_check() {
+        let mut d = daemon(raw());
+        d.session.check_daily().await;
+        assert!(d.session.daily.is_some());
+        let mut off = raw();
+        off["update"] = json!({"check": false});
+        let events = d.line(&format!("config.set {off}")).await;
+        let update = events
+            .iter()
+            .find(|event| event["type"] == "update")
+            .unwrap();
+        assert_eq!(update["check"], false);
+        assert!(d.session.daily.is_none());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn real_windows_are_driven_through_the_overlay_port() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut windows: Box<dyn Overlay> = Box::new(overlay::programs::windows(
+            dir.path(),
+            windows_told(),
+            false,
+        ));
+        assert!(!windows.is_open());
+        windows.open(Some("s1"), None).await.unwrap();
+        assert!(windows.is_open());
+        assert_eq!(windows.newest(), Some(1));
+        assert_eq!(windows.shown(), ["s1"]);
+        windows.shows(1, "s2");
+        assert_eq!(windows.shown(), ["s2"]);
+        windows.focus(1).await.unwrap();
+        windows.hide_from_share(true).await;
+        windows.tray(false).await;
+        windows.closed(1);
+        assert!(!windows.is_open());
+        windows.open(Some("later"), None).await.unwrap();
+        let exited = tokio::time::timeout(Duration::from_secs(10), windows.exited());
+        assert_eq!(
+            exited.await.unwrap().and_then(|status| status.code()),
+            Some(2)
+        );
+        windows.close().await;
+    }
+
+    #[test]
+    fn the_restart_runs_the_file_a_package_replaced() {
+        let replaced = PathBuf::from("/usr/bin/eco (deleted)");
+        assert_eq!(undeleted(replaced), PathBuf::from("/usr/bin/eco"));
+        let running = PathBuf::from("/usr/bin/eco");
+        assert_eq!(undeleted(running.clone()), running);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn the_restart_is_started_and_left_running_or_says_why_not() {
+        let dir = tempfile::tempdir().unwrap();
+        let ran = dir.path().join("ran");
+        let program = crate::adapters::fake_program::fake_program(
+            dir.path(),
+            "restart",
+            &format!("echo \"$@\" > {}", ran.display()),
+        );
+        let mut command = std::process::Command::new(&program);
+        command.arg("restart");
+        spawn_quiet(command).unwrap();
+        for _ in 0..100 {
+            if std::fs::read_to_string(&ran).is_ok_and(|said| said == "restart\n") {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert_eq!(std::fs::read_to_string(&ran).unwrap(), "restart\n");
+        let missing = std::process::Command::new(dir.path().join("missing"));
+        assert!(spawn_quiet(missing).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_restart_runs_in_a_unit_of_its_own() {
+        let command = restart_command(Path::new("/usr/bin/eco"));
+        assert_eq!(command.get_program(), "systemd-run");
+        let args: Vec<_> = command.get_args().collect();
+        assert_eq!(
+            args,
+            ["--user", "--collect", "--quiet", "/usr/bin/eco", "restart"]
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn the_restart_runs_the_installed_eco() {
+        let command = restart_command(Path::new(r"C:\eco\bin\eco.exe"));
+        assert_eq!(command.get_program(), r"C:\eco\bin\eco.exe");
+        assert_eq!(command.get_args().collect::<Vec<_>>(), ["restart"]);
     }
 
     #[tokio::test]

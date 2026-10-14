@@ -63,6 +63,13 @@ Item {
     related: [{ title: "Session kinds", items: [{ section: 3, id: "meeting", text: "MEETING" }] }]
   }
 
+  // Restarts the daemon refused while a session records.
+  property int refusedRestarts: 0
+  Connections {
+    target: Eco
+    function onRestartRefused() { root.refusedRestarts += 1 }
+  }
+
   Timer {
     interval: 50
     running: true
@@ -87,6 +94,26 @@ Item {
       Eco.handle({ type: "error", code: "import.failed", params: { detail: "bad.mp4" }, message: "import: bad.mp4" })
       Eco.handle({ type: "session", live: [] })
       root.check("an import error stays when a session ends", Eco.message !== "")
+      // A newer release is told while checks are on, until it is dismissed.
+      const newer = { type: "update", current: "0.4.0", latest: "0.5.0", newer: true, notes: "https://example.invalid/v0.5.0", checked_at: 1, check: true, error: "" }
+      Eco.handle(newer)
+      root.check("a newer release is told", Eco.updateNotice === "0.5.0")
+      Eco.handle(Object.assign({}, newer, { check: false }))
+      root.check("no notice while checks are off", Eco.updateNotice === "")
+      Eco.handle(Object.assign({}, newer, { newer: false, latest: "0.4.0" }))
+      root.check("the same version is no notice", Eco.updateNotice === "")
+      Eco.handle(newer)
+      Eco.dismissUpdate()
+      root.check("a dismissed notice goes", Eco.updateNotice === "")
+      // Each stage of an install is said; a failure as an error, with its reason.
+      Eco.handle({ type: "update_progress", stage: "installing", version: "0.5.0", detail: "" })
+      root.check("an install under way is said", Eco.updating && Eco.message === I18n.t("update.stage.installing", { version: "0.5.0" }))
+      Eco.handle({ type: "update_progress", stage: "failed", version: "0.5.0", detail: "pkexec was dismissed" })
+      root.check("a failed install says why", !Eco.updating && Eco.messageIsError && Eco.message.indexOf("pkexec was dismissed") >= 0)
+      // A restart refused while recording asks in the window, not in the status line.
+      Eco.say("", false)
+      Eco.handle({ type: "error", code: "daemon.recording", params: null, message: "a session is recording" })
+      root.check("a restart refused while recording asks first", root.refusedRestarts === 1 && Eco.message === "")
       // RELATED shows only when something is related.
       root.check("an item with nothing related has no RELATED", !root.shows(alone, I18n.t("settings.related").toUpperCase()))
       root.check("an item with a link has RELATED", root.shows(linked, I18n.t("settings.related").toUpperCase()))

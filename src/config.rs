@@ -329,6 +329,26 @@ impl Default for UiTable {
     }
 }
 
+/// Whether the daemon asks GitHub once a day for a newer release.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UpdateConfig {
+    #[serde(default = "UpdateConfig::on")]
+    pub check: bool,
+}
+
+impl UpdateConfig {
+    fn on() -> bool {
+        true
+    }
+}
+
+impl Default for UpdateConfig {
+    fn default() -> Self {
+        Self { check: true }
+    }
+}
+
 /// The file's shape, field for field, in the order it is written.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -361,6 +381,8 @@ struct Raw {
     audio: AudioConfig,
     #[serde(default)]
     ui: UiTable,
+    #[serde(default)]
+    update: UpdateConfig,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     shortcuts: Option<BTreeMap<String, String>>,
 }
@@ -391,6 +413,7 @@ pub struct Config {
     pub hide_from_share: bool,
     /// eco shows an icon in the system tray, run as its own window process.
     pub tray: bool,
+    pub update: UpdateConfig,
     /// Keys -> the `eco window` command they run, registered on Windows;
     /// `None` keeps the defaults of `shortcuts::DEFAULT`.
     pub shortcuts: Option<BTreeMap<String, String>>,
@@ -473,6 +496,7 @@ impl Config {
             ui_language: raw.ui.language,
             hide_from_share: raw.ui.hide_from_share,
             tray: raw.ui.tray,
+            update: raw.update,
             shortcuts: raw.shortcuts,
         };
         config.validate()?;
@@ -501,6 +525,7 @@ impl Config {
                 hide_from_share: self.hide_from_share,
                 tray: self.tray,
             },
+            update: self.update.clone(),
             shortcuts: self.shortcuts.clone(),
         }
     }
@@ -1367,6 +1392,30 @@ mod tests {
         assert!(!config.hide_from_share);
         assert!(Config::from_value(config.to_value()).unwrap().tray);
         assert!(error_of(with("ui", json!({"tray": "yes"}))).contains("invalid config"));
+    }
+
+    #[test]
+    fn the_update_check_defaults_to_on_and_round_trips() {
+        assert!(Config::from_value(raw()).unwrap().update.check);
+        assert!(
+            Config::from_value(with("update", json!({})))
+                .unwrap()
+                .update
+                .check
+        );
+        let config = Config::from_value(with("update", json!({"check": false}))).unwrap();
+        assert!(!config.update.check);
+        assert!(!Config::from_value(config.to_value()).unwrap().update.check);
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("config.toml");
+        save(&config, &path).unwrap();
+        assert!(
+            fs::read_to_string(&path)
+                .unwrap()
+                .contains("[update]\ncheck = false")
+        );
+        assert!(!load(&path).unwrap().update.check);
+        assert!(error_of(with("update", json!({"check": "yes"}))).contains("invalid config"));
     }
 
     #[test]

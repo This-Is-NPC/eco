@@ -90,7 +90,17 @@ Window {
           error: Eco.messageIsError
           // Start already says it in its section.
           offline: !Eco.connected && panel.current !== "start"
-          maxWidth: Math.max(0, panel.width - 360)
+          maxWidth: Math.max(0, panel.width - 360 - (updateNotice.visible ? updateNotice.width + 14 : 0))
+        }
+        // A newer release, out of a session's way: it opens the release notes.
+        NoticeChip {
+          id: updateNotice
+          shown: Eco.updateNotice !== "" && panel.current !== "session" && panel.current !== "cost"
+          text: Eco.updateNotice === "" ? "" : I18n.t(panel.compact ? "update.notice_short" : "update.notice", { version: Eco.updateNotice })
+          tip: I18n.t("update.notice_tip")
+          closeTip: I18n.t("update.dismiss_tip")
+          onOpened: Eco.openReleaseNotes()
+          onDismissed: Eco.dismissUpdate()
         }
         SessionControl { visible: panel.joined; dense: true }
         LanguagePicker { visible: Eco.session !== null && panel.current === "session" && !(panel.joined && panel.compact); compact: panel.compact || panel.short }

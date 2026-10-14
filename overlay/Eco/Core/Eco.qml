@@ -211,6 +211,7 @@ Singleton {
     if (connected)
       return
     pendingConfig = null
+    updateChecking = false
     if (configSaving) {
       configSaving = false
       configSaveFailed(I18n.t("start.offline"))
@@ -293,6 +294,44 @@ Singleton {
   function callWindow(call) { send("window.call " + JSON.stringify({ call: call })) }
   // stopDaemon stops eco, as `eco stop` does.
   function stopDaemon() { send("stop") }
+
+  // What the daemon last said of the releases ({current, latest, newer, notes,
+  // checked_at, check, error}), or null until it says.
+  property var updateState: null
+  // A check asked for and not answered yet.
+  property bool updateChecking: false
+  // The install under way or last ended ({stage, version, detail}), or null.
+  property var updateProgress: null
+  // Whether an install runs: its commands wait for it to end.
+  readonly property bool updating: updateProgress !== null && updateProgress.stage !== "done" && updateProgress.stage !== "failed"
+  // The release whose notice the user closed in this window.
+  property string updateDismissed: ""
+  // The newer release the main window tells about while checks are on, or "".
+  readonly property string updateNotice: updateState !== null && updateState.check && updateState.newer && updateState.latest
+    && updateState.latest !== updateDismissed && !updating ? updateState.latest : ""
+  // A daemon restart refused because a session records: the window asks first.
+  signal restartRefused()
+  // checkUpdate asks the releases now; an install that ended is left behind.
+  function checkUpdate() {
+    updateProgress = null
+    updateChecking = true
+    send("update.check")
+  }
+  // installUpdate installs release `version`, or the latest for "".
+  function installUpdate(version) {
+    updateProgress = { stage: "downloading", version: version || "", detail: "" }
+    send("update.install " + JSON.stringify(version ? { version: version } : {}))
+  }
+  // restartDaemon restarts eco as `eco restart` does; `force` cuts a session
+  // that records.
+  function restartDaemon(force) {
+    send("daemon.restart " + JSON.stringify({ force: force }))
+  }
+  function dismissUpdate() { updateDismissed = updateNotice }
+  function openReleaseNotes() {
+    if (updateState !== null && updateState.notes)
+      Qt.openUrlExternally(updateState.notes)
+  }
   // Tells the daemon this window closes, then ends the process.
   function quit() {
     send("window.closed " + JSON.stringify({ window: window }))
@@ -1152,6 +1191,19 @@ Singleton {
     case "devices":
       devices = event.devices
       break
+    case "update":
+      updateState = event
+      updateChecking = false
+      // The daemon met again after an install runs the release installed.
+      if (updateProgress !== null && updateProgress.stage === "restarting" && event.current === updateProgress.version) {
+        updateProgress = { stage: "done", version: event.current, detail: "" }
+        tell([["update.stage.done", updateProgress]], false)
+      }
+      break
+    case "update_progress":
+      updateProgress = { stage: event.stage, version: event.version || "", detail: event.detail || "" }
+      tell([["update.stage." + event.stage, updateProgress]], event.stage === "failed")
+      break
     case "config_pending":
       pendingConfig = event.hooks.length + event.files.length + event.models.length > 0 ? event : null
       break
@@ -1183,6 +1235,11 @@ Singleton {
       break
     }
     case "error": {
+      // A restart refused while a session records: the window asks, then forces it.
+      if (event.code === "daemon.recording") {
+        restartRefused()
+        break
+      }
       flushStream()
       const about = event.params && event.params.session
       const answer = event.code === "completion.failed" && event.params && event.params.id

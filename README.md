@@ -50,6 +50,11 @@ your `PATH`, and runs `eco setup`. `$env:ECO_UNINSTALL = "keep"` before the
 same line takes it off again, keeping your data
 ([on Windows](docs/how-to-install-and-remove.md#on-windows)).
 
+**Updating.** When a newer release is out, the window says so. **Settings ›
+General › UPDATES › UPDATE**, or `eco update`, installs it and restarts eco;
+a session that records is never cut, the restart waits for it to end
+([Update](docs/how-to-install-and-remove.md#update)).
+
 Released under the MIT license. [How to install it, and how to take it off
 again](docs/how-to-install-and-remove.md) is the whole of it.
 
@@ -121,7 +126,8 @@ decoded through a pipe.
 **The window never holds a secret.** Only the daemon reads keys, when it builds
 a provider; the window sends a draft of the settings and the daemon validates
 and saves it. Keys are never logged, nor transcript text at info level. No
-telemetry.
+telemetry: once a day eco asks GitHub for the latest release's tag, and
+sends nothing about you.
 
 **What a session cost is shown in one place.** The window shows it only on the
 session's cost screen, opened from that session's details — never in the list,
@@ -239,6 +245,10 @@ again on the page where you meet it.
 - **No Credential Manager over ssh.** An ssh login by key has no Windows
   Credential Manager: `eco key` fails there, and a daemon started there cannot
   read keys kept in it; run eco from the desktop.
+- **An update on Linux asks for your password.** pacman installs for the
+  whole machine, so `pkexec` asks in its own window; without `pkexec`,
+  `eco update` in a terminal asks through `sudo`
+  ([Update](docs/how-to-install-and-remove.md#update)).
 - **Sessions recorded before eco kept costs stay unknown.** Their logs hold no
   cost records, and nothing brings those costs back.
 

@@ -46,6 +46,14 @@ fn is_ours(line: &str) -> bool {
     line.ends_with(MARKER) && !line.starts_with("--")
 }
 
+/// Whether the Hyprland config `text` loads eco's rules: by the line `eco
+/// setup` writes, or by a line of the user's own naming an `eco.lua`.
+pub fn loads_rules(text: &str) -> bool {
+    text.lines().any(|line| {
+        is_ours(line) || (!line.trim_start().starts_with("--") && line.contains("eco.lua"))
+    })
+}
+
 /// `text` with the eco line set to `line`, every other byte kept: its own line
 /// rewritten in place, or `line` appended in the file's line ending. `None`
 /// when the file already holds `line`.
@@ -162,6 +170,19 @@ mod tests {
             load_line(Path::new("/a \"b\\c/eco.lua")),
             "do local eco = \"/a \\\"b\\\\c/eco.lua\"; local file = io.open(eco, \"r\"); if file then file:close(); dofile(eco) end end -- eco setup"
         );
+    }
+
+    #[test]
+    fn the_rules_are_loaded_by_our_line_or_one_of_the_users_not_commented_out() {
+        let ours = load_line(Path::new(RULES));
+        assert!(loads_rules(&format!(
+            "o.bind(\"SUPER + Q\", \"close\")\n{ours}\n"
+        )));
+        assert!(loads_rules("dofile(\"/home/me/eco.lua\")\n"));
+        assert!(!loads_rules(&format!(
+            "-- {ours}\n-- dofile(\"eco.lua\")\n"
+        )));
+        assert!(!loads_rules(""));
     }
 
     #[test]

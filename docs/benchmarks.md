@@ -379,3 +379,25 @@ started in the same second sharing a log file; a failed delete reported as
 a garbled streaming event followed by lines that depended on how bytes
 arrived; import progress past the end of the file; a window that connected
 during an outage not told the source was down.
+
+## Update and doctor coverage (2026-10-14)
+
+Measured with `mise run coverage` (cargo-llvm-cov 0.9.1, unit and integration
+tests) on the tree that added `eco update`, `eco version`, `eco doctor` and the
+window's UPDATES group; line numbers read from `cargo llvm-cov report
+--show-missing-lines`. Before is the commit the change started from. `src/`
+without `src/bench/`, the whole crate: 96.91% of lines before, 96.93% after.
+The Windows installer (`src/adapters/installer_windows.rs`) is
+`#[cfg(windows)]`: it is not counted here, and its tests run on Windows.
+
+| File | Lines before | Lines after | Left without a test, and why |
+|---|---|---|---|
+| `src/session/update.rs` | new | 99.61% (2 of 518) | the fake releases' `tagged`, an `unreachable!` of the tests: the daemon always names the tag it installs. |
+| `src/adapters/releases_github.rs` | new | 99.23% (1 of 130) | the end of a test server's task. |
+| `src/adapters/installer_linux.rs` | new | 97.06% (7 of 238) | `Pacman::new`: reads the real `PATH` and whether stdin is a terminal; `on_path` and the choice between pkexec and sudo are tested with their inputs given. |
+| `src/installer.rs` | new | 94.94% (26 of 514) | `installer()` and the empty Linux `tidy()`, one composition line each; `run()` and `run_version()`, which ask the real GitHub through the user's socket (`update()` and `version()` behind them are tested with fake releases and a fake daemon); the end of a fake daemon's task. |
+| `src/doctor.rs` | new | 88.92% (41 of 370) | `run()` and `Places::here()`: the user's real executable, models, config and Hyprland file (`checks()` is tested on a temporary home); in `sources()`, a key variable that is set, which a test cannot set without `unsafe`, and omapass's accounts, which run the user's keyring; a Credential Manager that fails, Windows only. |
+| `src/session.rs` | 96.23% | 96.79% | as in the daemon section: `run()` now also builds the updates from GitHub, the platform's installer and the user's state file; `restart_detached()` and `installed_exe()`, which run the real `systemd-run` from the running executable (`spawn_quiet`, `undeleted` and `restart_command` are tested). The tests added for this change also drive `impl Overlay for overlay::Windows` with stand-in windows, which had none. |
+| `src/main.rs` | 88.74% | 88.90% | the new arms of `main()`, one line each; as before. |
+| `src/paths.rs` | 89.24% | 89.89% | as before; `update_state()` is tested. |
+| `src/cli.rs`, `src/config.rs`, `src/adapters/desktop_hyprland.rs` | 99.89%, 99.79%, 98.37% | 99.90%, 99.80%, 98.47% | as before. |

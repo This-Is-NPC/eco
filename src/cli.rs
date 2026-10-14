@@ -190,11 +190,15 @@ pub struct Failure {
 }
 
 impl Failure {
-    fn new(code: &str, message: impl Into<String>) -> Self {
+    pub fn new(code: &str, message: impl Into<String>) -> Self {
         Self {
             code: code.into(),
             message: message.into(),
         }
+    }
+
+    pub fn message(&self) -> &str {
+        &self.message
     }
 }
 
@@ -211,6 +215,14 @@ pub async fn run(address: &Address, request: Request) -> i32 {
             print!("{text}");
             0
         }
+        answered => print(answered),
+    }
+}
+
+/// Print `answered` as the one JSON object every command prints, and return
+/// the exit code: 0 for `{"ok": true, "data": …}`, 1 for a failure.
+pub fn print(answered: Result<Value, Failure>) -> i32 {
+    match answered {
         Ok(data) => {
             println!("{}", json!({"ok": true, "data": data}));
             0
@@ -222,6 +234,39 @@ pub async fn run(address: &Address, request: Request) -> i32 {
             );
             1
         }
+    }
+}
+
+/// Every event the daemon at `address` greets a client with: who it is
+/// (`daemon`), its state, and what it reports, such as `update` and refused
+/// shortcuts; `None` when no daemon answers.
+pub async fn greeting(address: &Address) -> Result<Option<Vec<Value>>, Failure> {
+    match Client::reach(address).await? {
+        Some(mut client) => client.greeting().await.map(Some),
+        None => Ok(None),
+    }
+}
+
+/// The names the keys of the daemon at `address` can come from, as `eco key
+/// list` prints them; `None` when no daemon answers.
+pub async fn key_names(address: &Address) -> Result<Option<Value>, Failure> {
+    match Client::reach(address).await? {
+        Some(mut client) => client.keys().await.map(Some),
+        None => Ok(None),
+    }
+}
+
+/// Have the daemon at `address` install release `version`, saying each stage
+/// it reaches on stderr; when it restarts: "now", or "when_session_ends" while
+/// a session records. `None` when no daemon answers, or one older than
+/// updates does not know the command, to install without it.
+pub async fn update(address: &Address, version: &str) -> Result<Option<&'static str>, Failure> {
+    match Client::reach(address).await? {
+        Some(mut client) => match client.update(version).await {
+            Err(failure) if failure.code == "command.unknown" => Ok(None),
+            done => done.map(Some),
+        },
+        None => Ok(None),
     }
 }
 
@@ -275,16 +320,59 @@ struct Client {
 
 impl Client {
     async fn connect(address: &Address) -> Result<Self, Failure> {
+        Self::reach(address).await?.ok_or_else(|| {
+            Failure::new(
+                "daemon.offline",
+                "eco is not running; start it with `eco start` (or `eco start --headless`)",
+            )
+        })
+    }
+
+    /// The daemon at `address`, or `None` when none answers.
+    async fn reach(address: &Address) -> Result<Option<Self>, Failure> {
         let stream = control_socket::connect(address)
             .await
-            .map_err(connect_failure)?
-            .ok_or_else(|| {
-                Failure::new(
-                    "daemon.offline",
-                    "eco is not running; start it with `eco start` (or `eco start --headless`)",
-                )
-            })?;
-        Ok(Self::over(stream))
+            .map_err(connect_failure)?;
+        Ok(stream.map(Self::over))
+    }
+
+    /// The events the daemon greeted this client with: those before the
+    /// answer to `sync`, which the daemon reads after greeting it.
+    async fn greeting(&mut self) -> Result<Vec<Value>, Failure> {
+        self.send(control_socket::SYNC).await?;
+        let mut events = Vec::new();
+        self.until(|event| {
+            if event["type"] == "synced" {
+                return Some(Ok(()));
+            }
+            events.push(event.clone());
+            None
+        })
+        .await?;
+        Ok(events)
+    }
+
+    /// `update.install` of `version`: each stage said on stderr until the
+    /// install is done; when the daemon restarts, as [`update`] says.
+    async fn update(&mut self, version: &str) -> Result<&'static str, Failure> {
+        self.send(&format!("update.install {}", json!({"version": version})))
+            .await?;
+        self.until(|event| {
+            if event["type"] == "update_progress" {
+                let detail = event["detail"].as_str().unwrap_or_default();
+                return match event["stage"].as_str().unwrap_or_default() {
+                    "failed" => Some(Err(Failure::new("update.failed", detail))),
+                    "waiting" => Some(Ok("when_session_ends")),
+                    "restarting" | "done" => Some(Ok("now")),
+                    stage => {
+                        eprintln!("{}", crate::installer::said(stage, version));
+                        None
+                    }
+                };
+            }
+            failure_in(event, &["update.", "command."]).map(Err)
+        })
+        .await
     }
 
     fn over(stream: Stream) -> Self {
@@ -2204,6 +2292,96 @@ mod tests {
         let mut client = talking_to(r#"session.import {"path":"/talk.mp4"}"#, events);
         let failure = client.import(&json!({"path": "/talk.mp4"}), true).await;
         assert_eq!(failure.unwrap_err().code, "import.failed");
+    }
+
+    #[tokio::test]
+    async fn the_greeting_is_every_event_before_synced() {
+        let update = json!({"type": "update", "latest": "0.5.0"});
+        let synced = json!({"type": "synced"});
+        let mut client = conversing(vec![("sync", vec![update.clone(), synced])]);
+        assert_eq!(
+            client.greeting().await,
+            Ok(vec![
+                json!({"type": "snapshot", "kinds": ["meeting"]}),
+                update
+            ])
+        );
+    }
+
+    #[tokio::test]
+    async fn without_a_daemon_there_is_no_greeting_or_update() {
+        let directory = tempfile::tempdir().unwrap();
+        let address = Address::scratch(directory.path());
+        assert_eq!(greeting(&address).await, Ok(None));
+        assert_eq!(update(&address, "0.5.0").await, Ok(None));
+    }
+
+    #[tokio::test]
+    async fn a_running_daemon_greets_lists_its_keys_and_installs() {
+        let synced = json!({"type": "synced"});
+        let (_directory, socket) = listening(vec![("sync", vec![synced])]).await;
+        assert_eq!(
+            greeting(&socket).await,
+            Ok(Some(vec![
+                json!({"type": "snapshot", "kinds": ["meeting"]})
+            ]))
+        );
+
+        let keys = json!({"type": "keys", "env": ["OPENROUTER_API_KEY"], "credentials": null});
+        let omapass = json!({"type": "omapass", "installed": false});
+        let (_directory, socket) =
+            listening(vec![("keys", vec![keys]), ("omapass", vec![omapass])]).await;
+        let listed = key_names(&socket).await.unwrap().unwrap();
+        assert_eq!(listed["env"], json!(["OPENROUTER_API_KEY"]));
+
+        let command = r#"update.install {"version":"0.5.0"}"#;
+        let (_directory, socket) = listening(vec![(command, vec![stage("done", "")])]).await;
+        assert_eq!(update(&socket, "0.5.0").await, Ok(Some("now")));
+        // A daemon from before updates leaves the install to the command.
+        let unknown = refusal("command.unknown");
+        let (_directory, socket) = listening(vec![(command, vec![unknown])]).await;
+        assert_eq!(update(&socket, "0.5.0").await, Ok(None));
+    }
+
+    fn stage(stage: &str, detail: &str) -> Value {
+        json!({"type": "update_progress", "stage": stage, "version": "0.5.0", "detail": detail})
+    }
+
+    #[tokio::test]
+    async fn an_update_through_the_daemon_ends_when_it_restarts_or_waits() {
+        let command = r#"update.install {"version":"0.5.0"}"#;
+        let stages = vec![
+            stage("downloading", ""),
+            stage("verifying", ""),
+            stage("installing", ""),
+        ];
+        let mut now = stages.clone();
+        now.push(stage("restarting", ""));
+        let mut client = talking_to(command, now);
+        assert_eq!(client.update("0.5.0").await, Ok("now"));
+        let mut later = stages;
+        later.push(stage("waiting", ""));
+        let mut client = talking_to(command, later);
+        assert_eq!(client.update("0.5.0").await, Ok("when_session_ends"));
+    }
+
+    #[tokio::test]
+    async fn an_update_through_the_daemon_fails_with_its_reason() {
+        let command = r#"update.install {"version":"0.5.0"}"#;
+        let failed = stage("failed", "eco-0.5.0-1-x86_64.pkg.tar.zst does not match");
+        let mut client = talking_to(command, vec![stage("downloading", ""), failed]);
+        assert_eq!(
+            client.update("0.5.0").await,
+            Err(Failure::new(
+                "update.failed",
+                "eco-0.5.0-1-x86_64.pkg.tar.zst does not match"
+            ))
+        );
+        let mut client = talking_to(command, vec![refusal("update.busy")]);
+        assert_eq!(
+            client.update("0.5.0").await.unwrap_err().code,
+            "update.busy"
+        );
     }
 
     #[test]

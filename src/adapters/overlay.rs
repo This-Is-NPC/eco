@@ -395,7 +395,7 @@ mod tests {
 
 /// The windows, each run by a stand-in shell script.
 #[cfg(all(test, unix))]
-mod programs {
+pub(crate) mod programs {
     use std::fs;
     use std::path::Path;
     use std::sync::Mutex;
@@ -441,7 +441,7 @@ mod programs {
     /// with 2 a moment after opening when told to show `later`. Run as the
     /// tray, it adds a line to `dir/tray` instead, and exits with 3 at once
     /// when `dir/tray-dies` exists, which it removes.
-    fn windows(dir: &Path, control: Arc<dyn WindowControl>, hidden: bool) -> Windows {
+    pub(crate) fn windows(dir: &Path, control: Arc<dyn WindowControl>, hidden: bool) -> Windows {
         let program = fake_program(
             dir,
             "eco-window",

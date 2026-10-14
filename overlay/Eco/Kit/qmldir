@@ -33,6 +33,7 @@ Masthead 1.0 Masthead.qml
 MenuPopup 1.0 MenuPopup.qml
 ModalDialog 1.0 ModalDialog.qml
 NewPill 1.0 NewPill.qml
+NoticeChip 1.0 NoticeChip.qml
 NumberField 1.0 NumberField.qml
 PageBar 1.0 PageBar.qml
 Panel 1.0 Panel.qml

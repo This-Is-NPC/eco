@@ -14,7 +14,8 @@ about.
 
 1. [**How to install eco, and how to take it off again**](how-to-install-and-remove.md)
    — the installer; the first config, the Hyprland line, what the package puts
-   on the machine, and what `sudo pacman -R eco` leaves.
+   on the machine, how it updates itself (`eco update`, `eco doctor`), and
+   what `sudo pacman -R eco` leaves.
 2. [**How to register models**](how-to-register-models.md) — the keys, from the
    environment, omapass or the Windows Credential Manager, one chat model and one transcription model, and which
    one does what.

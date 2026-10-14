@@ -135,6 +135,14 @@ says `Daemon disconnected · eco start`; every other screen shows a
 
 ![The start screen without the daemon: the masthead "ECO / OFFLINE"; the last input trace it drew, standing still; NEW SESSION, SESSIONS, IMPORT and PEOPLE dimmed; and under them, in amber, "Daemon disconnected · eco start".](img/02-disconnected.png)
 
+**A newer release.** When the daemon has found a release newer than the one
+running and CHECK FOR UPDATES is on, the masthead shows a small lit notice,
+`ECO 0.5.0 AVAILABLE` (`ECO 0.5.0` in a narrow window; the version is an
+example), on every screen but a session and its cost. A press opens the
+release notes in the browser; its × hides it until the window opens again.
+Installing is under Settings › General › UPDATES (section 12). It is not
+pictured: the pictures run with no newer release.
+
 | key | what it does |
 |---|---|
 | `N` | new session |
@@ -782,10 +790,13 @@ default for chat there.", and their bar holds only REGISTER A CHAT MODEL, which
 opens a new model under Models. Models works as ever. It is not pictured: the
 pictures run with chat models registered.
 
-**General** — how eco behaves, as one table of settings under four titles, each
-with its value beside it as the control that changes it:
+**General** — how eco behaves, as one table of settings under five titles, each
+with its value beside it as the control that changes it. In the picture the
+version is the checkout's when it was taken, and the latest release is the
+same: the pictures never ask GitHub (the fixture sets `[update] check = false`),
+so the scene turns CHECK FOR UPDATES on and says the latest in the window only:
 
-![Settings, 08 GENERAL: an empty bar; the note says what the picked row does; a table SETTING · VALUE under four titles: INTERFACE with INTERFACE LANGUAGE, a dropdown "English (US)", picked, HIDE FROM SCREEN SHARING and SHOW ECO IN THE TRAY, each a dim OFF chip; REVIEWER with REVIEW ANSWERS, a dim OFF chip with claude-haiku beside it, and SHOW THE DRAFT, a dimmed OFF; AUDIO with DROP ECHOES, a lit ON, and ECHO CANCELLATION, a dim OFF; ANSWERS with MAXIMUM CONTEXT (CHARACTERS) 60000 and ANSWERS AT THE SAME TIME 8.](img/53-settings-general.png)
+![Settings, 08 GENERAL: an empty bar; the note says what the picked row does; a table SETTING · VALUE under five titles: INTERFACE with INTERFACE LANGUAGE, a dropdown "English (US)", picked, HIDE FROM SCREEN SHARING and SHOW ECO IN THE TRAY, each a dim OFF chip; REVIEWER with REVIEW ANSWERS, a dim OFF chip with claude-haiku beside it, and SHOW THE DRAFT, a dimmed OFF; AUDIO with DROP ECHOES, a lit ON, and ECHO CANCELLATION, a dim OFF; ANSWERS with MAXIMUM CONTEXT (CHARACTERS) 60000 and ANSWERS AT THE SAME TIME 8; UPDATES with CHECK FOR UPDATES, a lit ON, VERSION, a CHECK NOW button and "0.4.0 · up to date", and DAEMON, a RESTART button and "running".](img/53-settings-general.png)
 
 The note above the table says what the picked row does. There are no screens
 and no commands: each value saves at once.
@@ -810,6 +821,23 @@ and no commands: each value saves at once.
 - **ANSWERS.** MAXIMUM CONTEXT (CHARACTERS) is how many characters of transcript and
   earlier answers one request sends at most; ANSWERS AT THE SAME TIME is how many answers run at once,
   across every session. Each is a number written in the row.
+- **UPDATES.** CHECK FOR UPDATES, on by default, is an ON/OFF chip: on, the
+  daemon asks GitHub for the latest release's tag once a day; off, never on
+  its own. VERSION reads the running version and what is known of the latest:
+  `0.4.0 · up to date`, `0.4.0 · not checked` or `0.4.0 · could not check`
+  (the reason in the note) with CHECK NOW, or `0.4.0 · 0.5.0 available` with a
+  lit UPDATE (`0.5.0` is an example). UPDATE installs the release; the row and
+  the masthead say each step — `downloading eco 0.5.0`, `checking the
+  checksum of eco 0.5.0`, `installing eco 0.5.0`, `restarting eco`, `eco
+  0.5.0 is running` — or `update failed:` and why, in red. On Linux, `pkexec`
+  asks for the password in its own window at installing. A session that
+  records is never cut: the restart waits for it to end, and the row says
+  `eco 0.5.0 installed · restarts when the session ends`. Then the window
+  reopens. DAEMON has RESTART, which restarts the daemon as `eco restart`
+  does; while a session records it asks first, in a dialog RESTART ECO, "A
+  session is recording. Restarting eco now stops its recording.", with CANCEL
+  and RESTART. None of these steps is pictured. See [how to install and
+  remove eco](how-to-install-and-remove.md#update).
 
 SHOW ECO IN THE TRAY turned on puts an icon in the system tray at once — on
 Omarchy the bar's tray, on Windows the notification area — and turned off, it
@@ -884,9 +912,9 @@ it.
 **A transcript as a file.** COPY VTT puts the WebVTT on the clipboard;
 `eco export <id> > session.vtt` writes it.
 
-**The daemon itself.** Starting, stopping and restarting are `eco start`,
-`eco stop` and `eco restart`; the window shows only whether it can reach the
-daemon. Its errors go to `journalctl --user -u eco.service`.
+**The daemon itself.** Starting and stopping are `eco start` and `eco stop`;
+restarting is `eco restart`, or RESTART under Settings › General › UPDATES.
+The window shows only whether it can reach the daemon. Its errors go to `journalctl --user -u eco.service`.
 
 **The global shortcuts.** The window lists them (section 11) but does not
 change them: they are in `packaging/hypr/eco.lua`, or on Windows under

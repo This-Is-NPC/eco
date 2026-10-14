@@ -5,8 +5,10 @@ mod adapters;
 mod bench;
 mod cli;
 mod config;
+mod doctor;
 mod domain;
 mod import;
+mod installer;
 mod lifecycle;
 mod paths;
 mod ports;
@@ -58,6 +60,21 @@ enum Command {
     Stop,
     /// Restart the daemon and reopen its window if it was visible.
     Restart,
+    /// Install the latest release when it is newer, or the one named; a running
+    /// daemon installs it and restarts once no session records.
+    Update {
+        /// The release to install, e.g. 0.5.0; an older one too.
+        #[arg(long)]
+        version: Option<String>,
+        /// Only say whether a newer release is out.
+        #[arg(long, conflicts_with = "version")]
+        check: bool,
+    },
+    /// Print the installed version, the running daemon's and the newest release's, as JSON.
+    Version,
+    /// Check that eco is installed, set up and running; prints each check as
+    /// JSON and exits non-zero when one fails.
+    Doctor,
     /// Show whether the daemon is running.
     Status {
         /// Fail if the daemon is running a different executable.
@@ -387,6 +404,12 @@ enum Run {
     },
     Stop,
     Restart,
+    Update {
+        version: Option<String>,
+        check: bool,
+    },
+    Version,
+    Doctor,
     Status {
         expect_current_exe: bool,
         window_open: bool,
@@ -424,6 +447,9 @@ impl From<Command> for Run {
             }
             Command::Stop => return Run::Stop,
             Command::Restart => return Run::Restart,
+            Command::Update { version, check } => return Run::Update { version, check },
+            Command::Version => return Run::Version,
+            Command::Doctor => return Run::Doctor,
             Command::Status {
                 expect_current_exe,
                 window_open,
@@ -621,18 +647,23 @@ async fn main() -> Result<()> {
         }
         Run::Stop => lifecycle::stop(&Address::user()).await,
         Run::Restart => lifecycle::restart(&PlatformService, &Address::user()).await,
+        Run::Update { version, check } => {
+            exit_with(cli::print(installer::run(version, check).await))
+        }
+        Run::Version => exit_with(cli::print(installer::run_version().await)),
+        Run::Doctor => exit_with(doctor::run(&Address::user()).await),
         Run::Status {
             expect_current_exe,
             window_open,
-        } => match lifecycle::status(&Address::user(), expect_current_exe, window_open).await? {
-            0 => Ok(()),
-            code => std::process::exit(code),
-        },
+        } => exit_with(lifecycle::status(&Address::user(), expect_current_exe, window_open).await?),
         Run::Daemon {
             replay,
             headless,
             save_sessions,
-        } => session::run(&paths::config_file(), replay, headless, save_sessions).await,
+        } => {
+            installer::tidy();
+            session::run(&paths::config_file(), replay, headless, save_sessions).await
+        }
         #[cfg(windows)]
         Run::Detach => adapters::service_windows::detach(),
         Run::Diarize { model } => adapters::diarizer_process::serve(&model),
@@ -646,10 +677,7 @@ async fn main() -> Result<()> {
         Run::BenchPeople { dir, series } => bench::people::run(dir, series).await,
         // The client prints its JSON; its code is the exit status.
         Run::Client(request) => {
-            match lifecycle::ask(&PlatformService, &Address::user(), request).await? {
-                0 => Ok(()),
-                code => std::process::exit(code),
-            }
+            exit_with(lifecycle::ask(&PlatformService, &Address::user(), request).await?)
         }
     };
     // A bad config is the user's to fix: say what is wrong, without a trace.
@@ -660,6 +688,14 @@ async fn main() -> Result<()> {
         std::process::exit(1);
     }
     ran
+}
+
+/// End with exit status `code`: return for 0, so what is owned is dropped.
+fn exit_with(code: i32) -> Result<()> {
+    match code {
+        0 => Ok(()),
+        code => std::process::exit(code),
+    }
 }
 
 /// `eco key`: store or remove a key in the Windows Credential Manager; what
@@ -878,6 +914,44 @@ mod tests {
         assert!(matches!(run(&["stop"]), Run::Stop));
         assert!(matches!(run(&["restart"]), Run::Restart));
         assert_eq!(rejected(&["stop", "now"]), ErrorKind::UnknownArgument);
+    }
+
+    #[test]
+    fn update_installs_the_latest_or_a_version_or_only_checks() {
+        assert!(matches!(
+            run(&["update"]),
+            Run::Update {
+                version: None,
+                check: false
+            }
+        ));
+        assert!(matches!(
+            run(&["update", "--version", "0.3.0"]),
+            Run::Update { version: Some(version), check: false } if version == "0.3.0"
+        ));
+        assert!(matches!(
+            run(&["update", "--check"]),
+            Run::Update {
+                version: None,
+                check: true
+            }
+        ));
+        assert_eq!(
+            rejected(&["update", "--check", "--version", "0.3.0"]),
+            ErrorKind::ArgumentConflict
+        );
+    }
+
+    #[test]
+    fn a_command_that_succeeds_returns_to_drop_what_it_owns() {
+        assert!(exit_with(0).is_ok());
+    }
+
+    #[test]
+    fn version_and_doctor_take_no_arguments() {
+        assert!(matches!(run(&["version"]), Run::Version));
+        assert!(matches!(run(&["doctor"]), Run::Doctor));
+        assert_eq!(rejected(&["doctor", "now"]), ErrorKind::UnknownArgument);
     }
 
     #[test]

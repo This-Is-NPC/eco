@@ -7,9 +7,14 @@ Every command of `eco`, with its arguments and flags. This page is generated:
 when it no longer matches the binary. To change a line here, change the
 command's definition in `src/main.rs` and run `mise run cli:gen`.
 
-The commands reach eco in three ways.
+The commands reach eco in four ways.
 
 - `setup` and `bench` run on their own. They need no daemon.
+- `update`, `version` and `doctor` look after the install, with or without a
+  daemon, and print one JSON object like the commands below. `update` and
+  `version` ask GitHub for the release; `update` has a running daemon install
+  it, so it restarts once no session records, and installs it itself when no
+  daemon answers. `doctor` exits 1 when one of its checks fails.
 - `start`, `stop`, `restart` and `status` manage the daemon. `start` starts the
   `eco.service` user unit through `systemctl --user` when nothing answers on the
   socket, waits for the socket, and opens the window unless `--headless`. `stop`
@@ -70,6 +75,34 @@ Stop the running daemon
 - **Usage**: `eco restart`
 
 Restart the daemon and reopen its window if it was visible
+
+## `eco update`
+
+- **Usage**: `eco update [--version <VERSION>] [--check]`
+
+Install the latest release when it is newer, or the one named; a running daemon installs it and restarts once no session records
+
+### Flags
+
+#### `--version <VERSION>`
+
+The release to install, e.g. 0.5.0; an older one too
+
+#### `--check`
+
+Only say whether a newer release is out
+
+## `eco version`
+
+- **Usage**: `eco version`
+
+Print the installed version, the running daemon's and the newest release's, as JSON
+
+## `eco doctor`
+
+- **Usage**: `eco doctor`
+
+Check that eco is installed, set up and running; prints each check as JSON and exits non-zero when one fails
 
 ## `eco status`
 

@@ -9,6 +9,7 @@ Column {
   property bool advanced: false
   property int unseen: 2
   property bool linkBack: false
+  property bool noticed: true
 
   spacing: 14
 
@@ -103,6 +104,25 @@ Column {
       NewPill {
         count: samples.unseen
         onClicked: samples.unseen = 0
+      }
+    }
+  }
+
+  ControlLabRow {
+    width: parent.width
+    title: I18n.t("lab.notice_chip")
+    Row {
+      spacing: 14
+      Chip {
+        text: I18n.t("lab.show_notice")
+        onClicked: samples.noticed = true
+      }
+      NoticeChip {
+        shown: samples.noticed
+        text: I18n.t("update.notice", { version: I18n.t("lab.sample_version") })
+        tip: I18n.t("update.notice_tip")
+        closeTip: I18n.t("update.dismiss_tip")
+        onDismissed: samples.noticed = false
       }
     }
   }

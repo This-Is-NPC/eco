@@ -203,9 +203,12 @@ eco/
 │   ├── lifecycle.rs         # start, stop and status of the daemon (§15)
 │   ├── setup.rs, skill.rs   # `eco setup`: models, desktop rules, agent skill
 │   ├── import.rs            # a file into a session (§7.7)
+│   ├── installer.rs         # `eco update` and `eco version`: fetch, verify, install (§13)
+│   ├── doctor.rs            # `eco doctor` (§11)
 │   ├── config.rs            # config.toml: schema, validation, atomic save (§9)
 │   ├── paths.rs             # every path eco reads or writes (§8, §15)
 │   ├── session.rs           # adapter composition + orchestration
+│   ├── session/update.rs    # the daily release check, the install, the deferred restart (§13)
 │   ├── ports.rs             # traits
 │   ├── domain/              # segmenter, sessions, assistant, prompts, people, billing
 │   ├── adapters/            # audio, vad, stt, llm, socket, terminal, overlay, files
@@ -747,6 +750,7 @@ below is built in `src/paths.rs` (§15).
 | `~/.local/share/eco/people/<id>.json` | a person: name, color, voiceprints (§7.4) | the daemon |
 | `~/.local/share/eco/people/voices/<session>.json` | the voices of a session's diarized speakers (§7.3) | the daemon |
 | `~/.local/share/eco/models/` | the Silero VAD and WeSpeaker CAM++ models | `eco setup` |
+| `~/.local/state/eco/update.json` | the last check for a release that GitHub answered (§13): `checked_at` (Unix seconds), `latest` (the tag's version) and `notes` (the release page) | the daemon |
 | `$XDG_RUNTIME_DIR/eco.sock` | the socket (§10) | the daemon |
 | `$XDG_RUNTIME_DIR/eco.token` | the token for this run: the windows' (§9), and on Windows every client's admission (§10), `0600`, removed when the daemon exits | the daemon |
 
@@ -765,6 +769,7 @@ and administrators (§15).
 | `~/.local/share/eco/` (sessions, people, voices, models) | `%LOCALAPPDATA%\eco\` |
 | `$XDG_RUNTIME_DIR/eco.sock` | the named pipe `\\.\pipe\eco-<user>`, no file |
 | `$XDG_RUNTIME_DIR/eco.token` | `%LOCALAPPDATA%\eco\eco.token` |
+| `~/.local/state/eco/update.json` (`$XDG_STATE_HOME/eco/` when that is set) | `%LOCALAPPDATA%\eco\update.json` |
 | the journal of `eco.service` | `%LOCALAPPDATA%\eco\daemon.log`, the output of the daemon `eco start` started, emptied at each start |
 | the line `eco setup` adds to `~/.config/hypr/bindings.lua` | nothing: eco does not start at login; `eco setup` removes the `Startup\eco.cmd` an earlier eco wrote |
 | the launcher `eco.desktop` the package installs | `%APPDATA%\Microsoft\Windows\Start Menu\Programs\eco.lnk`, written by `eco setup`: it runs `eco start` through `conhost.exe --headless`, with the icon of `eco-window.exe` |
@@ -888,6 +893,9 @@ kinds = ["meeting"]
 language = "auto"                           # interface language pack, or auto
 hide_from_share = false                     # eco's windows hidden from screen shares (and screenshots)
 tray = false                                # an icon in the system tray (§12.7)
+
+[update]
+check = true                                # once a day, ask GitHub for the latest release's tag (§13); false never asks
 
 [colors]                                    # trace colour per device (optional)
 "@default-input" = "#ffb000"
@@ -1132,8 +1140,21 @@ session it shows:
 {"type":"config_pending","id":"1","hooks":[{"action":"minutes","command":"~/bin/crm-push"}],"files":["~/notes/cv.md"],"models":[{"name":"fast","base_url":"http://192.0.2.10:8000/v1","api_key_env":null,"api_key_omapass":"openrouter","api_key_credential":null}]}
 {"type":"models","target":"llm","models":["..."],"error":"..."}
 {"type":"keys","env":["ECO_LAN_KEY","OPENROUTER_API_KEY"],"credentials":null,"credential_error":""}
+{"type":"update","current":"0.4.0","latest":"0.5.0","newer":true,"notes":"https://github.com/This-Is-NPC/eco/releases/tag/v0.5.0","checked_at":1791083833,"check":true,"error":""}
+{"type":"update_progress","stage":"installing","version":"0.5.0","detail":""}
 {"type":"error","code":"session.none","params":{},"message":"start a session first"}
 ```
+
+`update` is what the daemon knows of releases (§13): the version it runs
+(`current`), the latest release's version (`latest`, `null` before any check
+answered), whether it is `newer`, the release page (`notes`, `""` without
+one), when it last asked (`checked_at`, Unix seconds, or `null`), whether
+`[update] check` is on, and the last check's failure (`error`, `""` when it
+answered). It is sent whenever one of these changes and to every client after
+`snapshot`. `update_progress` follows one install: `stage` is `downloading`,
+`verifying`, `installing`, `waiting` (installed, the restart waits for the
+last live session to end), `restarting`, `done` or `failed`, with `detail`
+saying why it failed.
 
 `window_focus` and `window_share` are window control on Windows (§15), sent
 only there: the window whose process is `pid` comes to the front with the
@@ -1250,6 +1271,19 @@ imported), `import.cancel`, `entry.remove <json>`
 (`{"session","id"}`: an answer or a note of the open session, the one read back,
 or a stored one, whose log gets a `removed` record; clients get `note_removed`
 for a note and `suggestion_removed` otherwise, even when it was already gone)
+`update.check` (asks GitHub now, whatever `[update] check` says, and answers
+`update`), `update.install <json>` (`{"version"}`, optional, the latest when
+absent: installs that release through the installer port, the code `eco
+update` runs, and reports each step as `update_progress`; on Linux `pkexec`
+shows its own password prompt at `installing`), `daemon.restart <json>`
+(`{"force"}`: restarts the daemon as `eco restart` does, by spawning the
+installed `eco restart` detached — on Linux `systemd-run --user --collect
+--quiet <eco> restart`, a transient unit stopping `eco.service` does not take
+with it — and the windows reconnect; without `force`, while a session is live,
+it is refused with `daemon.recording`, and the window asks before it sends
+`force`; a restart that cannot be spawned is `daemon.restart_failed`
+`{detail}`; a second `update.install` while one runs or waits is
+`update.busy`),
 `sync` (no command: the connection answers `synced` to this client alone once
 it has read every line before it, §10) and `stop`.
 
@@ -1312,6 +1346,28 @@ How the commands are built:
   omapass is not installed); a source that could not be listed adds its
   `credential_error` or `omapass_error`. Names only (§9.1). `key set` and
   `key remove` do not talk to the daemon.
+- `update` installs a release (§13): `--check` only asks GitHub and reports
+  `{"current","latest","newer","notes"}`; without it the latest release is
+  installed when it is newer, and `--version <version>` installs that one, an
+  older one too. It prints one JSON object, `{"current","version","installed",
+  "restart"}`, and each step on stderr. A running daemon installs it
+  (`update.install`, §10.2) and restarts on the new version, its window
+  reopened, as `eco restart` does: `restart` is `"now"`, or
+  `"when_session_ends"` while a session records. With no daemon, or one that
+  answers `command.unknown` (a daemon from before updates), the command
+  installs it itself and `restart` is `"none"`. Codes: `update.unavailable`
+  (GitHub could not be asked, or has no such release), `update.failed` (the
+  download, the checksum or the install failed) and `update.busy`.
+- `version` prints `{"installed","daemon","latest","channel"}`: this
+  executable's version, the running daemon's (`null` when none runs), the
+  latest release — what the running daemon last found, `null` before its first
+  check, or with no daemon asked of GitHub — and `"release"`.
+- `doctor` checks the installed files, the VAD and speaker models, that the
+  config loads, that each model's key source resolves (by name; no value is
+  read out), that the daemon runs, and the global shortcuts (Hyprland's binds
+  on Linux, the registered keys on Windows). It prints one JSON object whose
+  list holds `{"check","ok","detail","fix"}` for each, and exits non-zero when
+  any fails.
 - `show` carries the session's speakers and storage path/byte count; `speaker`
   names one speaker, while `assign` can identify one line or every line.
 
@@ -2042,6 +2098,46 @@ writes `dist/SHA256SUMS`, and `scripts/install-windows` runs `install.ps1`
 with `BASE_URL` at `dist`'s `file:` URL; `scripts/uninstall-windows` asks,
 then runs it with `ECO_UNINSTALL`.
 
+**Updates.** eco installs its own releases with the steps of `install.sh` and
+`install.ps1`, written in Rust behind two ports: the release source, GitHub,
+and the installer, one adapter per platform.
+
+- *Knowing.* The daemon asks
+  `https://api.github.com/repos/This-Is-NPC/eco/releases/latest` for the tag
+  and the release page only: one GET with `User-Agent: eco/<version>`, nothing
+  of the user in it, and no telemetry. It asks when it starts if the last
+  check is older than 24 hours, then every 24 hours while it runs, and on
+  `update.check` (§10.2) or `eco update --check`. `[update] check = false`
+  (§9) stops the daily check. The answer is kept in `update.json` in the state
+  directory (§8), `checked_at` and `latest`, so a restart does not ask again,
+  and told to the windows as `update` (§10.1). A network that is down or an
+  answer that does not parse leaves the last state and sets `error`.
+- *Fetching.* `eco update`, or `update.install` from the window, downloads
+  the release's `SHA256SUMS` from
+  `https://github.com/This-Is-NPC/eco/releases/download/<tag>/`, takes from it
+  the line of this system's asset — the `eco-<version>-…pkg.tar.zst` Arch
+  package on Linux, `eco-<version>-windows-x86_64.zip` on Windows, the names
+  `install.sh` and `install.ps1` match — downloads the asset and checks its
+  sha256. On a mismatch nothing is installed and the update fails.
+- *Installing.* On Linux, `pkexec pacman -U --noconfirm <file>`, which shows
+  the desktop's password prompt; without `pkexec` and with a terminal
+  attached, `sudo pacman -U`. On Windows, `%LOCALAPPDATA%\Programs\eco` is
+  replaced with the zip's `eco` folder, as `install.ps1` does; the running
+  `eco.exe` cannot be overwritten, so every file of the folder is renamed
+  aside first, `<file>.<id>.eco-old`, and deleted at once when nothing holds
+  it, else when the daemon next starts (`installer::tidy`). The Start-menu
+  shortcut and the `PATH` entry are left as they are. The package is
+  downloaded into a folder of its own under the temporary directory, deleted
+  when the install ends.
+- *Restarting.* Then the daemon restarts on the new binary, as `eco restart`
+  does, and a window that was open reopens. The restart never cuts a
+  recording: while a session is live it waits (`update_progress` stage
+  `waiting`, "restarts when the session ends") and runs once the last live
+  session, recording or paused, ends; the daemon looks after every command it
+  reads. On Linux the restart runs in a transient unit, `systemd-run --user
+  --collect --quiet <eco> restart`, where `<eco>` is the running executable's
+  path without the ` (deleted)` Linux adds once pacman replaced it.
+
 **Releases.** Commits follow Conventional Commits, and release-please reads
 them (`release-please-config.json`, `.release-please-manifest.json`). Every
 pull request merged into `master` runs `.github/workflows/release.yml`, which
@@ -2135,7 +2231,8 @@ leaves sessions, config, models and the agent skill.
   models over HTTP is reached through the same adapters as any provider.
 - Transcripts stay local in `~/.local/share/eco/`; `--no-save` keeps a session
   in memory only. Secrets are never logged, nor transcript text at info level.
-  No telemetry.
+  No telemetry: the one request eco makes of its own is the daily GET for the
+  latest release's tag (§13), which `[update] check = false` turns off.
 
 The targets the design is held to:
 
@@ -2343,4 +2440,5 @@ adapter lives on each platform today.
 | Shortcuts | a global Hyprland bind that runs an `eco window` command, which sends one line to the socket and returns once the daemon has read it: `window.call` for those that open a view, the daemon giving that window the keyboard | the daemon registers `[shortcuts]` (§9) itself, `Win+Alt+A`, `Q`, `C`, `N`, `P`, `H` and `E` by default, the keys of `eco.lua` with the Windows key for SUPER, none of them one Microsoft documents for Windows (`Win+Alt` with a digit opens a taskbar jump list, and was refused on a desktop; the Game Bar holds `G`, `M`, `R` and `T`; Omarchy binds `SUPER+ALT+1` to `5` to a group's windows), through the `windows-hotkeys` crate: `RegisterHotKey` on a hidden message-only window of a thread of its own, which waits for `WM_HOTKEY` in the crate's loop. A pressed key hands the daemon's loop the very line `eco window` builds (`cli::Window::line`), so it is routed as the command would be. A key the system refuses, another program holding it, is written to the daemon's log and greets every client as an `error` with the code `shortcut.unavailable`, which names the config's path, to be created if missing, as the settings window has no place for shortcuts; the others still work. Chosen over `global-hotkey`, which registers the same way but leaves the message loop to the application, and that loop is `unsafe` code eco forbids, and over `livesplit-hotkey`, which installs a low-level keyboard hook: it sees every key pressed in every program, passes the shortcut on to the program in front as well (Win+Alt+1 would also open the first taskbar program's jump list) and cannot tell a key another program holds (read in the crates' sources). The keys are read when the daemon starts. Over ssh the system refuses every key: that session has no interactive window station (`RegisterHotKey` fails with error 1459, `ERROR_REQUIRES_INTERACTIVE_WINDOWSTATION`, measured), so each is reported; on a desktop, `Win+Alt+C`, `N`, `H` and `E` registered and worked when pressed (seen in a desktop test). `eco window` works as on Linux, knowing the daemon has read its line from the `synced` answer to `sync` (§10) | `packaging/hypr/eco.lua`, `src/cli.rs`, `src/shortcuts.rs`, `src/adapters/shortcuts_windows.rs` |
 | The hook shell | `shell()` runs each hook with `sh -c` | `shell()` runs each hook with `cmd /S /C "<command>"`, the command handed over as written, for cmd does not read its line by the quoting rules other programs use; a hook reads `%ECO_SESSION%` and `%ECO_TITLE%`. cmd is on every Windows | `src/adapters/hook_shell.rs` |
 | The omapass keyring | `api_key_omapass` reads a key through the omapass CLI | omapass does not exist: it is never installed, and a key from it fails | `src/adapters/omapass.rs` |
+| Installing a release | `pkexec pacman -U --noconfirm` on the Arch package, else `sudo pacman -U` from a terminal; Hyprland's binds are what `eco doctor` checks for shortcuts | `%LOCALAPPDATA%\Programs\eco` replaced in place, the running `eco.exe` renamed aside and deleted at the next start; the registered keys are what `eco doctor` checks | `src/ports.rs` (`Releases`, `Installer`), `src/installer.rs`, `src/adapters/releases_github.rs`, `src/adapters/installer_linux.rs`, `src/adapters/installer_windows.rs`, `src/session/update.rs`, `src/doctor.rs` (§13) |
 | The Windows Credential Manager | none: `api_key_credential` and `eco key set`/`remove` fail, naming omapass and the environment; the `keys` event's `credentials` is `null` | `api_key_credential` reads the generic credential `eco:<name>`; `eco key set`/`remove` write and delete it; the `keys` command lists them by name (§9.1) | `src/adapters/credentials.rs` |

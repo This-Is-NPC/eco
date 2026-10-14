@@ -82,6 +82,12 @@ impl<V: Fn(&str) -> Option<OsString>> Layout<V> {
         self.runtime_dir().join("eco.sock")
     }
 
+    fn update_state(&self) -> PathBuf {
+        self.base("XDG_STATE_HOME", ".local/state")
+            .join("eco")
+            .join("update.json")
+    }
+
     fn token_path(&self) -> PathBuf {
         self.runtime_dir().join("eco.token")
     }
@@ -132,6 +138,10 @@ impl<V: Fn(&str) -> Option<OsString>> Layout<V> {
 
     fn token_path(&self) -> PathBuf {
         self.data_dir().join("eco.token")
+    }
+
+    fn update_state(&self) -> PathBuf {
+        self.data_dir().join("update.json")
     }
 
     fn daemon_log(&self) -> PathBuf {
@@ -222,6 +232,11 @@ pub fn socket_path() -> PathBuf {
     layout().socket_path()
 }
 
+/// Where the daemon keeps what its last check for a newer release found.
+pub fn update_state() -> PathBuf {
+    layout().update_state()
+}
+
 /// Where a running daemon keeps the windows' token, for a window it did not start.
 pub fn token_path() -> PathBuf {
     layout().token_path()
@@ -299,6 +314,11 @@ mod tests {
         }
     }
 
+    #[test]
+    fn the_update_state_is_eco_s_own_file() {
+        assert!(update_state().ends_with(Path::new("eco").join("update.json")));
+    }
+
     #[cfg(unix)]
     fn all(layout: &Layout<impl Fn(&str) -> Option<OsString>>) -> Vec<PathBuf> {
         vec![
@@ -310,6 +330,7 @@ mod tests {
             layout.sessions_dir(),
             layout.socket_path(),
             layout.token_path(),
+            layout.update_state(),
             layout.omapass_plugin(),
             layout.expand("~/cv.md"),
             layout.expand("/etc/cv.md"),
@@ -324,6 +345,7 @@ mod tests {
             ("XDG_CONFIG_HOME", "/cfg"),
             ("XDG_DATA_HOME", "/data"),
             ("XDG_RUNTIME_DIR", "/run/user/1000"),
+            ("XDG_STATE_HOME", "/state"),
         ]);
         let expected = [
             "/cfg/eco/config.toml",
@@ -334,6 +356,7 @@ mod tests {
             "/data/eco/sessions",
             "/run/user/1000/eco.sock",
             "/run/user/1000/eco.token",
+            "/state/eco/update.json",
             "/home/you/.config/omarchy/plugins/io.github.this-is-npc.omapass/bin/omapass",
             "/home/you/cv.md",
             "/etc/cv.md",
@@ -354,6 +377,7 @@ mod tests {
             "/home/you/.local/share/eco/sessions".into(),
             format!("{runtime}/eco.sock"),
             format!("{runtime}/eco.token"),
+            "/home/you/.local/state/eco/update.json".into(),
             "/home/you/.config/omarchy/plugins/io.github.this-is-npc.omapass/bin/omapass".into(),
             "/home/you/cv.md".into(),
             "/etc/cv.md".into(),
@@ -365,6 +389,7 @@ mod tests {
             ("XDG_CONFIG_HOME", ""),
             ("XDG_DATA_HOME", ""),
             ("XDG_RUNTIME_DIR", ""),
+            ("XDG_STATE_HOME", ""),
         ]);
         assert_eq!(all(&unset), expected);
         assert_eq!(all(&empty), expected);
@@ -416,6 +441,7 @@ mod tests {
             layout.socket_path(),
             layout.token_path(),
             layout.daemon_log(),
+            layout.update_state(),
             layout.startup_dir(),
             layout.start_menu_dir(),
             layout.expand("~/cv.md"),
@@ -429,6 +455,7 @@ mod tests {
             r"\\.\pipe\eco-you",
             r"C:\Users\you\AppData\Local\eco\eco.token",
             r"C:\Users\you\AppData\Local\eco\daemon.log",
+            r"C:\Users\you\AppData\Local\eco\update.json",
             r"C:\Users\you\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup",
             r"C:\Users\you\AppData\Roaming\Microsoft\Windows\Start Menu\Programs",
             r"C:\Users\you\cv.md",

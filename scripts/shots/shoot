@@ -44,6 +44,8 @@ SHORT = (420, 480)
 SETTINGS = (1040, 760)
 # Taller, for the sections whose tables hold every row only so: Audio and General.
 SETTINGS_TALL = (1040, 920)
+# Taller still, for General, whose table ends with UPDATES.
+SETTINGS_GENERAL = (1040, 1130)
 # The live session's lines, answers and note, from fixtures: nothing transcribes.
 LIVE = json.loads((FIXTURES / "live.json").read_text())
 # What comes after them: a sent and an unsent hook, a failed answer and one thinking.
@@ -605,8 +607,17 @@ def scenes(w, shots, stop):
     section("skills")
     shots.take("50-settings-skills", "settings")
     item("skills", "reply", "51", "skill", ("52", "skill-edit"))
-    shots.size(*SETTINGS_TALL, which="settings")
+    shots.size(*SETTINGS_GENERAL, which="settings")
     section("general")
+    # UPDATES as with the latest release running: the fixture keeps the daemon
+    # from asking GitHub, so the switch and the version row are set here, in
+    # the window only; nothing is saved.
+    shots.until("Eco.updateState !== null", "the daemon's version")
+    w.do(
+        "Eco.config = Object.assign({}, Eco.config, { update: { check: true } });"
+        " Eco.handle(Object.assign({}, Eco.updateState,"
+        " { latest: Eco.updateState.current, newer: false, check: true, error: '' }))"
+    )
     shots.take("53-settings-general", "settings")
     shots.size(*SETTINGS, which="settings")
     # A new model saved with nothing filled is refused before it is sent.

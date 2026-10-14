@@ -23,7 +23,8 @@ Codes: `argument.invalid`, `daemon.offline`, `daemon.access_denied`, `daemon.una
 `session.not_found`, `session.invalid`, `session.delete_failed`, `action.unknown`,
 `chat.none`, `translation.none`, `completion.failed`, `suggestion.removed`, `import.busy`, `import.failed`, `import.no_ffmpeg` (install ffmpeg and ffprobe),
 `person.not_found`, `person.invalid`, `person.exists`, `people.failed`,
-`line.not_found`.
+`line.not_found`, `update.unavailable` (GitHub could not be asked),
+`update.failed`, `update.busy`.
 
 The commands talk to the running eco daemon. On `daemon.offline`, tell the
 user; run `eco start --headless` only if they agree. On
@@ -34,6 +35,25 @@ On `argument.invalid`, an argument held a line break (a line feed or a
 carriage return) and nothing was sent; pass ids and names on one line.
 `eco status` checks whether the daemon is running. `eco stop` and `eco restart`
 control it; use them only when the user asks.
+
+## Version and health
+
+```bash
+eco version          # {installed, daemon, latest, channel}; daemon is null when none runs
+eco doctor           # [{check, ok, detail, fix}]; exit status non-zero when a check fails
+eco update --check   # whether a newer release is out; installs nothing
+```
+
+`eco doctor` checks the installed files, the VAD and speaker models (`eco
+setup` downloads them), that the config loads, that each model's key source
+resolves (by name only; it prints no key), that the daemon runs and the global
+shortcuts. When something fails, tell the user its `fix`; do not apply it on
+your own. `eco update` (the latest) and `eco update --version X` install a
+release and restart eco, which may ask the user for their password: run them
+only when the user asks for the update. They print `{current, version,
+installed, restart}`: `restart` is `now`, `when_session_ends` (a session that
+records is never cut; the restart waits for it to end) or `none` (no daemon
+restarted).
 
 ## Read
 
