@@ -1,6 +1,7 @@
 import QtQuick
 import Eco.Core
 import Eco.Live
+import Eco.Settings
 
 // Overlay views driven as the daemon drives them, run by tests/window.rs: each
 // check that fails is printed, and the exit status is how many failed.
@@ -43,6 +44,25 @@ Item {
     stamp: "10:00:00"
   }
 
+  // An item of the settings with nothing related, and one with a link.
+  ItemPage {
+    id: alone
+    width: root.width
+    height: 300
+    title: "INTERFACE"
+    facts: [["language", "English"]]
+    related: [{ title: "Models", items: [] }]
+  }
+  ItemPage {
+    id: linked
+    width: root.width
+    height: 300
+    kind: "model"
+    title: "m"
+    facts: [["type", "chat"]]
+    related: [{ title: "Answers", items: [{ section: 3, id: "assistant", text: "ASSISTANT" }] }]
+  }
+
   Timer {
     interval: 50
     running: true
@@ -67,6 +87,9 @@ Item {
       Eco.handle({ type: "error", code: "import.failed", params: { detail: "bad.mp4" }, message: "import: bad.mp4" })
       Eco.handle({ type: "session", live: [] })
       root.check("an import error stays when a session ends", Eco.message !== "")
+      // RELATED shows only when something is related.
+      root.check("an item with nothing related has no RELATED", !root.shows(alone, I18n.t("settings.related").toUpperCase()))
+      root.check("an item with a link has RELATED", root.shows(linked, I18n.t("settings.related").toUpperCase()))
       Qt.exit(root.failed)
     }
   }

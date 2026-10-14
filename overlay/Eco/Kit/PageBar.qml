@@ -3,38 +3,29 @@ import QtQuick
 import Eco.Core
 import QtQuick.Layouts
 
-// PageBar is the command bar beside a TabRail's head, which names the page:
-// the commands of the page on screen, which slide in when the page changes,
-// ranked, and at its end the app's readout. BACK stands first, apart; then
-// the page's main action, solid; then the others, outlined, those of one
-// `group` joined as one control whose `checked` one is lit; then, at the end,
-// its tools (`place: "end"`), each only an icon with its name in the tip.
-// When the names do not fit, each action but the main one shows only its
-// icon, or its short name when it has none, and BACK only its chevron; on a
-// bar narrower still, the main one too, and narrower again one menu button
-// holds them all, BACK first.
+// PageBar is the command bar over a page: the commands of the page on screen,
+// which slide in when the page changes, ranked. BACK stands first, apart; then
+// the page's main action, solid, on the left; across a gap, on the right, the
+// others, outlined, the guarded ones last (CommandRow). When the names do not
+// fit, each action but the main one shows only its icon, or its short name
+// when it has none, and BACK only its chevron; on a bar narrower still, the
+// main one too, and narrower again one menu button holds them all, BACK first.
 Rectangle {
   id: bar
 
-  // [{text, short, icon, tip, role, tone, group, checked, place, enabled,
-  // run, shown}], in order; role is "back", "primary", "guarded" or left out.
+  // [{text, short, icon, tip, role, tone, group, checked, enabled, run,
+  // shown}], in order; role is "back", "primary", "guarded" or left out.
   property var commands: []
   // Changes when the page does, so the commands arrive again.
   property int section: 0
-  // The readout: the app's last message, whether it is an error, whether the
-  // server is unreachable, and how many messages it has given.
-  property string message: ""
-  property bool error: false
-  property bool offline: false
-  property int notices: 0
 
   readonly property var shown: commands.filter(command => command.shown !== false)
   readonly property var back: shown.find(command => command.role === "back") || null
-  readonly property var tools: shown.filter(command => command.place === "end")
-  // The page's actions, in their order.
-  readonly property var actions: shown.filter(command => command.role !== "back" && command.place !== "end")
-  // The room the actions have beside the tools, and BACK, as only its chevron.
-  readonly property real room: width - 40 - toolRow.width - (back !== null ? 53 : 0)
+  readonly property var actions: shown.filter(command => command.role !== "back")
+  // The least gap between the main action and the others.
+  readonly property real gap: 24
+  // The room the actions have beside BACK as only its chevron and its rule.
+  readonly property real room: width - 16 - (back !== null ? 32 + 21 : 0) - gap
 
   color: Qt.alpha(Theme.background, 0.9)
   border.color: Theme.line
@@ -53,7 +44,7 @@ Rectangle {
   }
 
   RowLayout {
-    anchors { fill: parent; leftMargin: 8; rightMargin: 12 }
+    anchors { fill: parent; leftMargin: 8; rightMargin: 8 }
     spacing: 10
 
     TraceButton {
@@ -79,9 +70,11 @@ Rectangle {
     CommandRow {
       id: contextual
       Layout.alignment: Qt.AlignVCenter
+      Layout.fillWidth: true
+      spread: true
       commands: bar.actions
-      // Named while the names leave BACK its name and the readout its room.
-      room: bar.room - (bar.back !== null ? backMeasure.implicitWidth - 32 : 0) - 200
+      // Named while the names leave BACK its name.
+      room: bar.room - (bar.back !== null ? backMeasure.implicitWidth - 32 : 0)
       fit: bar.room
       iconsWhenTight: true
       folds: bar.back !== null ? [Object.assign({ icon: "chevron-left" }, bar.back)] : []
@@ -92,35 +85,6 @@ Rectangle {
       id: arrive
       NumberAnimation { target: contextual; property: "opacity"; from: 0; to: 1; duration: 200; easing.type: Easing.OutCubic }
       NumberAnimation { target: shift; property: "x"; from: 16; to: 0; duration: 260; easing.type: Easing.OutCubic }
-    }
-
-    Item { Layout.fillWidth: true }
-
-    StatusLine {
-      Layout.alignment: Qt.AlignVCenter
-      message: bar.message
-      error: bar.error
-      offline: bar.offline
-      count: bar.notices
-      maxWidth: Math.max(0, bar.width - contextual.width - toolRow.width - 140)
-    }
-
-    Row {
-      id: toolRow
-      Layout.alignment: Qt.AlignVCenter
-      spacing: 6
-      Repeater {
-        model: bar.tools
-        delegate: IconButton {
-          required property var modelData
-          name: modelData.icon || "more"
-          tip: modelData.tip || modelData.text
-          tone: modelData.tone || Theme.primary
-          enabled: modelData.enabled !== false
-          opacity: enabled ? 1 : 0.35
-          onClicked: modelData.run()
-        }
-      }
     }
   }
 }

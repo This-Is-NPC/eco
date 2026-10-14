@@ -151,6 +151,14 @@ eco context c7fe3528d507 --add resume       # turn one on
 eco context c7fe3528d507 --remove resume    # and off
 ```
 
+The files are set in **Settings › Answers**. Open **global context**, or a
+slot, and press **ADD FILE**: type the file's **PATH** and press **ADD FILE**,
+or **BROWSE** and choose files, which are added at once. Pick a file in the
+item's **FILES** table for **MOVE UP**, **MOVE DOWN** (they are sent in that
+order) or **REMOVE**; each saves at once. A new slot comes from **ADD CONTEXT
+SLOT**: its name and the kinds it is on from the start in, **SAVE**, then its
+files.
+
 Context files are read when the daemon builds its setup: an edit to one counts
 once the settings are saved or the daemon restarts.
 

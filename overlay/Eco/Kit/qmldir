@@ -40,7 +40,6 @@ PickRow 1.0 PickRow.qml
 PopupFrame 1.0 PopupFrame.qml
 ProgressTrack 1.0 ProgressTrack.qml
 ScrollPage 1.0 ScrollPage.qml
-SettingsList 1.0 SettingsList.qml
 SettingsTextArea 1.0 SettingsTextArea.qml
 ShortcutsDialog 1.0 ShortcutsDialog.qml
 Stage 1.0 Stage.qml

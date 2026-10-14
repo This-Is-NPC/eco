@@ -18,7 +18,6 @@ ItemPage {
     return code === "auto" ? I18n.t("interface.auto") : (I18n.packs[code] ? I18n.packs[code]._name : code)
   }
 
-  kind: I18n.t("section.config")
   title: section.name.toUpperCase()
   draft: ItemDraft { id: item; paths: ["ui"] }
   facts: [

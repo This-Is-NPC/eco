@@ -15,8 +15,7 @@ ItemPage {
 
   readonly property string unavailable: Eco.echoCancelError ? I18n.t("error." + Eco.echoCancelError) : ""
 
-  kind: I18n.t("section.config")
-  title: I18n.t("audio.echo")
+  title: I18n.t("audio.echo").toUpperCase()
   draft: ItemDraft { id: item; paths: ["audio"] }
   facts: ["drop_echoes", "echo_cancel"].map(key => [I18n.t("audio." + key),
     settings.onOff(section.echoOn(config, key)) + (key === "echo_cancel" && unavailable ? "  ·  " + unavailable : "")])

@@ -12,9 +12,15 @@ Row {
   property bool offline: !Eco.connected
   // The message shortens before anything around it does.
   property real maxWidth: 380
+  // The height of the message's box, as the line it sits on allows.
+  property real boxHeight: 42
   spacing: 10
-  // Without a message or a warning it takes no room, not even a layout's spacing.
-  visible: (message.length > 0 && session.opacity > 0) || offline
+  // The least room a message shows in; with less it takes none.
+  property real minWidth: 0
+  // Without a message or a warning it takes no room, not even a layout's
+  // spacing; nor does a message with less than `minWidth` to say it in.
+  readonly property bool telling: message.length > 0 && maxWidth >= minWidth
+  visible: (telling && session.opacity > 0) || offline
 
   // A new notice shows and starts fading; a language switch only rewrites it.
   property int count: Eco.noticeCount
@@ -24,7 +30,8 @@ Row {
   StatusMessage {
     id: session
     width: line.maxWidth
-    visible: line.message.length > 0
+    height: line.boxHeight
+    visible: line.telling
     Behavior on opacity { NumberAnimation { duration: 400 } }
     message: line.message
     kind: line.error ? "error" : "info"

@@ -39,30 +39,34 @@ step 4.
 
 ## 2. Add yourself
 
-**ADD AUDIO SOURCE** opens a new audio source, being edited. Type its **NAME**:
-`Me`.
+**ADD AUDIO SOURCE** opens a new audio source, being edited. It holds two
+things: its **NAME**, and **THIS IS ME**. Type `Me`, then press **THIS IS ME**.
+It turns into **YOU**: your lines show on the right of the conversation, and the
+model is told they are yours. Only one audio source can be you.
 
-**ADD DEVICE** lists every microphone (`MIC`) and output (`OUT`) PipeWire has
-that this source does not, and who holds each one now. Pick **Default
-microphone**. It follows whatever microphone the system uses, so plugging in a
-headset needs no change here.
+**SAVE**, or `Ctrl+S`. The status line says `settings saved`, and the source
+shows read: ABOUT with its name and whether it is you, and under it the table
+**DEVICES**, empty for now: `No device assigned: nothing of this audio source
+is heard.`
 
-![An audio source "Them" being edited: SAVE and CANCEL in the bar; NAME "Them"; THIS IS ME, dim, beside what it means; under DEVICES "OUT Default output" with its colour square and ×; and the ADD DEVICE list open: "MIC Default microphone · Me" (held by Me), "MIC H390 headset microphone", "OUT H390 headset" and "MIC Built-in microphone".](img/40-settings-audio-source.png)
+**ADD DEVICE** in the bar opens a screen inside the source: a table of every
+microphone (`MIC`) and output (`OUT`) PipeWire has that this source does not,
+with **HEARD AS**, the source that has it now, or `—`.
 
-Picking a device another source holds moves it here: a device has one owner.
+![The ADD DEVICE screen inside the audio source "Them": THEM over the title ADD DEVICE; the bar with BACK and ADD DEVICE; "The devices this audio source is not heard through. A device has one owner: one another audio source has is taken from it."; a table NAME · KIND · HEARD AS with Default microphone (MIC, Me, picked), H390 headset microphone (MIC, —), H390 headset (OUT, —) and Built-in microphone (MIC, —).](img/40-settings-audio-source.png)
 
-Then press **THIS IS ME**. It turns into **YOU**: your lines show on the right of
-the conversation, and the model is told they are yours. Only one audio source
-can be you.
+Pick **Default microphone** and press **ADD DEVICE**, or `Enter`. It saves at
+once, the daemon restarts capture with the new device, and you are back on the
+source with the device picked in its table. Default microphone follows whatever
+microphone the system uses, so plugging in a headset needs no change here.
+Adding a device another source has moves it here: a device has one owner.
 
-**SAVE**, or `Ctrl+S`. The status line says `settings saved`, the daemon
-restarts capture with the new source, and the source shows read. **BACK**
-returns to the table.
+**BACK** returns to the table of sources.
 
 ## 3. Add everybody else
 
-**ADD AUDIO SOURCE** again: `Them`, with **Default output**, and **SAVE**. That
-is what the laptop plays — the call, whatever app it is in. An output device is
+**ADD AUDIO SOURCE** again: `Them`, **SAVE**, then **ADD DEVICE** and **Default
+output**. That is what the laptop plays — the call, whatever app it is in. An output device is
 captured as what it plays, not as a microphone.
 
 **One output is usually enough.** Every voice on the call arrives through it as
@@ -75,9 +79,17 @@ the voices in that stream apart and splits its lines into `Speaker 1`,
 captured on its own and each labelled with the source's name. A device belongs
 to one source only; ADD DEVICE shows who has it.
 
-**A colour per device.** The square at the left of a device picks the colour of
-its trace, everywhere a trace is drawn, so you can tell which input hears sound
-by colour alone.
+**A colour per device.** Pick a device in the source's table and press
+**COLOUR**: its own screen holds the colour picker, then **SAVE**. That colour
+is its trace's, everywhere a trace is drawn, and its lines', so you can tell
+which input hears sound by colour alone. AUTOMATIC takes one by the device's
+place among those captured. While a session captures, the source's read screen
+shows each of its devices under **HEARD NOW** with its live trace.
+
+**Taking a device off.** Pick it in the source's table and press **REMOVE**, or
+`Delete`. It saves at once; it asks first when the source would be left with no
+device, or when it was the last output any source had: `Nobody else is heard:
+no other audio source has an output device.`
 
 **A device plugged in since the settings opened** shows once you press
 **REFRESH DEVICES** in the table's bar.
@@ -100,8 +112,9 @@ Open **YOUR MICROPHONE**, then **EDIT**:
 
 ## 5. Watch the traces
 
-Each item saved restarted capture. Close the settings (**CLOSE**, or Esc until
-they close); with an item still unsaved, closing asks whether to save it first.
+Each item saved restarted capture. Close the settings (**×** in the window's
+top-right corner, or Esc until they close); with an item still unsaved, closing
+asks whether to save it first.
 
 Back on the start screen, each device draws its trace in its colour: flat in
 silence, swinging with sound, dashed when the device sends nothing at all.

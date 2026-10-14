@@ -5,8 +5,9 @@ import Eco.Core
 import Eco.Kit
 
 // SlotView is one context slot: the files a session sends with its answers
-// while the slot is on there, and the session kinds it starts on in, each a
-// link. Edited: its name, its files and those kinds. A new slot starts empty.
+// while the slot is on there, a child table whose rows are added, moved and
+// removed, each saved at once, and the session kinds it starts on in, each a
+// link. Edited: its name and those kinds. A new slot gets files once saved.
 ItemPage {
   id: page
 
@@ -33,13 +34,13 @@ ItemPage {
   draft: ItemDraft { id: item; paths: page.at >= 0 ? [page.path] : [] }
   Component.onCompleted: if (fresh) item.begin(d => d.contexts = (d.contexts || []).concat([{ name: "", files: [], kinds: [] }]))
 
-  facts: [
-    [I18n.t("contexts.files"), slot.files.join("\n")],
-    [I18n.t("contexts.kinds"), section.kindNames(slot.kinds)]
-  ]
+  facts: [[I18n.t("contexts.kinds"), section.kindNames(slot.kinds)]]
   details: [ItemNote { text: I18n.t("answers.slot_note") }]
   related: [{ title: settings.sections[settings.at.sessions].name,
     items: slot.kinds.map(kind => settings.link(settings.at.sessions, kind, section.kindName(kind))) }]
+  tables: fresh ? [] : [section.filesTable(slot.files, section.slotName(key), addFile)]
+
+  property Component addFile: AddFileScreen { slot: page.section.slotName(page.key) }
 
   Field {
     Layout.fillWidth: true
@@ -48,15 +49,6 @@ ItemPage {
     placeholder: I18n.t("answers.slot_new")
     error: item.errors[page.path] || ""
     onEdited: text => page.change("name", text)
-  }
-  SettingsList {
-    Layout.fillWidth: true
-    label: I18n.t("contexts.files")
-    items: page.slot.files
-    placeholder: I18n.t("settings.file_placeholder")
-    browse: true
-    nameFilters: Eco.textFileFilters()
-    onChanged: items => page.change("files", items)
   }
   ColumnLayout {
     Layout.fillWidth: true
@@ -79,4 +71,5 @@ ItemPage {
     }
   }
   ItemNote { text: I18n.t("answers.slot_note") }
+  ItemNote { visible: page.fresh; text: I18n.t("contexts.slot_files_later") }
 }

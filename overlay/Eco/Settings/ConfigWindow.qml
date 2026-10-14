@@ -3,10 +3,10 @@ import QtQuick
 import Eco.Core
 import Eco.Kit
 
-// ConfigWindow is the settings: the sections a carousel down the left, the one
-// on screen at its head beside the bar of its commands, and under the bar the
-// section itself (SettingsView), where each item is saved on its own; the
-// daemon validates each save, writes config.toml and restarts capture.
+// ConfigWindow is the settings: the sections down the left, beside them the
+// bar of the commands of the one on screen, and under the bar the section
+// itself (SettingsView), where each item is saved on its own; the daemon
+// validates each save, writes config.toml and restarts capture.
 Window {
   id: window
 
@@ -36,12 +36,12 @@ Window {
 
   property int page: 0
 
-  // Chooses a section and gives it the keyboard, so the carousel folds away.
-  function choose(index) {
+  // Chooses a section and gives it the keyboard, unless the keyboard is to
+  // stay where it is, as on the rail.
+  function choose(index, stay) {
     settings.forget()
     page = (index + settings.sections.length) % settings.sections.length
-    rail.pinned = false
-    Qt.callLater(settings.takeFocus)
+    Qt.callLater(stay ? () => rail.forceActiveFocus() : settings.takeFocus)
   }
   function attemptClose() {
     if (dirty)
@@ -57,7 +57,7 @@ Window {
   }
 
   Shortcut { sequences: ["?", "F1"]; onActivated: shortcuts.open() }
-  // Ctrl with 1 to 8 chooses a section; Ctrl+Tab and Ctrl+Shift+Tab turn the carousel.
+  // Ctrl with 1 to 8 chooses a section; Ctrl+Tab and Ctrl+Shift+Tab the next or the one before.
   Repeater {
     model: settings.sections.length
     delegate: Item {
@@ -76,15 +76,32 @@ Window {
     focus: true
     Keys.onEscapePressed: window.attemptClose()
 
-    Masthead {
-      id: masthead
-      anchors { left: parent.left; right: parent.right; top: parent.top }
-      section: I18n.t("section.config")
+    // Declared in the order Tab follows: the rail, the bar, the section, the
+    // window's close.
+    TabRail {
+      id: rail
+      anchors.top: masthead.bottom
+      anchors.topMargin: 20
+      labelled: window.width >= 760
+      // The tabs shorten on a short window, down to a least height.
+      tabHeight: Math.max(20, Math.min(34, (window.height - 56 - masthead.height - 20) / settings.sections.length - 5))
+      // A section with an item whose changes are not saved is marked.
+      tabs: settings.sections.map((section, index) => ({ name: section.name, marked: settings.unsaved.includes(index) }))
+      current: window.page
+      onChosen: index => window.choose(index, rail.activeFocus)
     }
 
-    // The section on screen, framed beside the carousel and under its bar.
+    PageBar {
+      id: bar
+      anchors { left: rail.right; leftMargin: 16; right: parent.right; top: rail.top }
+      height: 44
+      commands: settings.commands
+      section: window.page
+    }
+
+    // The section on screen, beside the rail and under its bar.
     Rectangle {
-      anchors { left: parent.left; leftMargin: rail.foldedWidth + 16; right: parent.right; top: bar.bottom; topMargin: 16; bottom: parent.bottom }
+      anchors { left: bar.left; right: parent.right; top: bar.bottom; topMargin: 16; bottom: parent.bottom }
       color: "transparent"
       border.color: Theme.line
 
@@ -97,28 +114,18 @@ Window {
       }
     }
 
-    TabRail {
-      id: rail
-      anchors.top: masthead.bottom
-      anchors.topMargin: 20
-      // Over the bar and the section while it unfolds.
-      z: 1
-      // A section with an item whose changes are not saved is marked.
-      tabs: settings.sections.map((section, index) => ({ name: section.name, marked: settings.unsaved.includes(index) }))
-      current: window.page
-      onChosen: index => window.choose(index)
-    }
-
-    PageBar {
-      id: bar
-      anchors { left: parent.left; leftMargin: rail.foldedWidth + 16; right: parent.right; top: rail.top }
-      height: rail.headHeight
-      commands: settings.commands.concat([{ text: I18n.t("settings.close"), icon: "close", place: "end", run: () => window.attemptClose() }])
-      section: window.page
-      message: Eco.message
-      error: Eco.messageIsError
-      offline: !Eco.connected
-      notices: Eco.noticeCount
+    // The top line: the app's last message, while there is one, and the
+    // window's close in the corner.
+    Masthead {
+      id: masthead
+      anchors { left: parent.left; right: parent.right; top: parent.top }
+      section: I18n.t("section.config")
+      StatusLine { message: Eco.message; error: Eco.messageIsError; maxWidth: Math.min(480, window.width - 260); minWidth: 90; boxHeight: 28 }
+      IconButton {
+        name: "close"
+        tip: I18n.t("settings.close").toLowerCase()
+        onClicked: window.attemptClose()
+      }
     }
   }
 

@@ -44,6 +44,22 @@ SettingsSection {
   function slotId(name) { return "slot:" + name }
   function slotName(id) { return id.slice("slot:".length) }
   function files(list) { return I18n.t("contexts.files_count", { n: list.length }) }
+  // The child table of the files `list` of a context, sent in this order: the
+  // global one when `slot` is "", else the slot named so; `screen` adds files.
+  function filesTable(list, slot, screen) {
+    return {
+      name: "files",
+      title: I18n.t("contexts.files"),
+      empty: I18n.t("contexts.files_none"),
+      columns: [{ title: I18n.t("contexts.column_path"), weight: 1 }],
+      stacked: [[0]],
+      rows: list.map(path => ({ id: path, cells: [path] })),
+      add: { text: I18n.t("contexts.add_file"), tip: I18n.t("contexts.add_file_tip"), screen: screen },
+      remove: row => ({ question: "", change: d => Draft.removeFile(d, slot, row.id) }),
+      move: { up: I18n.t("contexts.file_move_up_tip"), down: I18n.t("contexts.file_move_down_tip"),
+        change: (d, row, step) => Draft.moveFile(d, slot, row.id, step) }
+    }
+  }
   function kindName(kind) { return Eco.kindName(kind).toUpperCase() }
   function kindNames(kinds) { return kinds.map(kindName).join(", ") }
   // How much context the assistant takes, and how many answers run at once.

@@ -1,7 +1,9 @@
 module Eco.Settings
+AddFileScreen 1.0 AddFileScreen.qml
 AnswersSection 1.0 AnswersSection.qml
 AssistantView 1.0 AssistantView.qml
 AudioSection 1.0 AudioSection.qml
+ChildScreen 1.0 ChildScreen.qml
 ConfigWindow 1.0 ConfigWindow.qml
 EchoView 1.0 EchoView.qml
 GlobalContextView 1.0 GlobalContextView.qml
@@ -10,6 +12,7 @@ InterfaceView 1.0 InterfaceView.qml
 ItemDraft 1.0 ItemDraft.qml
 ItemNote 1.0 ItemNote.qml
 ItemPage 1.0 ItemPage.qml
+ItemText 1.0 ItemText.qml
 KindModels 1.0 KindModels.qml
 KindView 1.0 KindView.qml
 ModelPick 1.0 ModelPick.qml

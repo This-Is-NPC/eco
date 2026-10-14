@@ -78,6 +78,7 @@ ColumnLayout {
       dense: true
       invalid: !!frame.errors.base_url
       value: frame.section.base_url || ""
+      placeholderTextColor: Theme.placeholder
       placeholderText: I18n.t("provider.base_url")
       onTextEdited: {
         frame.edited("base_url", text)
@@ -101,6 +102,7 @@ ColumnLayout {
         invalid: !!frame.errors.model
         value: frame.section.model || ""
         // The model of the chosen preset, or of the first, as an example.
+        placeholderTextColor: Theme.placeholder
         placeholderText: {
           const preset = frame.presets.find(p => p.values.base_url === frame.section.base_url) || frame.presets[0]
           return preset ? I18n.t("provider.model_placeholder", { model: preset.values.model }) : ""
@@ -148,6 +150,7 @@ ColumnLayout {
           id: filter
           Layout.fillWidth: true
           dense: true
+          placeholderTextColor: Theme.placeholder
           placeholderText: I18n.t("provider.filter", { n: Eco.models[frame.target].length })
           onTextChanged: list.currentIndex = 0
           Keys.onDownPressed: list.incrementCurrentIndex()
@@ -239,6 +242,7 @@ ColumnLayout {
       visible: key.source === "env"
       dense: true
       value: frame.section.api_key_env || ""
+      placeholderTextColor: Theme.placeholder
       placeholderText: I18n.t("provider.key_placeholder")
       onTextEdited: frame.edited("api_key_env", text)
     }
@@ -247,6 +251,7 @@ ColumnLayout {
       visible: key.source === "credential"
       dense: true
       value: frame.section.api_key_credential || ""
+      placeholderTextColor: Theme.placeholder
       placeholderText: I18n.t("provider.credential_placeholder")
       onTextEdited: frame.edited("api_key_credential", text)
     }

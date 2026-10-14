@@ -21,7 +21,6 @@ ItemPage {
     return name || I18n.t("settings.default_model", { name: Draft.answering(page.config, "chat", "", null).name })
   }
 
-  kind: I18n.t("section.config")
   title: section.name.toUpperCase()
   draft: ItemDraft { id: item; paths: ["translation"] }
   facts: [[I18n.t("settings.default_pick"), describe(own)]]

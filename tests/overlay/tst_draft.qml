@@ -92,7 +92,7 @@ TestCase {
   }
 
   // A model's users name what answers with it, as the daemon picks it: the
-  // defaults, the reviewer, the skills naming it and each kind's uses.
+  // defaults, the reviewer, the skills naming it and each kind once, with its uses.
   function test_the_users_of_a_model_are_what_answers_with_it() {
     const d = draft(JSON.parse(JSON.stringify(registered)), "w", "m")
     d.kinds = ["meeting", "talk"]
@@ -100,11 +100,11 @@ TestCase {
     d.actions = [{ name: "probe", model: "m" }, { name: "ask" }]
     d.reviewer = { enabled: true, model: "m" }
     compare(Draft.users(d, "m"), [{ role: "assistant" }, { role: "translation" }, { role: "reviewer" },
-      { role: "skill", action: "probe" }, { role: "kind", kind: "meeting", use: "chat" },
-      { role: "kind", kind: "meeting", use: "translation" }, { role: "kind", kind: "talk", use: "translation" }])
-    compare(Draft.users(d, "x"), [{ role: "kind", kind: "talk", use: "chat" }])
-    compare(Draft.users(d, "w"), [{ role: "transcriber" }, { role: "kind", kind: "meeting", use: "transcription" },
-      { role: "kind", kind: "talk", use: "transcription" }])
+      { role: "skill", action: "probe" }, { role: "kind", kind: "meeting", uses: ["chat", "translation"] },
+      { role: "kind", kind: "talk", uses: ["translation"] }])
+    compare(Draft.users(d, "x"), [{ role: "kind", kind: "talk", uses: ["chat"] }])
+    compare(Draft.users(d, "w"), [{ role: "transcriber" }, { role: "kind", kind: "meeting", uses: ["transcription"] },
+      { role: "kind", kind: "talk", uses: ["transcription"] }])
     compare(Draft.users(d, ""), [])
     compare(Draft.users(d, "gone"), [])
   }

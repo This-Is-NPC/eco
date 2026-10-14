@@ -62,9 +62,9 @@ Then, in the window:
 
 1. `SUPER+ALT+C` opens the settings, a section at a time down the left, each
    a table of its items: **ADD**, fill it in, **SAVE** — each item is saved on
-   its own. **Audio** first: one audio source for you on the default
-   microphone, marked THIS IS ME, and one for everybody else on the default
-   output — what the laptop plays.
+   its own. **Audio** first: one audio source for you, marked THIS IS ME, and
+   one for everybody else; once each is saved, **ADD DEVICE** on it gives it
+   the default microphone, or the default output — what the laptop plays.
 2. **Models**: a transcription model and, for answers and translation, a chat
    model, each named once. eco records and transcribes with no chat model. Their
    keys come from the daemon's environment (`OPENROUTER_API_KEY`,
@@ -164,8 +164,11 @@ where they work:
 - question box: `Enter` send · `Shift+Enter` keep as a note · `/` list the
   skills · `Alt+1…9` run the skill with that number
 - settings: `Ctrl+1…8` section · `Ctrl+Tab` / `Ctrl+Shift+Tab` next or
-  previous section · `Enter` open the row · `Delete` delete it, asking first ·
-  `Ctrl+E` edit · `Ctrl+S` save · `Esc` stop editing, then back, then close
+  previous section · on the rail `↑` / `↓` / `Home` / `End` move and
+  `Enter` / `Space` open the section · `↑` / `↓` pick a row · `Enter` open it ·
+  `Delete` delete it, asking first · in a table inside an item, `Enter` open
+  the row or add it on an add screen, `Delete` remove it · `Ctrl+E` edit ·
+  `Ctrl+S` save · `Esc` back one level, then close
 - anywhere, through Hyprland, or eco itself on Windows with `Win` for
   `SUPER`: `SUPER+ALT+N` new session · `SUPER+ALT+H`
   sessions · `SUPER+ALT+C` settings · `SUPER+ALT+P` pause or resume ·

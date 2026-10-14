@@ -82,8 +82,8 @@ Item {
     shown = setOf(shown, index, id)
   }
   // Shows the section `index` to open its item `id` there, unless another item
-  // open there has changes not saved: then that one stays, and the bar says
-  // why. Returns whether `id` may open.
+  // open there has changes not saved: then that one stays, and the window's
+  // message says why. Returns whether `id` may open.
   function reach(index, id) {
     wanted(index)
     const stage = stages.itemAt(index)
@@ -138,7 +138,8 @@ Item {
     confirmRemove.open()
   }
   // Saves the saved config with `change` applied at once, then calls `done`;
-  // what keeps it from saving, or the daemon's refusal, shows in the bar.
+  // what keeps it from saving, or the daemon's refusal, shows as the window's
+  // message, on the masthead line.
   function saveNow(change, done) {
     if (quick.saving || Eco.configSaving)
       return
@@ -171,7 +172,7 @@ Item {
     return found
   }
   // SAVE AND CLOSE: saves each item with changes in turn, then runs `done`. An
-  // item that does not save stops it: it shows, and the bar says why.
+  // item that does not save stops it: it shows, and the window's message says why.
   function saveAll(done) {
     finish = done
     saveNext()
@@ -341,6 +342,8 @@ Item {
             item.back.connect(() => view.close(stage.index))
             item.followed.connect((section, id) => view.follow(section, id))
             item.removing.connect(() => view.remove(stage.index, screen.row))
+            item.storing.connect((change, done) => view.saveNow(change, done))
+            item.escaped.connect(() => view.closeRequested())
             // Saved, under a new name or for the first time, the screen follows it.
             if (item.draft)
               item.draft.saved.connect(() => {

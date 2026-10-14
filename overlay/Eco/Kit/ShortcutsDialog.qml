@@ -75,8 +75,13 @@ ModalDialog {
     ["keys.settings_window", [
       ["Ctrl+1…8", "keys.tabs"],
       ["Ctrl+Tab · Ctrl+Shift+Tab", "keys.tabs_turn"],
+      ["↑ · ↓ · Home · End", "keys.rail_move"],
+      ["Enter · Space", "keys.rail_choose"],
+      ["↑ · ↓", "keys.pick_row"],
       ["Enter", "keys.open_item"],
       ["Delete", "keys.delete_item"],
+      ["Enter", "keys.open_child"],
+      ["Delete", "keys.remove_child"],
       ["Ctrl+E", "keys.edit_item"],
       ["Ctrl+S", "keys.save"],
       ["Esc", "keys.leave_item"]

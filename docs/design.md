@@ -1300,12 +1300,14 @@ kit lives in `overlay/Eco/Kit/` (`Panel`, `SurfaceFrame`, `TraceButton`, `Chip`,
 `TextBox`, `Field`, `NumberField`, `Kicker`, `Masthead`, `StatusMessage`,
 `Icon`, `EcgTrace`, `DataTable`, `TabRail`, `PageBar`, `CommandRow`); views
 compose it and hold no logic beyond binding `Eco`, the singleton that owns the
-socket. `TabRail` is an app's pages as a carousel down the left edge, folded
-to their numbers, a page `marked` with a dot; `PageBar`, beside its head, the
-commands of the page on screen and the app's readout; `CommandRow`, a bar's
-actions ranked, the main one solid (`TraceButton`'s `filled`), each falling
-back to its short name when the names do not fit, or, with `iconsWhenTight`
-(as `PageBar` sets it), to its icon. A `DataTable` that `picks` picks a row on
+socket. `TabRail` is an app's pages down the left edge in their fixed order,
+`labelled` with number and name or folded to their numbers, a page `marked`
+with a dot, one stop of the Tab chain that ↑/↓/Home/End move along;
+`PageBar`, beside it, the commands of the page on screen; `CommandRow`, a
+bar's actions ranked, the main one solid (`TraceButton`'s `filled`) and, when
+`spread`, on the left with the others on the right and the guarded ones last,
+each falling back to its short name when the names do not fit, or, with
+`iconsWhenTight` (as `PageBar` sets it), to its icon. A `DataTable` that `picks` picks a row on
 a click and opens it on a double click or Enter; the row ↑/↓ and Enter act on
 is always the picked one. The control lab
 (`mise run preview:controls`) shows every kit component.
@@ -1599,21 +1601,24 @@ overlay, past the screen's edge).
 **Sections.** Eight, down the left in the kit's `TabRail`: 01 Audio, 02
 Models, 03 Transcription, 04 Answers, 05 Skills, 06 Translation, 07 Sessions,
 08 Interface — Audio first and Models second, since the sections after it
-pick from it. The rail is a carousel: the section on screen sits at its top,
-beside the command bar, and the others follow in order, the ones before it
-coming round after the last. Folded, it shows only the numbers; under the
-pointer it unfolds over the section, each naming itself. `Ctrl+1`…`Ctrl+8`
-choose one, `Ctrl+Tab` and `Ctrl+Shift+Tab` turn the carousel. Each section
+pick from it. The rail keeps that order and marks the section on screen; each
+tab shows its number and name, and on a window narrower than 760 pixels only
+its number, the name in its hint. It is one stop of the Tab chain (rail, bar,
+section, then the close button): ↑/↓/Home/End move along it, Enter or Space
+chooses and leaves the keyboard on it. `Ctrl+1`…`Ctrl+8` choose one,
+`Ctrl+Tab` and `Ctrl+Shift+Tab` the next or the one before. Each section
 owns its own fields: no section edits another's, and what another decides is
 only read there, as a link to it. A section whose open item has changes not
 saved shows a dot on its tab.
 
-**The bar.** The kit's `PageBar`, beside the rail's head, holds the commands
-of what is on screen, ranked: BACK first and apart; the main action solid;
-the others outlined; at its end the window's readout (the last message, the
-offline state, the notice count) and CLOSE. When their names do not fit,
-each action but the main one shows only its icon, BACK only its chevron, and
-on a bar narrower still the main action too, each name in its tip.
+**The bar.** The kit's `PageBar`, beside the rail, holds the commands of what
+is on screen, ranked: BACK first and apart; the main action solid, on the
+left; across a gap, on the right, the others outlined, the guarded ones
+(DELETE, REMOVE, DISCARD) last. When their names do not fit, each action but
+the main one shows only its icon, BACK only its chevron, on a bar narrower
+still the main action too, each name in its tip, and narrower again one menu
+holds them all. The window's close is a corner button on the masthead line,
+with the last message (`StatusLine`) left of it while there is one.
 
 **Tables.** A section that lists items (Audio, Models, Answers, Skills,
 Sessions) is a `DataTable` of them under its name and what it is for. A click
@@ -1628,26 +1633,49 @@ A part of the config that is not a list item — Audio's YOUR MICROPHONE row,
 Answers' assistant, reviewer and global context rows — has no DELETE; an item
 that may not go yet, as the assistant's model, has it dimmed, with why in its
 tip. Transcription, Translation and Interface are one item each, opened
-directly, with no table and no BACK. Until a chat model is registered, Answers,
+directly, with no table of items and no BACK. Until a chat model is registered, Answers,
 Skills and Translation hold only NO CHAT MODEL, what it means, and REGISTER A
 CHAT MODEL, which opens a new model in Models; a kind offers no assistant or
 translation model then.
 
-**An item's screen.** An item opens read (`ItemPage`): its kind, its name,
-ABOUT — its facts, then any long text, such as a skill's prompt — and RELATED,
-what it uses and what uses it, side by side from 640 px wide. Each related
+**An item's screen.** An item opens read (`ItemPage`): its kind (none for the
+one item of Transcription, Translation and Interface, which the title names),
+its name, ABOUT — its facts — and RELATED, what it uses and what uses it, side
+by side from 640 px wide; with nothing related, RELATED is left out and ABOUT
+takes the width. Long texts, such as a skill's prompt, follow across the
+screen as they were written, their own lines kept. Each related
 entry is a link that opens that item in its own section; BACK returns to where
 it was followed from, and choosing a section on the rail starts the way back
 over. A link, or REGISTER A CHAT MODEL, into a section whose open item has
-changes not saved shows that item instead, and the bar says `Save or cancel
-<name> first`. EDIT (`Ctrl+E`) turns the screen into its form. Every field is named by a
+changes not saved shows that item instead, and the window's message says
+`Save or cancel <name> first`. EDIT (`Ctrl+E`) turns the screen into its form. Every field is named by a
 caption right above its control, pickers (models, languages) as much as text
 inputs: no label sits in a column of its own. Prompt areas (rules, a skill's
 prompt and format, the reviewer's prompt) grow to ten lines, then scroll
-inside. Number fields take digits only and keep the last valid number. Lists
-(languages, context files) are compact rows: the position, the item, a step up
-and ×. File lists add a path typed in the field or picked, several at once,
-from the file dialog behind the folder button.
+inside. Number fields take digits only and keep the last valid number. A
+form holds only single values — text, pickers, and chips that choose among
+fixed options, as a slot's kinds — never a collection.
+
+**Child tables.** A collection that belongs to an item — Transcription's
+offered spoken languages, an audio source's devices, the files of the global
+context and of each context slot — is a titled `DataTable` on the item's read
+screen, under ABOUT and RELATED (`tables` in `ItemPage`). Its rows are changed
+from the bar: the table's ADD (ADD LANGUAGE, ADD DEVICE, ADD FILE) — the main
+action of an item with no form, as the global context, otherwise beside the
+others —, then, for the row picked last, its own screen (a device's COLOUR),
+MAKE DEFAULT, MOVE UP and MOVE DOWN where the order counts, and REMOVE, which
+asks first only when something follows (removing the default language, a
+source's last device, the last output). Each **saves at once**, as DELETE
+does, on a copy of the saved config, finding what it changes by its name, and
+the row stays picked. ADD and a row's own screen open a **child screen**
+(`ChildScreen`) inside the item: the item's name small over its title, BACK
+(or Esc) back to the item without saving, and either a table of what can be
+added — the languages eco knows that are not offered, the devices the source
+does not have with the source each is heard as now — where ADD or Enter adds
+the row picked, or a small form: a file's PATH with BROWSE, which adds every
+file chosen in the file dialog at once, or a device's colour picker with SAVE.
+A new item opens in its form, so its collections fill only after its first
+SAVE.
 
 **Saving one item.** An item is edited in an `ItemDraft`: a copy of the saved
 config that its form changes only where the item is. SAVE (`Ctrl+S`) sends
@@ -1676,8 +1704,8 @@ error colour and the reason under it — and the first such field takes the
 keyboard: a repeated name or a space in a skill's name as it is typed, a
 missing value once a save is tried. Each clears as soon as its field is fixed.
 A problem outside the item's fields, and a daemon's refusal, shows under its
-title until the item changes again; a refused DELETE or move shows in the
-bar's readout. The default models are not required, as the daemon does not
+title until the item changes again; a refused DELETE or move shows as the
+window's message, on the masthead line. The default models are not required, as the daemon does not
 require them (§9): a config with no model registered saves, and a default it
 names must be a registered model of its type (`overlay/Eco/Core/draft.js`,
 `problems`). Naming a new model makes it the default of nothing; each default
@@ -1693,18 +1721,26 @@ Qt's own quit, which asks every window first, would stop at the kept settings
 window, which never closes, and leave the process running unseen.
 
 **Keys.** `Ctrl+1`…`Ctrl+8` a section, `Ctrl+Tab` / `Ctrl+Shift+Tab` the next
-or previous one, ↑/↓ a row, Enter opens it, Delete deletes it (asking first),
-`Ctrl+E` edits the item open, `Ctrl+S` saves it. Esc stops editing (asking
-first when that drops changes), then goes back, then closes the window.
+or previous one; on the rail ↑/↓/Home/End move and Enter or Space opens the
+section. In a section's table ↑/↓ pick a row, Enter opens it, Delete deletes
+it (asking first); in a child table ↑/↓ pick, Enter opens the row's own screen
+(on a child screen's table, adds the row), Delete removes it. `Ctrl+E` edits
+the item open, `Ctrl+S` saves it. Esc goes back one level: out of a child
+screen, out of editing (asking first when that drops changes), back to the
+table, then closes the window. Keys show only in the shortcuts dialog
+(`ShortcutsDialog`), never on a button or in a tip.
 
 **The sections and their items.**
 
 - **Audio:** a row per audio source — its name, its devices (missing ones
   marked `Unavailable device: <id>`) and YOU on the user — and last YOUR
   MICROPHONE. A source reads whether it is you and its devices with their
-  kind, colour and live trace while captured; edited, its name, THIS IS ME (one source at most is you), and its PipeWire
-  devices (colour, kind, live trace while captured, ×), with ADD DEVICE listing
-  every device it does not have and who has it now. Deleting one asks first,
+  kind and colour as the child table DEVICES, and under HEARD NOW the live
+  trace of each while captured; ADD DEVICE lists every device it does not have
+  and the source each is heard as now, adding one taking it from that source;
+  REMOVE asks first when the source is left with no device or the last output
+  goes; COLOUR opens a device's screen with its colour picker. Edited, only its
+  name and THIS IS ME (one source at most is you). Deleting one asks first,
   naming the devices no longer heard, whether nobody else is heard (it held the
   only output device) and whether nobody is the user any more. YOUR MICROPHONE
   holds DROP ECHOES and ECHO CANCELLATION, each beside what it does, or why
@@ -1715,8 +1751,8 @@ first when that drops changes), then goes back, then closes the window.
   its REASONING and extra fields, for transcription its price per minute;
   RELATED, what uses it, grouped by the section that sets each use (the
   assistant, the reviewer, the default transcription, the translation default,
-  the skills that name it and each kind's transcription, assistant and
-  translation that answer with it, as the overlay's one resolver, `answering`
+  the skills that name it, and each kind once, under a group that says what the
+  kinds in it use it for: assistant, translation or both, as the overlay's one resolver, `answering`
   in `overlay/Eco/Core/draft.js`, mirrors the daemon's precedence). Edited: its
   TYPE while nothing uses it (changing it keeps the name and model id; the
   provider and key change only when its base URL does not fit the new type),
@@ -1727,22 +1763,26 @@ first when that drops changes), then goes back, then closes the window.
   (typed, with the preset's model as an example, or picked from LIST, which
   closes the list again, as Esc does), key from an environment variable or an
   omapass password, for transcription a fallback price per minute and, for
-  chat, its extra JSON under ADVANCED. The assistant's model and the default
+  chat, the extra JSON sent with each request (EXTRA (JSON)). The assistant's model and the default
   transcription cannot be deleted; deleting another asks first, listing what
   falls back to which model (as `answering` picks it) and whether the reviewer
   turns off. A new model starts from the base URL and key source of the last
   model of its type.
 - **Transcription:** the default transcription model, which sessions whose
-  kind picks none use, with a link to it; the offered spoken languages picked
-  by name, and the default spoken language new sessions start in.
+  kind picks none use, with a link to it, the only field EDIT holds; the
+  default spoken language new sessions start in; and the child table OFFERED
+  SPOKEN LANGUAGES, with ADD LANGUAGE, MAKE DEFAULT, MOVE UP, MOVE DOWN and
+  REMOVE (the last language stays).
 - **Answers:** the assistant — the default model, which answers questions and
   the skills and kinds that pick none, the rules for every answer, the context
   size and the answers running at the same time across all sessions, with the
   skills, kinds and translation that answer with it as links; the reviewer (on,
-  verbose, its model and prompt); the global context files, sent with every
-  answer; and a row per context slot (its name, files and the kinds that start
-  with it on), the only rows ADD and DELETE reach — deleting one says which
-  kinds no longer start with it on.
+  verbose, its model and prompt); the global context, whose files, sent with
+  every answer in their order, are its child table FILES (ADD FILE, MOVE UP,
+  MOVE DOWN, REMOVE), with no form; and a row per context slot (its name, files
+  and the kinds that start with it on), the only rows ADD and DELETE reach — a
+  slot's files are the same child table, its form only its name and kinds, and
+  deleting one says which kinds no longer start with it on.
 - **Skills:** the actions in the composer's order, each row its name, its
   model — or the default, named with the model it inherits (`default ·
   <model>`) — and its hook. Read: its model, hook and whether the hook sends on

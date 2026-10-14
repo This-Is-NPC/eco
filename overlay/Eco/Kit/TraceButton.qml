@@ -123,6 +123,6 @@ Rectangle {
   }
 
   GuardNudge { id: guardNudge; targetObject: contentShift }
-  FocusRing { border.color: button.armed ? Theme.background : Theme.primary }
+  FocusRing { border.color: button.armed || button.filled ? Theme.background : Theme.primary }
   Hint { visible: (button.hovered || button.activeFocus) && button.tip.length > 0; text: button.tip }
 }

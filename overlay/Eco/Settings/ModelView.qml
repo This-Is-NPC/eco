@@ -8,8 +8,8 @@ import Eco.Kit
 // model id, where its key comes from, how much a chat model reasons, what a
 // minute of audio costs a transcription model — and what uses it, each use a
 // link to where it is set. Edited: its type while nothing uses it, its name,
-// its reasoning, its provider, its price per minute and, for chat, extra
-// fields under ADVANCED. Renaming it renames it wherever it is used. A new
+// its reasoning, its provider, its price per minute and, for chat, the extra
+// fields sent with each request. Renaming it renames it wherever it is used. A new
 // model starts from the provider of the last one of its type.
 ItemPage {
   id: page
@@ -29,7 +29,6 @@ ItemPage {
   // The name what uses it knows it by in the draft (see Draft.rename): its
   // saved one until another name is its own.
   property string following: ""
-  property bool advanced: false
   // The extra fields and the price as typed, so what is not saved yet stays.
   property string extraText: ""
   property string priceText: ""
@@ -194,17 +193,9 @@ ItemPage {
     }
   }
 
-  Chip {
-    visible: page.chat
-    text: I18n.t("settings.advanced")
-    icon: page.advanced ? "chevron-down" : "chevron-right"
-    checked: page.advanced
-    onClicked: page.advanced = !page.advanced
-  }
-
   Field {
     Layout.fillWidth: true
-    visible: page.chat && page.advanced
+    visible: page.chat
     label: I18n.t("config.extra")
     value: page.extraText
     error: item.errors[page.path + "extra"] || ""

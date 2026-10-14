@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
+import Eco.Core
 
 // Field is a tracked label over a framed input; `edited` carries the new text
 // as typed and `committed` once it is left or Enter is pressed. An `error`
@@ -21,6 +22,7 @@ ColumnLayout {
     dense: true
     value: field.value
     placeholderText: field.placeholder
+    placeholderTextColor: Theme.placeholder
     invalid: field.error !== ""
     onTextEdited: field.edited(text)
     onEditingFinished: field.committed(text)

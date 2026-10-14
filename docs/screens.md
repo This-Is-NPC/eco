@@ -502,7 +502,7 @@ as in a live session (section 3):
 
 The dialog scrolls (arrows, `PgUp`, `PgDn`). Its end:
 
-![The keyboard shortcuts dialog scrolled to its end: STORED SESSION (R resume or reopen, E edit title and kind), CONVERSATION (↑ · ↓ · PgUp · PgDn, Home · End, N, Tab, Enter · Esc save or cancel the correction of a line), QUESTION BOX (Enter, Shift+Enter, / with ↑ · ↓, Tab and Enter, Alt+1…9), MENUS AND OPTION LISTS (↑ · ↓ · Home · End, Enter · Space, Esc) and SETTINGS (Ctrl+1…8 switch tab, Ctrl+Tab · Ctrl+Shift+Tab over two lines, next · previous tab, Enter open the item picked, Delete delete the item picked, Ctrl+E edit the item open, Ctrl+S save, Esc stop editing, back to the list, then close).](img/38-shortcuts-end.png)
+![The keyboard shortcuts dialog scrolled to its end: STORED SESSION (R resume or reopen, E edit title and kind), CONVERSATION (↑ · ↓ · PgUp · PgDn, Home · End, N, Tab, Enter · Esc save or cancel the correction of a line), QUESTION BOX (Enter, Shift+Enter, / with ↑ · ↓, Tab and Enter, Alt+1…9), MENUS AND OPTION LISTS (↑ · ↓ · Home · End, Enter · Space, Esc) and SETTINGS (Ctrl+1…8 switch tab, Ctrl+Tab · Ctrl+Shift+Tab over two lines, next · previous tab, ↑ · ↓ · Home · End and Enter · Space on the rail, ↑ · ↓ pick a row, Enter open the item picked, Delete delete the item picked, Enter and Delete in a table inside an item, Ctrl+E edit the item open, Ctrl+S save, Esc back one level, then close).](img/38-shortcuts-end.png)
 
 The GLOBAL keys are not the window's: `packaging/hypr/eco.lua` binds them in
 Hyprland to `eco window` commands, and on Windows the daemon registers them
@@ -523,11 +523,15 @@ second window, `eco · settings` to Hyprland, 1040×760 or its screen less a
 1040×760). The window never writes the config itself: **each item is saved on
 its own**, and the daemon validates the whole config and writes it.
 
-Down the left are the eight sections, `01` to `08`, as a carousel: the one on
-screen sits at the top, beside the bar of its commands, and the others follow
-in order, the ones before it coming round after the last. Folded, the rail
-shows only the numbers; under the pointer it unfolds, each section naming
-itself. `×` at the end of the bar closes the window.
+Down the left are the eight sections, `01` to `08`, always in that order, the
+one on screen marked in the accent. Each shows its number and its name; on a
+window narrower than 760 pixels, only its number, with the name in its hint.
+`Tab` moves from the rail to the bar of commands and then into the section;
+on the rail, `↑`, `↓`, `Home` and `End` move along it and `Enter` or `Space`
+opens the section. The bar holds BACK first, then the main action, solid, on
+the left, and the other actions on the right, DELETE, REMOVE or DISCARD last. `×` in
+the top-right corner closes the window; the last message shows beside it while
+there is one.
 
 A section is **a table of its items**. A click picks a row; a double click, or
 `Enter` on the picked row, opens it. The bar holds ADD (the section's own name
@@ -538,24 +542,41 @@ hint.
 
 An opened item is **read first**: under ABOUT, what it is; under RELATED, the
 items of other sections that use it or that it uses, each a link that opens
-that item in its section. BACK returns to the table, or to the item the link
+that item in its section; with nothing related there is no RELATED. Long texts,
+such as a skill's prompt, follow across the screen as they were written. BACK returns to the table, or to the item the link
 was followed from. **EDIT** turns the screen into its form. SAVE saves this
 item alone; DISCARD drops its changes and reads it again; CANCEL stops editing.
 The kicker over the title says NEW, UNSAVED, EDITING, or CHANGED ELSEWHERE when
 the saved config changed under changes that cannot be made again on it.
 Transcription, Translation and Interface are one item each: they open on that
-item, with no table, no BACK and no DELETE.
+item, with no table of items, no BACK and no DELETE.
+
+Some items hold a list of their own: the spoken languages Transcription
+offers, the devices an audio source is heard through, the files a context
+sends. Such a list is **a table inside the item**, under a caption, on its read
+screen; it is never edited in the form. A click or `↑`/`↓` picks a row, and the
+bar then adds what can be done to it: MAKE DEFAULT, MOVE UP and MOVE DOWN where
+the order counts, the row's own screen where it has one, and REMOVE. Each of
+these **saves at once**; REMOVE asks first only when something follows from it.
+ADD (ADD LANGUAGE, ADD DEVICE, ADD FILE) opens **a screen inside the item**:
+the item's name small above its title, and either a table of what can be added,
+where ADD or `Enter` adds the row picked, or a short form. BACK, or `Esc`,
+returns to the item and adds nothing.
 
 | where | key | what it does |
 |---|---|---|
 | anywhere | `Ctrl+1` … `Ctrl+8` | show that section |
 | anywhere | `Ctrl+Tab`, `Ctrl+Shift+Tab` | the next, the previous section |
+| the rail | `↑` `↓` `Home` `End` | move along the sections |
+| the rail | `Enter`, `Space` | open the section the rail is on |
 | a table | `↑` `↓` | pick a row |
 | a table | `Enter` | open the picked row |
 | a table | `Delete` | delete the picked row, after asking |
+| a table inside an item | `Enter` | open the picked row; on an add screen, add it |
+| a table inside an item | `Delete` | remove the picked row |
 | an item | `Ctrl+E` | edit it |
 | an item, editing | `Ctrl+S` | save it |
-| anywhere | `Esc` | stop editing (changes are dropped), else go back, else close the window |
+| anywhere | `Esc` | back one level: a screen inside the item, editing (asking when changes would be dropped), the item, the table, then close the window |
 | anywhere | `?`, `F1` | the keyboard shortcuts dialog |
 
 **Audio** — who is heard, and through what:
@@ -566,14 +587,20 @@ A row per source: its name, its PipeWire devices and whether it is you. REFRESH
 DEVICES reads the devices again. The last row, YOUR MICROPHONE, opens the two
 switches that keep your microphone apart from the others, DROP ECHOES and ECHO
 CANCELLATION, each beside what it does; it is never deleted. Deleting a source
-says who is no longer heard. A source, edited, has its name, THIS IS ME, and
-its devices, each with its colour and, while captured, a live trace; under
-`--replay` the daemon captures nothing, so the picture has none. ADD DEVICE
-lists every device, and who has it now:
+says who is no longer heard. A source, read, has its name and whether it is
+you under ABOUT, HEARD NOW with a live trace for each of its devices while it
+is captured (under `--replay` the daemon captures nothing, so the pictures have
+none), and DEVICES, a table of its devices with their kind and colour. Edited,
+it has only its NAME and THIS IS ME; a new source gets its devices on its read
+screen once it is saved. ADD DEVICE opens a table of every device the source
+does not have, with its kind and the source it is heard as now:
 
-![The audio source "Them" being edited, EDITING beside AUDIO SOURCE, the bar with a dimmed SAVE and CANCEL: NAME "Them"; THIS IS ME, unlit, with "This audio source is you: your lines show on the right and the model knows they are yours"; DEVICES with "OUT Default output" and a × button; the ADD DEVICE menu open: "MIC Default microphone · Me" marked, then "MIC H390 headset microphone", "OUT H390 headset" and "MIC Built-in microphone".](img/40-settings-audio-source.png)
+![The ADD DEVICE screen inside the audio source "Them": THEM over the title ADD DEVICE; the bar with BACK and ADD DEVICE; "The devices this audio source is not heard through. A device has one owner: one another audio source has is taken from it."; a table NAME · KIND · HEARD AS with Default microphone (MIC, Me, picked), H390 headset microphone (MIC, —), H390 headset (OUT, —) and Built-in microphone (MIC, —).](img/40-settings-audio-source.png)
 
-A device has one owner: picking one that another source has moves it here.
+A device has one owner: adding one another source has moves it here. With a
+device picked, COLOUR opens its own screen, the colour picker and SAVE, and
+REMOVE stops hearing the source through it; REMOVE asks first when the source
+is left with no device, or when it was the last output any source had.
 
 **Models** — every model, registered once:
 
@@ -583,26 +610,35 @@ The assistant's model and the default transcription cannot be deleted, so
 DELETE is dimmed on them; deleting another says what falls back to which model.
 Opened, a model shows its facts, and under RELATED everything that uses it:
 
-![The model gemini-flash, read: the bar with BACK, EDIT and a dimmed DELETE; ABOUT with TYPE CHAT, PROVIDER OPENROUTER, BASE URL https://openrouter.ai/api/v1, MODEL ID google/gemini-2.5-flash, KEY FROM env OPENROUTER_API_KEY, REASONING OFF; RELATED with ANSWERS › ASSISTANT, TRANSLATION › TRANSLATION, and SESSIONS › MEETING, MEETING TRANSLATION, CONVERSATION, CONVERSATION TRANSLATION, OTHER, OTHER TRANSLATION, IDEA, IDEA TRANSLATION, INTERVIEW, INTERVIEW TRANSLATION.](img/42-settings-model.png)
+![The model gemini-flash, read: the bar with BACK, EDIT and a dimmed DELETE; ABOUT with TYPE CHAT, PROVIDER OPENROUTER, BASE URL https://openrouter.ai/api/v1, MODEL ID google/gemini-2.5-flash, KEY FROM env OPENROUTER_API_KEY, REASONING OFF; RELATED with ANSWERS › ASSISTANT, TRANSLATION › TRANSLATION, and SESSIONS · ASSISTANT + TRANSLATION › MEETING, CONVERSATION, OTHER, IDEA, INTERVIEW.](img/42-settings-model.png)
 
 Edited, it has its type while nothing uses it, its name, the reasoning for a
 chat model, the provider (CUSTOM takes any base URL), the model (LIST shows the
 models the provider offers), where the key comes from (an environment variable
 or an omapass password), the price per minute of a transcription model and,
-for a chat model, extra fields under ADVANCED. Without omapass on the machine, as in these pictures,
+for a chat model, EXTRA (JSON), the extra fields sent with each request. Without omapass on the machine, as in these pictures,
 **OMAPASS** is off and an info button beside it opens omapass's install page.
 On Windows **CREDENTIAL MANAGER** stands in its place: a field for the key's
 name and, once one is typed, how to store that key with `eco key set <name>` or
 as the generic credential `eco:<name>`. The pictures are made on Linux, so none
 shows it:
 
-![The model gemini-flash being edited, EDITING beside MODEL, the bar with a dimmed SAVE and CANCEL: NAME "gemini-flash"; REASONING with PROVIDER'S, OFF (lit), LOW, MEDIUM, HIGH; PROVIDER with OPENROUTER (lit), GROQ, CUSTOM; MODEL "google/gemini-2.5-flash" with LIST; KEY FROM with ENV (lit), a dimmed OMAPASS and an info button, and "OPENROUTER_API_KEY"; ADVANCED, folded.](img/43-settings-model-edit.png)
+![The model gemini-flash being edited, EDITING beside MODEL, the bar with a dimmed SAVE and CANCEL: NAME "gemini-flash"; REASONING with PROVIDER'S, OFF (lit), LOW, MEDIUM, HIGH; PROVIDER with OPENROUTER (lit), GROQ, CUSTOM; MODEL "google/gemini-2.5-flash" with LIST; KEY FROM with ENV (lit), a dimmed OMAPASS and an info button, and "OPENROUTER_API_KEY"; EXTRA (JSON) holding "{}".](img/43-settings-model-edit.png)
 
 Renaming a model renames it wherever it is used.
 
 **Transcription** — the default transcriber and the spoken languages:
 
-![Settings, 03, the TRANSCRIPTION item, read: the bar with EDIT only; ABOUT with DEFAULT MODEL whisper-lan, OFFERED SPOKEN LANGUAGES AUTO · detect, EN · American English, ES · español de España, PT · português, and DEFAULT SPOKEN LANGUAGE EN · American English; RELATED with MODELS › whisper-lan; under ABOUT, "Transcribes sessions whose kind picks no transcription model".](img/44-settings-transcription.png)
+![Settings, 03, the TRANSCRIPTION item, read: the bar with EDIT and, on the right, ADD LANGUAGE; ABOUT with DEFAULT MODEL whisper-lan and DEFAULT SPOKEN LANGUAGE EN · American English; RELATED with MODELS › whisper-lan; "Transcribes sessions whose kind picks no transcription model"; and OFFERED SPOKEN LANGUAGES, a table LANGUAGE · DEFAULT with AUTO · detect, EN · American English (DEFAULT), ES · español de España and PT · português.](img/44-settings-transcription.png)
+
+EDIT holds only the default model. The languages a session may start in are
+the table OFFERED SPOKEN LANGUAGES, in the order the dropdowns show them. ADD
+LANGUAGE lists the languages eco knows that are not offered yet, AUTO among
+them; ADD LANGUAGE or `Enter` on the one picked offers it. With a language
+picked, MAKE DEFAULT makes new sessions start in it, MOVE UP and MOVE DOWN
+change its place, and REMOVE stops offering it; removing the default asks first
+and names the language that becomes the default. The last language cannot be
+removed.
 
 **Answers** — the assistant, its reviewer, and what they are told:
 
@@ -612,8 +648,15 @@ The assistant answers questions, and the skills and session kinds that pick no
 model; the reviewer, when on, rewrites every answer with its own model before
 you see it; the global context is the files sent with every answer; each
 context slot is files a session of the kinds it names starts with on. Only the
-slots are added and deleted; deleting one says which kinds lose it. Opened, the
-assistant:
+slots are added and deleted; deleting one says which kinds lose it. The global
+context and each slot, opened, show their files as the table FILES, in the
+order they are sent. ADD FILE opens a screen with a PATH field: ADD FILE, or
+`Enter`, adds the path typed, and BROWSE adds at once every file chosen in the
+file dialog. With a file picked, MOVE UP and MOVE DOWN change its place and
+REMOVE takes it off; each saves at once. The global context has no EDIT, so ADD
+FILE is its main action; a slot's EDIT holds only its name and the kinds it is
+on from the start in, and a new slot gets its files once it is saved. Opened,
+the assistant:
 
 ![The assistant, read: the bar with BACK and EDIT; ABOUT with DEFAULT MODEL gemini-flash, CONTEXT LIMIT 60000 characters, AT THE SAME TIME 8 answers, all sessions; under it "Answers questions, and skills and session kinds that pick no model" and RULES FOR EVERY ANSWER, four lines of rules; RELATED with MODELS › gemini-flash, SKILLS › reply, explain, and SESSIONS › MEETING, CONVERSATION, OTHER, IDEA, INTERVIEW.](img/46-settings-assistant.png)
 
@@ -652,7 +695,7 @@ makes the picked kind it. Deleting a kind says its sessions keep it and the
 models and context slots chosen for it stop applying; the only kind left
 cannot be deleted. Opened:
 
-![The session kind Meeting, read: the bar with BACK, EDIT, a dimmed MAKE DEFAULT and DELETE; ABOUT with DEFAULT "The default: suggested first", TRANSCRIPTION default · whisper-lan, ASSISTANT default · gemini-flash, TRANSLATION default · gemini-flash; RELATED with MODELS › whisper-lan, gemini-flash.](img/52-settings-kind.png)
+![The session kind Meeting, read: the bar with BACK, EDIT, a dimmed MAKE DEFAULT and DELETE; ABOUT with DEFAULT "Yes: suggested first when a session is created or imported", TRANSCRIPTION default · whisper-lan, ASSISTANT default · gemini-flash, TRANSLATION default · gemini-flash; RELATED with MODELS › whisper-lan, gemini-flash.](img/52-settings-kind.png)
 
 Edited, a kind has its name and its own transcription, assistant and
 translation models — only the transcription one until a chat model is
@@ -661,7 +704,7 @@ registered.
 **Interface** — the interface language, whether eco hides from screen
 sharing, and whether it shows in the tray:
 
-![Settings, 08, the INTERFACE item, read: the bar with EDIT only; ABOUT with INTERFACE LANGUAGE English (US), HIDE FROM SCREEN SHARING off, SHOW ECO IN THE TRAY off; RELATED "Nothing else in the settings uses it."](img/53-settings-interface.png)
+![Settings, 08, the INTERFACE item, read: the bar with EDIT only; ABOUT with INTERFACE LANGUAGE English (US), HIDE FROM SCREEN SHARING off, SHOW ECO IN THE TRAY off, across the screen: nothing else in the settings uses it, so there is no RELATED.](img/53-settings-interface.png)
 
 English, Brazilian Portuguese or Japanese, or `auto` to follow the system;
 see [i18n.md](i18n.md). HIDE FROM SCREEN SHARING is off by default; on, it

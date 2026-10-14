@@ -18,7 +18,7 @@ ItemPage {
   readonly property var at: settings.at
 
   kind: I18n.t("settings.answers")
-  title: I18n.t("answers.assistant")
+  title: I18n.t("answers.assistant").toUpperCase()
   draft: ItemDraft { id: item; paths: ["llm", "rules"] }
   facts: [
     [I18n.t("settings.default_pick"), config.llm.model],
@@ -27,8 +27,7 @@ ItemPage {
   ]
   details: [
     ItemNote { text: I18n.t("settings.default_assistant_tip") },
-    Caption { text: I18n.t("settings.rules").toUpperCase() },
-    Label { Layout.fillWidth: true; text: page.config.rules.trim(); font.pixelSize: 12; wrapMode: Text.Wrap }
+    ItemText { visible: page.config.rules.trim() !== ""; title: I18n.t("settings.rules"); text: page.config.rules }
   ]
   related: [
     { title: settings.sections[at.models].name, items: config.llm.model ? [settings.link(at.models, config.llm.model, config.llm.model)] : [] },

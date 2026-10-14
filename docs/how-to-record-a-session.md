@@ -34,7 +34,8 @@ inputs; nothing is transcribed or kept. Inside one, the lines are kept as text.
 - **KIND** — what it is. The line under it says which models a session of that
   kind transcribes and answers with.
 - **LANGUAGE** — what will be spoken, from the languages offered in
-  **Settings › Transcription**. `AUTO` leaves it to the transcriber.
+  **Settings › Transcription**, where ADD LANGUAGE offers another. `AUTO`
+  leaves it to the transcriber.
 - **TAGS** — optional, several. The tags you already use are offered as you
   type.
 - **CONTEXT** — the context slots this session starts with; those of its kind

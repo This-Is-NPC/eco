@@ -18,17 +18,16 @@ ItemPage {
   readonly property bool on: reviewer.enabled === true
 
   kind: I18n.t("settings.answers")
-  title: I18n.t("answers.reviewer")
+  title: I18n.t("answers.reviewer").toUpperCase()
   draft: ItemDraft { id: item; paths: ["reviewer"] }
   facts: [[I18n.t("settings.reviewer_on"), settings.onOff(on)]]
     .concat(on ? [[I18n.t("settings.reviewer_model"), reviewer.model], [I18n.t("settings.reviewer_verbose"), settings.onOff(reviewer.verbose === true)]] : [])
   details: [
     ItemNote { text: I18n.t("settings.reviewer_note") },
-    Caption { visible: !!page.reviewer.prompt; text: I18n.t("settings.reviewer_prompt").toUpperCase() },
-    Label { Layout.fillWidth: true; visible: !!page.reviewer.prompt; text: page.reviewer.prompt || ""; font.pixelSize: 12; wrapMode: Text.Wrap }
+    ItemText { visible: !!page.reviewer.prompt; title: I18n.t("settings.reviewer_prompt"); text: page.reviewer.prompt || "" }
   ]
   related: [{ title: settings.sections[settings.at.models].name,
-    items: reviewer.model ? [settings.link(settings.at.models, reviewer.model, reviewer.model)] : [] }]
+    items: on && reviewer.model ? [settings.link(settings.at.models, reviewer.model, reviewer.model)] : [] }]
 
   ItemNote { text: I18n.t("settings.reviewer_note") }
   Flow {

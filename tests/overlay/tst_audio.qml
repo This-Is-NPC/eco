@@ -54,4 +54,26 @@ TestCase {
     Draft.assign(d, "usb-out", 2)
     compare(Draft.sourceRemoval(d, 1, devices).noOutput, false)
   }
+
+  function test_taking_the_last_device_leaves_the_source_unheard() {
+    compare(Draft.unassignment(draft(), "Me", "@default-input", devices), { empty: true, noOutput: false })
+  }
+
+  function test_taking_one_of_two_outputs_keeps_the_source_heard() {
+    compare(Draft.unassignment(draft(), "Them", "usb-out", devices), { empty: false, noOutput: false })
+  }
+
+  function test_taking_the_last_output_says_nobody_else_is_heard() {
+    const d = draft()
+    Draft.assign(d, "usb-out", -1)
+    compare(Draft.unassignment(d, "Them", "@default-output", devices), { empty: true, noOutput: true })
+  }
+
+  function test_a_device_colour_is_set_and_given_back_to_automatic() {
+    const d = draft()
+    Draft.recolor(d, "usb-out", "#ff5555")
+    compare(d.colors, { "usb-out": "#ff5555" })
+    Draft.recolor(d, "usb-out", "")
+    compare(d.colors, {})
+  }
 }

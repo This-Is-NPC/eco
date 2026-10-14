@@ -3,9 +3,9 @@ import QtQuick
 import Eco.Core
 import Eco.Kit
 
-// A page's chrome: the tab rail down the left, its second page marked, the
-// page bar beside its head with the commands of the page on screen, and a
-// command row on its own.
+// A page's chrome: the tab rail down the left, labelled and folded, its
+// second page marked, the page bar beside it with the commands of the page on
+// screen, and a command row on its own.
 Column {
   id: samples
 
@@ -22,8 +22,7 @@ Column {
     { text: I18n.t("lab.command.back"), tip: I18n.t("lab.command.back_tip"), role: "back", shown: page > 0, run: () => samples.page = 0 },
     { text: I18n.t("lab.add_entry"), short: I18n.t("lab.command.add_short"), icon: "plus", role: "primary", run: () => samples.lastAction = I18n.t("lab.add_entry") },
     { text: I18n.t("lab.command.view"), short: I18n.t("lab.command.view_short"), icon: "enter", tip: I18n.t("lab.command.view_tip"), run: () => samples.lastAction = I18n.t("lab.command.view") },
-    { text: I18n.t("lab.command.delete"), icon: "trash", role: "guarded", run: () => samples.lastAction = I18n.t("lab.command.delete") },
-    { text: I18n.t("lab.command.tool_tip"), icon: "import", place: "end", run: () => samples.lastAction = I18n.t("lab.command.tool_tip") }
+    { text: I18n.t("lab.command.delete"), icon: "trash", role: "guarded", run: () => samples.lastAction = I18n.t("lab.command.delete") }
   ]
   // Two outlined actions, then a group whose checked one is lit.
   readonly property var rowCommands: [
@@ -39,22 +38,40 @@ Column {
   Item {
     width: parent.width
     height: rail.height
-    PageBar {
-      x: rail.foldedWidth + rail.gap
-      width: parent.width - x
-      height: rail.headHeight
-      commands: samples.commands
-      section: samples.page
-      message: samples.lastAction || I18n.t("lab.status_success")
-    }
     TabRail {
       id: rail
-      z: 1
       tabs: samples.pages
       current: samples.page
       onChosen: index => samples.page = index
     }
+    PageBar {
+      x: rail.width + 16
+      width: parent.width - x
+      height: 44
+      commands: samples.commands
+      section: samples.page
+    }
   }
+  Item {
+    width: parent.width
+    height: folded.height
+    TabRail {
+      id: folded
+      labelled: false
+      tabs: samples.pages
+      current: samples.page
+      onChosen: index => samples.page = index
+    }
+    PageBar {
+      x: folded.width + 16
+      width: Math.min(parent.width - x, 300)
+      height: 44
+      commands: samples.commands
+      section: samples.page
+    }
+  }
+
+  Label { visible: samples.lastAction !== ""; text: samples.lastAction; color: Theme.dim; font.pixelSize: 10 }
 
   Kicker { width: parent.width; text: I18n.t("lab.command_row") }
   CommandRow { commands: samples.rowCommands }

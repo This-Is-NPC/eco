@@ -19,7 +19,6 @@ Window {
   property string chosenColor: ""
   property string fieldValue: I18n.t("lab.sample_session")
   property int fieldNumber: 60000
-  property var listItems: [I18n.t("lab.option_first"), I18n.t("lab.option_second")]
   property string lastAction: ""
   property string areaValue: I18n.t("lab.sample_prompt")
   property var labTags: [I18n.t("lab.sample_tag")]
@@ -380,23 +379,6 @@ Window {
                 known: [I18n.t("lab.sample_tag"), I18n.t("lab.sample_tag_second")]
                 onAdded: tag => lab.labTags = lab.labTags.concat([tag])
                 onRemoved: tag => lab.labTags = lab.labTags.filter(kept => kept !== tag)
-              }
-            }
-            ControlLabRow {
-              width: parent.width
-              title: I18n.t("lab.settings_list")
-              Column {
-                width: Math.min(420, lab.width - 260)
-                spacing: 18
-                SettingsList {
-                  width: parent.width
-                  items: lab.listItems
-                  label: I18n.t("lab.list_typed")
-                  placeholder: I18n.t("lab.sample_placeholder")
-                  browse: true
-                  nameFilters: Eco.textFileFilters()
-                  onChanged: items => lab.listItems = items
-                }
               }
             }
             ControlLabRow {

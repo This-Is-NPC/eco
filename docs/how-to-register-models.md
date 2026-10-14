@@ -96,7 +96,7 @@ Open the settings (`SUPER+ALT+C`), then **Models**, section 02 (`Ctrl+2`). It
 is a table of the models registered: each one's name, type, the provider's
 model id and what uses it.
 
-![The Models section: the rail of section numbers down the left with 02 on top; the bar with ADD MODEL, VIEW and DELETE; "Register each model once — chat or transcription — with its provider"; and a table of whisper-lan (TRANSCRIPTION, whisper-large-v3-turbo, used by DEFAULT TRANSCRIPTION, MEETING, CONVERSATION…), deepgram (TRANSCRIPTION, nova-3, INTERVIEW), gemini-flash (CHAT, google/gemini-2.5-flash, ASSISTANT, TRANSLATION, MEETING…) and claude-haiku (CHAT, anthropic/claude-haiku-4.5, minutes).](img/41-settings-models.png)
+![The Models section: the rail of sections down the left, 01 AUDIO to 08 INTERFACE, with 02 MODELS marked; the bar with ADD MODEL, VIEW and DELETE; "Register each model once — chat or transcription — with its provider"; and a table of whisper-lan (TRANSCRIPTION, whisper-large-v3-turbo, used by DEFAULT TRANSCRIPTION, MEETING, CONVERSATION…), deepgram (TRANSCRIPTION, nova-3, INTERVIEW), gemini-flash (CHAT, google/gemini-2.5-flash, ASSISTANT, TRANSLATION, MEETING…) and claude-haiku (CHAT, anthropic/claude-haiku-4.5, minutes).](img/41-settings-models.png)
 
 **A chat model is optional.** Without one eco records, transcribes and keeps
 notes; the **Answers**, **Skills** and **Translation** sections say NO CHAT
@@ -127,7 +127,7 @@ default of nothing: step 4 picks what uses it. Fill it top to bottom:
   the browser. On Windows **CREDENTIAL MANAGER** takes the place of
   **OMAPASS**: a field for the key's name (`deepgram` for `eco:deepgram`),
   and below it how to store that key with `eco key set` or by hand.
-- **ADVANCED** — extra fields sent with every request, as a JSON object, such as
+- **EXTRA (JSON)** — extra fields sent with every request, as a JSON object, such as
   `{"temperature": 0.2}`. A reasoning chosen above wins over one written here.
 
 **SAVE** (`Ctrl+S`) saves this model alone. The status line says
@@ -140,9 +140,9 @@ A registered model, read: ABOUT says what it is, and RELATED what uses it, each
 a link to where that use is set. **EDIT** (`Ctrl+E`) opens the same form; a model
 in use has no TYPE row.
 
-![The gemini-flash model read: BACK, EDIT and DELETE in the bar; ABOUT with TYPE CHAT, PROVIDER OPENROUTER, BASE URL https://openrouter.ai/api/v1, MODEL ID google/gemini-2.5-flash, KEY FROM env OPENROUTER_API_KEY and REASONING OFF; RELATED with ASSISTANT under ANSWERS, TRANSLATION under TRANSLATION, and the session kinds under SESSIONS.](img/42-settings-model.png)
+![The gemini-flash model read: BACK, EDIT and DELETE in the bar; ABOUT with TYPE CHAT, PROVIDER OPENROUTER, BASE URL https://openrouter.ai/api/v1, MODEL ID google/gemini-2.5-flash, KEY FROM env OPENROUTER_API_KEY and REASONING OFF; RELATED with ASSISTANT under ANSWERS, TRANSLATION under TRANSLATION, and the session kinds, each once, under SESSIONS · ASSISTANT + TRANSLATION.](img/42-settings-model.png)
 
-![The gemini-flash model being edited: SAVE and CANCEL in the bar; NAME "gemini-flash"; REASONING with OFF lit; PROVIDER with OPENROUTER lit, GROQ and CUSTOM; MODEL "google/gemini-2.5-flash" with LIST; KEY FROM with ENV lit and OMAPASS, holding "OPENROUTER_API_KEY"; ADVANCED, closed.](img/43-settings-model-edit.png)
+![The gemini-flash model being edited: SAVE and CANCEL in the bar; NAME "gemini-flash"; REASONING with OFF lit; PROVIDER with OPENROUTER lit, GROQ and CUSTOM; MODEL "google/gemini-2.5-flash" with LIST; KEY FROM with ENV lit and OMAPASS, holding "OPENROUTER_API_KEY"; EXTRA (JSON) holding "{}".](img/43-settings-model-edit.png)
 
 **BACK** returns to the table.
 
@@ -178,7 +178,12 @@ Each section picks from the registry, and owns its own choice. Open the item,
 | **Translation** (`Ctrl+6`) | the section itself | the model that writes translations, or the assistant's |
 | **Sessions** (`Ctrl+7`) | each kind | per kind of session, its own transcription, assistant and translation models |
 
-![The Transcription section, read: an EDIT button in the bar; ABOUT with DEFAULT MODEL whisper-lan, OFFERED SPOKEN LANGUAGES "AUTO · detect, EN · American English, ES · español de España, PT · português" and DEFAULT SPOKEN LANGUAGE "EN · American English"; RELATED with the model whisper-lan; and "Transcribes sessions whose kind picks no transcription model".](img/44-settings-transcription.png)
+![The Transcription section, read: EDIT and, on the right, ADD LANGUAGE in the bar; ABOUT with DEFAULT MODEL whisper-lan and DEFAULT SPOKEN LANGUAGE "EN · American English"; RELATED with the model whisper-lan; "Transcribes sessions whose kind picks no transcription model"; and the table OFFERED SPOKEN LANGUAGES: AUTO · detect, EN · American English (DEFAULT), ES · español de España, PT · português](img/44-settings-transcription.png)
+
+On Transcription, EDIT holds only the default model. The spoken languages
+sessions may start in are the table under it: **ADD LANGUAGE** offers another,
+and with a row picked **MAKE DEFAULT**, **MOVE UP**, **MOVE DOWN** and
+**REMOVE** change them, each saved at once.
 
 ![The Sessions section: ADD KIND, VIEW, MAKE DEFAULT and DELETE in the bar; "The default kind is suggested when you create or import a session…"; and a table of Meeting (DEFAULT), Conversation, Other and Idea, each transcribing with "default · whisper-lan" and answering with "default · gemini-flash", and interview, transcribing with deepgram.](img/51-settings-sessions.png)
 
@@ -237,7 +242,7 @@ api_key_omapass = "Deepgram"
 ```
 
 `kinds = ["idea"]` on a model makes it that kind's model of its type;
-`extra = { … }` is ADVANCED. Every field: [`design.md` §9](design.md#9-configuration).
+`extra = { … }` is EXTRA (JSON). Every field: [`design.md` §9](design.md#9-configuration).
 
 ---
 

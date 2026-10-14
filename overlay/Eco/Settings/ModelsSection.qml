@@ -45,7 +45,8 @@ SettingsSection {
     return use === "translation" ? I18n.t("settings.translates_kind", { kind: name }) : name
   }
   // What uses the model `name` in `config`, as links to where each use is set
-  // (see Draft.users), each with the title of its section's group.
+  // (see Draft.users), each with the title of its group: its section's name,
+  // and for a session kind what the kind uses it for.
   function links(config, name) {
     const at = settings.at
     return Draft.users(config, name).map(use => {
@@ -54,8 +55,10 @@ SettingsSection {
         : use.role === "transcriber" ? settings.link(at.transcription, "", I18n.t("settings.role_transcriber"))
         : use.role === "translation" ? settings.link(at.translation, "", I18n.t("settings.translation"))
         : use.role === "skill" ? settings.link(at.skills, use.action, use.action)
-        : settings.link(at.sessions, use.kind, kindLabel(use.kind, use.use))
-      return Object.assign(link, { group: settings.sections[link.section].name })
+        : settings.link(at.sessions, use.kind, Eco.kindName(use.kind).toUpperCase())
+      const uses = use.role === "kind" ? use.uses.filter(use => use !== "transcription")
+        .map(use => I18n.t(use === "chat" ? "settings.role_assistant" : "settings.translation")) : []
+      return Object.assign(link, { group: [settings.sections[link.section].name].concat(uses.length ? [uses.join(" + ")] : []).join(" · ") })
     })
   }
 }

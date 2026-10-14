@@ -51,7 +51,7 @@ ItemPage {
   Component.onCompleted: if (fresh) item.begin(d => d.kinds.push(""))
 
   extra: [section.makeDefault(Eco.config, key)]
-  facts: (Eco.config.kinds[0] === key ? [[I18n.t("settings.kind_default"), I18n.t("settings.is_default")]] : [])
+  facts: (Eco.config.kinds[0] === key ? [[I18n.t("settings.kind_default"), I18n.t("settings.kind_is_default")]] : [])
     .concat(uses.map(use => [use[1], section.modelName(config, use[0], key)]))
   related: {
     const at = settings.at

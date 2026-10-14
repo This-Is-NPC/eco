@@ -89,8 +89,9 @@ settings. **Models** registers a transcription model and a chat model, each
 with where its key comes from ([how to register models](how-to-register-models.md)),
 and **Audio** says who is heard
 ([how to set up audio sources](how-to-set-up-audio-sources.md)). Each item
-is saved on its own — open it, **EDIT**, **SAVE** — and the first save writes
-the file; from then on the settings window edits it. Every field is in [`design.md` §9](design.md#9-configuration).
+is saved on its own — open it, **EDIT**, **SAVE**; a list inside an item, as
+an audio source's devices, changes from the bar (**ADD DEVICE**, **REMOVE**)
+and saves at once — and the first save writes the file; from then on the settings window edits it. Every field is in [`design.md` §9](design.md#9-configuration).
 
 Until then, what needs a model says so: a session started transcribes nothing
 and says `no transcription model is chosen`, and an answer fails with `no chat

@@ -127,9 +127,9 @@ function retype(d, index, type, presets) {
 }
 
 // What uses the model named `name` in the draft now, as `answering` picks it:
-// [{role, kind, use, action}], `role` one of "assistant", "transcriber",
+// [{role, kind, uses, action}], `role` one of "assistant", "transcriber",
 // "translation" (the translation default), "reviewer", "skill" (`action` its
-// name) or "kind" (`kind` with its `use`: "chat", "transcription" or
+// name) or "kind" (`kind` once, with its `uses`: "chat", "transcription" and
 // "translation"). A model with no name, or none of that name, is used by nothing.
 function users(draft, name) {
   const entry = draft.models.find(model => model.name === name)
@@ -148,7 +148,11 @@ function users(draft, name) {
     found.push({ role: "reviewer" })
   draft.actions.forEach(action => { if (action.model === name) found.push({ role: "skill", action: action.name }) })
   const uses = chat ? ["chat", "translation"] : ["transcription"]
-  draft.kinds.forEach(kind => uses.forEach(use => { if (answers(use, kind)) found.push({ role: "kind", kind: kind, use: use }) }))
+  draft.kinds.forEach(kind => {
+    const served = uses.filter(use => answers(use, kind))
+    if (served.length > 0)
+      found.push({ role: "kind", kind: kind, uses: served })
+  })
   return found
 }
 
@@ -330,10 +334,40 @@ function sourceRemoval(draft, index, devices) {
     noUser: !!source.user }
 }
 
+// Move the entry at `from` of `list` by `step` places: -1 up, 1 down.
+function shift(list, from, step) {
+  list.splice(from + step, 0, list.splice(from, 1)[0])
+}
+
 // Move the skill named `name` in the draft `d` by `step` places: -1 up, 1 down.
 function moveSkill(d, name, step) {
-  const from = d.actions.findIndex(action => action.name === name)
-  d.actions.splice(from + step, 0, d.actions.splice(from, 1)[0])
+  shift(d.actions, d.actions.findIndex(action => action.name === name), step)
+}
+
+// Offer the spoken language `code` in the draft `d`, last, unless it is offered.
+function addLanguage(d, code) {
+  if (!d.stt.languages.includes(code))
+    d.stt.languages.push(code)
+}
+
+// Move the offered spoken language `code` in the draft `d` by `step` places.
+function moveLanguage(d, code, step) {
+  shift(d.stt.languages, d.stt.languages.indexOf(code), step)
+}
+
+// The language that becomes the default when `code` is no longer offered in
+// `draft`: the first one left when `code` was the default, else "".
+function languageHeir(draft, code) {
+  return draft.stt.language === code ? draft.stt.languages.filter(other => other !== code)[0] || "" : ""
+}
+
+// Stop offering the spoken language `code` in the draft `d`; when it was the
+// default, the first one left becomes the default.
+function removeLanguage(d, code) {
+  const heir = languageHeir(d, code)
+  d.stt.languages.splice(d.stt.languages.indexOf(code), 1)
+  if (heir)
+    d.stt.language = heir
 }
 
 // Name the kind at `index` in the draft `d` as `text` is typed. Its models and
@@ -385,4 +419,49 @@ function inheriting(draft) {
     kinds: draft.kinds.filter(kind => !serving(draft, "chat", kind)),
     translation: !answering(draft, "translation", "", null).own
   }
+}
+
+// The files of a context in the draft `d`, sent in this order: the global
+// context's when `slot` is "", else those of the context slot named `slot`.
+function contextFiles(d, slot) {
+  return slot === "" ? d.context.files : d.contexts.find(entry => entry.name === slot).files
+}
+
+// Add `paths` to the file list `list`, last, those not in it yet.
+function addFiles(list, paths) {
+  for (const path of paths)
+    if (!list.includes(path))
+      list.push(path)
+}
+
+// Move the file `path` of the context `slot` in the draft `d` by `step` places.
+function moveFile(d, slot, path, step) {
+  const files = contextFiles(d, slot)
+  shift(files, files.indexOf(path), step)
+}
+
+// Stop sending the file `path` with the context `slot` of the draft `d`.
+function removeFile(d, slot, path) {
+  const files = contextFiles(d, slot)
+  files.splice(files.indexOf(path), 1)
+}
+
+// What taking the device `id` from the audio source named `name` of `draft`
+// leaves, given the `devices` there are ({id, kind}): `empty` when the source
+// is heard through no other device, `noOutput` when `id` was the last output
+// device any source had.
+function unassignment(draft, name, id, devices) {
+  const output = device => devices.some(entry => entry.id === device && entry.kind === "output")
+  const source = draft.participants.find(person => person.name === name)
+  return { empty: source.devices.every(device => device === id),
+    noOutput: output(id) && !draft.participants.some(person => person.devices.some(device => device !== id && output(device))) }
+}
+
+// Show the device `id` in `color` in the draft `d`, or in its automatic colour for "".
+function recolor(d, id, color) {
+  d.colors = d.colors || {}
+  if (color)
+    d.colors[id] = color
+  else
+    delete d.colors[id]
 }

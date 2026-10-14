@@ -46,11 +46,4 @@ SettingsSection {
     const found = device(id)
     return found ? Eco.deviceLabel(id, found.label) : I18n.t("settings.device_missing", { id: id })
   }
-  // A device with its kind, and who has it when that is not the source at `except` of `participants`.
-  function deviceName(participants, id, except) {
-    const found = device(id)
-    const kind = found ? I18n.t(found.kind === "input" ? "audio.kind_input" : "audio.kind_output") + "  " : ""
-    const owner = participants.find((person, i) => i !== except && person.devices.includes(id))
-    return kind + deviceLabel(id) + (owner ? "  ·  " + owner.name : "")
-  }
 }

@@ -99,7 +99,7 @@ left empty, then **SAVE**:
 Then **Settings › Transcription** makes it the default: **EDIT**, **DEFAULT
 MODEL** whisper-lan, **SAVE**:
 
-![The Transcription section, read: ABOUT with DEFAULT MODEL whisper-lan, the offered spoken languages AUTO, EN, ES and PT, and DEFAULT SPOKEN LANGUAGE "EN · American English"; RELATED with the model whisper-lan; and "Transcribes sessions whose kind picks no transcription model".](img/44-settings-transcription.png)
+![The Transcription section, read: EDIT and ADD LANGUAGE in the bar; ABOUT with DEFAULT MODEL whisper-lan and DEFAULT SPOKEN LANGUAGE "EN · American English"; RELATED with the model whisper-lan; "Transcribes sessions whose kind picks no transcription model"; and the table OFFERED SPOKEN LANGUAGES with AUTO, EN (DEFAULT), ES and PT](img/44-settings-transcription.png)
 
 ## 5. Or only for some kinds of session
 

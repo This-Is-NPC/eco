@@ -55,13 +55,10 @@ ItemPage {
   // Its prompt and output format, each under its name.
   details: Repeater {
     model: [[I18n.t("settings.action_prompt"), page.entry.prompt], [I18n.t("settings.action_format"), page.entry.format]].filter(text => text[1] !== "")
-    ColumnLayout {
-      id: block
+    ItemText {
       required property var modelData
-      Layout.fillWidth: true
-      spacing: 6
-      Caption { text: block.modelData[0] }
-      Label { Layout.fillWidth: true; text: block.modelData[1]; font.pixelSize: 12; wrapMode: Text.Wrap }
+      title: modelData[0]
+      text: modelData[1]
     }
   }
 
