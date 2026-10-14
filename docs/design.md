@@ -2070,7 +2070,11 @@ their shells' vendor directories. `scripts/completions` writes those with
 `usage generate completion` from the spec `eco usage` prints; they call
 `usage complete-word` as they complete, so `usage` (in Arch's `extra`) is a
 dependency to build and to run. Building also needs `cargo`, `cmake`, `ninja`
-and Qt 6 (`qt6-base`, `qt6-declarative`); running needs the two Qt packages.
+and Qt 6 (`qt6-base`, `qt6-declarative`); running needs the two Qt packages at
+the minor release the package was built against or newer (`qt6-base>=6.12` for
+a build on Qt 6.12): Qt versions its symbols by minor release, so an older Qt
+cannot start `eco-window`, and the versioned dependency makes pacman bring the
+newer Qt along, or refuse, instead.
 `mise run package`
 (`scripts/package`) runs `makepkg` into `target/arch/pkg`; `install.sh`
 downloads the package and the release's `SHA256SUMS` from a GitHub release,
