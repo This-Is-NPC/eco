@@ -96,7 +96,7 @@ left empty, then **SAVE**. **BACK** returns to the table; pick whisper-lan
 there and press **DEFAULT FOR TRANSCRIPTION**. It saves at once, and its
 DEFAULT column says TRANSCRIPTION:
 
-![The Models section: ADD MODEL, VIEW, a dimmed DEFAULT FOR TRANSCRIPTION and a dimmed DELETE in the bar, and a table of whisper-lan (TRANSCRIPTION, whisper-large-v3-turbo, default TRANSCRIPTION, used by MEETING, CONVERSATION…, picked), deepgram (TRANSCRIPTION, nova-3, INTERVIEW), gemini-flash (CHAT, google/gemini-2.5-flash, default CHAT · TRANSLATION, MEETING…) and claude-haiku (CHAT, anthropic/claude-haiku-4.5, minutes).](img/41-settings-models.png)
+![The Models section: ADD MODEL, VIEW, EDIT, a dimmed DEFAULT FOR TRANSCRIPTION and a dimmed DELETE in the bar, and a table of whisper-lan (TRANSCRIPTION, whisper-large-v3-turbo, default TRANSCRIPTION, used by MEETING, CONVERSATION…, picked), deepgram (TRANSCRIPTION, nova-3, INTERVIEW), gemini-flash (CHAT, google/gemini-2.5-flash, default CHAT · TRANSLATION, MEETING…) and claude-haiku (CHAT, anthropic/claude-haiku-4.5, minutes).](img/41-settings-models.png)
 
 ## 5. Or only for some kinds of session
 

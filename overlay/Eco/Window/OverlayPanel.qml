@@ -32,6 +32,8 @@ Window {
   // capsule in the masthead; a compact one then drops the name and folds the
   // language picker into the details.
   readonly property bool joined: short && width >= 360 && current === "session" && Eco.session !== null
+  // Whether the session's COST button fits in the masthead; else it is in the details.
+  readonly property bool costInMast: !(joined && compact)
   // Whether the session's details lie open over the conversation; another
   // session on screen starts with them closed.
   property bool details: false
@@ -92,6 +94,12 @@ Window {
         }
         SessionControl { visible: panel.joined; dense: true }
         LanguagePicker { visible: Eco.session !== null && panel.current === "session" && !(panel.joined && panel.compact); compact: panel.compact || panel.short }
+        IconButton {
+          visible: panel.current === "session" && panel.costInMast
+          name: "cost"
+          tip: I18n.t("cost.tip")
+          onClicked: Eco.openCost(Eco.onScreen.id)
+        }
         IconButton {
           readonly property int guesses: panel.short && Eco.onScreen !== null ? Eco.guessesOf(Eco.onScreen.id).length : 0
           visible: panel.current === "session"
@@ -282,6 +290,7 @@ Window {
             compact: panel.compact
             short: panel.short
             joined: panel.joined
+            costInMast: panel.costInMast
             detailsOpen: panel.details
             onDetailsRequested: panel.details = true
             onDetailsClosed: panel.details = false

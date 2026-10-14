@@ -31,7 +31,7 @@ audio source is a `[[participants]]` entry.
 the first section (`Ctrl+1`): a table with a row per audio source — its name,
 its devices, and YOU on yours — and last the row **YOUR MICROPHONE**.
 
-![The Audio section of the settings: ADD AUDIO SOURCE, VIEW, REFRESH DEVICES and DELETE in the bar; "An audio source is a name in the conversation, heard through its devices; a device has one owner. One audio source may be you."; and a table of Me (Default microphone, YOU), Them (Default output) and YOUR MICROPHONE (DROP ECHOES on · ECHO CANCELLATION off).](img/39-settings-audio.png)
+![The Audio section of the settings: ADD AUDIO SOURCE, VIEW, EDIT, REFRESH DEVICES and DELETE in the bar; "An audio source is a name in the conversation, heard through its devices; a device has one owner. One audio source may be you."; and a table of Me (Default microphone, YOU), Them (Default output) and YOUR MICROPHONE (DROP ECHOES on · ECHO CANCELLATION off).](img/39-settings-audio.png)
 
 A first config written by hand may already have both sources. Then open each
 (double click, or Enter) to check it against the steps below, and skip to
@@ -45,7 +45,7 @@ It turns into **YOU**: your lines show on the right of the conversation, and the
 model is told they are yours. Only one audio source can be you.
 
 **SAVE**, or `Ctrl+S`. The status line says `settings saved`, and the source
-shows read: ABOUT with its name and whether it is you, and under it the table
+shows read: ABOUT with whether it is you, and under it the table
 **DEVICES**, empty for now: `No device assigned: nothing of this audio source
 is heard.`
 
@@ -53,11 +53,14 @@ is heard.`
 microphone (`MIC`) and output (`OUT`) PipeWire has that this source does not,
 with **HEARD AS**, the source that has it now, or `—`.
 
-![The ADD DEVICE screen inside the audio source "Them": THEM over the title ADD DEVICE; the bar with BACK and ADD DEVICE; "The devices this audio source is not heard through. A device has one owner: one another audio source has is taken from it."; a table NAME · KIND · HEARD AS with Default microphone (MIC, Me, picked), H390 headset microphone (MIC, —), H390 headset (OUT, —) and Built-in microphone (MIC, —).](img/40-settings-audio-source.png)
-
 Pick **Default microphone** and press **ADD DEVICE**, or `Enter`. It saves at
 once, the daemon restarts capture with the new device, and you are back on the
-source with the device picked in its table. Default microphone follows whatever
+source with the device picked in its table. The bar then holds what changes
+it — here on the source Them, whose one device is its output:
+
+![The audio source Them, read: AUDIO SOURCE over the title THEM; the bar with BACK, EDIT, ADD DEVICE, COLOUR, REMOVE DEVICE and, after a thin rule, DELETE; ABOUT with YOU "Someone else"; DEVICES, a table NAME · KIND · COLOUR with Default output (OUT, ■ automatic), picked.](img/40-settings-audio-source.png)
+
+Default microphone follows whatever
 microphone the system uses, so plugging in a headset needs no change here.
 Adding a device another source has moves it here: a device has one owner.
 
@@ -84,9 +87,9 @@ to one source only; ADD DEVICE shows who has it.
 is its trace's, everywhere a trace is drawn, and its lines', so you can tell
 which input hears sound by colour alone. AUTOMATIC takes one by the device's
 place among those captured. While a session captures, the source's read screen
-shows each of its devices under **HEARD NOW** with its live trace.
+draws each device's live trace, in its colour, at the end of its row.
 
-**Taking a device off.** Pick it in the source's table and press **REMOVE**, or
+**Taking a device off.** Pick it in the source's table and press **REMOVE DEVICE**, or
 `Delete`. It saves at once; it asks first when the source would be left with no
 device, or when it was the last output any source had: `Nobody else is heard:
 no other audio source has an output device.`

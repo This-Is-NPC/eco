@@ -38,6 +38,7 @@ ModalDialog {
       ["↑ · ↓", "keys.choose"],
       ["Enter", "keys.open"],
       ["Delete", "keys.remove"],
+      ["N", "keys.new_session"],
       ["I", "keys.import"],
       ["/", "keys.search"]
     ]],
@@ -73,16 +74,17 @@ ModalDialog {
       ["Esc", "keys.close"]
     ]],
     ["keys.settings_window", [
-      ["1…7 · Ctrl+1…7", "keys.tabs"],
+      ["1…8 · Ctrl+1…8", "keys.tabs"],
       ["Ctrl+Tab · Ctrl+Shift+Tab", "keys.tabs_turn"],
       ["↑ · ↓ · Home · End", "keys.rail_move"],
       ["Enter · Space", "keys.rail_choose"],
       ["↑ · ↓", "keys.pick_row"],
-      ["Enter", "keys.open_item"],
+      ["Enter · Space", "keys.open_item"],
       ["Delete", "keys.delete_item"],
       ["Enter", "keys.open_child"],
       ["Delete", "keys.remove_child"],
       ["Ctrl+E", "keys.edit_item"],
+      ["Enter · Space", "keys.interface_act"],
       ["Ctrl+S", "keys.save"],
       ["Esc", "keys.leave_item"]
     ]]

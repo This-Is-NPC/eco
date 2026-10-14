@@ -40,10 +40,12 @@ SettingsSection {
   }
   commands: (config, row) => [makeDefault(config, row === null ? "" : row.id)]
 
-  // MAKE DEFAULT for the kind `kind` of `config`, saved at once: it moves first.
+  // MAKE DEFAULT for the kind `kind` of `config`, saved at once: it moves
+  // first; off, saying why, while no kind is picked.
   function makeDefault(config, kind) {
     const at = config.kinds.indexOf(kind)
-    return { text: I18n.t("settings.default"), icon: "check", tip: I18n.t(at === 0 ? "settings.is_default" : "settings.default_tip"), shown: at >= 0, enabled: at > 0,
+    return { text: I18n.t("settings.default"), icon: "check",
+      tip: I18n.t(at < 0 ? "settings.pick_row_tip" : at === 0 ? "settings.is_default" : "settings.default_tip"), enabled: at > 0,
       run: () => settings.saveNow(d => d.kinds.unshift(d.kinds.splice(d.kinds.indexOf(kind), 1)[0])) }
   }
 

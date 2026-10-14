@@ -17,14 +17,20 @@ QtObject {
   property bool chats: false
   // The text of its ADD command, or "" when nothing is added here.
   property string add: ""
+  // Its shorter name, for a bar with no room for `add`; "" keeps `add`.
+  property string addShort: ""
   // The rows of the saved config `config`: [{id, cells, file, fixed, removable,
-  // keptReason, open}]; `file` overrides `file` below, `fixed` marks a part of
-  // the config that is never removed (no DELETE), `removable` false keeps DELETE
-  // off for now and `keptReason` says why. `open`, a command as PageBar takes
-  // it, stands for VIEW: its `run`, or else opening the row's screen, is what
-  // the command, Enter and a double click do. A row with no screen and no
-  // `open.run` has no VIEW.
+  // keptReason, edits, noEdit}]; `file` overrides `file` below, `fixed` marks a
+  // part of the config that is never removed (no DELETE), `removable` false
+  // keeps DELETE off for now and `keptReason` says why. `edits` false keeps EDIT
+  // off on a row whose screen has no fields, and `noEdit` says why.
   property var rows: config => []
+  // Each row's own control, beside its cells: a component whose root gets the
+  // row as `entry` and whose `act()`, if it has one, Enter, Space and a double
+  // click run; how wide it is, and the title over it.
+  property Component tools: null
+  property real toolsWidth: 0
+  property string toolsTitle: ""
   // The screen a row opens, an ItemPage file beside SettingsView; a new item's
   // row has the id "+".
   property string file: ""
@@ -34,6 +40,7 @@ QtObject {
   // warning, change}, `change` applied to a copy of the saved config; null
   // when the section deletes nothing.
   property var remove: null
-  // The table's own commands, as PageBar takes them, for the row picked or null.
+  // The table's own commands, as PageBar takes them, for the row picked or
+  // null: each is there either way, off until a row is picked.
   property var commands: (config, row) => []
 }

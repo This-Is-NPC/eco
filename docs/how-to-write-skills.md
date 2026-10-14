@@ -25,11 +25,11 @@ line say **action** (`[[actions]]`, `action <name>`, `eco action`).
 
 ## 1. Add it
 
-Open the settings (`SUPER+ALT+C`), then **Skills**, section 05 (`Ctrl+5`): a
+Open the settings (`SUPER+ALT+C`), then **Skills**, section 06 (`Ctrl+6`): a
 table of the skills in the composer's order, each with the model it answers
 with and its hook.
 
-![The Skills section: ADD SKILL, VIEW and DELETE in the bar; a table of reply ("default · gemini-flash", "HOOK · ON SEND"), minutes (claude-haiku) and explain ("default · gemini-flash").](img/47-settings-skills.png)
+![The Skills section: ADD SKILL, VIEW, EDIT and DELETE in the bar; a table of reply ("default · gemini-flash", "HOOK · ON SEND"), minutes (claude-haiku) and explain ("default · gemini-flash").](img/47-settings-skills.png)
 
 **ADD SKILL** opens a new skill, being edited:
 

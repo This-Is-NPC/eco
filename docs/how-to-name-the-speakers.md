@@ -171,7 +171,7 @@ Who is who has one place: the **SPEAKERS** list in the session's details (the
 `⋯` button in its masthead). Each label shows the person it is, eco's guess, or
 the name it goes by:
 
-![The details panel of "Acme onboarding kickoff": under SPEAKERS, Speaker 1 → Ana Ribeiro with CLEAR and CHANGE, Me (you) → No one yet, Speaker 2 → Marcus Lee, and Speaker 3 → No one yet; under PEOPLE, Ana Ribeiro, Marcus Lee, Priya Shah.](img/20-session-details.png)
+![The details panel of "Acme onboarding kickoff", its first line with the edit and close buttons: under SPEAKERS, Speaker 1 → Ana Ribeiro with CLEAR and CHANGE, Me (you) → No one yet, Speaker 2 → Marcus Lee, and Speaker 3 → No one yet; under PEOPLE, Ana Ribeiro, Marcus Lee, Priya Shah.](img/20-session-details.png)
 
 **CHANGE**, or clicking a speaker's name in the timeline, asks who they are:
 

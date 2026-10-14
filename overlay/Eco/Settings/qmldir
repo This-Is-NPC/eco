@@ -7,9 +7,9 @@ AudioSection 1.0 AudioSection.qml
 ChildScreen 1.0 ChildScreen.qml
 ChooseView 1.0 ChooseView.qml
 ConfigWindow 1.0 ConfigWindow.qml
+ContextSection 1.0 ContextSection.qml
 EchoView 1.0 EchoView.qml
 GlobalContextView 1.0 GlobalContextView.qml
-InterfaceLanguageView 1.0 InterfaceLanguageView.qml
 InterfaceSection 1.0 InterfaceSection.qml
 ItemDraft 1.0 ItemDraft.qml
 ItemNote 1.0 ItemNote.qml

@@ -141,7 +141,7 @@ A **context slot** is a name and some files — a résumé for interviews, a
 project's notes for its meetings. A kind can start with slots on; in a session,
 the **CONTEXT** line of its details turns them on and off:
 
-![A session's details panel: the session's state, start, length and counts; its path with COPY PATH; PEOPLE; SPEAKERS; TAGS #Acme and #Q2; CONTEXT with a chip "resume"; TRANSLATION: OFF; and COST, COPY VTT and DELETE.](img/20-session-details.png)
+![A session's details panel: the session's state, start, length and counts with the edit and close buttons; its path with COPY PATH; PEOPLE; SPEAKERS; TAGS #Acme and #Q2; CONTEXT with a chip "resume"; TRANSLATION: OFF; and COPY VTT and DELETE.](img/20-session-details.png)
 
 From the command line:
 
@@ -151,11 +151,11 @@ eco context c7fe3528d507 --add resume       # turn one on
 eco context c7fe3528d507 --remove resume    # and off
 ```
 
-The files are set in **Settings › Answers**. Open **global context**, or a
+The files are set in **Settings › Context**. Open **Global**, or a
 slot, and press **ADD FILE**: type the file's **PATH** and press **ADD FILE**,
 or **BROWSE** and choose files, which are added at once. Files are sent in the
 order they were added. Pick a file in the item's **FILES** table and press
-**REMOVE** to take it off; it saves at once. A new slot comes from **ADD CONTEXT
+**REMOVE FILE** to take it off; it saves at once. A new slot comes from **ADD CONTEXT
 SLOT**: its name and the kinds it is on from the start in, **SAVE**, then its
 files.
 

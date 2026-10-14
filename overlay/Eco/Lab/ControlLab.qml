@@ -202,6 +202,7 @@ Window {
               Row {
                 spacing: 14
                 Dropdown {
+                  id: sampleDropdown
                   options: ["first", "second", "third"]
                   current: lab.selectedOption
                   emphasized: true
@@ -215,6 +216,13 @@ Window {
                   label: I18n.t("settings.pick_model")
                   invalid: true
                   describe: option => option === "first" ? I18n.t("lab.option_first") : I18n.t("lab.option_second")
+                }
+                // Opens the first list from outside it, as a table row's act does.
+                TraceButton {
+                  dense: true
+                  icon: "chevron-down"
+                  text: I18n.t("lab.open_list")
+                  onClicked: sampleDropdown.open()
                 }
               }
             }

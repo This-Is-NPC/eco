@@ -9,7 +9,8 @@ import QtQuick.Layouts
 // others, outlined, the guarded ones last (CommandRow). When the names do not
 // fit, each action but the main one shows only its icon, or its short name
 // when it has none, and BACK only its chevron; on a bar narrower still, the
-// main one too, and narrower again one menu button holds them all, BACK first.
+// main one too, and narrower again one menu button holds them all, BACK first;
+// and at its end the page's readout, which gives way first.
 Rectangle {
   id: bar
 
@@ -18,6 +19,8 @@ Rectangle {
   property var commands: []
   // Changes when the page does, so the commands arrive again.
   property int section: 0
+  // What the page counts, as "7 SESSIONS", at the bar's end; "" for none.
+  property string readout: ""
 
   readonly property var shown: commands.filter(command => command.shown !== false)
   readonly property var back: shown.find(command => command.role === "back") || null
@@ -26,6 +29,12 @@ Rectangle {
   readonly property real gap: 24
   // The room the actions have beside BACK as only its chevron and its rule.
   readonly property real room: width - 16 - (back !== null ? 32 + 21 : 0) - gap
+  // The room the readout takes with its rule.
+  readonly property real readoutRoom: readoutMeasure.implicitWidth + 21
+  // Shown while BACK as its chevron, the main action named and the others as
+  // icons still fit beside it.
+  readonly property bool readoutShown: readout !== ""
+    && contextual.iconsWidth(true) + (back !== null ? 32 + 21 : 0) + gap + 16 + readoutRoom <= width
 
   color: Qt.alpha(Theme.background, 0.9)
   border.color: Theme.line
@@ -41,6 +50,14 @@ Rectangle {
     dense: true
     icon: "chevron-left"
     text: bar.back ? bar.back.text : ""
+  }
+  // The readout, to know the room it takes.
+  Label {
+    id: readoutMeasure
+    opacity: 0
+    text: bar.readout
+    font.pixelSize: 10
+    font.letterSpacing: 3
   }
 
   RowLayout {
@@ -74,11 +91,28 @@ Rectangle {
       spread: true
       commands: bar.actions
       // Named while the names leave BACK its name.
-      room: bar.room - (bar.back !== null ? backMeasure.implicitWidth - 32 : 0)
-      fit: bar.room
+      room: bar.room - (bar.back !== null ? backMeasure.implicitWidth - 32 : 0) - (bar.readoutShown ? bar.readoutRoom : 0)
+      fit: bar.room - (bar.readoutShown ? bar.readoutRoom : 0)
       iconsWhenTight: true
       folds: bar.back !== null ? [Object.assign({ icon: "chevron-left" }, bar.back)] : []
       transform: Translate { id: shift }
+    }
+
+    Rectangle {
+      visible: bar.readoutShown
+      Layout.alignment: Qt.AlignVCenter
+      implicitWidth: 1
+      implicitHeight: 20
+      color: Theme.line
+    }
+    Label {
+      visible: bar.readoutShown
+      Layout.alignment: Qt.AlignVCenter
+      Layout.rightMargin: 4
+      text: bar.readout
+      color: Theme.dim
+      font.pixelSize: 10
+      font.letterSpacing: 3
     }
 
     ParallelAnimation {

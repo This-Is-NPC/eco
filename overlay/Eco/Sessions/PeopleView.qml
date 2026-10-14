@@ -61,30 +61,15 @@ ColumnLayout {
     merge.open()
   }
 
-  RowLayout {
+  // While merging, the notice's CANCEL is the one way out (and Esc).
+  PageBar {
     Layout.fillWidth: true
-    spacing: 10
-    TraceButton {
-      id: backButton
-      dense: true
-      role: "navigation"
-      // While merging, the notice's CANCEL is the one way out (and Esc).
-      visible: people.merging === null
-      icon: "chevron-left"
-      text: Eco.backText
-      tip: "esc"
-      onClicked: people.back()
-    }
-    Item { Layout.fillWidth: true }
-    Label { text: I18n.t("people.count", { n: Eco.people.length }); color: Theme.dim; font.pixelSize: 10; font.letterSpacing: 3 }
-    TraceButton {
-      visible: people.merging === null
-      dense: true
-      role: "action"
-      icon: "plus"
-      text: I18n.t("people.add")
-      onClicked: people.add()
-    }
+    Layout.preferredHeight: 44
+    readout: I18n.t("people.count", { n: Eco.people.length })
+    commands: [
+      { text: Eco.backText, role: "back", shown: people.merging === null, run: () => people.back() },
+      { text: I18n.t("people.add"), icon: "plus", role: "primary", shown: people.merging === null, run: () => people.add() }
+    ]
   }
 
   StatusMessage {
@@ -117,7 +102,7 @@ ColumnLayout {
     emptyIcon: "plus"
     onEmptyActed: people.add()
     dimmed: person => people.merging !== null && people.merging.id === person.id
-    toolsFolded: people.folded
+    toolsAlways: people.folded
     toolsWidth: people.folded ? 28 : 166
     tools: personTools
     onOpened: person => people.merging === null ? Eco.historyForPerson(person.id) : people.pick(person)
@@ -125,7 +110,7 @@ ColumnLayout {
       if (people.merging === null)
         people.forgetting(person)
     }
-    onBackRequested: backButton.press()
+    onBackRequested: people.back()
   }
 
   // A row's tools; folded, one menu holds them and still opens the colour grid.

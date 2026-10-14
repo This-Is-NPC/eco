@@ -12,11 +12,11 @@ ItemPage {
   required property Item settings
   required property SettingsSection section
 
-  kind: I18n.t("settings.answers")
-  title: I18n.t("answers.context").toUpperCase()
+  kind: I18n.t("settings.context")
+  title: I18n.t("context.global").toUpperCase()
   details: [ItemNote { text: I18n.t("answers.context_note") }]
   related: [{ title: I18n.t("contexts.slots"),
-    items: (config.contexts || []).map(slot => settings.link(settings.at.answers, section.slotId(slot.name), slot.name)) }]
+    items: (config.contexts || []).map(slot => settings.link(settings.at.context, section.slotId(slot.name), slot.name)) }]
   tables: [section.filesTable(config.context.files, "", addFile)]
 
   property Component addFile: AddFileScreen { slot: "" }

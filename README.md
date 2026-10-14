@@ -155,7 +155,7 @@ where they work:
 - `Esc` — close what is open, or go back
 - start screen: `N` new session · `H` sessions · `I` import · `P` people
 - sessions and people: `↑` / `↓` choose · `Enter` open · `Delete` remove,
-  asking first · `I` import · `/` search
+  asking first · `N` new session · `I` import · `/` search
 - a tag chip in sessions: `F2` rename the tag · `Delete` delete it, asking
   first · menu key its menu
 - people screen: `F2` rename · `M` merge with someone else
@@ -164,13 +164,15 @@ where they work:
   `Home` / `End` · `N` name the line's speaker · `Tab` the line's tools
 - question box: `Enter` send · `Shift+Enter` keep as a note · `/` list the
   skills · `Alt+1…9` run the skill with that number
-- settings: `1…7` section, outside a field being written, and `Ctrl+1…7`
+- settings: `1…8` section, outside a field being written, and `Ctrl+1…8`
   anywhere · `Ctrl+Tab` / `Ctrl+Shift+Tab` next or
   previous section · on the rail `↑` / `↓` / `Home` / `End` move and
-  `Enter` / `Space` open the section · `↑` / `↓` pick a row · `Enter` open it ·
-  `Delete` delete it, asking first · in a table inside an item, `Enter` open
-  the row or add it on an add screen, `Delete` remove it · `Ctrl+E` edit ·
-  `Ctrl+S` save · `Esc` back one level, then close
+  `Enter` / `Space` open the section · `↑` / `↓` pick a row · `Enter` /
+  `Space` open it · `Delete` delete it, asking first · in a table inside an
+  item, `Enter` open the row or add it on an add screen, `Delete` remove it ·
+  `Ctrl+E` edit the row picked or the item open · on Interface, `Enter` /
+  `Space` turn the switch or open the language list · `Ctrl+S` save · `Esc`
+  back one level, then close
 - anywhere, through Hyprland, or eco itself on Windows with `Win` for
   `SUPER`: `SUPER+ALT+N` new session · `SUPER+ALT+H`
   sessions · `SUPER+ALT+C` settings · `SUPER+ALT+P` pause or resume ·

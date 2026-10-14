@@ -11,9 +11,11 @@ import Eco.Kit
 // holds, each a child table;
 // edited, its form, which holds no collection. Its commands, for the bar, go
 // back, edit and delete it, add to its child tables and change the child row
-// picked, which saves at once, or, editing, save, discard and cancel, then its
-// own `extra`. A child table adds through a child screen opened over the
-// item, and a child row may open one of its own.
+// picked, which saves at once, each there and off until a row is picked, then
+// its own `extra`; or, editing, save, discard and cancel. A child table adds
+// through a child screen opened over the item, and a child row may open one
+// of its own. Edited from the table (`returns`), it goes back there once saved
+// or cancelled.
 Item {
   id: page
 
@@ -44,7 +46,8 @@ Item {
   default property alias form: formColumn.data
   // The collections it holds, each a titled table read under what it is, in
   // order: [{name, title, note, empty, columns, stacked, tone, rows, add, open,
-  // remove, commands}], as .temp/settings-contract.md says.
+  // remove, removeText, commands, pickTip, tools, toolsWidth}], as
+  // .temp/settings-contract.md says.
   property var tables: []
   // Child table name -> the id of its row picked; the table picked in last,
   // whose row's commands the bar shows.
@@ -54,6 +57,8 @@ Item {
   property Item childScreen: null
   // The id of its row, which it shows: "+" for a new item not saved yet.
   property string key: ""
+  // Edited from the table: saved or cancelled, it goes back there.
+  property bool returns: false
   // The id of its row as the draft names it, which the table follows once
   // saved; "" keeps `key`.
   property string nextKey: ""
@@ -88,25 +93,27 @@ Item {
   ])
 
   // Each child table's ADD, the first the main action of an item with no
-  // fields; then the commands of the child row picked last.
+  // fields; then each table's row commands, there whether a row is picked or not.
   readonly property var childCommands: {
     const adds = tables.filter(table => !!table.add).map((table, index) => ({ text: table.add.text, icon: "plus",
       role: draft === null && index === 0 ? "primary" : undefined, tip: table.add.tip || "", enabled: !Eco.configSaving,
       run: () => page.show(table.add.screen, { table: table.name }) }))
-    const table = tables.find(entry => entry.name === childTable)
-    const row = table ? table.rows.find(entry => entry.id === childPicks[table.name]) || null : null
-    return adds.concat(row === null ? [] : rowCommands(table, row))
+    return adds.concat(tables.reduce((all, table) =>
+      all.concat(rowCommands(table, table.rows.find(entry => entry.id === childPicks[table.name]) || null)), []))
   }
 
-  // The commands of the child row `row` of `table`: open it, the table's own,
-  // and remove it; each saves at once.
+  // The commands of `table` for its row `row`, or null while none is picked:
+  // open it, the table's own, and remove it; each saves at once, and each is
+  // off, saying why, until a row is picked.
   function rowCommands(table, row) {
     const idle = !Eco.configSaving
-    const commands = table.open ? [{ text: table.open.text, icon: table.open.icon || "enter", tip: table.open.tip || "", run: () => page.openRow(table, row) }] : []
+    const pickTip = table.pickTip || ""
+    const commands = table.open ? [{ text: table.open.text, icon: table.open.icon, tip: row === null ? pickTip : table.open.tip || "",
+      enabled: idle && row !== null, run: () => page.openRow(table, row) }] : []
     return commands.concat(table.commands ? table.commands(row) : []).concat(table.remove ? [
-      { text: I18n.t("settings.child_remove"), icon: "trash", role: "guarded",
-        tip: row.removable === false ? row.keptReason || "" : I18n.t("settings.child_remove_tip"),
-        enabled: idle && row.removable !== false, run: () => page.removeChild(table, row) }
+      { text: table.removeText, icon: "close",
+        tip: row === null ? pickTip : row.removable === false ? row.keptReason || "" : I18n.t("settings.child_remove_tip"),
+        enabled: idle && row !== null && row.removable !== false, run: () => page.removeChild(table, row) }
     ] : [])
   }
   function pickChild(table, id) {
@@ -224,13 +231,14 @@ Item {
   function cancel() { confirmDrop(drop) }
   // DISCARD: the saved config read again, asking first.
   function discard() { confirmDrop(() => draft.reset()) }
-  // Out of editing, dropping the changes; a new item, never saved, goes back.
+  // Out of editing, dropping the changes; a new item, never saved, or one
+  // edited from the table goes back.
   function drop() {
     const fresh = draft !== null && draft.isNew
     if (draft)
       draft.end()
     editing = false
-    if (fresh)
+    if (fresh || returns)
       back()
   }
   // Esc: out of the child screen, out of editing, then back; a save under way keeps it.
@@ -251,7 +259,12 @@ Item {
   }
   Connections {
     target: page.draft
-    function onSaved() { page.editing = false }
+    // Back later, not while `saved` is still being told.
+    function onSaved() {
+      page.editing = false
+      if (page.returns)
+        Qt.callLater(() => page.back())
+    }
   }
   Shortcut { enabled: page.visible && page.draft !== null && !page.editing; sequence: "Ctrl+E"; onActivated: page.edit() }
   ConfirmDialog {
@@ -442,6 +455,9 @@ Item {
               cells: entry => entry.cells
               selectedId: page.childPicks[block.table.name] || ""
               emptyText: block.table.empty || ""
+              tools: block.table.tools || null
+              toolsWidth: block.table.toolsWidth || 0
+              toolsAlways: true
               onPicked: entry => page.pickChild(block.table.name, entry.id)
               onOpened: entry => page.openRow(block.table, entry)
               onRemoveRequested: entry => page.removeChild(block.table, entry)

@@ -5,13 +5,15 @@ import Eco.Core
 import Eco.Kit
 
 // SettingsView is the settings one section at a time, each a table of its
-// items: a click picks one, a double click or Enter opens it on a screen of
-// its own, read, where it may be edited and saved alone. What is picked or open decides the commands the bar
-// shows. Removing an item saves at once, after asking.
+// items: a click picks one, a double click, Enter or Space opens it on a
+// screen of its own, read, where it may be edited and saved alone; EDIT or
+// Ctrl+E opens the one picked to be written, and back to the table once saved
+// or cancelled. What is picked or open decides the commands the bar shows.
+// Removing an item saves at once, after asking.
 Item {
   id: view
 
-  // The section on screen, 0 to 6.
+  // The section on screen, 0 to 7.
   property int page: 0
   // A section asked for, as when a related item is followed.
   signal wanted(int page)
@@ -19,12 +21,13 @@ Item {
   signal closeRequested()
 
   // The sections' places, for links: settings.link(settings.at.answers, "assistant").
-  readonly property var at: ({ audio: 0, models: 1, transcription: 2, answers: 3, skills: 4, sessions: 5, interface: 6 })
-  readonly property var sections: [audio, models, transcription, answers, skills, sessions, interfaceSection]
+  readonly property var at: ({ audio: 0, models: 1, transcription: 2, answers: 3, context: 4, skills: 5, sessions: 6, interface: 7 })
+  readonly property var sections: [audio, models, transcription, answers, context, skills, sessions, interfaceSection]
   AudioSection { id: audio; settings: view }
   ModelsSection { id: models; settings: view }
   TranscriptionSection { id: transcription; settings: view }
   AnswersSection { id: answers; settings: view }
+  ContextSection { id: context; settings: view }
   SkillsSection { id: skills; settings: view }
   SessionsSection { id: sessions; settings: view }
   InterfaceSection { id: interfaceSection; settings: view }
@@ -32,10 +35,12 @@ Item {
   // A chat model is registered: until then answers and skills have nothing to run on.
   readonly property bool chats: Eco.config !== null && Draft.chats(Eco.config)
 
-  // Section index -> the id of the row picked, and of the item open ("+" for a
-  // new one, which opens to be written).
+  // Section index -> the id of the row picked, of the item open ("+" for a
+  // new one, which opens to be written), and of the item EDIT opened to be
+  // written, which goes back to the table once saved or cancelled.
   property var picked: ({})
   property var shown: ({})
+  property var writing: ({})
   // The screens related items were followed from, the last last.
   property var history: []
   // The sections whose open item has changes not saved, and those whose open
@@ -57,37 +62,61 @@ Item {
   // A switch as read: on or off.
   function onOff(on) { return I18n.t(on ? "settings.fact_on" : "settings.fact_off") }
 
-  // The commands of the table of section `index`: add, and, with a row
-  // picked, view and delete it, among the section's own.
+  // The commands of the table of section `index`: add; view, edit and delete
+  // the row picked, among the section's own, each there and off, saying why,
+  // until a row is picked.
   function tableCommands(index) {
     const section = sections[index]
     if (section.chats && !chats)
       return [{ text: I18n.t("settings.no_chat_register"), icon: "plus", role: "primary", run: () => view.create(at.models) }]
     const config = Eco.config
-    const row = config === null ? null : section.rows(config).find(entry => entry.id === (picked[index] || "")) || null
+    const rows = config === null ? [] : section.rows(config)
+    const row = rows.find(entry => entry.id === (picked[index] || "")) || null
+    // Its rows open screens: VIEW and EDIT are there.
+    const opens = section.file !== "" || rows.some(entry => !!entry.file)
+    const pick = I18n.t("settings.pick_row_tip")
     return [
-      { text: section.add, icon: "plus", role: "primary", shown: section.add !== "" && config !== null, run: () => view.create(index) },
-      row === null ? { shown: false } : row.open ? Object.assign({ icon: "enter", enabled: !Eco.configSaving }, row.open, { run: () => view.enter(index, row) })
-        : { text: I18n.t("settings.view"), icon: "enter", tip: I18n.t("settings.view_tip"), shown: view.screenOf(index, row) !== "", run: () => view.enter(index, row) }
+      { text: section.add, short: section.addShort, icon: "plus", role: "primary", shown: section.add !== "", enabled: config !== null, run: () => view.create(index) },
+      { text: I18n.t("settings.view"), icon: "chevron-right", tip: row === null ? pick : I18n.t("settings.view_tip"), shown: opens,
+        enabled: row !== null && view.screenOf(index, row) !== "", run: () => view.enter(index, row) },
+      { text: I18n.t("settings.edit"), icon: "edit", shown: opens,
+        tip: row === null ? pick : row.edits === false ? row.noEdit || "" : I18n.t("settings.edit_row_tip"),
+        enabled: view.edits(index, row), run: () => view.edit(index, row) }
     ].concat(config === null ? [] : section.commands(config, row)).concat([
-      { text: I18n.t("settings.delete"), icon: "trash", role: "guarded", tip: row && row.removable === false ? row.keptReason || "" : I18n.t("settings.delete_tip"),
-        shown: row !== null && section.remove !== null && !row.fixed, enabled: row !== null && row.removable !== false, run: () => view.remove(index, row) }
+      { text: I18n.t("settings.delete"), icon: "trash", role: "guarded", shown: section.remove !== null,
+        tip: row === null ? pick : row.fixed ? I18n.t("settings.kept_fixed_tip") : row.removable === false ? row.keptReason || "" : I18n.t("settings.delete_tip"),
+        enabled: row !== null && !row.fixed && row.removable !== false, run: () => view.remove(index, row) }
     ])
   }
 
   // The screen file `row` of section `index` opens, or "" when it has none.
   function screenOf(index, row) { return row.file || sections[index].file }
-  // A row's own command, from its button, Enter or a double click: its
-  // `open.run`, or else opening it on its screen, when it has one.
+  // The row picked in section `index`, or null.
+  function pickedRow(index) {
+    const section = sections[index]
+    if (Eco.config === null || section.chats && !chats)
+      return null
+    return section.rows(Eco.config).find(entry => entry.id === (picked[index] || "")) || null
+  }
+  // Whether EDIT may open `row` of section `index` to be written.
+  function edits(index, row) {
+    return row !== null && screenOf(index, row) !== "" && row.edits !== false && !Eco.configSaving
+  }
+  // A row's VIEW, Enter, Space or double click: it opens on its screen, when it has one.
   function enter(index, row) {
-    if (row.open && row.open.run)
-      row.open.run()
-    else if (screenOf(index, row) !== "")
+    if (screenOf(index, row) !== "")
       open(index, row.id)
   }
-  // Opens the item `id` of the section `index`; "+", a new one, to be written.
-  function open(index, id) {
+  // EDIT: the row opens to be written, and back to the table once done.
+  function edit(index, row) {
+    if (edits(index, row))
+      open(index, row.id, true)
+  }
+  // Opens the item `id` of the section `index`, to be written when `write`;
+  // "+", a new one, is always written.
+  function open(index, id, write) {
     picked = setOf(picked, index, id)
+    writing = setOf(writing, index, write === true ? id : "")
     shown = setOf(shown, index, id)
   }
   // Shows the section `index` to open its item `id` there, unless another item
@@ -105,6 +134,7 @@ Item {
   // followed from, or to the table.
   function close(index) {
     shown = setOf(shown, index, "")
+    writing = setOf(writing, index, "")
     if (history.length > 0) {
       const from = history[history.length - 1]
       history = history.slice(0, -1)
@@ -216,6 +246,12 @@ Item {
   }
 
   ItemDraft { id: quick; property var done: null }
+  // Ctrl+E on a table edits the row picked; on an item open, ItemPage's own takes it.
+  Shortcut {
+    sequence: "Ctrl+E"
+    enabled: view.visible && view.openPage === null && view.edits(view.page, view.pickedRow(view.page))
+    onActivated: view.edit(view.page, view.pickedRow(view.page))
+  }
   // SAVE AND CLOSE goes on once a save is through, and stops at one refused.
   Connections {
     target: Eco
@@ -312,6 +348,10 @@ Item {
             rows: stage.rows
             cells: row => row.cells || []
             idOf: row => row.id
+            tools: stage.section.tools
+            toolsWidth: stage.section.toolsWidth
+            toolsTitle: stage.section.toolsTitle
+            toolsAlways: stage.section.tools !== null
             selectedId: view.picked[stage.index] || ""
             loading: Eco.config === null && Eco.connected
             emptyText: Eco.config === null ? (Eco.connected ? I18n.t("config.loading") : I18n.t("start.offline")) : I18n.t("settings.empty")
@@ -351,8 +391,10 @@ Item {
             item.fixed = Qt.binding(() => screen.row !== null && !!screen.row.fixed)
             item.removable = Qt.binding(() => screen.row !== null && screen.row.removable !== false)
             item.keptReason = Qt.binding(() => screen.row !== null ? screen.row.keptReason || "" : "")
-            // A new item is written, unless it has nothing to write: it is chosen.
-            item.editing = item.key === "+" && item.draft !== null
+            // A new item is written, unless it has nothing to write: it is
+            // chosen; so is one EDIT opened, which then goes back to the table.
+            item.returns = item.key !== "+" && view.writing[stage.index] === item.key
+            item.editing = item.draft !== null && (item.key === "+" || view.writing[stage.index] === item.key)
             // The keyboard goes with the screen that opens.
             Qt.callLater(() => { if (screen.item) screen.item.takeFocus() })
             item.back.connect(() => view.close(stage.index))

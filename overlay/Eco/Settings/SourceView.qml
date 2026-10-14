@@ -5,10 +5,10 @@ import Eco.Core
 import Eco.Kit
 
 // SourceView is one audio source: a name in the conversation, heard through
-// its devices. Read, its name and whether it is you, the live trace of each
-// device captured, and its devices, a child table whose rows are added (taken
-// from the source that had one), removed and given a colour, each saved at
-// once. Edited, its name and whether it is you (one source at most is).
+// its devices. Read, whether it is you, and its devices, a child table whose
+// rows are added (taken from the source that had one), removed and given a
+// colour, each saved at once, each with its live trace while it is heard.
+// Edited, its name and whether it is you (one source at most is).
 ItemPage {
   id: page
 
@@ -46,50 +46,23 @@ ItemPage {
   draft: ItemDraft { id: item; paths: page.at >= 0 ? ["participants." + page.at] : [] }
   Component.onCompleted: if (fresh) item.begin(d => d.participants.push({ name: "", devices: [], user: false }))
 
-  facts: [[I18n.t("settings.column_name"), entry.name], [I18n.t("audio.column_you"), I18n.t(entry.user ? "audio.is_you" : "audio.not_you")]]
-  // The devices captured now, each with its live trace.
-  details: ColumnLayout {
-    id: live
-    readonly property var heard: page.entry.devices.filter(id => Eco.signals[id] !== undefined)
-    Layout.fillWidth: true
-    visible: heard.length > 0
-    spacing: 8
-    Caption { text: I18n.t("audio.live").toUpperCase() }
-    Repeater {
-      model: live.heard
-      delegate: RowLayout {
-        id: line
-        required property string modelData
-        Layout.fillWidth: true
-        spacing: 10
-        Dot { size: 8; tone: page.tone(line.modelData) }
-        Label {
-          Layout.fillWidth: true
-          text: page.nameOf(line.modelData)
-          font.pixelSize: 11
-          elide: Text.ElideRight
-        }
-        EcgTrace {
-          Layout.preferredWidth: Math.min(160, line.width / 3)
-          Layout.preferredHeight: 22
-          glow: false
-          source: Eco.signals[line.modelData] || null
-          tone: page.tone(line.modelData)
-        }
-      }
-    }
-  }
+  facts: [[I18n.t("audio.column_you"), I18n.t(entry.user ? "audio.is_you" : "audio.not_you")]]
+  // Some device of it is heard now: the rows make room for their traces.
+  readonly property bool heard: entry.devices.some(id => Eco.signals[id] !== undefined)
 
   tables: [{
     name: "devices",
     title: I18n.t("audio.column_devices"),
-    columns: [{ title: I18n.t("settings.column_name"), weight: 0.6 }, { title: I18n.t("audio.column_kind"), weight: 0.15 },
-      { title: I18n.t("audio.column_color"), weight: 0.25 }],
+    columns: [{ title: I18n.t("settings.column_name"), weight: 0.5 }, { title: I18n.t("audio.column_kind"), weight: 0.15 },
+      { title: I18n.t("audio.column_color"), weight: 0.35 }],
     stacked: [[0], [1, 2]],
     // Its swatch in its colour; a device not there says so.
     tone: (entry, column) => column === 2 ? page.tone(entry.id) : page.section.device(entry.id) ? "" : Theme.warning,
     rows: entry.devices.map(id => ({ id: id, cells: [page.nameOf(id), page.kindOf(id), "■  " + (page.colors[id] || I18n.t("color.auto"))] })),
     empty: I18n.t("audio.devices_empty"),
+    pickTip: I18n.t("audio.pick_device_tip"),
+    tools: trace,
+    toolsWidth: page.heard ? 120 : 0,
     add: { text: I18n.t("audio.add_device"), tip: I18n.t("audio.add_device_tip"), screen: addDevice },
     remove: row => {
       const name = page.entry.name
@@ -102,8 +75,25 @@ ItemPage {
         change: d => Draft.assign(d, row.id, -1)
       }
     },
-    open: { text: I18n.t("audio.device_color"), tip: I18n.t("audio.device_color_tip"), screen: deviceColor }
+    removeText: I18n.t("audio.remove_device"),
+    open: { text: I18n.t("audio.device_color"), icon: "color", tip: I18n.t("audio.device_color_tip"), screen: deviceColor }
   }]
+
+  // A device's live trace in its row, in its colour, while it is heard.
+  property Component trace: Item {
+    id: line
+    property var entry: ({})
+    readonly property var heard: Eco.signals[line.entry.id]
+    implicitWidth: 114
+    implicitHeight: 22
+    EcgTrace {
+      anchors.fill: parent
+      visible: line.heard !== undefined
+      glow: false
+      source: line.heard || null
+      tone: page.tone(line.entry.id)
+    }
+  }
 
   // The devices this source is not heard through, each with its kind and the
   // source that has it, to add one.

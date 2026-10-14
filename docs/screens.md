@@ -172,13 +172,14 @@ nothing would be heard.` and offers AUDIO SETTINGS.
 **START** puts the window on the session. This is the window for as long as it
 lasts:
 
-![The live session at 720×720: the masthead "ECO / SPRINT PLANNING" with the language dropdown "EN · American English", the details, settings and close buttons; a red capsule reading "00:01:15 RECORDING" with a small trace, PAUSE and END; a framed REPLY answer from google/gemini-2.5-flash, with send, translate, copy and remove buttons on its heading, "Answer: Priya approves it; I send her the form today. Why: she is Acme's IT contact for the export server, so nothing moves until she signs."; a NOTE card "Ask Priya for the VPN account before Friday."; then YOU lines in faint boxes on the right and THEM lines in tinted boxes on the left; the skill chips "1 REPLY", "2 MINUTES", "3 EXPLAIN"; and the composer "Ask about the session, or /skill" with NOTE and SEND.](img/05-live.png)
+![The live session at 720×720: the masthead "ECO / SPRINT PLANNING" with the language dropdown "EN · American English", the cost, details, settings and close buttons; a red capsule reading "00:01:15 RECORDING" with a small trace, PAUSE and END; a framed REPLY answer from google/gemini-2.5-flash, with send, translate, copy and remove buttons on its heading, "Answer: Priya approves it; I send her the form today. Why: she is Acme's IT contact for the export server, so nothing moves until she signs."; a NOTE card "Ask Priya for the VPN account before Friday."; then YOU lines in faint boxes on the right and THEM lines in tinted boxes on the left; the skill chips "1 REPLY", "2 MINUTES", "3 EXPLAIN"; and the composer "Ask about the session, or /skill" with NOTE and SEND.](img/05-live.png)
 
 From the top:
 
 - **The masthead** carries the session's title (a session without one is named
   by its kind), the language it is transcribed in — switchable mid-session —,
-  the details button `⋯` (section 6), settings, and close. **Close goes back to
+  the cost button `$` (section 8), the details button `⋯` (section 6),
+  settings, and close. **Close goes back to
   SESSIONS; a live session keeps recording.**
 - **The capsule** is one line: the running time (stopped while paused), the
   state with a dot that keeps sending out a ring while it records, the trace of
@@ -229,8 +230,9 @@ and the skill chips go (`Alt+1…9` still run them):
 
 ![The live session at 420×480: the masthead "SPRINT …" with the capsule inside it — a red dot, "00:01:17", pause and end as icons — and the details, settings and close buttons; the last four lines of the conversation; and the composer "Ask, or /skill" with the note and send buttons as icons.](img/10-live-short.png)
 
-Under 560 px wide the capsule keeps icons only and the language picker moves
-into the details; under 560 px tall the margins tighten and the skill chips
+Under 560 px wide the capsule keeps icons only, and the language picker and
+COST move into the details — the masthead has no room for them, so the picture
+has no `$`; under 560 px tall the margins tighten and the skill chips
 hide. The window goes down to 240×320.
 
 **When a source's transcription is down**, a line under the capsule says so
@@ -269,7 +271,12 @@ provider went down to take it.
 
 **SESSIONS**, or `H` on the start screen, or closing a session:
 
-![The sessions list: the masthead "ECO / SESSIONS", HOME, IMPORT and PEOPLE buttons and "8 SESSIONS"; the search field "Search what was said, noted or answered… /"; a line of chips "LIVE 1", "ALL" lit, MEETING, CONVERSATION, OTHER, IDEA, INTERVIEW, a divider, "#Acme" and more tags cut at the edge; under LIVE, "Sprint planning · Meeting · Today 23:39 · 0 min · #Acme" with a green RECORDING dot; then day headings 10 MAR 2025, 07 MAR 2025, 05 MAR 2025, 04 MAR 2025, each row with its title, kind, date, length, tags, people, ENDED and a trash button.](img/12-sessions.png)
+![The sessions list: the masthead "ECO / SESSIONS"; a bar with HOME, a solid NEW SESSION, IMPORT and PEOPLE, and "8 SESSIONS" at its end; the search field "Search what was said, noted or answered… /"; a line of chips "LIVE 1", "ALL" lit, MEETING, CONVERSATION, OTHER, IDEA, INTERVIEW, a divider, "#Acme" and more tags cut at the edge; under LIVE, "Sprint planning · Meeting · Today 23:39 · 0 min · #Acme" with a green RECORDING dot; then day headings 10 MAR 2025, 07 MAR 2025, 05 MAR 2025, 04 MAR 2025, each row with its title, kind, date, length, tags, people, ENDED and a trash button.](img/12-sessions.png)
+
+The bar goes back (HOME here: it names where it goes), starts a NEW SESSION
+(`N`), imports a recording and opens People; at its end it counts the sessions
+listed, the first thing to go when the window is narrow. NEW SESSION keeps its
+name to 360 px wide, the others turning into icons with their names on hover.
 
 The live sessions come first, under LIVE, toned and with a dot before their
 state; the others newest first under their day. Each row is title, kind,
@@ -318,6 +325,7 @@ opened from People (section 9).
 | `↑` · `↓` | choose a row (`↑` on the first goes back to the search) |
 | `Enter` | open it |
 | `Delete` | delete it, asking first |
+| `N` | start a new session |
 | `I` | import a recording |
 | `/` | search |
 | `F2` · `Delete` · menu key | on a tag chip: rename, delete, or open its menu |
@@ -346,13 +354,17 @@ Each person keeps their colour across sessions; a speaker nobody has named
 
 `⋯` in the masthead opens the details over the top of the conversation:
 
-![The details panel of Acme onboarding kickoff: "ENDED · 10 MAR 2025 14:00 · 00:34:54 · 10 LINES · 2 ANSWERS · 1 NOTE" with the edit button; the path "/tmp/eco-shots/.local/share/eco/sessions/2025-03-10-140000-acme-onboarding-kickoff.jsonl" and COPY PATH; PEOPLE "Ana Ribeiro, Marcus Lee, Priya Shah" with a + button; SPEAKERS — Speaker 1 → Ana Ribeiro (CLEAR, CHANGE), Me (you) → No one yet (CHANGE), Speaker 2 → Marcus Lee (CLEAR, CHANGE), Speaker 3 → No one yet (CHANGE); TAGS "#Acme ×" "#Q2 ×" and "Add a tag"; CONTEXT with an unlit "resume" chip; "TRANSLATION: OFF"; and COST, COPY VTT and, in red, DELETE.](img/20-session-details.png)
+![The details panel of Acme onboarding kickoff: "ENDED · 10 MAR 2025 14:00 · 00:34:54 · 10 LINES · 2 ANSWERS · 1 NOTE" with the edit and close buttons; the path "/tmp/eco-shots/.local/share/eco/sessions/2025-03-10-140000-acme-onboarding-kickoff.jsonl" and COPY PATH; PEOPLE "Ana Ribeiro, Marcus Lee, Priya Shah" with a + button; SPEAKERS — Speaker 1 → Ana Ribeiro (CLEAR, CHANGE), Me (you) → No one yet (CHANGE), Speaker 2 → Marcus Lee (CLEAR, CHANGE), Speaker 3 → No one yet (CHANGE); TAGS "#Acme ×" "#Q2 ×" and "Add a tag"; CONTEXT with an unlit "resume" chip; "TRANSLATION: OFF"; and COPY VTT and, in red, DELETE.](img/20-session-details.png)
 
-Top to bottom: what the session is on one line, with the edit button (title and
-kind; `E`); where its log is, for a stored session; the people in it; who each
-speaker is; its tags; which context slots it sends; whether it translates; and
-COST, COPY VTT (the transcript as WebVTT, to the clipboard) and DELETE. A live
-session's DELETE is off.
+Top to bottom: what the session is, in two lines at most, with the edit button
+(title and kind; `E`) and the close button, an up chevron; where its log is, for a stored
+session; the people in it; who each speaker is; its tags; which context slots
+it sends; whether it translates; and COPY VTT (the transcript as WebVTT, to the
+clipboard) and DELETE. A live session's DELETE is off. The first line, with its
+two buttons, stays at the top while the rest scrolls under it, a rule marking
+the edge once it does. The close button shuts the panel as `Esc` and `⋯` do. On
+a short, narrow live window, where the masthead has no room for it, COST is
+here too, before COPY VTT.
 
 **The edit button** opens `edit session`, the title and the kind:
 
@@ -412,7 +424,9 @@ has warns and offers to merge the two. **A person id is never on screen.**
 
 # 8. What it cost
 
-**COST** in the details, and only there:
+**COST** at the top of the session (the `$` button in the masthead); on a
+short, narrow live window, where the masthead has no room for it, it is in the
+details instead:
 
 ![The cost screen: masthead "ECO / COST · ACME ONBOARDING KICKOFF", a SESSION back button and "TOTAL US$ 0.27"; "LLM US$ 0.00068 answers US$ 0.00068" and "TRANSCRIPTION US$ 0.27 (35 MIN)"; then three rows: "Transcription · 35 min, 14:34 · deepgram, US$ 0.27"; "Answer · What did we agree on the deadline?, 14:02 · google/gemini-2.5-flash, US$ 0.00027"; "Answer · reply, 14:00 · google/gemini-2.5-flash, US$ 0.00041".](img/28-session-cost.png)
 
@@ -429,13 +443,14 @@ On a live session the screen follows the spending while open. SESSION or `Esc`
 goes back.
 
 **Cost is shown only when asked for inside a session.** The sessions list, the
-answer cards and the masthead never carry it.
+answer cards and the masthead never carry an amount: the `$` button only opens
+this screen.
 
 # 9. People
 
 **PEOPLE**, or `P` on the start screen:
 
-![The people screen: masthead "ECO / PEOPLE", a SESSIONS back button, "7 PEOPLE" and ADD; seven rows, each a name in the person's colour with "n voices · n sessions" — Ana Ribeiro (selected, outlined), Chen Wei, Jonas Weber, M. Lee, Marcus Lee, Priya Shah with 0 voices, Sofia Alvarez — and on the right of each a colour swatch, rename, merge and forget buttons.](img/30-people.png)
+![The people screen: masthead "ECO / PEOPLE"; a bar with SESSIONS back, a solid ADD and "7 PEOPLE" at its end; seven rows, each a name in the person's colour with "n voices · n sessions" — Ana Ribeiro (selected, outlined), Chen Wei, Jonas Weber, M. Lee, Marcus Lee, Priya Shah with 0 voices, Sofia Alvarez — and on the right of each a colour swatch, rename, merge and forget buttons.](img/30-people.png)
 
 Everyone eco knows, with how many voices it keeps for them and how many sessions
 they are in. Opening a person goes to SESSIONS filtered to them, with the
@@ -466,7 +481,9 @@ name:
 
 A name somebody already has is refused in the dialog. With nobody known, the
 list says `No one yet. Name a live speaker or add someone to a session.` and
-offers ADD. Below 420 px wide a row's four buttons fold into one `⋯` menu.
+offers ADD. The bar counts the people at its end, the first thing to go when the
+window is narrow; ADD keeps its name. While a merge waits, the bar keeps only the
+count. Below 420 px wide a row's four buttons fold into one `⋯` menu.
 
 | key | what it does |
 |---|---|
@@ -499,11 +516,11 @@ as in a live session (section 3):
 
 `?` or `F1` lists every key, by where it works:
 
-![The keyboard shortcuts dialog over the sessions list: EVERYWHERE (Tab · Shift+Tab, Enter · Space, Esc, ? · F1), GLOBAL (SUPER+ALT+N new session, SUPER+ALT+H sessions, SUPER+ALT+C settings, SUPER+ALT+P pause or resume, SUPER+ALT+E bring eco to the front, SUPER+ALT+A · Q run the skills bound to these keys), START SCREEN (N, H, I, P), SESSIONS AND PEOPLE (↑ · ↓, Enter, Delete, I, /) and the top of TAG CHIP IN SESSIONS (F2 rename the tag in every session), cut at the bottom edge.](img/37-shortcuts.png)
+![The keyboard shortcuts dialog over the sessions list: EVERYWHERE (Tab · Shift+Tab, Enter · Space, Esc, ? · F1), GLOBAL (SUPER+ALT+N new session, SUPER+ALT+H sessions, SUPER+ALT+C settings, SUPER+ALT+P pause or resume, SUPER+ALT+E bring eco to the front, SUPER+ALT+A · Q run the skills bound to these keys), START SCREEN (N, H, I, P), SESSIONS AND PEOPLE (↑ · ↓, Enter, Delete, N, I, /) and the top of TAG CHIP IN SESSIONS (F2 rename the tag in every session), cut at the bottom edge.](img/37-shortcuts.png)
 
 The dialog scrolls (arrows, `PgUp`, `PgDn`). Its end:
 
-![The keyboard shortcuts dialog scrolled to its end: STORED SESSION (R resume or reopen, E edit title and kind), CONVERSATION (↑ · ↓ · PgUp · PgDn, Home · End, N, Tab, Enter · Esc save or cancel the correction of a line), QUESTION BOX (Enter, Shift+Enter, / with ↑ · ↓, Tab and Enter, Alt+1…9), MENUS AND OPTION LISTS (↑ · ↓ · Home · End, Enter · Space, Esc) and SETTINGS (1…7 · Ctrl+1…7 switch tab, Ctrl+Tab · Ctrl+Shift+Tab over two lines, next · previous tab, ↑ · ↓ · Home · End and Enter · Space on the rail, ↑ · ↓ pick a row, Enter open the item picked, Delete delete the item picked, Enter and Delete in a table inside an item, Ctrl+E edit the item open, Ctrl+S save, Esc back one level, then close).](img/38-shortcuts-end.png)
+![The keyboard shortcuts dialog scrolled to its end: the last line of CONVERSATION (Enter · Esc save or cancel the correction of a line), QUESTION BOX (Enter, Shift+Enter, / with ↑ · ↓, Tab and Enter, Alt+1…9), MENUS AND OPTION LISTS (↑ · ↓ · Home · End, Enter · Space, Esc) and SETTINGS (1…8 · Ctrl+1…8 switch tab, Ctrl+Tab · Ctrl+Shift+Tab over two lines, next · previous tab, ↑ · ↓ · Home · End and Enter · Space on the rail, ↑ · ↓ pick a row, Enter · Space open the item picked, Delete delete the item picked, Enter and Delete in a table inside an item, Ctrl+E edit the item picked or open, Enter · Space on Interface turn the switch picked or open the language list, Ctrl+S save, Esc back one level, then close).](img/38-shortcuts-end.png)
 
 The GLOBAL keys are not the window's: `packaging/hypr/eco.lua` binds them in
 Hyprland to `eco window` commands, and on Windows the daemon registers them
@@ -533,16 +550,22 @@ rail to the bar of commands and then into the section; on the rail, `↑`, `↓`
 `Home` and `End` move along it and `Enter` or `Space` opens the section. A
 section's number opens it, unless you are writing in a field, which keeps the
 digit; `Ctrl` with the number opens it anywhere in the window. The bar holds BACK first, then the main action, solid, on
-the left, and the other actions on the right, DELETE, REMOVE or DISCARD last. `×` in
+the left, and the other actions on the right, DELETE or DISCARD last, behind a
+thin rule. `×` in
 the top-right corner closes the window; the last message shows beside it while
 there is one.
 
 A section is **a table of its items**. A click picks a row; a double click, or
-`Enter` on the picked row, opens it. The bar holds ADD (the section's own name
-for it, such as ADD MODEL), VIEW and DELETE for the picked row, and what else
-the section does. DELETE asks first, saying what changes with it, and saves at
-once; it is dimmed on an item something still needs, with the reason as its
-hint.
+`Enter` or `Space` on the picked row, opens it. The bar holds ADD (the section's
+own name for it, such as ADD MODEL), then VIEW, EDIT, what else the section
+does, and DELETE, for the picked row. They are there whether a row is picked or
+not, dimmed until one is with "Pick a row first" as their hint, so the bar does
+not move as you pick. VIEW opens the row read; EDIT (or `Ctrl+E`) opens it to
+be written, and SAVE, CANCEL or `Esc` brings you back to the table with the row
+still picked. EDIT is dimmed on an item with nothing to write, with why as its
+hint. DELETE asks first, saying what changes with it, and saves at once; it is
+dimmed on an item something still needs, or that is always kept, with the
+reason as its hint.
 
 An opened item is **read first**: under ABOUT, what it is; under RELATED, the
 items of other sections that use it or that it uses, each a link that opens
@@ -552,14 +575,16 @@ was followed from. **EDIT** turns the screen into its form. SAVE saves this
 item alone; DISCARD drops its changes and reads it again; CANCEL stops editing.
 The kicker over the title says NEW, UNSAVED, EDITING, or CHANGED ELSEWHERE when
 the saved config changed under changes that cannot be made again on it.
-A row with nothing more to show than its cells, such as a spoken language,
-has no screen of its own: no VIEW, and `Enter` does nothing on it.
+A section whose rows have nothing more to show than their cells, such as the
+spoken languages, has no screens: no VIEW or EDIT, and `Enter` does nothing on
+a row.
 
 Some items hold a list of their own: the devices an audio source is heard
 through, the files a context sends. Such a list is **a table inside the item**,
 under a caption, on its read screen; it is never edited in the form. A click or
-`↑`/`↓` picks a row, and the bar then adds what can be done to it: the row's
-own screen where it has one, and REMOVE. Each of these **saves at once**;
+`↑`/`↓` picks a row. The bar holds what can be done to it — the row's own
+screen where it has one, and REMOVE named for what it takes out, such as REMOVE
+DEVICE — dimmed until a row is picked. Each of these **saves at once**;
 REMOVE asks first only when something follows from it. A list keeps the order
 its rows were added in. ADD (ADD DEVICE, ADD FILE) opens **a screen inside the item**:
 the item's name small above its title, and either a table of what can be added,
@@ -568,14 +593,16 @@ returns to the item and adds nothing.
 
 | where | key | what it does |
 |---|---|---|
-| outside a field being written | `1` … `7` | show that section |
-| anywhere | `Ctrl+1` … `Ctrl+7` | show that section |
+| outside a field being written | `1` … `8` | show that section |
+| anywhere | `Ctrl+1` … `Ctrl+8` | show that section |
 | anywhere | `Ctrl+Tab`, `Ctrl+Shift+Tab` | the next, the previous section |
 | the rail | `↑` `↓` `Home` `End` | move along the sections |
 | the rail | `Enter`, `Space` | open the section the rail is on |
 | a table | `↑` `↓` | pick a row |
-| a table | `Enter` | open the picked row |
+| a table | `Enter`, `Space` | open the picked row |
+| a table | `Ctrl+E` | edit the picked row, then back to the table |
 | a table | `Delete` | delete the picked row, after asking |
+| Interface | `Enter`, `Space` | turn the switch picked, or open the language list |
 | a table inside an item | `Enter` | open the picked row; on an add screen, add it |
 | a table inside an item | `Delete` | remove the picked row |
 | an item | `Ctrl+E` | edit it |
@@ -585,37 +612,39 @@ returns to the item and adds nothing.
 
 **Audio** — who is heard, and through what:
 
-![Settings, 01 AUDIO: the bar with ADD AUDIO SOURCE, VIEW, REFRESH DEVICES and DELETE; "An audio source is a name in the conversation, heard through its devices; a device has one owner. One audio source may be you."; a table NAME · DEVICES · YOU with Me "Default microphone" YOU (picked), Them "Default output", and YOUR MICROPHONE "DROP ECHOES on · ECHO CANCELLATION off".](img/39-settings-audio.png)
+![Settings, 01 AUDIO: the bar with ADD AUDIO SOURCE, VIEW, EDIT, REFRESH DEVICES and DELETE; "An audio source is a name in the conversation, heard through its devices; a device has one owner. One audio source may be you."; a table NAME · DEVICES · YOU with Me "Default microphone" YOU (picked), Them "Default output", and YOUR MICROPHONE "DROP ECHOES on · ECHO CANCELLATION off".](img/39-settings-audio.png)
 
 A row per source: its name, its PipeWire devices and whether it is you. REFRESH
 DEVICES reads the devices again. The last row, YOUR MICROPHONE, opens the two
 switches that keep your microphone apart from the others, DROP ECHOES and ECHO
 CANCELLATION, each beside what it does; it is never deleted. Deleting a source
-says who is no longer heard. A source, read, has its name and whether it is
-you under ABOUT, HEARD NOW with a live trace for each of its devices while it
-is captured (under `--replay` the daemon captures nothing, so the pictures have
-none), and DEVICES, a table of its devices with their kind and colour. Edited,
-it has only its NAME and THIS IS ME; a new source gets its devices on its read
-screen once it is saved. ADD DEVICE opens a table of every device the source
-does not have, with its kind and the source it is heard as now:
+says who is no longer heard. A source, read, has whether it is you under
+ABOUT, and DEVICES, a table of its devices with their kind and colour; a device
+heard now draws its live trace at the end of its row, in its colour (under
+`--replay` the daemon captures nothing, so the pictures have none). Edited, it
+has only its NAME and THIS IS ME; a new source gets its devices on its read
+screen once it is saved. Read, with a device picked:
 
-![The ADD DEVICE screen inside the audio source "Them": THEM over the title ADD DEVICE; the bar with BACK and ADD DEVICE; "The devices this audio source is not heard through. A device has one owner: one another audio source has is taken from it."; a table NAME · KIND · HEARD AS with Default microphone (MIC, Me, picked), H390 headset microphone (MIC, —), H390 headset (OUT, —) and Built-in microphone (MIC, —).](img/40-settings-audio-source.png)
+![The audio source Them, read: AUDIO SOURCE over the title THEM; the bar with BACK, EDIT, ADD DEVICE, COLOUR, REMOVE DEVICE and, after a thin rule, DELETE; ABOUT with YOU "Someone else"; DEVICES, a table NAME · KIND · COLOUR with Default output (OUT, ■ automatic), picked.](img/40-settings-audio-source.png)
 
-A device has one owner: adding one another source has moves it here. With a
-device picked, COLOUR opens its own screen, the colour picker and SAVE, and
-REMOVE stops hearing the source through it; REMOVE asks first when the source
-is left with no device, or when it was the last output any source had.
+ADD DEVICE opens a table of every device the source does not have, with its
+kind and the source it is heard as now; a device has one owner, so adding one
+another source has moves it here. COLOUR (or `Enter`) opens the picked
+device's own screen, the colour picker and SAVE, and REMOVE DEVICE stops
+hearing the source through it; REMOVE DEVICE asks first when the source is
+left with no device, or when it was the last output any source had.
 
 **Models** — every model, registered once, and the defaults:
 
-![Settings, 02 MODELS: the bar with ADD MODEL, VIEW, a dimmed DEFAULT FOR TRANSCRIPTION and a dimmed DELETE; "Register each model once — chat or transcription — with its provider, and make it a default from the bar…"; a table NAME · TYPE · MODEL ID · DEFAULT · USED BY: whisper-lan (TRANSCRIPTION · whisper-large-v3-turbo · TRANSCRIPTION · MEETING, CONVERSATION…, picked), deepgram (TRANSCRIPTION · nova-3 · · INTERVIEW), gemini-flash (CHAT · google/gemini-2.5-flash · CHAT · TRANSLATION · MEETING, CONVERSATION…), claude-haiku (CHAT · anthropic/claude-haiku-4.5 · · minutes).](img/41-settings-models.png)
+![Settings, 02 MODELS: the bar with ADD MODEL, VIEW, EDIT, a dimmed DEFAULT FOR TRANSCRIPTION and a dimmed DELETE; "Register each model once — chat or transcription — with its provider, and make it a default from the bar…"; a table NAME · TYPE · MODEL ID · DEFAULT · USED BY: whisper-lan (TRANSCRIPTION · whisper-large-v3-turbo · TRANSCRIPTION · MEETING, CONVERSATION…, picked), deepgram (TRANSCRIPTION · nova-3 · · INTERVIEW), gemini-flash (CHAT · google/gemini-2.5-flash · CHAT · TRANSLATION · MEETING, CONVERSATION…), claude-haiku (CHAT · anthropic/claude-haiku-4.5 · · minutes).](img/41-settings-models.png)
 
 DEFAULT says what the model runs when nothing more specific picks one: CHAT
 (questions, and the skills and session kinds that pick no model), TRANSLATION
 and TRANSCRIPTION. With no translation default of its own, translation follows
 the chat default, and that model reads CHAT · TRANSLATION (INHERITED). With a
-chat model picked, the bar adds DEFAULT FOR CHAT and DEFAULT FOR TRANSLATION;
-with a transcription model, DEFAULT FOR TRANSCRIPTION. Each saves at once, and
+chat model picked, the bar holds DEFAULT FOR CHAT and DEFAULT FOR TRANSLATION;
+with a transcription model, DEFAULT FOR TRANSCRIPTION; with none, a dimmed
+DEFAULT FOR CHAT. Each saves at once, and
 is dimmed on the model that is already that default, with why in its hint.
 USED BY lists what else picks the model: the reviewer, skills and session
 kinds. The chat and transcription defaults cannot be deleted, so DELETE is
@@ -645,31 +674,22 @@ Renaming a model renames it wherever it is used.
 ![Settings, 03 TRANSCRIPTION: the bar with ADD LANGUAGE, MAKE DEFAULT and DELETE; "The spoken languages a session can start in; the default is chosen first. The default transcription model is set on the Models table."; a table LANGUAGE · DEFAULT with AUTO · detect (picked), EN · American English (DEFAULT), ES · español de España and PT · português.](img/44-settings-transcription.png)
 
 A row per language, in the order the dropdowns show them, the order they were
-added in. A language has no screen of its own, so there is no VIEW. ADD
+added in. A language has no screen of its own, so there is no VIEW or EDIT. ADD
 LANGUAGE opens a screen in the section that lists the languages eco knows that
 are not offered yet, AUTO among them; ADD LANGUAGE or `Enter` on the one picked
 offers it, saves, and returns to the table with it picked; BACK or `Esc` adds
-nothing. With a language picked, MAKE DEFAULT makes new sessions start in it,
+nothing. MAKE DEFAULT makes new sessions start in the language picked,
 and DELETE stops offering it, after asking; deleting the default names the
 first language left, which becomes the default. The last language cannot be
 deleted. The default transcription model is set on the Models table.
 
-**Answers** — the assistant, its reviewer, and what they are told:
+**Answers** — the assistant and its reviewer:
 
-![Settings, 04 ANSWERS: the bar with ADD CONTEXT SLOT and VIEW; a table NAME · MODEL · ABOUT: assistant (gemini-flash · 60000 characters · 8 answers, all sessions, picked), reviewer (claude-haiku · off), global context (1 file · always sent), resume (1 file · on in INTERVIEW).](img/45-settings-answers.png)
+![Settings, 04 ANSWERS: the bar with VIEW and EDIT on the right; "The assistant writes every answer; the reviewer, when on, rewrites each one before it shows."; a table NAME · MODEL · ABOUT: assistant (gemini-flash · 60000 characters · 8 answers, all sessions, picked), reviewer (claude-haiku · off).](img/45-settings-answers.png)
 
 The assistant answers questions, and the skills and session kinds that pick no
 model; the reviewer, when on, rewrites every answer with its own model before
-you see it; the global context is the files sent with every answer; each
-context slot is files a session of the kinds it names starts with on. Only the
-slots are added and deleted; deleting one says which kinds lose it. The global
-context and each slot, opened, show their files as the table FILES, in the
-order they are sent. ADD FILE opens a screen with a PATH field: ADD FILE, or
-`Enter`, adds the path typed, and BROWSE adds at once every file chosen in the
-file dialog. Files are sent in the order they were added. With a file picked,
-REMOVE takes it off, and saves at once. The global context has no EDIT, so ADD
-FILE is its main action; a slot's EDIT holds only its name and the kinds it is
-on from the start in, and a new slot gets its files once it is saved. The
+you see it. Both are always there, so nothing is added or deleted here. The
 assistant's model is the chat default, set on the Models table: the assistant
 shows it, as a link, and its EDIT holds only the rules, the context limit and
 how many answers run at once. The reviewer picks its own model. Opened, the
@@ -677,9 +697,26 @@ assistant:
 
 ![The assistant, read: the bar with BACK and EDIT; ABOUT with MODEL gemini-flash, CONTEXT LIMIT 60000 characters, AT THE SAME TIME 8 answers, all sessions; under it "Answers questions, and skills and session kinds that pick no model" and RULES FOR EVERY ANSWER, four lines of rules; RELATED with MODELS › gemini-flash, SKILLS › reply, explain, and SESSIONS › MEETING, CONVERSATION, OTHER, IDEA, INTERVIEW.](img/46-settings-assistant.png)
 
+**Context** — the files sent with answers:
+
+![Settings, 05 CONTEXT: the bar with ADD CONTEXT SLOT, solid, then VIEW, EDIT and, after a thin rule, DELETE; "Files sent with answers: Global with every answer, a slot only in sessions where it is on."; a table NAME · SENT · FILES: Global (Every session · 1 file, picked), resume (On in INTERVIEW · 1 file).](img/50-settings-context.png)
+
+Global is the files sent with every answer, in every session; it is always
+there and has nothing to write, so EDIT and DELETE are dimmed on it. Each
+context slot is files a session sends while the slot is on there: from the
+start in the kinds it names, or once turned on in the session; SENT says which.
+Only the slots are added and deleted; deleting one says which kinds lose it.
+Global and each slot, opened, show their files as the table FILES, in the order
+they are sent. ADD FILE opens a screen with a PATH field: ADD FILE, or `Enter`,
+adds the path typed, and BROWSE adds at once every file chosen in the file
+dialog. Files are sent in the order they were added. With a file picked, REMOVE
+FILE takes it off, and saves at once. Global has no EDIT, so ADD FILE is its
+main action; a slot's EDIT holds only its name and the kinds it is on from the
+start in, and a new slot gets its files once it is saved.
+
 **Skills** — what the composer's chips do:
 
-![Settings, 05 SKILLS: the bar with ADD SKILL, VIEW and DELETE; a table NAME · MODEL · HOOK: reply (default · gemini-flash · HOOK · ON SEND, picked), minutes (claude-haiku), explain (default · gemini-flash).](img/47-settings-skills.png)
+![Settings, 06 SKILLS: the bar with ADD SKILL, VIEW, EDIT and DELETE; a table NAME · MODEL · HOOK: reply (default · gemini-flash · HOOK · ON SEND, picked), minutes (claude-haiku), explain (default · gemini-flash).](img/47-settings-skills.png)
 
 The order here, the order the skills were added in, is the order of the chips
 and of `Alt+1…9`. A skill with no model of its own names the one it inherits:
@@ -692,7 +729,7 @@ Edited, it has the name, the prompt, the format, the model and its hook:
 
 A new name warns that global shortcuts call skills by name.
 
-**Until a chat model is registered**, ANSWERS and SKILLS hold only NO CHAT
+**Until a chat model is registered**, ANSWERS, CONTEXT and SKILLS hold only NO CHAT
 MODEL and "eco records and transcribes without one. Answers, skills and
 translation need a chat model: register one under Models and make it the
 default for chat there.", and their bar holds only REGISTER A CHAT MODEL, which
@@ -701,7 +738,7 @@ pictures run with chat models registered.
 
 **Sessions** — the kinds, and what each runs on:
 
-![Settings, 06 SESSIONS: the bar with ADD KIND, VIEW, a dimmed MAKE DEFAULT and DELETE; a sentence on the default kind and the kinds' own models; a table NAME · DEFAULT · TRANSCRIBES WITH · ANSWERS WITH: Meeting (DEFAULT · default · whisper-lan · default · gemini-flash, picked), Conversation, Other and Idea with the same defaults, interview (deepgram · default · gemini-flash).](img/51-settings-sessions.png)
+![Settings, 07 SESSIONS: the bar with ADD KIND, VIEW, EDIT, a dimmed MAKE DEFAULT and DELETE; a sentence on the default kind and the kinds' own models; a table NAME · DEFAULT · TRANSCRIBES WITH · ANSWERS WITH: Meeting (DEFAULT · default · whisper-lan · default · gemini-flash, picked), Conversation, Other and Idea with the same defaults, interview (deepgram · default · gemini-flash).](img/51-settings-sessions.png)
 
 The default kind is the one the start and import dialogs suggest; MAKE DEFAULT
 makes the picked kind it. Deleting a kind says its sessions keep it and the
@@ -715,18 +752,19 @@ translation models — only the transcription one until a chat model is
 registered.
 
 **Interface** — the interface language, whether eco hides from screen
-sharing, and whether it shows in the tray, as a table of three rows with no
-EDIT:
+sharing, and whether it shows in the tray, as three settings, each with its
+value beside it as the control that changes it:
 
-![Settings, 07 INTERFACE: the bar with CHANGE; the note says what the picked row does, "The language of eco's windows; automatic follows the system's"; a table SETTING · VALUE: INTERFACE LANGUAGE English (US), picked, HIDE FROM SCREEN SHARING off, SHOW ECO IN THE TRAY off.](img/53-settings-interface.png)
+![Settings, 08 INTERFACE: an empty bar; the note says what the picked row does, "The language of eco's windows; automatic follows the system's"; a table SETTING · VALUE: INTERFACE LANGUAGE with a dropdown "English (US)", picked, HIDE FROM SCREEN SHARING with a dim OFF chip, SHOW ECO IN THE TRAY with a dim OFF chip.](img/53-settings-interface.png)
 
-The note above the table says what the picked row does. Each command saves
-at once. On a switch the bar has one command, TURN ON or TURN OFF, which
-Enter runs too. On the language it has CHANGE, which Enter runs too: it opens
-the INTERFACE LANGUAGE screen, a table of Automatic (system) and each
-language pack by its own name (English, Brazilian Portuguese, Japanese), the
-one in use marked. Enter or CHOOSE saves the picked one and goes back to the
-table; BACK or Esc goes back without saving. The windows change language at
+The note above the table says what the picked row does. There are no screens
+and no commands: each value saves at once. A switch is a chip, lit ON or dim
+OFF; a click, or `Enter` or `Space` on its row, turns it. The language is a
+dropdown of Automatic (system) and each language pack by its own name
+(English, Brazilian Portuguese, Japanese); a click, or `Enter` or `Space` on
+its row, opens it, and `↑`, `↓`, `Enter` and `Esc` work in it. `Tab` reaches
+the control of the row picked. A save the daemon refuses leaves the value as
+it was, and the line at the top says why. The windows change language at
 once; see [i18n.md](i18n.md). HIDE FROM SCREEN SHARING is off by default; on,
 it applies to every eco window at once, and to each one that opens later.
 

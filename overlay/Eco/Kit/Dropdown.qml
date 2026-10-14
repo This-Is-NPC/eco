@@ -18,6 +18,9 @@ Item {
   property string label
   signal picked(string option)
 
+  // Opens the list, as a click on the button does.
+  function open() { list.open() }
+
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
 

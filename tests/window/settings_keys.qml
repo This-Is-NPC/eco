@@ -6,8 +6,10 @@ import Eco.Settings
 // The settings window's section keys, pressed as a keyboard presses them, run
 // by tests/window.rs: a section's number chooses it unless a field being
 // written holds the keyboard, Ctrl with it chooses it anywhere, and the rail
-// unfolds while the keyboard is on it. Each check that fails is printed, and
-// the exit status is how many failed.
+// unfolds while the keyboard is on it; a table's row commands are there and off
+// with no row picked, Ctrl+E writes the row picked, and Esc then goes back to
+// the table with it still picked. Each check that fails is printed, and the
+// exit status is how many failed.
 QtObject {
   id: root
 
@@ -87,6 +89,32 @@ QtObject {
       root.keys.keyClick(Qt.Key_Down)
       root.keys.keyClick(Qt.Key_Return)
       root.check("Home, Down and Enter on the rail choose the one after the head", root.window.page === 5)
+      root.window.choose(root.window.view.at.sessions)
+    },
+    () => {
+      const view = root.window.view
+      view.picked = ({})
+      const commands = view.tableCommands(view.at.sessions)
+      const off = key => {
+        const command = commands.find(entry => entry.text === I18n.t(key))
+        return !!command && command.shown !== false && command.enabled === false && command.tip === I18n.t("settings.pick_row_tip")
+      }
+      root.check("with no row picked, VIEW is there and off", off("settings.view"))
+      root.check("with no row picked, EDIT is there and off", off("settings.edit"))
+      root.check("with no row picked, DEFAULT is there and off", off("settings.default"))
+      root.check("with no row picked, DELETE is there and off", off("settings.delete"))
+      view.picked = view.setOf(view.picked, view.at.sessions, "meeting")
+    },
+    () => root.keys.keyClick(Qt.Key_E, Qt.ControlModifier),
+    () => {
+      const page = root.window.view.openPage
+      root.check("Ctrl+E on the table opens the row picked to be written", page !== null && page.key === "meeting" && page.editing && page.returns)
+      root.keys.keyClick(Qt.Key_Escape)
+    },
+    () => {
+      const view = root.window.view
+      root.check("Esc while writing goes back to the table", view.openPage === null)
+      root.check("the row stays picked", view.picked[view.at.sessions] === "meeting")
     },
     () => Qt.exit(root.failed)
   ]

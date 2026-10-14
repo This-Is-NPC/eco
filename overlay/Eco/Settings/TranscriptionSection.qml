@@ -27,7 +27,8 @@ SettingsSection {
   }
   commands: (config, row) => {
     const is = row !== null && row.id === config.stt.language
-    return [{ text: I18n.t("settings.default"), icon: "check", tip: I18n.t(is ? "settings.language_is_default" : "settings.language_default_tip"),
-      shown: row !== null, enabled: !is && !Eco.configSaving, run: () => settings.saveNow(d => d.stt.language = row.id) }]
+    return [{ text: I18n.t("settings.default"), icon: "check",
+      tip: I18n.t(row === null ? "settings.pick_row_tip" : is ? "settings.language_is_default" : "settings.language_default_tip"),
+      enabled: row !== null && !is && !Eco.configSaving, run: () => settings.saveNow(d => d.stt.language = row.id) }]
   }
 }

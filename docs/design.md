@@ -1305,13 +1305,17 @@ one on screen at its head and the others after it in order, folded to their
 numbers and unfolding over what is beside it, with their names, under the
 pointer, with the keyboard on it or after a tap on its head; a page `marked`
 shows a dot, and ↑/↓/Home/End move along the carousel;
-`PageBar`, beside its head, the commands of the page on screen; `CommandRow`, a
+`PageBar`, beside its head, the commands of the page on screen, and at its end
+the page's readout (a count, such as `7 SESSIONS`), which gives way first when
+the bar is narrow; `CommandRow`, a
 bar's actions ranked, the main one solid (`TraceButton`'s `filled`) and, when
 `spread`, on the left with the others on the right and the guarded ones last,
-each falling back to its short name when the names do not fit, or, with
-`iconsWhenTight` (as `PageBar` sets it), to its icon. A `DataTable` that `picks` picks a row on
-a click and opens it on a double click or Enter; the row ↑/↓ and Enter act on
-is always the picked one. The control lab
+behind a hairline, each falling back to its short name when the names do not
+fit, or, with `iconsWhenTight` (as `PageBar` sets it), to its icon. A
+`DataTable` that `picks` picks a row on a click and opens it on a double click,
+Enter or Space; the row ↑/↓, Enter and Space act on is always the picked one.
+A row's tools may carry their own act, which Enter, Space and a double click
+run instead of opening the row. The control lab
 (`mise run preview:controls`) shows every kit component.
 
 - **Icons:** one set (`Icon.qml`), thin line drawings on a 16-unit grid with
@@ -1352,10 +1356,11 @@ reconnects to the socket on its own.
 - **During a session**, as a chat, with the conversation taking every pixel the
   header does not need: the session's title in the masthead (a session without
   one is named by its kind, there and everywhere else), with
-  the details button (what it is, people, speakers, tags — added with the
-  existing ones offered, taken off by their chip —, context, translation and
-  cost, in a panel that opens over the top of the conversation, takes its clicks
-  and scrolls past its height) and, top right, the close button, back
+  the cost button (`$`, the session's cost screen), the details button (what
+  it is, people, speakers, tags — added with the existing ones offered, taken
+  off by their chip —, context and translation, in a panel that opens over the
+  top of the conversation, takes its clicks and scrolls past its height under
+  a head that stays) and, top right, the close button, back
   to the sessions — a live one keeps recording; then the
   **session capsule**, one line — the running time (stopped while paused) and
   state (a dot with a ring that keeps leaving it while recording), the live trace
@@ -1420,7 +1425,9 @@ reconnects to the socket on its own.
   whose LIVE filter lists the live ones, any of which shows in that window when
   opened.
 - **End:** asks for confirmation, then closes the session the window shows.
-- **SESSIONS:** the start screen links to a table of stored sessions — the live
+- **SESSIONS:** a `PageBar` — back, NEW SESSION solid, IMPORT and PEOPLE, and
+  the count of sessions listed as its readout — over a table of stored
+  sessions — the live
   ones first under LIVE, with a dot before their state, then the others newest
   first under their day (TODAY, YESTERDAY, or the date): title, kind, tags, when
   (`Today 14:30`, `08 Oct 14:30`), duration, people, and state; no cost —,
@@ -1446,14 +1453,16 @@ reconnects to the socket on its own.
   Interrupted sessions are untinted: only the live sessions (the LIVE count) and
   an import under way are toned.
 - **Keys:** `n` new session, `h` SESSIONS and `p` people on the start screen,
-  `↑`/`↓`/`Enter` in the list, `Esc` back, `e` edit, `r` resume; on the People
+  `n` new session and `↑`/`↓`/`Enter` in the list, `Esc` back, `e` edit, `r` resume; on the People
   screen `F2` renames and `m` merges the selected person. Back returns to the
   screen the user came from: SESSIONS opened from People goes back to People,
   and People opened from SESSIONS back to SESSIONS.
-- **Details:** the details panel opens with what the session is, on one line
-  — its state, start ("Today 14:30", as the sessions list), running duration,
-  and how many lines, answers and notes it holds — beside the edit (title and
-  kind) button, the title itself being in the masthead; a stored session adds
+- **Details:** the details panel opens with what the session is, in two lines
+  at most — its state, start ("Today 14:30", as the sessions list), running
+  duration, and how many lines, answers and notes it holds — beside the edit
+  (title and kind) button and the close (an up chevron, as Esc), the title
+  itself being in the masthead; that head stays while the rest scrolls under
+  it, a hairline under it while it does; a stored session adds
   its absolute storage path, with COPY PATH beside it, and copies its
   transcript. An interrupted or ended session can be deleted after a
   title-specific confirmation; a live session's delete is off. Its CONTEXT line's
@@ -1481,7 +1490,8 @@ reconnects to the socket on its own.
   tell apart by their session count, and the dialog's top edge stays put as it
   grows. NOT THEM undoes it.
 - **People screen** (PEOPLE on the start screen or in SESSIONS; `p` on the
-  start screen) lists everyone with their voices and sessions, and also
+  start screen), under a `PageBar` with back, ADD solid and the count of people
+  as its readout (while a merge waits, only the readout), lists everyone with their voices and sessions, and also
   changes person colors; selecting a person opens
   their sessions. The same screen adds someone by a name no one has (ADD, also
   offered by the empty list), renames, merges or forgets them. MERGE shows a
@@ -1496,8 +1506,10 @@ reconnects to the socket on its own.
   (`YYYY-MM-DD HH:MM`, read back as SESSIONS writes dates) and takes another;
   one it cannot read is outlined and stops the import. A strip shows the
   progress and stops it.
-- **Cost:** shown only when asked, inside the session: the COST button of its
-  details panel opens the session's cost screen (masthead `COST · <title>`,
+- **Cost:** shown only when asked, inside the session: the masthead's cost
+  button (`$`) opens the session's cost screen, and the details panel's COST
+  only when the masthead has no room for it (a short, narrow live window, where
+  the capsule joins the masthead) (masthead `COST · <title>`,
   SESSION or Esc back to the session) — the total, the LLM part with answers,
   reviews and translations, the transcription's with its minutes, each unknown
   reason once in full and a note when a part is estimated, then the charges in
@@ -1582,7 +1594,7 @@ the details at the speakers), and, from 360 px wide, a live session's capsule
 joins the masthead line — state dot with its ring, running time, the
 silent-input warning, pause and end, without the trace; on a window also under
 560 px wide the name `ECO ╱` drops, the title elides first and the language
-picker moves into the details. The config window scrolls an item's screen when it is long, and its
+picker and the cost button move into the details. The config window scrolls an item's screen when it is long, and its
 tables stack each row's cells into lines under 700 px. Long
 titles elide; the section name in the masthead keeps its room and the status
 message condenses to a marked tooltip when space is tight. Nested
@@ -1600,8 +1612,9 @@ the rule in `packaging/hypr/eco.lua` gives it no size, so it keeps that one, and
 centres it on the screen (without `center`, Hyprland would centre it on the
 overlay, past the screen's edge).
 
-**Sections.** Seven, down the left in the kit's `TabRail`: 01 Audio, 02
-Models, 03 Transcription, 04 Answers, 05 Skills, 06 Sessions, 07 Interface —
+**Sections.** Eight, down the left in the kit's `TabRail`: 01 Audio, 02
+Models, 03 Transcription, 04 Answers, 05 Context, 06 Skills, 07 Sessions,
+08 Interface —
 Audio first and Models second, since the sections after it pick from it, and
 Models sets the defaults: the chat, translation and transcription models used
 where nothing more specific picks one. The rail is a carousel in that order: the section on screen at
@@ -1621,19 +1634,27 @@ saved shows a dot on its tab.
 
 **The bar.** The kit's `PageBar`, beside the rail, holds the commands of what
 is on screen, ranked: BACK first and apart; the main action solid, on the
-left; across a gap, on the right, the others outlined, the guarded ones
-(DELETE, REMOVE, DISCARD) last. When their names do not fit, each action but
+left; across a gap, on the right, the others outlined, the guarded one
+(DELETE or DISCARD, at most one a bar) last, behind a hairline. Commands that
+act on a picked row are there whether a row is picked or not, dimmed until one
+is with the reason in their tip, so the bar does not move as rows are picked.
+Icons say what a command does: a trash can destroys, × takes out of a list, a
+right chevron opens. When their names do not fit, each action but
 the main one shows only its icon, BACK only its chevron, on a bar narrower
 still the main action too, each name in its tip, and narrower again one menu
 holds them all. The window's close is a corner button on the masthead line,
 with the last message (`StatusLine`) left of it while there is one.
 
-**Tables.** A section that lists items (Audio, Models, Transcription, Answers,
-Skills, Sessions) is a `DataTable` of them under its name and what it is for.
-A click or ↑/↓ picks a row; a double click or Enter opens it, when it has a
-screen: a spoken language has none, so it has no VIEW. The bar offers ADD
-(ADD AUDIO SOURCE, ADD MODEL, ADD LANGUAGE, ADD CONTEXT SLOT, ADD SKILL, ADD
-KIND), and with a row picked VIEW and DELETE, among the section's own: REFRESH
+**Tables.** Each section is a `DataTable` of its items under its name and
+what it is for.
+A click or ↑/↓ picks a row; a double click, Enter or Space opens it, when it
+has a screen: a spoken language has none, so Transcription has no VIEW or
+EDIT. The bar offers ADD (ADD AUDIO SOURCE, ADD MODEL, ADD LANGUAGE, ADD
+CONTEXT SLOT, ADD SKILL, ADD KIND), then, for the row picked, VIEW, EDIT, the
+section's own and DELETE. EDIT (`Ctrl+E` on the table) opens the row in its
+form, and SAVE, CANCEL or Esc returns to the table with the row still picked
+(under its new id, when the save renamed it); it is dimmed, with why, on a row
+whose screen has no form, as Global context's. The section's own: REFRESH
 DEVICES on Audio, which sends `devices` and changes nothing else; DEFAULT FOR
 CHAT and DEFAULT FOR TRANSLATION on a chat model and DEFAULT FOR TRANSCRIPTION
 on a transcription one, which set `[llm] model`, `[translation] model` and
@@ -1647,9 +1668,10 @@ a translation default that is not set follows the chat one and reads
 inherited there. DELETE, or Delete on a
 row, asks first in a dialog that says what follows, then saves at once.
 A part of the config that is not a list item — Audio's YOUR MICROPHONE row,
-Answers' assistant, reviewer and global context rows — has no DELETE; an item
-that may not go yet, as the chat default, has it dimmed, with why in its
-tip. Until a chat model is registered, Answers and Skills hold only NO CHAT
+Context's Global row — has DELETE dimmed, `Always kept`; Answers, whose two
+rows are both such parts, has no DELETE at all; an item that may not go yet,
+as the chat default, has it dimmed, with why in its tip. Until a chat model is
+registered, Answers, Context and Skills hold only NO CHAT
 MODEL, what it means, and REGISTER A CHAT MODEL, which opens a new model in
 Models; a kind offers no assistant or translation model then.
 
@@ -1663,7 +1685,9 @@ entry is a link that opens that item in its own section; BACK returns to where
 it was followed from, and choosing a section on the rail starts the way back
 over. A link, or REGISTER A CHAT MODEL, into a section whose open item has
 changes not saved shows that item instead, and the window's message says
-`Save or cancel <name> first`. EDIT (`Ctrl+E`) turns the screen into its form. Every field is named by a
+`Save or cancel <name> first`. EDIT (`Ctrl+E`) turns the screen into its form;
+opened by the table's EDIT, the item goes back to the table once saved or
+cancelled. Every field is named by a
 caption right above its control, pickers (models, languages) as much as text
 inputs: no label sits in a column of its own. Prompt areas (rules, a skill's
 prompt and format, the reviewer's prompt) grow to ten lines, then scroll
@@ -1677,9 +1701,11 @@ titled `DataTable` on the item's read screen, under ABOUT and RELATED
 (`tables` in `ItemPage`), its rows in the order they were added. Its rows are
 changed from the bar: the table's ADD (ADD DEVICE, ADD FILE) — the main
 action of an item with no form, as the global context, otherwise beside the
-others —, then, for the row picked last, its own screen (a device's COLOUR)
-and REMOVE, which asks first only when something follows (a source's last
-device, the last output). Each **saves at once**, as DELETE
+others —, then the row's own screen (a device's COLOUR) and REMOVE named for
+what it takes out (REMOVE DEVICE, REMOVE FILE), with × and not guarded, as ADD
+undoes it in one step; both are there whether a row is picked or not, dimmed
+until one is, and REMOVE asks first only when something follows (a source's
+last device, the last output). Each **saves at once**, as DELETE
 does, on a copy of the saved config, finding what it changes by its name, and
 the row stays picked. ADD and a row's own screen open a **child screen**
 (`ChildScreen`) inside the item: the item's name small over its title, BACK
@@ -1690,7 +1716,7 @@ the row picked, or a small form: a file's PATH with BROWSE, which adds every
 file chosen in the file dialog at once, or a device's colour picker with SAVE.
 A new item opens in its form, so its collections fill only after its first
 SAVE. A screen that saves and closes — a child screen, a section's choosing
-screen (`ChooseView`: ADD LANGUAGE, the interface language), an item
+screen (`ChooseView`: ADD LANGUAGE), an item
 deleted — closes first, then saves: a table destroyed while the save
 changes its rows crashed the window.
 
@@ -1737,12 +1763,14 @@ asking: unsaved changes are dropped. Leaving is what the user asked for, and
 Qt's own quit, which asks every window first, would stop at the kept settings
 window, which never closes, and leave the process running unseen.
 
-**Keys.** `Ctrl+1`…`Ctrl+7` a section, `Ctrl+Tab` / `Ctrl+Shift+Tab` the next
+**Keys.** `Ctrl+1`…`Ctrl+8` a section, `Ctrl+Tab` / `Ctrl+Shift+Tab` the next
 or previous one; on the rail ↑/↓/Home/End move and Enter or Space opens the
-section. In a section's table ↑/↓ pick a row, Enter opens it, Delete deletes
-it (asking first); in a child table ↑/↓ pick, Enter opens the row's own screen
-(on a child screen's table, adds the row), Delete removes it. `Ctrl+E` edits
-the item open, `Ctrl+S` saves it. Esc goes back one level: out of a child
+section. In a section's table ↑/↓ pick a row, Enter or Space opens it, Delete
+deletes it (asking first); in a child table ↑/↓ pick, Enter or Space opens the
+row's own screen (on a child screen's table, adds the row), Delete removes it.
+On Interface, Enter or Space turns the switch picked or opens the language
+list. `Ctrl+E` edits the item picked on a table, or the item open, `Ctrl+S`
+saves it. Esc goes back one level: out of a child
 screen, out of editing (asking first when that drops changes), back to the
 table, then closes the window. Keys show only in the shortcuts dialog
 (`ShortcutsDialog`), never on a button or in a tip.
@@ -1752,11 +1780,11 @@ table, then closes the window. Keys show only in the shortcuts dialog
 - **Audio:** a row per audio source — its name, its devices (missing ones
   marked `Unavailable device: <id>`) and YOU on the user — and last YOUR
   MICROPHONE. A source reads whether it is you and its devices with their
-  kind and colour as the child table DEVICES, and under HEARD NOW the live
-  trace of each while captured; ADD DEVICE lists every device it does not have
-  and the source each is heard as now, adding one taking it from that source;
-  REMOVE asks first when the source is left with no device or the last output
-  goes; COLOUR opens a device's screen with its colour picker. Edited, only its
+  kind and colour as the child table DEVICES, each row with its live trace at
+  its end while the device is heard; ADD DEVICE lists every device it does not
+  have and the source each is heard as now, adding one taking it from that
+  source; REMOVE DEVICE asks first when the source is left with no device or
+  the last output goes; COLOUR opens a device's screen with its colour picker. Edited, only its
   name and THIS IS ME (one source at most is you). Deleting one asks first,
   naming the devices no longer heard, whether nobody else is heard (it held the
   only output device) and whether nobody is the user any more. YOUR MICROPHONE
@@ -1769,7 +1797,8 @@ table, then closes the window. Keys show only in the shortcuts dialog
   what else uses it. With a row picked, DEFAULT FOR CHAT and DEFAULT FOR
   TRANSLATION on a chat model, DEFAULT FOR TRANSCRIPTION on a transcription
   one, each saved at once and dimmed on the model that is already that
-  default (`Draft.defaults`, `Draft.makeDefault`). Read: its type, what it is
+  default (`Draft.defaults`, `Draft.makeDefault`); with none picked, DEFAULT
+  FOR CHAT, dimmed. Read: its type, what it is
   the default for, provider, base URL, model id, where its key comes from, and
   for chat its REASONING and extra fields, for transcription its price per
   minute; RELATED, what else uses it, grouped by the section that sets each
@@ -1795,20 +1824,22 @@ table, then closes the window. Keys show only in the shortcuts dialog
   new sessions start in; a language has no screen. ADD LANGUAGE opens
   `AddLanguageView`, the languages eco knows that are not offered as a table,
   where ADD LANGUAGE or Enter offers the one picked, saves and returns to the
-  table with it picked. With a row picked, MAKE DEFAULT and DELETE, which asks
+  table with it picked. For the row picked, MAKE DEFAULT and DELETE, which asks
   first and, for the default, names the first language left, the new default;
   the last language stays. The default transcription model is set on Models.
-- **Answers:** the assistant — its model, the chat default set on Models,
-  read only, as a link; it answers questions and the skills and kinds that
-  pick none; the rules for every answer, the context size and the answers
-  running at the same time across all sessions, the only fields EDIT holds,
-  with the skills and kinds that answer with it as links; the reviewer (on,
-  verbose, its own model and prompt); the global context, whose files, sent
-  with every answer in the order they were added, are its child table FILES
-  (ADD FILE, REMOVE), with no form; and a row per context slot (its name, files
-  and the kinds that start with it on), the only rows ADD and DELETE reach — a
-  slot's files are the same child table, its form only its name and kinds, and
-  deleting one says which kinds no longer start with it on.
+- **Answers:** two rows, nothing added or deleted: the assistant — its model,
+  the chat default set on Models, read only, as a link; it answers questions
+  and the skills and kinds that pick none; the rules for every answer, the
+  context size and the answers running at the same time across all sessions,
+  the only fields EDIT holds, with the skills and kinds that answer with it as
+  links; and the reviewer (on, verbose, its own model and prompt).
+- **Context:** the files sent with answers, each row its name, when it is sent
+  and how many files: Global, sent with every answer, whose files, in the order
+  they were added, are its child table FILES (ADD FILE, REMOVE FILE), with no
+  form, so no EDIT; and a row per context slot (`On in <kinds>` or `When a
+  session turns it on`), the only rows ADD and DELETE reach — a slot's files
+  are the same child table, its form only its name and kinds, and deleting one
+  says which kinds no longer start with it on.
 - **Skills:** the actions in the composer's order, the order they were added
   in, each row its name, its
   model — or the default, named with the model it inherits (`default ·
@@ -1832,15 +1863,18 @@ table, then closes the window. Keys show only in the shortcuts dialog
   slots; the last kind cannot be deleted, and deleting another asks first,
   saying that its sessions keep it, which kind becomes the default and that
   its own models and slots stop applying.
-- **Interface:** a table of three rows, no EDIT: interface language, HIDE
-  FROM SCREEN SHARING (off by default), whose help says eco then shows black
-  in the user's screenshots and recordings too (§13), and SHOW ECO IN THE
-  TRAY (off by default, §12.7). The note says what the picked row does. A
-  switch's row has TURN ON or TURN OFF; the language's has CHANGE, which opens
-  `InterfaceLanguageView`, a table of `auto` and the packs, where Enter or
-  CHOOSE saves the one picked. Each saves at once. A row's own command is its
-  `open` (`SettingsSection`): it stands for VIEW, Enter and a double click run
-  it, and a row with no screen and no `open.run` has no VIEW.
+- **Interface:** a table of three settings, each with its value beside it as
+  the control that changes it: interface language, a dropdown of `auto` and
+  the packs; HIDE FROM SCREEN SHARING (off by default), whose help says eco
+  then shows black in the user's screenshots and recordings too (§13); and
+  SHOW ECO IN THE TRAY (off by default, §12.7), each switch a chip lit ON or
+  dim OFF. The note says what the picked row does. This is the one exception
+  to "no control inline in a table": one value per row, the control inline,
+  saved at once — the section's `tools`, whose `act()` Enter, Space and a
+  double click on the row run (turn the switch, open the list). The controls
+  show the saved config, so a refused save leaves them as they were, and the
+  window's message says why. No screens, so no VIEW or EDIT, and no DELETE: the
+  bar is empty.
 
 ### 12.7 The tray icon
 

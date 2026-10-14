@@ -97,7 +97,7 @@ Open the settings (`SUPER+ALT+C`), then **Models**, section 02 (`Ctrl+2`). It
 is a table of the models registered: each one's name, type, the provider's
 model id, what it is the default for and what else uses it.
 
-![The Models section: the rail of sections down the left, with 02 marked; the bar with ADD MODEL, VIEW, a dimmed DEFAULT FOR TRANSCRIPTION and a dimmed DELETE; "Register each model once — chat or transcription — with its provider, and make it a default from the bar"; and a table of whisper-lan (TRANSCRIPTION, whisper-large-v3-turbo, default TRANSCRIPTION, used by MEETING, CONVERSATION…, picked), deepgram (TRANSCRIPTION, nova-3, INTERVIEW), gemini-flash (CHAT, google/gemini-2.5-flash, default CHAT · TRANSLATION, MEETING…) and claude-haiku (CHAT, anthropic/claude-haiku-4.5, minutes).](img/41-settings-models.png)
+![The Models section: the rail of sections down the left, with 02 marked; the bar with ADD MODEL, VIEW, EDIT, a dimmed DEFAULT FOR TRANSCRIPTION and a dimmed DELETE; "Register each model once — chat or transcription — with its provider, and make it a default from the bar"; and a table of whisper-lan (TRANSCRIPTION, whisper-large-v3-turbo, default TRANSCRIPTION, used by MEETING, CONVERSATION…, picked), deepgram (TRANSCRIPTION, nova-3, INTERVIEW), gemini-flash (CHAT, google/gemini-2.5-flash, default CHAT · TRANSLATION, MEETING…) and claude-haiku (CHAT, anthropic/claude-haiku-4.5, minutes).](img/41-settings-models.png)
 
 **A chat model is optional.** Without one eco records, transcribes and keeps
 notes; the **Answers** and **Skills** sections say NO CHAT MODEL, with **REGISTER A CHAT MODEL** back here. Skip to step 3 if you only want
@@ -187,10 +187,10 @@ pick, **SAVE**:
 | section | item | picks |
 |---|---|---|
 | **Answers** (`Ctrl+4`) | reviewer | the reviewer's model |
-| **Skills** (`Ctrl+5`) | each skill | a model per skill, or the default |
-| **Sessions** (`Ctrl+6`) | each kind | per kind of session, its own transcription, assistant and translation models |
+| **Skills** (`Ctrl+6`) | each skill | a model per skill, or the default |
+| **Sessions** (`Ctrl+7`) | each kind | per kind of session, its own transcription, assistant and translation models |
 
-![The Sessions section: ADD KIND, VIEW, MAKE DEFAULT and DELETE in the bar; "The default kind is suggested when you create or import a session…"; and a table of Meeting (DEFAULT), Conversation, Other and Idea, each transcribing with "default · whisper-lan" and answering with "default · gemini-flash", and interview, transcribing with deepgram.](img/51-settings-sessions.png)
+![The Sessions section: ADD KIND, VIEW, EDIT, MAKE DEFAULT and DELETE in the bar; "The default kind is suggested when you create or import a session…"; and a table of Meeting (DEFAULT), Conversation, Other and Idea, each transcribing with "default · whisper-lan" and answering with "default · gemini-flash", and interview, transcribing with deepgram.](img/51-settings-sessions.png)
 
 **A kind can run on its own models.** Open a kind in **Sessions** to give it a
 transcription, assistant and translation model of its own — an `idea` session on

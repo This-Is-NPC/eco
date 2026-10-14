@@ -183,8 +183,8 @@ by itself. Reopen it to go on.
 (`eco stop`, then `eco daemon --no-save`) keeps sessions in memory only.
 
 **The others see eco in a shared screen.** By default the window is not
-hidden from captures. In **Settings › Interface**, pick **HIDE
-FROM SCREEN SHARING** and press **TURN ON**, and eco's windows are hidden in the share,
+hidden from captures. In **Settings › Interface**, press the **OFF** chip of **HIDE
+FROM SCREEN SHARING** to turn it **ON**, and eco's windows are hidden in the share,
 at once and in every window that opens later: on Linux they show black, on
 Windows they are left out of the picture. Neither Hyprland's `no_screen_share` nor Windows' capture
 exclusion can tell a screen share from a screenshot, so they are hidden in your

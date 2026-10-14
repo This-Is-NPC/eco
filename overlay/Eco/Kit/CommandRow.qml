@@ -4,8 +4,8 @@ import Eco.Core
 
 // CommandRow is a bar's actions, ranked: the main one (`role: "primary"`)
 // first and solid, then the others outlined, in the order given but the
-// guarded ones last, those of one `group` joined as one control whose
-// `checked` one is lit. Spread, the main one keeps the left edge and the
+// guarded ones last behind a hairline, those of one `group` joined as one
+// control whose `checked` one is lit. Spread, the main one keeps the left edge and the
 // others the right. Each shows its name while the names fit in `room`; when
 // they do not, each shows its short name, or, with `iconsWhenTight`, every
 // action but the main one shows only its icon, its name in the tip, and when
@@ -31,10 +31,14 @@ Item {
 
   function isMain(command) { return !command.group && command.role === "primary" }
   readonly property var leading: commands.filter(command => isMain(command))
-  readonly property var trailing: commands.filter(command => !isMain(command) && command.role !== "guarded")
-    .concat(commands.filter(command => !isMain(command) && command.role === "guarded"))
+  readonly property var plain: commands.filter(command => !isMain(command) && command.role !== "guarded")
+  readonly property var guarded: commands.filter(command => !isMain(command) && command.role === "guarded")
+  readonly property var trailing: plain.concat(guarded)
   readonly property var ranked: leading.concat(trailing)
-  readonly property bool tight: measure.implicitWidth > room
+  // A hairline parts the guarded commands from the others before them.
+  readonly property bool divided: plain.length > 0 && guarded.length > 0
+  readonly property real dividerWidth: divided ? 1 + spacing : 0
+  readonly property bool tight: measure.implicitWidth + dividerWidth > room
   // Tight, and with only the main action named still wider than `fit`.
   readonly property bool cramped: tight && iconsWhenTight && iconsWidth(true) > fit
   // Cramped, and with every action an icon still wider than `fit`.
@@ -50,7 +54,7 @@ Item {
   // main one when it stays `named`.
   function iconsWidth(named) {
     return commands.reduce((width, command) => width + row.spacing
-      + (!command.icon ? 72 : named && isMain(command) ? mainMeasure.implicitWidth : 32), -row.spacing)
+      + (!command.icon ? 72 : named && isMain(command) ? mainMeasure.implicitWidth : 32), -row.spacing) + dividerWidth
   }
 
   // The actions with their names, never drawn, to know how wide they are.
@@ -145,6 +149,14 @@ Item {
     anchors.verticalCenter: parent.verticalCenter
     x: row.spread ? row.width - width : lead.width + (row.leading.length > 0 ? row.spacing : 0)
     spacing: row.spacing
-    Repeater { model: row.runs(row.trailing); delegate: runDelegate }
+    Repeater { model: row.runs(row.plain); delegate: runDelegate }
+    Rectangle {
+      visible: row.divided
+      anchors.verticalCenter: parent.verticalCenter
+      width: 1
+      height: 20
+      color: Theme.line
+    }
+    Repeater { model: row.runs(row.guarded); delegate: runDelegate }
   }
 }

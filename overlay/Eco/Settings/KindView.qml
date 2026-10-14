@@ -59,7 +59,7 @@ ItemPage {
     return [
       { title: settings.sections[at.models].name, items: models.map(name => settings.link(at.models, name, name)) },
       { title: I18n.t("contexts.slots"), items: (config.contexts || []).filter(slot => slot.kinds.includes(key))
-        .map(slot => settings.link(at.answers, settings.sections[at.answers].slotId(slot.name), slot.name)) }
+        .map(slot => settings.link(at.context, settings.sections[at.context].slotId(slot.name), slot.name)) }
     ]
   }
 

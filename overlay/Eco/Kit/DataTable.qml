@@ -3,12 +3,14 @@ import QtQuick
 import Eco.Core
 
 // DataTable lists records as rows of columns under a header; below 700 px each
-// row stacks its cells into lines instead. A row opens on click or Enter, or,
-// when the table `picks`, a click picks it and a double click opens it; ↑/↓
-// move, ↑ on the first asks to leave upward, Delete asks to remove it, Esc asks
-// to go back. Each row may carry tools on its right, from `tools` (its root gets
-// the row's record as `entry`): Tab reaches those of the selected row only. Rows
-// may also carry a status cell, and be listed under group titles.
+// row stacks its cells into lines instead. A row opens on click, Enter or
+// Space, or, when the table `picks`, a click picks it and a double click opens
+// it; ↑/↓ move, ↑ on the first asks to leave upward, Delete asks to remove it,
+// Esc asks to go back. Each row may carry tools on its right, from `tools` (its
+// root gets the row's record as `entry`): Tab reaches those of the selected row
+// only. Tools whose root has `act()` take the row's Enter, Space and double
+// click instead of opening it. Rows may also carry a status cell, and be listed
+// under group titles.
 Item {
   id: table
 
@@ -30,9 +32,10 @@ Item {
   property string section: ""
   property Component tools
   property real toolsWidth: 0
-  // The tools are one menu button, small enough to stay on every row however
-  // narrow the table.
-  property bool toolsFolded: false
+  // The title over the tools in the header, or "".
+  property string toolsTitle: ""
+  // The tools stay on every row however narrow the table.
+  property bool toolsAlways: false
   // A record that steps back, as when it cannot be picked.
   property var dimmed: entry => false
   property var idOf: entry => entry.id
@@ -128,6 +131,17 @@ Item {
           elide: Text.ElideRight
         }
       }
+      Label {
+        visible: table.toolsTitle !== ""
+        width: table.toolsWidth
+        height: header.height
+        verticalAlignment: Text.AlignVCenter
+        text: table.toolsTitle.toUpperCase()
+        color: Theme.dim
+        font.pixelSize: 9
+        font.letterSpacing: 1
+        elide: Text.ElideRight
+      }
     }
   }
 
@@ -156,7 +170,8 @@ Item {
       if (activeFocus && table.picks && currentItem)
         table.picked(currentItem.modelData)
     }
-    Keys.onReturnPressed: if (currentItem) currentItem.open()
+    Keys.onReturnPressed: if (currentItem) currentItem.act()
+    Keys.onSpacePressed: if (currentItem) currentItem.act()
     Keys.onDeletePressed: if (currentItem) table.removeRequested(currentItem.modelData)
     Keys.onEscapePressed: table.backRequested()
     Keys.onDownPressed: if (currentIndex < count - 1) table.step(1)
@@ -179,12 +194,21 @@ Item {
       readonly property int lineCount: table.stacked.filter((line, i) => i === 0 || line.some(column => texts[column])).length
       readonly property bool current: ListView.isCurrentItem
       readonly property bool marked: table.selectedId !== "" && table.selectedId === table.idOf(modelData) || (current && (list.activeFocus || toolScope.activeFocus))
-      readonly property bool tooled: table.tools !== null && (!table.narrow || table.toolsFolded || hover.hovered || marked)
+      readonly property bool tooled: table.tools !== null && (!table.narrow || table.toolsAlways || hover.hovered || marked)
       readonly property real reserved: tooled ? table.toolsWidth : 0
 
       function open() {
         list.currentIndex = index
         table.opened(modelData)
+      }
+      // Enter, Space or a double click: the tools' own act, else opening it.
+      function act() {
+        if (tools.item && typeof tools.item.act === "function") {
+          list.currentIndex = index
+          tools.item.act()
+        } else {
+          open()
+        }
       }
       function pick() {
         list.currentIndex = index
@@ -292,7 +316,7 @@ Item {
         hoverEnabled: true
         cursorShape: Qt.PointingHandCursor
         onClicked: table.picks ? row.pick() : row.open()
-        onDoubleClicked: if (table.picks) row.open()
+        onDoubleClicked: if (table.picks) row.act()
       }
 
       // Only the selected row's tools are Tab stops; the pointer reaches any.

@@ -40,11 +40,12 @@ SettingsSection {
   }
 
   // DEFAULT FOR CHAT and FOR TRANSLATION for a chat model, FOR TRANSCRIPTION for
-  // a transcription one, each off on the model that is already that default.
+  // a transcription one, each off on the model that is already that default;
+  // DEFAULT FOR CHAT, off, while no model is picked.
   commands: (config, row) => {
     const model = row === null ? null : config.models.find(model => model.name === row.id)
     if (!model)
-      return []
+      return [{ text: I18n.t("settings.default_chat"), icon: "check", tip: I18n.t("settings.pick_row_tip"), enabled: false, run: () => {} }]
     const is = Draft.defaults(config, model.name)
     const command = (use, text, tip, isTip) => {
       const already = is.some(entry => entry.use === use && !entry.inherited)

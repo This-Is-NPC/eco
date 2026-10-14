@@ -33,7 +33,7 @@ ItemPage {
   related: [
     { title: settings.sections[at.models].name, items: config.llm.model ? [settings.link(at.models, config.llm.model, config.llm.model)] : [] },
     { title: settings.sections[at.skills].name, items: inheriting.skills.map(name => settings.link(at.skills, name, name)) },
-    { title: settings.sections[at.sessions].name, items: inheriting.kinds.map(kind => settings.link(at.sessions, kind, section.kindName(kind))) }
+    { title: settings.sections[at.sessions].name, items: inheriting.kinds.map(kind => settings.link(at.sessions, kind, Eco.kindName(kind).toUpperCase())) }
   ]
 
   SettingsTextArea {

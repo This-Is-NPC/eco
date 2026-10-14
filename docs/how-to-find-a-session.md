@@ -161,7 +161,7 @@ the history stays in the file ([design.md §7.5](design.md#75-tags)).
 LIVE, with a dot before their state, then the others newest first under their
 day:
 
-![The SESSIONS screen: HOME, IMPORT and PEOPLE above a search field reading "Search what was said, noted or answered…  /", a row of chips — LIVE 1, ALL, MEETING, CONVERSATION, OTHER, IDEA, INTERVIEW, #Acme — then "Sprint planning" under LIVE, recording, and "Acme onboarding kickoff", "Revisión de precios" and "Northwind backend interview" under their dates, each with its kind, date, length, tags and people.](img/12-sessions.png)
+![The SESSIONS screen: a bar with HOME, a solid NEW SESSION, IMPORT and PEOPLE and "8 SESSIONS" at its end, above a search field reading "Search what was said, noted or answered…  /", a row of chips — LIVE 1, ALL, MEETING, CONVERSATION, OTHER, IDEA, INTERVIEW, #Acme — then "Sprint planning" under LIVE, recording, and "Acme onboarding kickoff", "Revisión de precios" and "Northwind backend interview" under their dates, each with its kind, date, length, tags and people.](img/12-sessions.png)
 
 Each row says the title, kind, tags, when, how long, who, and the state. It
 never says what the session cost: that is inside the session.

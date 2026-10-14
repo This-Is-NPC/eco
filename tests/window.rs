@@ -5,7 +5,9 @@
 //! on Windows, a copied text that outlives the window, on the real platform;
 //! the overlay's views driven as the daemon drives them, in
 //! `tests/window/views.qml`; the settings window's section keys, in
-//! `tests/window/settings_keys.qml`; and the eco window closed with the settings open,
+//! `tests/window/settings_keys.qml`; the bars and tables of the views, pressed
+//! as a keyboard and a pointer press them, in `tests/window/bars.qml`; and the
+//! eco window closed with the settings open,
 //! saying so to the daemon before it exits,
 //! in `tests/window/close.qml`; and the tray icon's states and menu, in
 //! `tests/window/tray.qml`. Needs `mise run window:build`.
@@ -199,6 +201,44 @@ async fn the_settings_keys_choose_sections() {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
+}
+
+/// The bars and tables of the views, pressed as a keyboard and a pointer
+/// press them, with a daemon socket that answers nothing: a row's own act, the
+/// guarded command's hairline, a bar's readout, the sessions' NEW SESSION and
+/// N, and the details' close.
+#[tokio::test]
+async fn the_bars_and_tables_answer_their_keys() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut listener = Listener::bind(dir.path());
+    let mut window = Command::new(program())
+        .arg(Path::new(ROOT).join("tests/window/bars.qml"))
+        .env_remove("WAYLAND_DISPLAY")
+        .env_remove("DISPLAY")
+        .env("QML_IMPORT_PATH", Path::new(ROOT).join("overlay"))
+        .env("QT_QPA_PLATFORM", "offscreen")
+        .env("QT_QPA_PLATFORMTHEME", "")
+        .env("XDG_RUNTIME_DIR", dir.path())
+        .env("XDG_CACHE_HOME", dir.path().join("cache"))
+        .env("ECO_SOCKET", listener.name())
+        .env("ECO_TOKEN", "secret")
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .unwrap();
+    let _daemon = accept(&mut listener, &mut window).await;
+    let mut stderr = window.stderr.take().unwrap();
+    let mut said = String::new();
+    let status = tokio::time::timeout(Duration::from_secs(30), async {
+        tokio::io::AsyncReadExt::read_to_string(&mut stderr, &mut said)
+            .await
+            .unwrap();
+        window.wait().await.unwrap()
+    })
+    .await
+    .expect("the bars did not finish");
+    assert!(status.success(), "{said}");
 }
 
 /// Closing the eco window tells the daemon and ends its process, even with

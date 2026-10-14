@@ -90,7 +90,7 @@ with where its key comes from ([how to register models](how-to-register-models.m
 and **Audio** says who is heard
 ([how to set up audio sources](how-to-set-up-audio-sources.md)). Each item
 is saved on its own — open it, **EDIT**, **SAVE**; a list inside an item, as
-an audio source's devices, changes from the bar (**ADD DEVICE**, **REMOVE**)
+an audio source's devices, changes from the bar (**ADD DEVICE**, **REMOVE DEVICE**)
 and saves at once — and the first save writes the file; from then on the settings window edits it. Every field is in [`design.md` §9](design.md#9-configuration).
 
 Until then, what needs a model says so: a session started transcribes nothing
@@ -193,12 +193,12 @@ eco: daemon running (pid 434054, version 0.1.0)
 `eco status` prints `eco: daemon stopped` and exits 3 when nothing answers, so a
 script can test it.
 
-**To have eco in the tray,** open **Settings › Interface** (`Ctrl+7`),
-pick **SHOW ECO IN THE TRAY** and press **TURN ON**: it saves at once, and the
+**To have eco in the tray,** open **Settings › Interface** (`Ctrl+8`) and
+press the **OFF** chip of **SHOW ECO IN THE TRAY** to turn it **ON**: it saves at once, and the
 icon shows in the bar's tray at once (on
 Omarchy it may sit in the drawer behind the `<` arrow). A click opens the
 window; its menu opens a window, starts a session, opens the settings or stops
-eco. Turn it off and **SAVE**, and it goes. It is off until you turn it on, and
+eco. Turn it off, and it goes. It is off until you turn it on, and
 it shows only while the daemon runs. The same in `config.toml`:
 
 ```toml
