@@ -62,6 +62,17 @@ Window {
   }
   // Whether something under `item` drawn reads `text`.
   function reads(item, text) { return find(item, child => child.text === text && drawn(child)) !== null }
+  // Narrows `bar` a pixel at a time from its width to the widest at which `is`
+  // holds, and leaves it there; whether one did. The widths come from the
+  // bar's own text, whatever the font.
+  function narrow(bar, is) {
+    for (let width = bar.width; width > 0; --width) {
+      bar.width = width
+      if (is())
+        return true
+    }
+    return false
+  }
 
   Connections {
     target: Eco
@@ -129,7 +140,7 @@ Window {
     }
     PageBar {
       id: shortBar
-      width: 520
+      width: parent.width
       height: 44
       commands: [
         { text: "ADD", icon: "plus", role: "primary", run: () => {} },
@@ -221,14 +232,15 @@ Window {
       root.check("a hairline stands before the guarded command", root.hairline(mixed) !== null)
       root.check("no hairline before a guarded command alone", root.hairline(alone) === null)
       root.check("the readout shows on a wide bar", root.reads(bar, "7 SESSIONS"))
-      root.check("a tight bar shows the short names", root.reads(shortBar, "FOR CHAT") && !root.reads(shortBar, "DEFAULT FOR CHAT"))
-      shortBar.width = 300
-      bar.width = 330
+      root.check("a wide bar shows the full names", root.reads(shortBar, "DEFAULT FOR CHAT"))
+      root.check("a tight bar shows the short names",
+        root.narrow(shortBar, () => !root.reads(shortBar, "DEFAULT FOR CHAT")) && root.reads(shortBar, "FOR CHAT"))
+      root.check("a bar too narrow for the short names shows icons",
+        root.narrow(shortBar, () => !root.reads(shortBar, "FOR CHAT")) && root.reads(shortBar, "ADD"))
+      root.check("the readout gives way on a narrow bar", root.narrow(bar, () => !root.reads(bar, "7 SESSIONS")))
+      root.check("the narrow bar keeps NEW SESSION named", root.reads(bar, "NEW SESSION"))
     },
     () => {
-      root.check("the readout gives way on a narrow bar", !root.reads(bar, "7 SESSIONS"))
-      root.check("the narrow bar keeps NEW SESSION named", root.reads(bar, "NEW SESSION"))
-      root.check("a bar too narrow for the short names shows icons", !root.reads(shortBar, "FOR CHAT") && root.reads(shortBar, "ADD"))
       history.visible = true
       history.active = true
       const sessions = root.find(history, item => root.kind(item, "PageBar"))
