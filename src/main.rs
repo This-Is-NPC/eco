@@ -90,7 +90,8 @@ enum Command {
     /// Print the usage spec (KDL) that docs/cli.md and the shell completions are generated from.
     #[command(hide = true)]
     Usage,
-    /// Keep a provider's key in the Windows Credential Manager (Windows only).
+    /// List the names a model's key can come from, or keep a key in the Windows
+    /// Credential Manager (set and remove are Windows only).
     Key {
         #[command(subcommand)]
         action: KeyCommand,
@@ -272,6 +273,16 @@ enum AssignTarget {
 
 #[derive(Debug, Subcommand)]
 enum KeyCommand {
+    /// The names, never the keys, a model's key can come from: the daemon's ECO_
+    /// and provider variables, the Credential Manager's eco:<name> (null off
+    /// Windows) and omapass's accounts (null without omapass).
+    List,
+    #[command(flatten)]
+    Change(KeyChange),
+}
+
+#[derive(Debug, Subcommand)]
+enum KeyChange {
     /// Store a key as the credential eco:<name>, which a model names with
     /// api_key_credential; typed hidden, or read from stdin when it is not a terminal.
     Set { name: String },
@@ -391,7 +402,7 @@ enum Run {
         model: PathBuf,
     },
     Usage,
-    Key(KeyCommand),
+    Key(KeyChange),
     BenchLlm,
     BenchDiarization(bench::diarization::Options),
     BenchPeople {
@@ -437,7 +448,12 @@ impl From<Command> for Run {
             Command::Detach => return Run::Detach,
             Command::Diarize { model } => return Run::Diarize { model },
             Command::Usage => return Run::Usage,
-            Command::Key { action } => return Run::Key(action),
+            Command::Key {
+                action: KeyCommand::Change(change),
+            } => return Run::Key(change),
+            Command::Key {
+                action: KeyCommand::List,
+            } => cli::Request::Keys,
             Command::Bench { target } => {
                 return match target {
                     Bench::Llm => Run::BenchLlm,
@@ -648,10 +664,10 @@ async fn main() -> Result<()> {
 
 /// `eco key`: store or remove a key in the Windows Credential Manager; what
 /// was done. A failure is the user's to fix, said as a bad config is.
-fn key(command: KeyCommand) -> Result<String> {
+fn key(command: KeyChange) -> Result<String> {
     let done = match command {
-        KeyCommand::Set { name } => credentials::set(&name),
-        KeyCommand::Remove { name } => credentials::remove(&name),
+        KeyChange::Set { name } => credentials::set(&name),
+        KeyChange::Remove { name } => credentials::remove(&name),
     };
     Ok(done.map_err(|failure| config::ConfigError(failure.to_string()))?)
 }
@@ -816,11 +832,11 @@ mod tests {
     fn key_sets_and_removes_one_named_key() {
         assert!(matches!(
             run(&["key", "set", "deepgram"]),
-            Run::Key(KeyCommand::Set { name }) if name == "deepgram"
+            Run::Key(KeyChange::Set { name }) if name == "deepgram"
         ));
         assert!(matches!(
             run(&["key", "remove", "groq"]),
-            Run::Key(KeyCommand::Remove { name }) if name == "groq"
+            Run::Key(KeyChange::Remove { name }) if name == "groq"
         ));
         assert_eq!(
             rejected(&["key", "set"]),
@@ -832,12 +848,21 @@ mod tests {
         );
     }
 
+    #[test]
+    fn key_list_asks_the_daemon_for_the_key_names() {
+        assert!(matches!(request(&["key", "list"]), cli::Request::Keys));
+        assert_eq!(
+            rejected(&["key", "list", "deepgram"]),
+            ErrorKind::UnknownArgument
+        );
+    }
+
     #[cfg(unix)]
     #[test]
     fn on_linux_key_says_to_keep_keys_in_omapass_as_a_config_error_does() {
         for command in [
-            KeyCommand::Set { name: "dg".into() },
-            KeyCommand::Remove { name: "dg".into() },
+            KeyChange::Set { name: "dg".into() },
+            KeyChange::Remove { name: "dg".into() },
         ] {
             let failure = key(command).unwrap_err();
             let said = failure.downcast_ref::<config::ConfigError>().unwrap();

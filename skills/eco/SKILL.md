@@ -235,6 +235,16 @@ does not change WebVTT or audio import names, and can be run again safely.
 - `ask`, `action`, `rename`, `tag` (except `tag list`), `import`, `speaker`, `assign`, `delete`, `participant` and `people` change the
   user's sessions and people: run them when the user asked for that, not to
   explore. `delete` and `people forget` cannot be undone.
+- `eco key list` prints the names a model's key can come from, never a key:
+  `{"env": [...], "credentials": [...] | null, "omapass": [...] | null}`.
+  `env` holds the daemon's variables named `ECO_<NAME>` (except eco's own) and
+  the provider variables that are set (`OPENROUTER_API_KEY`,
+  `DEEPGRAM_API_KEY`, `ELEVEN_LABS_API_KEY`, `GROQ_API_KEY`,
+  `OPENAI_API_KEY`); `credentials` the Windows Credential Manager's
+  `eco:<name>` keys by name (`null` on Linux); `omapass` omapass's accounts
+  (`null` when omapass is not installed, always on Windows). A source that
+  could not be listed adds `credential_error` or `omapass_error`. Use it to
+  tell the user which key names exist; registering a model stays theirs.
 - `eco key set <name>` and `eco key remove <name>` (Windows only) store and
   delete a provider's key in the Windows Credential Manager. They print plain
   `eco: …` lines, not JSON. Never run them: a key is the user's to type, and

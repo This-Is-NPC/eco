@@ -3,6 +3,7 @@ import QtTest
 import Eco.Core
 import Eco.Kit
 import Eco.Sessions
+import Eco.Settings
 import Eco.Window
 
 // Bars and tables pressed as a keyboard and a pointer press them, run by
@@ -11,8 +12,9 @@ import Eco.Window
 // Tab row by row, new rows keep the keyboard on the table, the guarded command
 // stands behind a hairline, a bar's readout gives way when narrow, short names
 // stand in for long ones before icons do, the
-// sessions' NEW SESSION and N start a session, and the details' close closes
-// them. Each check that fails is printed, and the exit status is how many failed.
+// sessions' NEW SESSION and N start a session, the details' close closes
+// them, and a model's key picker lists each source's names under its title,
+// its keyboard stepping over the titles, a pick setting that source's field. Each check that fails is printed, and the exit status is how many failed.
 Window {
   id: root
 
@@ -27,6 +29,8 @@ Window {
   property var livePicked: []
   property int started: 0
   property bool detailsOpen: true
+  // The model the key picker edits, changed as the model page changes it.
+  property var model: ({ base_url: "https://openrouter.ai/api/v1", model: "m", api_key_env: "OPENROUTER_API_KEY" })
 
   function check(name, ok) {
     if (!ok) {
@@ -65,6 +69,7 @@ Window {
   }
 
   Column {
+    id: tables
     width: root.width
 
     DataTable {
@@ -161,6 +166,26 @@ Window {
     onDetailsClosed: root.detailsOpen = false
   }
 
+  ProviderFields {
+    id: provider
+    visible: false
+    width: root.width
+    target: "chat"
+    section: root.model
+    onEdited: (key, value) => {
+      const model = Object.assign({}, root.model)
+      if (value === null)
+        delete model[key]
+      else
+        model[key] = value
+      root.model = model
+    }
+  }
+  readonly property Item picker: find(provider, item => kind(item, "Dropdown"))
+  readonly property var pickerList: picker ? picker.data.find(item => kind(item, "MenuPopup")) : null
+  // The key picker's entry the keyboard is on.
+  function onKey() { return pickerList.entries[pickerList.current] }
+
   // The checks, one per tick, each after what the one before set off settled.
   readonly property var steps: [
     () => root.keys = Qt.createQmlObject("import QtTest; TestCase { when: false }", root.contentItem, "keys"),
@@ -224,6 +249,57 @@ Window {
       if (close)
         root.keys.mouseClick(close)
       root.check("the details' close closes them", !root.detailsOpen)
+      session.visible = false
+      tables.visible = false
+      provider.visible = true
+      Eco.handle({ type: "keys", env: ["ECO_LAN_KEY", "OPENROUTER_API_KEY"], credentials: null, credential_error: "" })
+      Eco.handle({ type: "omapass", installed: true, accounts: [{ account: "openrouter", folder: "AI" }] })
+      root.picker.open()
+    },
+    () => {
+      const titles = root.pickerList.entries.filter(entry => entry.heading !== undefined).map(entry => entry.heading)
+      root.check("the key picker titles each source", JSON.stringify(titles) === JSON.stringify([I18n.t("provider.key_env"), I18n.t("provider.key_omapass")]))
+      root.check("the key picker opens on the chosen key", root.onKey().text === "OPENROUTER_API_KEY")
+      root.keys.keyClick(Qt.Key_Home)
+      root.check("Home stops on the first name, past its title", root.onKey().text === "ECO_LAN_KEY")
+      root.keys.keyClick(Qt.Key_Up)
+      root.check("Up never lands on a title", root.onKey().text === "ECO_LAN_KEY")
+      root.keys.keyClick(Qt.Key_Down)
+      root.keys.keyClick(Qt.Key_Down)
+      root.keys.keyClick(Qt.Key_Down)
+      root.check("Down steps over the next source's title", root.onKey().text === "AI · openrouter")
+      root.keys.keyClick(Qt.Key_Return)
+      root.check("a picked omapass password is the model's key, and only it", root.model.api_key_omapass === "openrouter" && root.model.api_key_env === undefined)
+    },
+    () => {
+      // The keyboard on another field as the list opens, which it goes back to unless a pick moves it.
+      root.find(provider, item => item.text === "m" && item.cursorPosition !== undefined).forceActiveFocus()
+      root.picker.open()
+      root.keys.keyClick(Qt.Key_Home)
+      root.keys.keyClick(Qt.Key_Return)
+      root.check("a picked variable is the model's key, and only it", root.model.api_key_env === "ECO_LAN_KEY" && root.model.api_key_omapass === undefined)
+    },
+    () => {
+      root.check("a pick gives the keyboard back to the field that had it", root.activeFocusItem !== null && root.activeFocusItem.text === "m")
+      root.picker.open()
+    },
+    () => {
+      const width = root.pickerList.width
+      Eco.handle({ type: "keys", env: ["ECO_A_VERY_LONG_NAME_FOR_A_LAN_KEY", "ECO_LAN_KEY"], credentials: null, credential_error: "" })
+      root.check("names listed while open widen the list", root.pickerList.width > width)
+      root.check("names listed while open keep the keyboard on the chosen key", root.onKey().text === "ECO_LAN_KEY")
+      root.keys.keyClick(Qt.Key_Down)
+      root.keys.keyClick(Qt.Key_Return)
+      root.check("TYPE A NAME… keeps the source with its name", root.model.api_key_env === "ECO_LAN_KEY")
+    },
+    () => {
+      root.check("TYPE A NAME… gives the keyboard to the name once the list closed", root.activeFocusItem !== null && root.activeFocusItem.text === "ECO_LAN_KEY")
+      root.picker.open()
+    },
+    () => {
+      root.keys.keyClick(Qt.Key_End)
+      root.keys.keyClick(Qt.Key_Return)
+      root.check("TYPE A NAME… under OMAPASS starts an empty omapass name", root.model.api_key_omapass === "" && root.model.api_key_env === undefined)
     },
     () => Qt.exit(root.failed)
   ]

@@ -974,8 +974,8 @@ never logged) each time it builds that provider. omapass is found on `PATH` or
 in `~/.config/omarchy/plugins/io.github.this-is-npc.omapass/bin/`, and is
 optional: the `config` event says whether it is there and where its install page
 is, and without it the config window's OMAPASS is off, with an info button that
-opens that page. The window's KEY FROM switches between ENV and OMAPASS and
-lists its passwords (not its Nostr keys), never their secrets. Since the daemon may be launched from a
+opens that page. The window's KEY FROM lists its passwords (not its Nostr
+keys) among the key names it offers, never their secrets. Since the daemon may be launched from a
 Hyprland shortcut (which does not read `.bashrc`), set them in
 `~/.config/uwsm/env`. Only the daemon reads the keys; the shortcuts do not need
 them. During development, mise loads them from `.env` at the project root
@@ -985,21 +985,42 @@ On Windows a key may come from the Windows Credential Manager instead:
 `api_key_credential = "<name>"` makes the daemon read the generic credential
 whose target is `eco:<name>` each time it builds that provider
 (`src/adapters/credentials.rs`, through the `keyring-core` crate and its
-Windows store, `windows-native-keyring-store`, without its search; the
+Windows store, `windows-native-keyring-store`; the
 credential is the UTF-16 password the Credential Manager's own dialog writes,
 so one added by hand reads the same). `eco key set <name>` stores one, with
 `persistence` local to the machine, reading the key hidden from the console
 (`rpassword`) or from stdin when it is not a terminal; `eco key remove <name>`
-deletes it; neither talks to the daemon. A credential that is not there fails
+deletes it; neither talks to the daemon. The daemon lists them by name for the
+`keys` command (§10.2) through the store's search (its `search` feature,
+`Store::search` with the pattern `^eco:`, then each entry's `get_attributes`
+for its `target_name`): eco asks for no password, the crate zeroes each one
+the enumeration brings before it lets go of it, and a credential gone between
+the search and the read is left out. A credential that is not there fails
 the model with `stt.credential_missing` or `model.credential_missing`
 (`params` `{"name","credential"}`), and a `models` listing with
 `models.credential_missing` (`{"credential"}`), each saying how to add it. The
 `config` event's `credential_manager` is true only on Windows: the window then
-offers CREDENTIAL MANAGER in place of OMAPASS, with a field for the name, and
-never sees the key. A logon session without the Credential Manager — an ssh
+offers CREDENTIAL MANAGER in place of OMAPASS, its credentials listed by name
+and a name typed by hand taken too, and never sees the key. A logon session without the Credential Manager — an ssh
 login by key — gets `NoStore`, said as such; the tests that need the real
 store stop there with a line on stderr. On Linux the field parses and the
 provider fails with the message that names omapass and the environment.
+
+The window's KEY FROM picks a key by name from one list: the `keys` command
+(§10.2) answers the names of the daemon's environment variables that may hold a
+key and of the Credential Manager's `eco:<name>` credentials, and the `omapass`
+command the accounts. Only names cross the socket; no value is kept or sent.
+A variable may hold a key when it is named `ECO_<NAME>` — the convention
+for a key of the user's own — or is one of the presets' variables (`PRESETS` in
+`src/session.rs`) and is set, even empty (the provider build then says it is
+empty). The `ECO_` variables eco itself sets or reads for its own work
+(`ECO_SOCKET`, `ECO_TOKEN`, `ECO_WINDOW`, `ECO_SESSION`, `ECO_TITLE`, …) are
+`OWN_VARIABLES` in `src/session.rs`, one list, and are never offered. The daemon
+reads its environment when it starts, so a new `ECO_` variable is listed after
+`eco restart`: on Linux set it in `~/.config/uwsm/env`, on Windows among the
+user's environment variables. A credential added on Windows is listed at once,
+since the store is searched on each request. `eco key list` prints the three
+lists (§11).
 
 The `models` command (§10.2) lists a provider's models with a key, so it reads a
 key only where a saved provider would: the key source of a saved model, sent to
@@ -1110,6 +1131,7 @@ session it shows:
 {"type":"config_saved"}
 {"type":"config_pending","id":"1","hooks":[{"action":"minutes","command":"~/bin/crm-push"}],"files":["~/notes/cv.md"],"models":[{"name":"fast","base_url":"http://192.0.2.10:8000/v1","api_key_env":null,"api_key_omapass":"openrouter","api_key_credential":null}]}
 {"type":"models","target":"llm","models":["..."],"error":"..."}
+{"type":"keys","env":["ECO_LAN_KEY","OPENROUTER_API_KEY"],"credentials":null,"credential_error":""}
 {"type":"error","code":"session.none","params":{},"message":"start a session first"}
 ```
 
@@ -1148,7 +1170,14 @@ with no key source, a saved model's own source at that model's `base_url`, or a
 preset's variable at the preset's URL, as in §9.1; anything else answers `models`
 with `"code":"models.key_refused"` and `params` `{"base_url"}`), `omapass` (its
 passwords: `{"type":"omapass","installed","accounts":[{"account","folder"}],"error"?}`;
-not installed is `"installed":false`, not an error),
+not installed is `"installed":false`, not an error), `keys` (the names a
+model's key can come from, answered in the background:
+`{"type":"keys","env":["ECO_DEEPGRAM","OPENROUTER_API_KEY"],"credentials":["deepgram"],"credential_error":""}`;
+`env` is sorted and holds the `ECO_<NAME>` variables but eco's own and the
+presets' variables that are set, §9.1; `credentials` is the Credential
+Manager's `eco:<name>` names, sorted, `null` on Linux, and `[]` with
+`credential_error` saying why when the store could not be read; no value is
+ever kept or sent),
 `session.start <json>` (`{"title","kind","language","tags"}`; the kind defaults
 to the first, the tags are added as by `session.tag`;
 it records beside the live ones and is shown; with `"window"`, `session_opened`
@@ -1277,6 +1306,12 @@ How the commands are built:
   the line, without waiting for the window; a connection that closes first
   is `daemon.closed`.
   None of these needs the windows' token.
+- `key list` sends `keys` then `omapass` and prints
+  `{"ok":true,"data":{"env":[…],"credentials":[…]|null,"omapass":[…]|null}}`:
+  the `keys` event's two lists and the omapass account names (`null` when
+  omapass is not installed); a source that could not be listed adds its
+  `credential_error` or `omapass_error`. Names only (§9.1). `key set` and
+  `key remove` do not talk to the daemon.
 - `show` carries the session's speakers and storage path/byte count; `speaker`
   names one speaker, while `assign` can identify one line or every line.
 
@@ -2305,4 +2340,4 @@ adapter lives on each platform today.
 | Shortcuts | a global Hyprland bind that runs an `eco window` command, which sends one line to the socket and returns once the daemon has read it: `window.call` for those that open a view, the daemon giving that window the keyboard | the daemon registers `[shortcuts]` (§9) itself, `Win+Alt+A`, `Q`, `C`, `N`, `P`, `H` and `E` by default, the keys of `eco.lua` with the Windows key for SUPER, none of them one Microsoft documents for Windows (`Win+Alt` with a digit opens a taskbar jump list, and was refused on a desktop; the Game Bar holds `G`, `M`, `R` and `T`; Omarchy binds `SUPER+ALT+1` to `5` to a group's windows), through the `windows-hotkeys` crate: `RegisterHotKey` on a hidden message-only window of a thread of its own, which waits for `WM_HOTKEY` in the crate's loop. A pressed key hands the daemon's loop the very line `eco window` builds (`cli::Window::line`), so it is routed as the command would be. A key the system refuses, another program holding it, is written to the daemon's log and greets every client as an `error` with the code `shortcut.unavailable`, which names the config's path, to be created if missing, as the settings window has no place for shortcuts; the others still work. Chosen over `global-hotkey`, which registers the same way but leaves the message loop to the application, and that loop is `unsafe` code eco forbids, and over `livesplit-hotkey`, which installs a low-level keyboard hook: it sees every key pressed in every program, passes the shortcut on to the program in front as well (Win+Alt+1 would also open the first taskbar program's jump list) and cannot tell a key another program holds (read in the crates' sources). The keys are read when the daemon starts. Over ssh the system refuses every key: that session has no interactive window station (`RegisterHotKey` fails with error 1459, `ERROR_REQUIRES_INTERACTIVE_WINDOWSTATION`, measured), so each is reported; on a desktop, `Win+Alt+C`, `N`, `H` and `E` registered and worked when pressed (seen in a desktop test). `eco window` works as on Linux, knowing the daemon has read its line from the `synced` answer to `sync` (§10) | `packaging/hypr/eco.lua`, `src/cli.rs`, `src/shortcuts.rs`, `src/adapters/shortcuts_windows.rs` |
 | The hook shell | `shell()` runs each hook with `sh -c` | `shell()` runs each hook with `cmd /S /C "<command>"`, the command handed over as written, for cmd does not read its line by the quoting rules other programs use; a hook reads `%ECO_SESSION%` and `%ECO_TITLE%`. cmd is on every Windows | `src/adapters/hook_shell.rs` |
 | The omapass keyring | `api_key_omapass` reads a key through the omapass CLI | omapass does not exist: it is never installed, and a key from it fails | `src/adapters/omapass.rs` |
-| The Windows Credential Manager | none: `api_key_credential` and `eco key` fail, naming omapass and the environment | `api_key_credential` reads the generic credential `eco:<name>`; `eco key set`/`remove` write and delete it (§9.1) | `src/adapters/credentials.rs` |
+| The Windows Credential Manager | none: `api_key_credential` and `eco key set`/`remove` fail, naming omapass and the environment; the `keys` event's `credentials` is `null` | `api_key_credential` reads the generic credential `eco:<name>`; `eco key set`/`remove` write and delete it; the `keys` command lists them by name (§9.1) | `src/adapters/credentials.rs` |

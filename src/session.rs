@@ -2047,6 +2047,12 @@ impl Session {
                     ));
                 });
             }
+            ("keys", None) => {
+                self.background.spawn(async move {
+                    let names = std::env::vars_os().map(|(name, _)| name);
+                    emit(keys_listed(names, credentials::names()));
+                });
+            }
             ("stop", None) => return false,
             _ => {
                 let verb: String = command.chars().take(40).collect();
@@ -2080,6 +2086,60 @@ fn omapass_listed(
             json!({"type": "omapass", "installed": true, "accounts": [], "error": failure})
         }
     }
+}
+
+/// The `ECO_` variables eco sets or reads for its own work: never a key, so
+/// never listed as one.
+const OWN_VARIABLES: [&str; 18] = [
+    "ECO_ARGUMENTS",
+    "ECO_CALL",
+    "ECO_DIRECTORY",
+    "ECO_DRIVE",
+    "ECO_ICON",
+    "ECO_LINK",
+    "ECO_LOCAL_CHECK_SHA",
+    "ECO_PROGRAM",
+    "ECO_SESSION",
+    "ECO_SHOW",
+    "ECO_SKIP_LOCAL_CHECK",
+    "ECO_SOCKET",
+    "ECO_TARGET",
+    "ECO_TITLE",
+    "ECO_TOKEN",
+    "ECO_TREE",
+    "ECO_UNINSTALL",
+    "ECO_WINDOW",
+];
+
+/// The `keys` event: the names of the daemon's variables that may hold a key —
+/// `ECO_<NAME>` but eco's own, and the presets' that are set, even empty —
+/// and of the Credential Manager's `eco:<name>` keys, `null` where there is
+/// none and `[]` with `credential_error` when it could not be read. Names
+/// only: no value is kept or sent.
+fn keys_listed(
+    variables: impl IntoIterator<Item = std::ffi::OsString>,
+    credentials: Option<Result<Vec<String>, CredentialError>>,
+) -> Value {
+    let key = |name: &str| {
+        (name
+            .strip_prefix("ECO_")
+            .is_some_and(|rest| !rest.is_empty())
+            && !OWN_VARIABLES.contains(&name))
+            || PRESETS.iter().any(|p| p.api_key_env == name)
+    };
+    let mut env: Vec<String> = variables
+        .into_iter()
+        .filter_map(|name| name.into_string().ok())
+        .filter(|name| key(name))
+        .collect();
+    env.sort();
+    env.dedup();
+    let (credentials, credential_error) = match credentials {
+        None => (Value::Null, String::new()),
+        Some(Ok(names)) => (json!(names), String::new()),
+        Some(Err(failure)) => (json!([]), failure.to_string()),
+    };
+    json!({"type": "keys", "env": env, "credentials": credentials, "credential_error": credential_error})
 }
 
 /// A provider the settings window offers by name: its official URL, a default
@@ -3740,6 +3800,16 @@ mod tests {
         assert_eq!(devices["devices"], config["devices"]);
     }
 
+    #[tokio::test]
+    async fn the_key_names_are_listed_on_demand_from_the_daemons_environment() {
+        let mut d = daemon(raw());
+        d.line("keys").await;
+        let keys = d.until(|event| event["type"] == "keys").await;
+        let names = std::env::vars_os().map(|(name, _)| name);
+        assert_eq!(keys["env"], keys_listed(names, None)["env"]);
+        assert_eq!(keys["credentials"].is_null(), !credentials::AVAILABLE);
+    }
+
     #[test]
     fn omapass_lists_its_accounts_or_says_why_not() {
         let account = omapass::Account {
@@ -3759,6 +3829,50 @@ mod tests {
             omapass_listed(Err("locked".into()), || true),
             json!({"type": "omapass", "installed": true, "accounts": [], "error": "locked"})
         );
+    }
+
+    #[test]
+    fn keys_lists_eco_and_preset_variables_and_eco_credentials_by_name() {
+        let variables = [
+            "PATH",
+            "ECO_DEEPGRAM",
+            "OPENROUTER_API_KEY",
+            "ECO_SOCKET",
+            "ECO_TOKEN",
+            "ECO_",
+            "eco_lower",
+            "ANTHROPIC_API_KEY",
+            "ECO_DEEPGRAM",
+            "GROQ_API_KEY",
+        ]
+        .map(std::ffi::OsString::from);
+        let windows = Some(Ok(vec!["deepgram".to_string()]));
+        assert_eq!(
+            keys_listed(variables.clone(), windows),
+            json!({"type": "keys",
+                   "env": ["ECO_DEEPGRAM", "GROQ_API_KEY", "OPENROUTER_API_KEY"],
+                   "credentials": ["deepgram"], "credential_error": ""})
+        );
+        assert_eq!(
+            keys_listed(variables.clone(), None),
+            json!({"type": "keys",
+                   "env": ["ECO_DEEPGRAM", "GROQ_API_KEY", "OPENROUTER_API_KEY"],
+                   "credentials": null, "credential_error": ""})
+        );
+        // A failure this platform's store gives.
+        #[cfg(unix)]
+        let failure = || CredentialError::Unavailable;
+        #[cfg(windows)]
+        let failure = || CredentialError::NoStore("1312".into());
+        let event = keys_listed(variables, Some(Err(failure())));
+        assert_eq!(event["credentials"], json!([]));
+        assert_eq!(event["credential_error"], failure().to_string());
+    }
+
+    #[test]
+    fn eco_own_variables_are_never_listed_as_keys() {
+        let own = OWN_VARIABLES.map(std::ffi::OsString::from);
+        assert_eq!(keys_listed(own, None)["env"], json!([]));
     }
 
     #[tokio::test]

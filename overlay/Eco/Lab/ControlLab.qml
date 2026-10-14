@@ -217,6 +217,16 @@ Window {
                   invalid: true
                   describe: option => option === "first" ? I18n.t("lab.option_first") : I18n.t("lab.option_second")
                 }
+                // Options under group titles, as a model's key picker lists them.
+                Dropdown {
+                  options: ["first", "second", "third"]
+                  current: lab.selectedOption
+                  label: I18n.t("lab.grouped_list")
+                  section: option => I18n.t(option === "third" ? "lab.group_second" : "lab.group_first")
+                  describe: option => option === "first" ? I18n.t("lab.option_first")
+                    : option === "second" ? I18n.t("lab.option_second") : I18n.t("lab.option_third")
+                  onPicked: option => lab.selectedOption = option
+                }
                 // Opens the first list from outside it, as a table row's act does.
                 TraceButton {
                   dense: true

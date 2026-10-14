@@ -104,6 +104,8 @@ pub enum Request {
     People(People),
     Tag(Tag),
     Window(Window),
+    /// The names a model's key can come from: variables, credentials, omapass accounts.
+    Keys,
     /// Change one line of a session, named by who said it and when (`at`).
     Line {
         id: String,
@@ -408,6 +410,7 @@ impl Client {
             }
             Request::Tag(tag) => self.tag(tag).await,
             Request::Window(window) => self.window(window).await,
+            Request::Keys => self.keys().await,
             Request::Import {
                 path,
                 title,
@@ -487,6 +490,43 @@ impl Client {
         self.send(control_socket::SYNC).await?;
         self.until(|event| (event["type"] == "synced").then_some(Ok(Value::Null)))
             .await
+    }
+
+    /// The names the daemon can read a key from, never a key: its variables, the
+    /// Credential Manager's `eco:<name>` (`null` off Windows) and omapass's
+    /// accounts (`null` when omapass is not there). A source that could not be
+    /// listed adds its `credential_error` or `omapass_error`.
+    async fn keys(&mut self) -> Result<Value, Failure> {
+        self.send("keys").await?;
+        let keys = self
+            .until(|event| (event["type"] == "keys").then(|| Ok(event.clone())))
+            .await?;
+        self.send("omapass").await?;
+        let omapass = self
+            .until(|event| (event["type"] == "omapass").then(|| Ok(event.clone())))
+            .await?;
+        let accounts: Option<Vec<&Value>> =
+            omapass["installed"].as_bool().unwrap_or(false).then(|| {
+                omapass["accounts"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .map(|a| &a["account"])
+                    .collect()
+            });
+        let mut listed = json!({
+            "env": keys["env"], "credentials": keys["credentials"], "omapass": accounts,
+        });
+        let errors = [
+            ("credential_error", &keys["credential_error"]),
+            ("omapass_error", &omapass["error"]),
+        ];
+        for (field, error) in errors {
+            if let Some(error) = error.as_str().filter(|e| !e.is_empty()) {
+                listed[field] = json!(error);
+            }
+        }
+        Ok(listed)
     }
 
     /// List the tags, tag or untag a session, or rename or delete a tag everywhere.
@@ -1143,6 +1183,43 @@ mod tests {
             .await
             .unwrap_err();
         assert_eq!(failure.code, "tag.not_found");
+    }
+
+    #[tokio::test]
+    async fn key_list_joins_the_key_names_and_the_omapass_accounts() {
+        let keys = json!({"type": "keys", "env": ["ECO_DEEPGRAM"], "credentials": null, "credential_error": ""});
+        let accounts = json!({"type": "omapass", "installed": true,
+                              "accounts": [{"account": "openrouter", "folder": "AI"}]});
+        let mut client = conversing(vec![
+            ("keys", vec![signal(), keys]),
+            ("omapass", vec![accounts]),
+        ]);
+        assert_eq!(
+            client.handle(Request::Keys).await,
+            Ok(json!({"env": ["ECO_DEEPGRAM"], "credentials": null, "omapass": ["openrouter"]}))
+        );
+    }
+
+    #[tokio::test]
+    async fn key_list_says_which_source_could_not_be_listed() {
+        let keys =
+            json!({"type": "keys", "env": [], "credentials": [], "credential_error": "no store"});
+        let missing = json!({"type": "omapass", "installed": false, "accounts": []});
+        let mut client = conversing(vec![
+            ("keys", vec![keys.clone()]),
+            ("omapass", vec![missing]),
+        ]);
+        assert_eq!(
+            client.keys().await.unwrap(),
+            json!({"env": [], "credentials": [], "omapass": null, "credential_error": "no store"})
+        );
+        let locked = json!({"type": "omapass", "installed": true, "accounts": [], "error": "omapass: locked"});
+        let mut client = conversing(vec![("keys", vec![keys]), ("omapass", vec![locked])]);
+        assert_eq!(
+            client.keys().await.unwrap(),
+            json!({"env": [], "credentials": [], "omapass": [],
+                   "credential_error": "no store", "omapass_error": "omapass: locked"})
+        );
     }
 
     #[tokio::test]

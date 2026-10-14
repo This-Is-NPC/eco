@@ -229,6 +229,12 @@ Singleton {
   // The passwords omapass keeps ({account, folder}), and why they could not be listed.
   property var omapassAccounts: []
   property string omapassError: ""
+  // The key names the daemon can read, never their values: its environment
+  // variables, the Credential Manager's (null where there is none), and why
+  // those could not be listed.
+  property var keyNames: []
+  property var credentialNames: null
+  property string credentialError: ""
   // Whether omapass is on this machine, and the page that tells how to install it.
   property bool omapassInstalled: true
   // Whether keys can come from the Windows Credential Manager: on Windows, in place of omapass.
@@ -537,6 +543,7 @@ Singleton {
     }))
   }
   function requestOmapass() { send("omapass") }
+  function requestKeys() { send("keys") }
   // clearModels forgets a provider's model list: it belonged to another provider.
   function clearModels(target) {
     const found = Object.assign({}, models)
@@ -1152,6 +1159,11 @@ Singleton {
       configSaving = false
       tell([["status.saved"]], false)
       configSaveSucceeded()
+      break
+    case "keys":
+      keyNames = event.env
+      credentialNames = event.credentials
+      credentialError = event.credential_error || ""
       break
     case "omapass":
       omapassAccounts = event.accounts

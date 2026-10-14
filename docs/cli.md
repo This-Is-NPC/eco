@@ -81,7 +81,13 @@ Show whether the daemon is running
 
 - **Usage**: `eco key <SUBCOMMAND>`
 
-Keep a provider's key in the Windows Credential Manager (Windows only)
+List the names a model's key can come from, or keep a key in the Windows Credential Manager (set and remove are Windows only)
+
+## `eco key list`
+
+- **Usage**: `eco key list`
+
+The names, never the keys, a model's key can come from: the daemon's ECO_ and provider variables, the Credential Manager's eco:<name> (null off Windows) and omapass's accounts (null without omapass)
 
 ## `eco key set`
 

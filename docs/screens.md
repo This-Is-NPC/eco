@@ -678,16 +678,28 @@ it:
 
 Edited, it has its type while nothing uses it, its name, the reasoning for a
 chat model, the provider (CUSTOM takes any base URL), the model (LIST shows the
-models the provider offers), where the key comes from (an environment variable
-or an omapass password), the price per minute of a transcription model and,
-for a chat model, EXTRA (JSON), the extra fields sent with each request. Without omapass on the machine, as in these pictures,
-**OMAPASS** is off and an info button beside it opens omapass's install page.
-On Windows **CREDENTIAL MANAGER** stands in its place: a field for the key's
-name and, once one is typed, how to store that key with `eco key set <name>` or
-as the generic credential `eco:<name>`. The pictures are made on Linux, so none
-shows it:
+models the provider offers), where the key comes from, the price per minute of
+a transcription model and, for a chat model, EXTRA (JSON), the extra fields
+sent with each request.
 
-![The model gemini-flash being edited, EDITING beside MODEL, the bar with a dimmed SAVE and CANCEL: NAME "gemini-flash"; REASONING with PROVIDER'S, OFF (lit), LOW, MEDIUM, HIGH; PROVIDER with OPENROUTER (lit), GROQ, CUSTOM; MODEL "google/gemini-2.5-flash" with LIST; KEY FROM with ENV (lit), a dimmed OMAPASS and an info button, and "OPENROUTER_API_KEY"; EXTRA (JSON) holding "{}".](img/43-settings-model-edit.png)
+**KEY FROM** names the source above a field holding the key's name. **PICK A
+KEY** beside it opens one list of the names the daemon can read, never their
+values, under a title per source: ENVIRONMENT (variables named `ECO_<NAME>`, a
+placeholder, and the provider variables eco knows that are set), then
+OMAPASS on Linux when omapass is installed, or CREDENTIAL MANAGER on Windows
+(the generic credentials `eco:<name>`). Each source ends with **TYPE A NAME…**,
+which keeps that source and gives the keyboard to the field, for a name the
+list does not show. The list is asked for each time it opens; a line under the
+field says a new variable shows only after `eco restart`, because the daemon
+reads its environment when it starts, and on Windows that a new credential
+shows at once. Picking a name sets it and clears the other sources. Without
+omapass on the machine, as in these pictures, OMAPASS is not listed and an info
+button beside the picker opens omapass's install page. With a credential named,
+a line says how to store that key with `eco key set <name>` or as the generic
+credential `eco:<name>`. The pictures are made on Linux, so none shows the
+Credential Manager. Here the picker is open, nothing picked from it:
+
+![The model gemini-flash being edited, EDITING beside MODEL, the bar with a dimmed SAVE and CANCEL: NAME "gemini-flash"; REASONING with PROVIDER'S, OFF (lit), LOW, MEDIUM, HIGH; PROVIDER with OPENROUTER (lit), GROQ, CUSTOM; MODEL "google/gemini-2.5-flash" with LIST; KEY FROM · ENVIRONMENT with "OPENROUTER_API_KEY", an info button and PICK A KEY open below it: ENVIRONMENT with DEEPGRAM_API_KEY, ECO_LAN_KEY, OPENROUTER_API_KEY (chosen) and TYPE A NAME…; the line on eco restart under the field; EXTRA (JSON) holding "{}".](img/43-settings-model-edit.png)
 
 Renaming a model renames it wherever it is used.
 
@@ -817,7 +829,7 @@ field. A value typed wrong shows as it is typed; a missing value once a save is
 tried. Anything that is not one field's shows under the title. Here, ADD MODEL
 and then SAVE with nothing filled:
 
-![A new model being edited, NEW and EDITING beside MODEL, the bar with SAVE and CANCEL: TYPE with CHAT lit; NAME empty, showing "new model", outlined in red with "Give it a name." under it; REASONING, PROVIDER with OPENROUTER lit; MODEL empty, showing "e.g. google/gemini-3.5-flash-lite", outlined in red with "Set the provider's model id." under it; KEY FROM with ENV lit and "OPENROUTER_API_KEY".](img/54-settings-errors.png)
+![A new model being edited, NEW and EDITING beside MODEL, the bar with SAVE and CANCEL: TYPE with CHAT lit; NAME empty, showing "new model", outlined in red with "Give it a name." under it; REASONING, PROVIDER with OPENROUTER lit; MODEL empty, showing "e.g. google/gemini-3.5-flash-lite", outlined in red with "Set the provider's model id." under it; KEY FROM · ENVIRONMENT with "OPENROUTER_API_KEY" and PICK A KEY.](img/54-settings-errors.png)
 
 No model is required: before any is registered, the config saves with no
 default transcription or assistant model, and sessions say none is chosen

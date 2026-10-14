@@ -92,7 +92,7 @@ def environment(home):
     env = {
         key: value
         for key, value in os.environ.items()
-        if not key.endswith("_API_KEY")
+        if not key.endswith("_API_KEY") and not key.startswith("ECO_")
         and key not in ("WAYLAND_DISPLAY", "DISPLAY", "HYPRLAND_INSTANCE_SIGNATURE", "QT_IM_MODULE", "QT_SCALE_FACTOR")
     }
     env.update(
@@ -114,6 +114,8 @@ def environment(home):
         # variables must be set; nothing is sent with them.
         OPENROUTER_API_KEY="placeholder-never-sent",
         DEEPGRAM_API_KEY="placeholder-never-sent",
+        # A key of the user's own naming, listed by the model form's key picker.
+        ECO_LAN_KEY="placeholder-never-sent",
     )
     return env
 
@@ -551,14 +553,24 @@ def scenes(w, shots, stop):
     def section(name):
         w.do(f"Eco.openConfigAt(settings.view.at.{name})")
 
-    def item(name, row, number, picture, edit=None):
-        """Opens `row` of section `name` read, and written when `edit` names a picture."""
+    def item(name, row, number, picture, edit=None, listed=None):
+        """Opens `row` of section `name` read, and written when `edit` names a
+        picture; `listed` names the Dropdown, by its label, open in that picture,
+        nothing chosen from it."""
         w.do(f"settings.view.open(settings.view.at.{name}, {q(row)})")
         shots.take(f"{number}-settings-{picture}", "settings")
         if edit:
             w.do("return d.click('text=\"EDIT\"')")
             w.do("d.blur('settings')")
+            dropdown = (
+                "(() => { const out = []; d.walk(settings.contentItem, out, 0);"
+                f" return out.find(i => d.kind(i) === 'Dropdown' && d.shown(i) && i.label === {q(listed)}) }})()"
+            )
+            if listed:
+                w.do(f"{dropdown}.open()", 0.6)
             shots.take(f"{edit[0]}-settings-{edit[1]}", "settings")
+            if listed:
+                w.do(f"{dropdown}.data.find(o => d.kind(o) === 'MenuPopup').close()", 0.4)
             w.do("return d.click('text=\"CANCEL\"')")
         w.do(f"settings.view.close(settings.view.at.{name})")
 
@@ -577,7 +589,7 @@ def scenes(w, shots, stop):
     w.do(f"{heard}.data.find(o => d.kind(o) === 'MenuPopup').close()", 0.4)
     shots.size(*SETTINGS, which="settings")
     section("models")
-    item("models", "gemini-flash", "42", "model", ("43", "model-edit"))
+    item("models", "gemini-flash", "42", "model", ("43", "model-edit"), listed="PICK A KEY")
     # Back on the table with gemini-flash picked: the chat model's defaults on the bar.
     shots.take("41-settings-models", "settings")
     section("languages")

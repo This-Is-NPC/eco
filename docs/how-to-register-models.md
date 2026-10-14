@@ -59,6 +59,31 @@ The variables eco's presets name are `OPENROUTER_API_KEY`, `DEEPGRAM_API_KEY`,
 the daemon once the session has read the file again: log out and back in, then
 `eco restart`.
 
+**A key of your own: name it `ECO_<NAME>`.** `<NAME>` is a placeholder for a
+name of yours, such as `ECO_LAN_KEY`. The model form lists every variable named
+`ECO_<NAME>` and the presets' variables that are set, by name only, never their
+values; any other variable still works when its name is typed. eco's own
+variables (`ECO_SOCKET`, `ECO_TOKEN`, `ECO_WINDOW` and the others it sets for
+its windows and hooks) are never listed. The daemon reads its environment when
+it starts, so a new variable is listed after `eco restart`:
+
+- **On Linux,** add `export ECO_LAN_KEY=…` to `~/.config/uwsm/env`, log out and
+  back in, then `eco restart`.
+- **On Windows,** add it under **Settings › System › About › Advanced system
+  settings › Environment Variables › User variables** (or run
+  `setx ECO_LAN_KEY "…"` in a terminal), then restart eco from a new terminal
+  or the Start menu, so it starts with the new environment: `eco restart`.
+
+`eco key list` prints the names the daemon can read, as JSON:
+
+```
+$ eco key list
+{"ok":true,"data":{"env":["ECO_LAN_KEY","OPENROUTER_API_KEY"],"credentials":null,"omapass":["openrouter"]}}
+```
+
+`credentials` is `null` on Linux and `omapass` is `null` without omapass
+(always on Windows). That output is read in the code, not run here.
+
 **From omapass.** Save the key as a password in omapass, under an account name
 such as `openrouter`. eco runs `omapass get -- openrouter` each time it builds
 that provider — on start, and on every save of the settings — reading the secret
@@ -84,7 +109,9 @@ Or add it by hand. Open the Credential Manager — search the Start menu for
 Add a generic credential**: **Internet or network address** `eco:deepgram`,
 any **User name**, the key as the **Password**. `eco key remove deepgram`
 deletes it. A daemon that was running reads a new credential after
-`eco restart`. Those outputs are read in the code, not seen: an ssh login by
+`eco restart`. The model form lists the `eco:<name>` credentials by name as
+soon as they exist, without a restart, since the daemon searches the
+Credential Manager each time the list opens. Those outputs are read in the code, not seen: an ssh login by
 key, the only way into the machine eco was built on, has no Credential
 Manager ([on Windows](how-to-install-and-remove.md#on-windows)). On Linux,
 `eco key` says `the Windows Credential Manager is only on Windows; on Linux
@@ -120,13 +147,16 @@ default of nothing: step 4 makes it one. Fill it top to bottom:
 - **MODEL** — the provider's id, such as `google/gemini-3.5-flash-lite`. Type
   it, or press **LIST** to ask the provider which models it offers and pick one;
   the list filters as you type.
-- **KEY FROM** — **ENV**, with the variable's name (`OPENROUTER_API_KEY`), or
-  **OMAPASS**, with **PICK A PASSWORD** listing omapass's accounts. Only their
-  names are listed, never a secret. Without omapass on the machine, **OMAPASS**
-  cannot be pressed and an info button beside it opens omapass's install page in
-  the browser. On Windows **CREDENTIAL MANAGER** takes the place of
-  **OMAPASS**: a field for the key's name (`deepgram` for `eco:deepgram`),
-  and below it how to store that key with `eco key set` or by hand.
+- **KEY FROM** — the key's name, picked with **PICK A KEY**: one list, a
+  title per source, of the names step 1 put where the daemon reads them —
+  **ENVIRONMENT** (the `ECO_<NAME>` variables and the presets' variables that
+  are set), then **OMAPASS** (its accounts) on Linux when omapass is
+  installed, or **CREDENTIAL MANAGER** (the `eco:<name>` credentials) on
+  Windows. Only names are listed, never a secret. **TYPE A NAME…** under a
+  source keeps that source and lets you type a name the list does not show.
+  Without omapass on the machine, an info button beside the picker opens
+  omapass's install page in the browser. With a credential named, a line says
+  how to store that key with `eco key set` or by hand.
 - **EXTRA (JSON)** — extra fields sent with every request, as a JSON object, such as
   `{"temperature": 0.2}`. A reasoning chosen above wins over one written here.
 
@@ -142,7 +172,7 @@ in use has no TYPE row.
 
 ![The gemini-flash model read: BACK, EDIT and DELETE in the bar; ABOUT with TYPE CHAT, DEFAULT FOR CHAT · TRANSLATION, PROVIDER OPENROUTER, BASE URL https://openrouter.ai/api/v1, MODEL ID google/gemini-2.5-flash, KEY FROM env OPENROUTER_API_KEY and REASONING OFF; RELATED with the session kinds, each once, under SESSION KINDS · ASSISTANT + TRANSLATION.](img/42-settings-model.png)
 
-![The gemini-flash model being edited: SAVE and CANCEL in the bar; NAME "gemini-flash"; REASONING with OFF lit; PROVIDER with OPENROUTER lit, GROQ and CUSTOM; MODEL "google/gemini-2.5-flash" with LIST; KEY FROM with ENV lit and OMAPASS, holding "OPENROUTER_API_KEY"; EXTRA (JSON) holding "{}".](img/43-settings-model-edit.png)
+![The gemini-flash model being edited: SAVE and CANCEL in the bar; NAME "gemini-flash"; REASONING with OFF lit; PROVIDER with OPENROUTER lit, GROQ and CUSTOM; MODEL "google/gemini-2.5-flash" with LIST; KEY FROM · ENVIRONMENT with "OPENROUTER_API_KEY", an info button and PICK A KEY open below it: ENVIRONMENT with DEEPGRAM_API_KEY, ECO_LAN_KEY, OPENROUTER_API_KEY (chosen) and TYPE A NAME…; the line on eco restart under the field; EXTRA (JSON) holding "{}".](img/43-settings-model-edit.png)
 
 **BACK** returns to the table.
 
@@ -271,14 +301,25 @@ command line, a skill on that model fails the same way:
 A transcription model in the same state leaves the inputs measured and nothing
 transcribed, and says `Transcription unavailable: …`.
 
-**omapass is not installed.** **OMAPASS** says `omapass is not installed.` on
-hover and cannot be pressed; the info button beside it opens the install page.
-A model whose key already comes from omapass says the same under **KEY FROM**;
-switch it to **ENV**, or install omapass. The daemon, building that provider,
+**omapass is not installed.** **PICK A KEY** lists no **OMAPASS**; the info
+button beside it opens the install page. A model whose key already comes from
+omapass says `omapass is not installed.` under **KEY FROM**; pick a key from
+another source, or install omapass. The daemon, building that provider,
 fails with
 `omapass is not installed (https://plugins.omarchy.org/plugin.html?id=io.github.this-is-npc.omapass)`.
-With omapass and no passwords in it, **PICK A PASSWORD** says
+With omapass and no passwords in it, **PICK A KEY** says
 `No passwords in omapass yet; add one there first.`
+
+**A new `ECO_` variable is not listed.** The daemon reads its environment when
+it starts: set the variable as step 1 says, then `eco restart`. A variable not
+named `ECO_<NAME>` and not a preset's is not listed; choose **TYPE A NAME…**
+under **ENVIRONMENT** and type it.
+
+**The Credential Manager could not be listed** (Windows). The picker says
+`The Credential Manager could not be listed:` and why, and lists no
+credentials; `eco key list` prints the same reason as `credential_error`. Over
+an ssh login by key there is no Credential Manager; run eco from the desktop.
+**TYPE A NAME…** still takes a credential's name.
 
 **Two sources for one key.** Refused, by the window and by the daemon at start:
 `a provider's key comes from one of api_key_env, api_key_omapass or api_key_credential`.

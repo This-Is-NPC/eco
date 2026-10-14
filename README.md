@@ -71,7 +71,9 @@ Then, in the window:
    or **DEFAULT FOR CHAT**. eco records and transcribes with no chat model. Their
    keys come from the daemon's environment (`OPENROUTER_API_KEY`,
    `DEEPGRAM_API_KEY`, `ELEVEN_LABS_API_KEY`, `GROQ_API_KEY`, `OPENAI_API_KEY`,
-   kept in `~/.config/uwsm/env`) or from your omapass keyring.
+   or one of yours named `ECO_<NAME>`, kept in `~/.config/uwsm/env`) or from
+   your omapass keyring, and **PICK A KEY** lists their names
+   ([how to register models](docs/how-to-register-models.md)).
 3. **NEW SESSION** on the start screen, or `SUPER+ALT+N` from anywhere: a title,
    a kind, a language, START.
 
