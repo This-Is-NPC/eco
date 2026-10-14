@@ -148,18 +148,33 @@ fn program() -> PathBuf {
     program
 }
 
-#[tokio::test]
-async fn the_overlay_views_pass_their_checks() {
-    let dir = tempfile::tempdir().unwrap();
-    let run = Command::new(program())
-        .arg(Path::new(ROOT).join("tests/window/views.qml"))
+/// eco-window running `tests/window/<qml>.qml` offscreen, with the overlay's
+/// modules, its runtime and cache in `dir`, and no display of the user's.
+fn offscreen(qml: &str, dir: &Path) -> Command {
+    let mut window = Command::new(program());
+    window
+        .arg(Path::new(ROOT).join(format!("tests/window/{qml}.qml")))
         .env_remove("WAYLAND_DISPLAY")
         .env_remove("DISPLAY")
         .env("QML_IMPORT_PATH", Path::new(ROOT).join("overlay"))
         .env("QT_QPA_PLATFORM", "offscreen")
         .env("QT_QPA_PLATFORMTHEME", "")
-        .env("XDG_RUNTIME_DIR", dir.path())
-        .env("XDG_CACHE_HOME", dir.path().join("cache"))
+        .env("XDG_RUNTIME_DIR", dir)
+        .env("XDG_CACHE_HOME", dir.join("cache"));
+    // Offscreen Qt on Windows reads fonts from a directory, by default one
+    // beside the program that windeployqt leaves empty: the system's instead.
+    #[cfg(windows)]
+    window.env(
+        "QT_QPA_FONTDIR",
+        Path::new(&std::env::var_os("WINDIR").expect("WINDIR is set")).join("Fonts"),
+    );
+    window
+}
+
+#[tokio::test]
+async fn the_overlay_views_pass_their_checks() {
+    let dir = tempfile::tempdir().unwrap();
+    let run = offscreen("views", dir.path())
         .env("ECO_SOCKET", dir.path().join("no-daemon"))
         .kill_on_drop(true)
         .output();
@@ -180,15 +195,7 @@ async fn the_overlay_views_pass_their_checks() {
 #[tokio::test]
 async fn the_settings_keys_choose_sections() {
     let dir = tempfile::tempdir().unwrap();
-    let run = Command::new(program())
-        .arg(Path::new(ROOT).join("tests/window/settings_keys.qml"))
-        .env_remove("WAYLAND_DISPLAY")
-        .env_remove("DISPLAY")
-        .env("QML_IMPORT_PATH", Path::new(ROOT).join("overlay"))
-        .env("QT_QPA_PLATFORM", "offscreen")
-        .env("QT_QPA_PLATFORMTHEME", "")
-        .env("XDG_RUNTIME_DIR", dir.path())
-        .env("XDG_CACHE_HOME", dir.path().join("cache"))
+    let run = offscreen("settings_keys", dir.path())
         .env("ECO_SOCKET", dir.path().join("no-daemon"))
         .kill_on_drop(true)
         .output();
@@ -211,15 +218,7 @@ async fn the_settings_keys_choose_sections() {
 async fn the_bars_and_tables_answer_their_keys() {
     let dir = tempfile::tempdir().unwrap();
     let mut listener = Listener::bind(dir.path());
-    let mut window = Command::new(program())
-        .arg(Path::new(ROOT).join("tests/window/bars.qml"))
-        .env_remove("WAYLAND_DISPLAY")
-        .env_remove("DISPLAY")
-        .env("QML_IMPORT_PATH", Path::new(ROOT).join("overlay"))
-        .env("QT_QPA_PLATFORM", "offscreen")
-        .env("QT_QPA_PLATFORMTHEME", "")
-        .env("XDG_RUNTIME_DIR", dir.path())
-        .env("XDG_CACHE_HOME", dir.path().join("cache"))
+    let mut window = offscreen("bars", dir.path())
         .env("ECO_SOCKET", listener.name())
         .env("ECO_TOKEN", "secret")
         .stdout(Stdio::null())
@@ -248,15 +247,7 @@ async fn the_bars_and_tables_answer_their_keys() {
 async fn closing_the_window_tells_the_daemon_and_ends_the_process() {
     let dir = tempfile::tempdir().unwrap();
     let mut listener = Listener::bind(dir.path());
-    let mut window = Command::new(program())
-        .arg(Path::new(ROOT).join("tests/window/close.qml"))
-        .env_remove("WAYLAND_DISPLAY")
-        .env_remove("DISPLAY")
-        .env("QML_IMPORT_PATH", Path::new(ROOT).join("overlay"))
-        .env("QT_QPA_PLATFORM", "offscreen")
-        .env("QT_QPA_PLATFORMTHEME", "")
-        .env("XDG_RUNTIME_DIR", dir.path())
-        .env("XDG_CACHE_HOME", dir.path().join("cache"))
+    let mut window = offscreen("close", dir.path())
         .env("ECO_SOCKET", listener.name())
         .env("ECO_TOKEN", "secret")
         .env("ECO_WINDOW", "3")
@@ -300,15 +291,7 @@ async fn closing_the_window_tells_the_daemon_and_ends_the_process() {
 async fn the_tray_shows_the_state_and_its_menu_sends_the_cli_lines() {
     let dir = tempfile::tempdir().unwrap();
     let mut listener = Listener::bind(dir.path());
-    let mut tray = Command::new(program())
-        .arg(Path::new(ROOT).join("tests/window/tray.qml"))
-        .env_remove("WAYLAND_DISPLAY")
-        .env_remove("DISPLAY")
-        .env("QML_IMPORT_PATH", Path::new(ROOT).join("overlay"))
-        .env("QT_QPA_PLATFORM", "offscreen")
-        .env("QT_QPA_PLATFORMTHEME", "")
-        .env("XDG_RUNTIME_DIR", dir.path())
-        .env("XDG_CACHE_HOME", dir.path().join("cache"))
+    let mut tray = offscreen("tray", dir.path())
         .env("ECO_SOCKET", listener.name())
         .env("ECO_TOKEN", "secret")
         .stdout(Stdio::null())
@@ -345,14 +328,8 @@ async fn the_tray_shows_the_state_and_its_menu_sends_the_cli_lines() {
 /// eco-window running `tests/window/bridge.qml` on the Qt `platform`,
 /// connecting to `listener`, its runtime in `dir` and its watched file `file`.
 fn bridge(platform: &str, dir: &Path, listener: &Listener, file: &Path) -> Child {
-    Command::new(program())
-        .arg(Path::new(ROOT).join("tests/window/bridge.qml"))
-        .env_remove("WAYLAND_DISPLAY")
-        .env_remove("DISPLAY")
+    offscreen("bridge", dir)
         .env("QT_QPA_PLATFORM", platform)
-        .env("QT_QPA_PLATFORMTHEME", "")
-        .env("XDG_RUNTIME_DIR", dir)
-        .env("XDG_CACHE_HOME", dir.join("cache"))
         .env("ECO_TEST_SOCKET", listener.name())
         .env("ECO_TEST_TOKEN", "secret")
         .env("ECO_TEST_FILE", file)
