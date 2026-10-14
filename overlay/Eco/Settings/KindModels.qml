@@ -16,7 +16,7 @@ ColumnLayout {
   spacing: 12
 
   Repeater {
-    model: [["transcription", I18n.t("settings.type_transcription")]].concat(Draft.named(picks.draft, "chat").length === 0 ? [] : [
+    model: [["transcription", I18n.t("settings.type_transcription")]].concat(!Draft.chats(picks.draft) ? [] : [
             ["chat", I18n.t("settings.role_assistant")],
             ["translation", I18n.t("settings.translation")]])
     delegate: ModelPick {
@@ -27,7 +27,12 @@ ColumnLayout {
       use: kindPick.modelData[0]
       kind: picks.kind
       text: kindPick.modelData[1]
-      onPicked: name => picks.changed(d => Draft.serve(d, kindPick.modelData[0], picks.kind, name))
+      // The change holds what it serves, as it may be made again later.
+      onPicked: name => {
+        const use = kindPick.modelData[0]
+        const kind = picks.kind
+        picks.changed(d => Draft.serve(d, use, kind, name))
+      }
     }
   }
 }

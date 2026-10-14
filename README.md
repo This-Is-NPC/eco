@@ -60,9 +60,11 @@ daemon starts with an empty one, and the settings window writes the file at
 its first save ([the install page](docs/how-to-install-and-remove.md#3-register-the-models-in-the-window)).
 Then, in the window:
 
-1. `SUPER+ALT+C` opens the settings. **Audio** first: one audio source for you
-   on the default microphone, marked THIS IS ME, and one for everybody else on
-   the default output — what the laptop plays.
+1. `SUPER+ALT+C` opens the settings, a section at a time down the left, each
+   a table of its items: **ADD**, fill it in, **SAVE** — each item is saved on
+   its own. **Audio** first: one audio source for you on the default
+   microphone, marked THIS IS ME, and one for everybody else on the default
+   output — what the laptop plays.
 2. **Models**: a transcription model and, for answers and translation, a chat
    model, each named once. eco records and transcribes with no chat model. Their
    keys come from the daemon's environment (`OPENROUTER_API_KEY`,
@@ -161,8 +163,9 @@ where they work:
   `Home` / `End` · `N` name the line's speaker · `Tab` the line's tools
 - question box: `Enter` send · `Shift+Enter` keep as a note · `/` list the
   skills · `Alt+1…9` run the skill with that number
-- settings: `Ctrl+1…8` tab · `Ctrl+S` save · `Alt+↑` / `Alt+↓` move a skill ·
-  `Esc` close
+- settings: `Ctrl+1…8` section · `Ctrl+Tab` / `Ctrl+Shift+Tab` next or
+  previous section · `Enter` open the row · `Delete` delete it, asking first ·
+  `Ctrl+E` edit · `Ctrl+S` save · `Esc` stop editing, then back, then close
 - anywhere, through Hyprland, or eco itself on Windows with `Win` for
   `SUPER`: `SUPER+ALT+N` new session · `SUPER+ALT+H`
   sessions · `SUPER+ALT+C` settings · `SUPER+ALT+P` pause or resume ·

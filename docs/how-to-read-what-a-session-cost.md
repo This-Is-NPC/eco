@@ -106,7 +106,7 @@ api_key_env = "DEEPGRAM_API_KEY"
 price_per_minute = 0.0077                 # USD; only where the provider reports no cost
 ```
 
-In the window it is the model's **Fallback price per minute, USD (optional)**
+In the window it is the model's **FALLBACK PRICE PER MINUTE, USD (OPTIONAL)**
 field, in **Settings › Models**, on transcription models only.
 
 An import of 35 seconds on that model, with a key that cannot read usage, so

@@ -135,11 +135,11 @@ files import modules by name (`import Eco.Kit`), never by relative path:
 | Module | Holds | Imports of the overlay |
 |---|---|---|
 | `Eco.Core` | the singletons `Eco` (the socket and the state), `Theme`, `I18n`, their root `Singleton`, `InputSignal`, the language packs in `i18n/`, and the JavaScript libraries `Draft` (`draft.js`), `Focus` (`focus.js`) and `Markdown` (`markdown.js`), declared in its `qmldir` | none |
-| `Eco.Kit` | the generic components every view composes: buttons, chips, fields, dropdowns, menus, dialogs' frames, tables, panels, status lines, `Stage` | `Eco.Core` |
+| `Eco.Kit` | the generic components every view composes: buttons, chips, fields, dropdowns, menus, dialogs' frames, tables, panels, status lines, the tab rail and command bar, `Stage` | `Eco.Core` |
 | `Eco.Live` | the live session: timeline, speech turns, answer and note cards, composer, session control, speaker guesses | `Eco.Core`, `Eco.Kit` |
 | `Eco.Sessions` | history, a session's details (attendees, speakers, context, translation), people, cost, the import strip | `Eco.Core`, `Eco.Kit` |
 | `Eco.Dialogs` | start, import, rename, speaker assignment | `Eco.Core`, `Eco.Kit` |
-| `Eco.Settings` | the settings window and its pages | `Eco.Core`, `Eco.Kit` |
+| `Eco.Settings` | the settings window: its sections, the screen of each kind of item, and the draft an item is edited in | `Eco.Core`, `Eco.Kit` |
 | `Eco.Window` | the composing root: `OverlayPanel`, the eco window, and `SessionView`, which joins the live session to its details | every module above |
 | `Eco.Lab` | the control lab | any |
 
@@ -916,7 +916,8 @@ hook = "~/bin/crm-push --board leads"       # run with ECO_SESSION and ECO_TITLE
 hook_auto = true                            # after every answer; else from its send button
 ```
 
-The config window saves a draft whole; the daemon validates it, writes
+The config window saves one item at a time, sending the saved config with
+that item's change whole (§12.6); the daemon validates it, writes
 `config.toml` and restarts capture. A restart first stops the running pipeline
 and its capture or monitor task completely, then starts the new one, so a save
 never leaves a second `pw-record` duplicating frames or transcribing twice.
@@ -1130,7 +1131,7 @@ participant, kept until it is back or the import stops.
 ### 10.2 Commands
 
 `action <name>`, `ask <question>`,
-`config` (current config and devices, and in `echo_cancel` the error code that says why echo cancellation cannot run on this platform, `echo_cancel.unavailable` on Windows, or `null`; the Audio tab shows that code's text in place of what the option does), `config.set <json>` (the config whole;
+`config` (current config and devices, and in `echo_cancel` the error code that says why echo cancellation cannot run on this platform, `echo_cancel.unavailable` on Windows, or `null`; the Audio section's YOUR MICROPHONE shows that code's text in place of what the option does), `config.set <json>` (the config whole;
 a window adds `"token"`; one from another client that adds a hook, a context
 file or a model, or moves a model's key, is held, §9; while one is held, any
 other client's answers `config.busy`), `config.approve <token> <id>` and
@@ -1297,8 +1298,16 @@ the default). The overlay reloads the palette after file edits and theme
 directory replacements, including light and dark mode changes. The
 kit lives in `overlay/Eco/Kit/` (`Panel`, `SurfaceFrame`, `TraceButton`, `Chip`, `Tab`,
 `TextBox`, `Field`, `NumberField`, `Kicker`, `Masthead`, `StatusMessage`,
-`Icon`, `EcgTrace`); views compose it and hold no logic
-beyond binding `Eco`, the singleton that owns the socket. The control lab
+`Icon`, `EcgTrace`, `DataTable`, `TabRail`, `PageBar`, `CommandRow`); views
+compose it and hold no logic beyond binding `Eco`, the singleton that owns the
+socket. `TabRail` is an app's pages as a carousel down the left edge, folded
+to their numbers, a page `marked` with a dot; `PageBar`, beside its head, the
+commands of the page on screen and the app's readout; `CommandRow`, a bar's
+actions ranked, the main one solid (`TraceButton`'s `filled`), each falling
+back to its short name when the names do not fit, or, with `iconsWhenTight`
+(as `PageBar` sets it), to its icon. A `DataTable` that `picks` picks a row on
+a click and opens it on a double click or Enter; the row ↑/↓ and Enter act on
+is always the picked one. The control lab
 (`mise run preview:controls`) shows every kit component.
 
 - **Icons:** one set (`Icon.qml`), thin line drawings on a 16-unit grid with
@@ -1569,7 +1578,8 @@ the details at the speakers), and, from 360 px wide, a live session's capsule
 joins the masthead line — state dot with its ring, running time, the
 silent-input warning, pause and end, without the trace; on a window also under
 560 px wide the name `ECO ╱` drops, the title elides first and the language
-picker moves into the details. The config window scrolls long panels. Long
+picker moves into the details. The config window scrolls an item's screen when it is long, and its
+tables stack each row's cells into lines under 700 px. Long
 titles elide; the section name in the masthead keeps its room and the status
 message condenses to a marked tooltip when space is tight. Nested
 layouts are pinned to their natural height so the timeline gets the space.
@@ -1586,95 +1596,179 @@ the rule in `packaging/hypr/eco.lua` gives it no size, so it keeps that one, and
 centres it on the screen (without `center`, Hyprland would centre it on the
 overlay, past the screen's edge).
 
-It edits a draft and saves it whole (SAVE, or `Ctrl+S`, named in its tooltip);
-the daemon validates it and saves it (§9). Unsaved changes are marked;
-discarding a changed draft asks first, and closing one offers SAVE AND CLOSE,
-KEEP EDITING or DISCARD CHANGES. Closing the eco window ends its process, the
-settings with it, without asking: unsaved changes are dropped. Leaving is what
-the user asked for, and Qt's own quit, which asks every window first, would
-stop at the kept settings window, which never closes, and leave the process
-running unseen. What keeps a draft from saving shows on its own
-field — an outline in the error colour and the reason under it — with a dot on
-the tab that holds it; a repeated name or a space in a skill's name shows as it
-is typed, a missing value once a save is tried, which opens the first one's tab
-and card and gives its field the keyboard. Each clears as soon as its field is
-fixed; the line above the buttons only counts them. The default models are
-not required, as the daemon does not require them (§9): a draft with no model
-registered saves, and a default it names must be a registered model of its
-type (`overlay/Eco/Core/draft.js`, `problems`). Naming a new model makes it the
-default of nothing; each default is picked in the tab that owns it. Until a chat
-model is registered, ANSWERS, SKILLS and TRANSLATION hold only NO CHAT MODEL and
-a button to the Models tab, and a kind offers no assistant or translation model.
-A daemon's refusal stays
-there until the draft changes again. Every field is named by a caption right
-above its control, pickers (models, languages) as much as text inputs: no label
-sits in a column of its own. Prompt areas (rules, a skill's prompt and format,
-the reviewer's prompt) grow to ten lines, then scroll inside. Number fields take
-digits only and keep the last valid number. A device refresh sends `devices`
-and leaves the draft intact. Lists (languages, context files) are compact rows:
-the position, the item, a step up and ×. File lists add a path typed in the
-field or picked, several at once, from the file dialog behind the folder button.
+**Sections.** Eight, down the left in the kit's `TabRail`: 01 Audio, 02
+Models, 03 Transcription, 04 Answers, 05 Skills, 06 Translation, 07 Sessions,
+08 Interface — Audio first and Models second, since the sections after it
+pick from it. The rail is a carousel: the section on screen sits at its top,
+beside the command bar, and the others follow in order, the ones before it
+coming round after the last. Folded, it shows only the numbers; under the
+pointer it unfolds over the section, each naming itself. `Ctrl+1`…`Ctrl+8`
+choose one, `Ctrl+Tab` and `Ctrl+Shift+Tab` turn the carousel. Each section
+owns its own fields: no section edits another's, and what another decides is
+only read there, as a link to it. A section whose open item has changes not
+saved shows a dot on its tab.
 
-Tabs, `Ctrl+1`…`Ctrl+8`, Audio first and Models second, since the tabs after
-it pick from it, each owning its own fields: no tab edits another's, and what
-another tab decides is only read, never picked, there.
+**The bar.** The kit's `PageBar`, beside the rail's head, holds the commands
+of what is on screen, ranked: BACK first and apart; the main action solid;
+the others outlined; at its end the window's readout (the last message, the
+offline state, the notice count) and CLOSE. When their names do not fit,
+each action but the main one shows only its icon, BACK only its chevron, and
+on a bar narrower still the main action too, each name in its tip.
 
-- **Audio:** one card per audio source — its name, whether it is the user,
-  and its PipeWire devices (colour, kind, live trace, missing ones marked), with
-  ADD DEVICE listing every device and who has it now; removing one asks first,
+**Tables.** A section that lists items (Audio, Models, Answers, Skills,
+Sessions) is a `DataTable` of them under its name and what it is for. A click
+or ↑/↓ picks a row; a double click or Enter opens it. The bar offers ADD
+(ADD AUDIO SOURCE, ADD MODEL, ADD CONTEXT SLOT, ADD SKILL, ADD KIND), and with
+a row picked VIEW and DELETE, among the section's own: REFRESH DEVICES on
+Audio, which sends `devices` and changes nothing else; MOVE UP and MOVE DOWN on
+Skills, which order the composer's skills; MAKE DEFAULT on Sessions, which
+moves the kind first. Each of these saves at once. DELETE, or Delete on a
+row, asks first in a dialog that says what follows, then saves at once.
+A part of the config that is not a list item — Audio's YOUR MICROPHONE row,
+Answers' assistant, reviewer and global context rows — has no DELETE; an item
+that may not go yet, as the assistant's model, has it dimmed, with why in its
+tip. Transcription, Translation and Interface are one item each, opened
+directly, with no table and no BACK. Until a chat model is registered, Answers,
+Skills and Translation hold only NO CHAT MODEL, what it means, and REGISTER A
+CHAT MODEL, which opens a new model in Models; a kind offers no assistant or
+translation model then.
+
+**An item's screen.** An item opens read (`ItemPage`): its kind, its name,
+ABOUT — its facts, then any long text, such as a skill's prompt — and RELATED,
+what it uses and what uses it, side by side from 640 px wide. Each related
+entry is a link that opens that item in its own section; BACK returns to where
+it was followed from, and choosing a section on the rail starts the way back
+over. A link, or REGISTER A CHAT MODEL, into a section whose open item has
+changes not saved shows that item instead, and the bar says `Save or cancel
+<name> first`. EDIT (`Ctrl+E`) turns the screen into its form. Every field is named by a
+caption right above its control, pickers (models, languages) as much as text
+inputs: no label sits in a column of its own. Prompt areas (rules, a skill's
+prompt and format, the reviewer's prompt) grow to ten lines, then scroll
+inside. Number fields take digits only and keep the last valid number. Lists
+(languages, context files) are compact rows: the position, the item, a step up
+and ×. File lists add a path typed in the field or picked, several at once,
+from the file dialog behind the folder button.
+
+**Saving one item.** An item is edited in an `ItemDraft`: a copy of the saved
+config that its form changes only where the item is. SAVE (`Ctrl+S`) sends
+the saved config plus that item's change, whole, and the daemon validates and
+saves it (§9); a rename follows wherever the item is named — a model into
+every use, a kind into the models and context slots — and the screen follows
+the new name. Renaming as it is typed, the uses follow only a name that is
+not empty and no other model's or kind's, so clearing a name or passing
+through another's moves nothing. One save goes to the daemon at a time: while
+one is under way, SAVE, CANCEL, DISCARD and Esc wait. DISCARD, shown once a
+saved item changed, reads it again; CANCEL stops editing and drops the
+changes, and a new item not saved goes back to the table; either, or Esc,
+asks first (DISCARD CHANGES or KEEP EDITING) when something was changed. The
+title's line marks NEW, UNSAVED and EDITING.
+Each section keeps its open item and its edit while another is on screen.
+When the saved config changes under a changed item (another program saved,
+or another item here), its changes are made again on the new one while the
+lists it lives in, and every list its changes reached (a kind's models pick
+reaches the models), are as they were there; otherwise it is marked CHANGED
+ELSEWHERE, SAVE says `Settings changed elsewhere. Discard your draft to reload
+before saving.` and saves nothing until DISCARD — shown then for a new item
+too, which it starts again — reads it again.
+
+What keeps an item from saving shows on its own field — an outline in the
+error colour and the reason under it — and the first such field takes the
+keyboard: a repeated name or a space in a skill's name as it is typed, a
+missing value once a save is tried. Each clears as soon as its field is fixed.
+A problem outside the item's fields, and a daemon's refusal, shows under its
+title until the item changes again; a refused DELETE or move shows in the
+bar's readout. The default models are not required, as the daemon does not
+require them (§9): a config with no model registered saves, and a default it
+names must be a registered model of its type (`overlay/Eco/Core/draft.js`,
+`problems`). Naming a new model makes it the default of nothing; each default
+is picked in the section that owns it.
+
+Closing the window with an item unsaved asks first: SAVE AND CLOSE saves
+each changed item in turn, the one on screen first, and closes once none is
+left; one that does not save stops it, shown, with why in the bar; it is off
+while an item is CHANGED ELSEWHERE. KEEP EDITING; or DISCARD CHANGES, which
+drops every one. Closing the eco window ends its process, the settings with it, without
+asking: unsaved changes are dropped. Leaving is what the user asked for, and
+Qt's own quit, which asks every window first, would stop at the kept settings
+window, which never closes, and leave the process running unseen.
+
+**Keys.** `Ctrl+1`…`Ctrl+8` a section, `Ctrl+Tab` / `Ctrl+Shift+Tab` the next
+or previous one, ↑/↓ a row, Enter opens it, Delete deletes it (asking first),
+`Ctrl+E` edits the item open, `Ctrl+S` saves it. Esc stops editing (asking
+first when that drops changes), then goes back, then closes the window.
+
+**The sections and their items.**
+
+- **Audio:** a row per audio source — its name, its devices (missing ones
+  marked `Unavailable device: <id>`) and YOU on the user — and last YOUR
+  MICROPHONE. A source reads whether it is you and its devices with their
+  kind, colour and live trace while captured; edited, its name, THIS IS ME (one source at most is you), and its PipeWire
+  devices (colour, kind, live trace while captured, ×), with ADD DEVICE listing
+  every device it does not have and who has it now. Deleting one asks first,
   naming the devices no longer heard, whether nobody else is heard (it held the
-  only output device) and whether nobody is the user any more; then the
-  microphone echo controls, each with what it does.
-- **Models:** the registry only — every model as a card, chat and
-  transcription alike; closed, its type, the provider's id and what uses it;
-  open, what uses it in full and read-only (the defaults, the reviewer, the
-  skills that name it and each kind's transcription, assistant and translation
-  that answer with it, as the overlay's one resolver, `answering` in
-  `overlay/Eco/Core/draft.js`, mirrors the daemon's precedence), its type while nothing
-  uses it (changing it keeps the name and model id; the provider and key change
-  only when its base URL does not fit the new type), its name, for chat
-  REASONING (the provider's — or IN EXTRA FIELDS when `extra` sets one —, off,
-  low, medium or high: `reasoning`, sent as OpenRouter's `reasoning` field and
-  winning over one in `extra`), the provider (a preset of its type or CUSTOM,
-  which shows the base URL), model (typed, with the preset's model as an
-  example, or picked from LIST, which closes the list again, as Esc does), key
-  from an environment variable or an omapass password and, for chat, its extra
-  JSON under ADVANCED. Renaming one renames it everywhere; the assistant's and
-  the default transcription cannot be removed, and removing another asks first,
-  listing what falls back to which model (as `answering` picks it) and whether
-  the reviewer turns off. A new model starts from the base URL and key source
-  of the last model of its type, with its name field focused.
+  only output device) and whether nobody is the user any more. YOUR MICROPHONE
+  holds DROP ECHOES and ECHO CANCELLATION, each beside what it does, or why
+  echo cancellation cannot run here.
+- **Models:** the registry only — a row per model, chat and transcription
+  alike: its name, type, the provider's model id and what uses it. Read: its
+  type, provider, base URL, model id, where its key comes from, and for chat
+  its REASONING and extra fields, for transcription its price per minute;
+  RELATED, what uses it, grouped by the section that sets each use (the
+  assistant, the reviewer, the default transcription, the translation default,
+  the skills that name it and each kind's transcription, assistant and
+  translation that answer with it, as the overlay's one resolver, `answering`
+  in `overlay/Eco/Core/draft.js`, mirrors the daemon's precedence). Edited: its
+  TYPE while nothing uses it (changing it keeps the name and model id; the
+  provider and key change only when its base URL does not fit the new type),
+  its NAME, for chat REASONING (the provider's — or IN EXTRA FIELDS when
+  `extra` sets one —, off, low, medium or high: `reasoning`, sent as
+  OpenRouter's `reasoning` field and winning over one in `extra`), the
+  provider (a preset of its type or CUSTOM, which shows the base URL), model
+  (typed, with the preset's model as an example, or picked from LIST, which
+  closes the list again, as Esc does), key from an environment variable or an
+  omapass password, for transcription a fallback price per minute and, for
+  chat, its extra JSON under ADVANCED. The assistant's model and the default
+  transcription cannot be deleted; deleting another asks first, listing what
+  falls back to which model (as `answering` picks it) and whether the reviewer
+  turns off. A new model starts from the base URL and key source of the last
+  model of its type.
 - **Transcription:** the default transcription model, which sessions whose
-  kind picks none use; the offered spoken languages picked by name, and
-  the default spoken language new sessions start in.
-- **Answers:** the default assistant model, which answers questions and the
-  skills and kinds that pick none; the rules for every answer; the global
-  context files and the context slots (a slot: its name, files and the kinds
-  that start with it on); the reviewer (on, verbose, its model and prompt); and
-  the limits: context size and answers running at the same time, across all
-  sessions.
-- **Skills:** the actions as cards that open to edit, each picking its model —
-  or the default, named with the model it inherits (`default · <model>`) — and
-  its hook, sent on its own (AUTOMATIC, once a hook is set) or from the answer.
-  An action that names a model answers with it in every session kind. Cards
-  move up and down (their chevrons, or `Alt+↑`/`Alt+↓` inside one), which orders
-  the composer's skills. A name takes no spaces and no other skill's name;
-  renaming one warns that global shortcuts call it by name (`action <name>`),
-  and removing one asks first, saying those shortcuts stop working.
+  kind picks none use, with a link to it; the offered spoken languages picked
+  by name, and the default spoken language new sessions start in.
+- **Answers:** the assistant — the default model, which answers questions and
+  the skills and kinds that pick none, the rules for every answer, the context
+  size and the answers running at the same time across all sessions, with the
+  skills, kinds and translation that answer with it as links; the reviewer (on,
+  verbose, its model and prompt); the global context files, sent with every
+  answer; and a row per context slot (its name, files and the kinds that start
+  with it on), the only rows ADD and DELETE reach — deleting one says which
+  kinds no longer start with it on.
+- **Skills:** the actions in the composer's order, each row its name, its
+  model — or the default, named with the model it inherits (`default ·
+  <model>`) — and its hook. Read: its model, hook and whether the hook sends on
+  its own, then its prompt and output format, its model a link. Edited: its
+  name, prompt, output format, model and hook, sent on its own (SEND ON ITS
+  OWN, once a hook is set) or from the answer. An action that names a model
+  answers with it in every session kind. A name takes no spaces and no other
+  skill's name; renaming one warns that global shortcuts call it by name
+  (`action <name>`), and deleting one asks first, saying those shortcuts stop
+  working and the skills after it move up.
 - **Translation:** the default translation model — or the default, the
-  assistant's, named. Whether a session translates, and into which language,
-  is chosen in that session only.
-- **Sessions:** the kinds as cards — closed, the kind, DEFAULT on the first
-  (suggested by the start and import dialogs) and the models its sessions run
-  on; open, its name, MAKE DEFAULT, and its transcription, assistant and
-  translation models, each its own or the default named with the model it
-  inherits, noting that its assistant
-  model answers questions and the actions that name no model. A kind is renamed
-  once its name is left or Enter is pressed, never to an empty or another kind's
-  name. Renaming or removing a kind follows it into the
-  models and context slots; removing one asks first, saying that its sessions
-  keep it, which kind becomes the default and that its own models and slots stop
-  applying.
+  assistant's, named — with links to the model that translates and, on the
+  default, the assistant. Whether a session translates, and into which
+  language, is chosen in that session only.
+- **Sessions:** the kinds, the default first (suggested by the start and
+  import dialogs), each row the kind, DEFAULT on the first and the models its
+  sessions transcribe and, once a chat model is registered, answer with. Read:
+  whether it is the default and its transcription, assistant and translation
+  models, each its own or the default named with the model it inherits; its
+  models and the context slots on from the start in it as links; MAKE DEFAULT.
+  Edited: its name, never empty or another kind's, and those three models,
+  noting that its assistant model answers questions and the actions that name
+  no model. Renaming or deleting a kind follows it into the models and context
+  slots; the last kind cannot be deleted, and deleting another asks first,
+  saying that its sessions keep it, which kind becomes the default and that
+  its own models and slots stop applying.
 - **Interface:** interface language, HIDE FROM SCREEN SHARING (off by
   default), whose help says eco then shows black in the user's screenshots and
   recordings too (§13), and SHOW ECO IN THE TRAY (off by default, §12.7).

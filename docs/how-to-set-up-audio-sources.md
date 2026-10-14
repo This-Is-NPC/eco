@@ -25,26 +25,29 @@ audio source is a `[[participants]]` entry.
 
 ---
 
-## 1. Open the Audio tab
+## 1. Open the Audio section
 
 `SUPER+ALT+C`, or the settings button at the top right of the window. Audio is
-the first tab (`Ctrl+1`).
+the first section (`Ctrl+1`): a table with a row per audio source — its name,
+its devices, and YOU on yours — and last the row **YOUR MICROPHONE**.
 
-![The Audio tab of the settings: under AUDIO SOURCES, a card "Me" marked YOU holding "MIC Default microphone", a card "Them" with a dim THIS IS ME button holding "OUT Default output", each with ADD DEVICE; a field "new audio source, e.g. Recruiter" with a + button; and under YOUR MICROPHONE the switches DROP ECHOES (on) and ECHO CANCELLATION (off), each with what it does.](img/39-settings-audio.png)
+![The Audio section of the settings: ADD AUDIO SOURCE, VIEW, REFRESH DEVICES and DELETE in the bar; "An audio source is a name in the conversation, heard through its devices; a device has one owner. One audio source may be you."; and a table of Me (Default microphone, YOU), Them (Default output) and YOUR MICROPHONE (DROP ECHOES on · ECHO CANCELLATION off).](img/39-settings-audio.png)
 
-A first config written by hand may already have both cards. Then check them
-against the steps below and skip to step 4.
+A first config written by hand may already have both sources. Then open each
+(double click, or Enter) to check it against the steps below, and skip to
+step 4.
 
 ## 2. Add yourself
 
-Type a name in **new audio source, e.g. Recruiter** — `Me` — and press **+**.
+**ADD AUDIO SOURCE** opens a new audio source, being edited. Type its **NAME**:
+`Me`.
 
-On the new card, **ADD DEVICE** lists every microphone (`MIC`) and output
-(`OUT`) PipeWire has, and who holds each one now. Pick **Default microphone**.
-It follows whatever microphone the system uses, so plugging in a headset needs
-no change here.
+**ADD DEVICE** lists every microphone (`MIC`) and output (`OUT`) PipeWire has
+that this source does not, and who holds each one now. Pick **Default
+microphone**. It follows whatever microphone the system uses, so plugging in a
+headset needs no change here.
 
-![The ADD DEVICE menu open under a source "Them": "MIC Default microphone · Me" (held by Me), then "MIC H390 headset microphone", "OUT H390 headset" and "MIC Built-in microphone".](img/40-settings-audio-device.png)
+![An audio source "Them" being edited: SAVE and CANCEL in the bar; NAME "Them"; THIS IS ME, dim, beside what it means; under DEVICES "OUT Default output" with its colour square and ×; and the ADD DEVICE list open: "MIC Default microphone · Me" (held by Me), "MIC H390 headset microphone", "OUT H390 headset" and "MIC Built-in microphone".](img/40-settings-audio-source.png)
 
 Picking a device another source holds moves it here: a device has one owner.
 
@@ -52,11 +55,15 @@ Then press **THIS IS ME**. It turns into **YOU**: your lines show on the right o
 the conversation, and the model is told they are yours. Only one audio source
 can be you.
 
+**SAVE**, or `Ctrl+S`. The status line says `settings saved`, the daemon
+restarts capture with the new source, and the source shows read. **BACK**
+returns to the table.
+
 ## 3. Add everybody else
 
-A second audio source, `Them`, with **Default output**. That is what the laptop
-plays — the call, whatever app it is in. An output device is captured as what it
-plays, not as a microphone.
+**ADD AUDIO SOURCE** again: `Them`, with **Default output**, and **SAVE**. That
+is what the laptop plays — the call, whatever app it is in. An output device is
+captured as what it plays, not as a microphone.
 
 **One output is usually enough.** Every voice on the call arrives through it as
 one stream. When the capture stops — you pause or end the session — eco tells
@@ -72,9 +79,12 @@ to one source only; ADD DEVICE shows who has it.
 its trace, everywhere a trace is drawn, so you can tell which input hears sound
 by colour alone.
 
+**A device plugged in since the settings opened** shows once you press
+**REFRESH DEVICES** in the table's bar.
+
 ## 4. Choose what to do about echoes
 
-Under **YOUR MICROPHONE**:
+Open **YOUR MICROPHONE**, then **EDIT**:
 
 - **DROP ECHOES** — on by default. A line of yours whose words mostly repeat, in
   order, what the others said in the last 20 seconds is their audio leaking into
@@ -83,14 +93,15 @@ Under **YOUR MICROPHONE**:
 - **ECHO CANCELLATION** — off by default. While a session records, PipeWire's
   echo canceller removes from your microphone what the **default output** plays.
   It costs about 3% of one core while recording, and only works against the
-  default output. On Windows there is none: the tab says so in place of what
+  default output. On Windows there is none: the screen says so in place of what
   the option does; see What can go wrong.
 
-## 5. Save
+**SAVE**. **YOUR MICROPHONE** is part of every config: it has no DELETE.
 
-**SAVE**, or `Ctrl+S`. The status line says `settings saved`, and the daemon
-restarts capture with the new sources. **CLOSE** with unsaved changes asks
-whether to save them first.
+## 5. Watch the traces
+
+Each item saved restarted capture. Close the settings (**CLOSE**, or Esc until
+they close); with an item still unsaved, closing asks whether to save it first.
 
 Back on the start screen, each device draws its trace in its colour: flat in
 silence, swinging with sound, dashed when the device sends nothing at all.
@@ -158,7 +169,7 @@ when it starts, so a hand edit needs `eco restart`.
 
 ## What can go wrong
 
-**A device is not there.** The card marks it `Unavailable device: <id>`, and the
+**A device is not there.** Its source marks it `Unavailable device: <id>`, and the
 daemon skips it rather than let `pw-record` fall back to the default device
 silently. During a session the capsule shows a warning for an input that sends
 no audio, and the status line says which: `Them: <device> is not connected`.
@@ -167,9 +178,10 @@ no audio, and the status line says which: `Them: <device> is not connected`.
 `No input configured: nothing would be heard.`, offers **AUDIO SETTINGS**, and
 does not start.
 
-**Removing a source.** It asks first, and says what changes: the devices no
-longer heard, `Nobody else is heard` when it held the only output, and
-`No audio source is you any more` when it was you.
+**Deleting a source.** **DELETE** asks first, and says what changes: the
+devices no longer heard, `Nobody else is heard: no other audio source has an
+output device.` when it held the only output, and `No audio source is you any
+more.` when it was you. **REMOVE** saves at once.
 
 **Echo cancellation would not start.** The status line says
 `Echo cancellation is off: <why>`, and eco records from the raw microphone.

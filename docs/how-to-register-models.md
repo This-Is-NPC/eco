@@ -11,9 +11,10 @@ page: [how to use a model on the LAN](how-to-use-a-model-on-the-lan.md).
 
 ---
 
-A **model** is registered once, in the **Models** tab: a name of yours, a type —
-**chat** or **transcription** —, the provider and the provider's id for it, and
-where its key comes from. Every other tab then picks a model by that name and
+A **model** is registered once, in the **Models** section of the settings: a
+name of yours, a type — **chat** or **transcription** —, the provider and the
+provider's id for it, and where its key comes from. Every other section then
+picks a model by that name and
 never repeats a provider or a key. Answers go through one adapter, the
 OpenAI-compatible API, so the provider is only a base URL: OpenRouter, Groq, or a
 server of your own.
@@ -91,22 +92,24 @@ keep the key in omapass (api_key_omapass) or an environment variable
 
 ## 2. Add a chat model
 
-Open the settings (`SUPER+ALT+C`), then **Models** (`Ctrl+2`).
+Open the settings (`SUPER+ALT+C`), then **Models**, section 02 (`Ctrl+2`). It
+is a table of the models registered: each one's name, type, the provider's
+model id and what uses it.
 
-![The Models tab: "Register each model once — chat or transcription — with its provider", then four closed cards — whisper-lan (TRANSCRIPTION, whisper-large-v3-turbo, used by DEFAULT TRANSCRIPTION, MEETING…), deepgram (TRANSCRIPTION, nova-3, used by INTERVIEW), gemini-flash (CHAT, google/gemini-2.5-flash, used by ASSISTANT, TRANSLATION…), claude-haiku (CHAT, anthropic/claude-haiku-4.5, used by minutes) — and ADD MODEL.](img/41-settings-models.png)
+![The Models section: the rail of section numbers down the left with 02 on top; the bar with ADD MODEL, VIEW and DELETE; "Register each model once — chat or transcription — with its provider"; and a table of whisper-lan (TRANSCRIPTION, whisper-large-v3-turbo, used by DEFAULT TRANSCRIPTION, MEETING, CONVERSATION…), deepgram (TRANSCRIPTION, nova-3, INTERVIEW), gemini-flash (CHAT, google/gemini-2.5-flash, ASSISTANT, TRANSLATION, MEETING…) and claude-haiku (CHAT, anthropic/claude-haiku-4.5, minutes).](img/41-settings-models.png)
 
 **A chat model is optional.** Without one eco records, transcribes and keeps
-notes; the **Answers**, **Skills** and **Translation** tabs say NO CHAT MODEL,
-with a button back here. Skip to step 3 if you only want transcripts.
+notes; the **Answers**, **Skills** and **Translation** sections say NO CHAT
+MODEL, with **REGISTER A CHAT MODEL** back here. Skip to step 3 if you only want
+transcripts.
 
-A closed card says what the model is and what uses it. **ADD MODEL** opens a new
-one, its name field focused, starting from the provider and key source of the
-last model of its type. A new model is the default of nothing: step 4 picks
-what uses it. Fill it top to bottom:
+**ADD MODEL** opens a new model, marked NEW and EDITING, starting from the
+provider and key source of the last model of its type. A new model is the
+default of nothing: step 4 picks what uses it. Fill it top to bottom:
 
 - **TYPE** — **CHAT**. It can change only while nothing uses the model.
-- **Name** — yours, such as `gemini`. It is what every other tab shows. Renaming
-  it later renames it everywhere.
+- **NAME** — yours, such as `gemini`. It is what every other section shows.
+  Renaming it later renames it everywhere.
 - **REASONING** — how long the model thinks before it answers:
   **PROVIDER'S** (the provider decides), **OFF**, **LOW**, **MEDIUM** or
   **HIGH**. **OFF** starts the answer at once, which is what a live
@@ -127,15 +130,25 @@ what uses it. Fill it top to bottom:
 - **ADVANCED** — extra fields sent with every request, as a JSON object, such as
   `{"temperature": 0.2}`. A reasoning chosen above wins over one written here.
 
-A registered chat model, open — it has no TYPE row, since it is in use:
+**SAVE** (`Ctrl+S`) saves this model alone. The status line says
+`settings saved`, and the model's screen shows it read. A save with a field
+missing marks that field and saves nothing:
 
-![The gemini-flash card open: "used by ASSISTANT, TRANSLATION, MEETING, …" in full; NAME "gemini-flash"; REASONING with OFF lit; PROVIDER with OPENROUTER lit, GROQ and CUSTOM; MODEL "google/gemini-2.5-flash" with LIST; KEY FROM with ENV lit and OMAPASS, holding "OPENROUTER_API_KEY"; ADVANCED, closed.](img/42-settings-model.png)
+![A new model saved empty: MODEL NEW EDITING over "new model"; NAME outlined in red with "Give it a name." under it, and MODEL outlined in red with "Set the provider's model id."; SAVE and CANCEL in the bar.](img/54-settings-errors.png)
 
-**SAVE** (`Ctrl+S`). The status line says `settings saved`.
+A registered model, read: ABOUT says what it is, and RELATED what uses it, each
+a link to where that use is set. **EDIT** (`Ctrl+E`) opens the same form; a model
+in use has no TYPE row.
+
+![The gemini-flash model read: BACK, EDIT and DELETE in the bar; ABOUT with TYPE CHAT, PROVIDER OPENROUTER, BASE URL https://openrouter.ai/api/v1, MODEL ID google/gemini-2.5-flash, KEY FROM env OPENROUTER_API_KEY and REASONING OFF; RELATED with ASSISTANT under ANSWERS, TRANSLATION under TRANSLATION, and the session kinds under SESSIONS.](img/42-settings-model.png)
+
+![The gemini-flash model being edited: SAVE and CANCEL in the bar; NAME "gemini-flash"; REASONING with OFF lit; PROVIDER with OPENROUTER lit, GROQ and CUSTOM; MODEL "google/gemini-2.5-flash" with LIST; KEY FROM with ENV lit and OMAPASS, holding "OPENROUTER_API_KEY"; ADVANCED, closed.](img/43-settings-model-edit.png)
+
+**BACK** returns to the table.
 
 ## 3. Add a transcription model
 
-**ADD MODEL** again, type **TRANSCRIPTION**. The provider presets are:
+**ADD MODEL** again, **TYPE** **TRANSCRIPTION**. The provider presets are:
 
 | preset | how it transcribes | key |
 |---|---|---|
@@ -148,25 +161,26 @@ The base URL decides how: a `wss://` URL streams, an `http(s)://` one is the
 OpenAI-compatible `/v1/audio/transcriptions`. How fast each is, measured, is in
 [benchmarks](benchmarks.md).
 
-A transcription model takes one more field, **Fallback price per minute, USD**.
-Leave it empty unless the provider reports no cost of its own; it only stands in
-where nothing else does.
+A transcription model takes one more field, **FALLBACK PRICE PER MINUTE, USD
+(OPTIONAL)**. Leave it empty unless the provider reports no cost of its own; it
+only stands in where nothing else does. **SAVE**.
 
 ## 4. Say which model does what
 
-Each tab picks from the registry, and owns its own choice:
+Each section picks from the registry, and owns its own choice. Open the item,
+**EDIT**, pick, **SAVE**:
 
-| tab | picks |
-|---|---|
-| **Transcription** | the default transcription model |
-| **Answers** | the default assistant — questions, and skills that name no model — and the reviewer's model |
-| **Skills** | a model per skill, or the default |
-| **Translation** | the model that writes translations, or the assistant's |
-| **Sessions** | per kind of session, its own transcription, assistant and translation models |
+| section | item | picks |
+|---|---|---|
+| **Transcription** (`Ctrl+3`) | the section itself | the default transcription model |
+| **Answers** (`Ctrl+4`) | assistant, reviewer | the default assistant — questions, and skills that name no model — and the reviewer's model |
+| **Skills** (`Ctrl+5`) | each skill | a model per skill, or the default |
+| **Translation** (`Ctrl+6`) | the section itself | the model that writes translations, or the assistant's |
+| **Sessions** (`Ctrl+7`) | each kind | per kind of session, its own transcription, assistant and translation models |
 
-![The Transcription tab: DEFAULT MODEL whisper-lan, "Transcribes sessions whose kind picks no transcription model", then the offered spoken languages AUTO, EN, ES and PT, and DEFAULT SPOKEN LANGUAGE EN · American English.](img/43-settings-transcription.png)
+![The Transcription section, read: an EDIT button in the bar; ABOUT with DEFAULT MODEL whisper-lan, OFFERED SPOKEN LANGUAGES "AUTO · detect, EN · American English, ES · español de España, PT · português" and DEFAULT SPOKEN LANGUAGE "EN · American English"; RELATED with the model whisper-lan; and "Transcribes sessions whose kind picks no transcription model".](img/44-settings-transcription.png)
 
-![The Sessions tab: the kinds Meeting (DEFAULT), Conversation, Other and Idea, each "transcribes with whisper-lan · answers with gemini-flash", and interview, which "transcribes with deepgram".](img/49-settings-sessions.png)
+![The Sessions section: ADD KIND, VIEW, MAKE DEFAULT and DELETE in the bar; "The default kind is suggested when you create or import a session…"; and a table of Meeting (DEFAULT), Conversation, Other and Idea, each transcribing with "default · whisper-lan" and answering with "default · gemini-flash", and interview, transcribing with deepgram.](img/51-settings-sessions.png)
 
 **A kind can run on its own models.** Open a kind in **Sessions** to give it a
 transcription, assistant and translation model of its own — an `idea` session on
@@ -267,7 +281,7 @@ a saved model at its own base URL, or for a preset's variable at the preset's
 URL. A new model with **CUSTOM** and a key, or with a key from **OMAPASS** or **CREDENTIAL MANAGER**, says
 `no model list: save the model first; its key is read only for a saved model or
 a preset (<base URL>)`, where `<base URL>` is a placeholder for the one typed.
-Press **SAVE**, then **LIST** again. A custom base URL with no key lists at
+Press **SAVE**, then **EDIT** and **LIST** again. A custom base URL with no key lists at
 once.
 
 **A wrong model id, or a base URL without `/v1`.** The answer fails with the
@@ -283,9 +297,11 @@ dialog names the address and where the key comes from
 translates that session's kind: `chat.none` or `translation.none`. Pick one
 under **Answers** or **Translation**, or for the kind under **Sessions**.
 
-**A model cannot be removed.** The assistant's and the default transcription
-model cannot. Removing any other asks first, listing what falls back to which
-model and whether the reviewer turns off.
+**A model cannot be deleted.** For the assistant's model and the default
+transcription model, **DELETE** is dimmed, and its hint says `In use as the
+assistant or the default transcription: pick another there first.` Deleting any
+other asks first, listing what falls back to which model and whether the
+reviewer turns off, then saves at once.
 
 ---
 

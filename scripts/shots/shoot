@@ -317,11 +317,6 @@ ACME = "7c41e9a2d035"
 INTERVIEW = "9e2a4f71c8b3"
 PRICING = "3b8f02c6e917"
 TALK = "6e9f3a1b2c48"
-# The settings tabs, with the number of each one's picture.
-SETTINGS_TABS = [
-    ("39", "audio"), ("41", "models"), ("43", "transcription"), ("44", "answers"),
-    ("46", "skills"), ("48", "translation"), ("49", "sessions"), ("50", "interface"),
-]
 # A change another program asked for, as the daemon holds it for the user.
 PENDING = {
     "type": "config_pending",
@@ -544,50 +539,72 @@ def scenes(w, shots, stop):
     shots.take("09-live-end")
     w.do("Eco.resumeSession()")
 
+    # The settings: each section's table, an item read and written, then a new
+    # model saved empty and the window closed with it unsaved. Nothing saves:
+    # the window has no token, and a save would be held as a pending change.
     w.do("Eco.toggleConfig()", 1.0)
-    shots.until("settings !== null && settings.visible && settings.draft !== null", "the settings")
+    shots.until("settings !== null && settings.visible && Eco.config !== null", "the settings")
     shots.size(*SETTINGS, which="settings")
-    for page, (number, tab) in enumerate(SETTINGS_TABS):
-        w.do(f"Eco.openConfigAt({page})")
-        shots.take(f"{number}-settings-{tab}", "settings")
-        if tab == "audio":
-            w.do(f"Eco.handle({{ type: 'devices', devices: Eco.devices.concat({q(DEVICES)}) }})")
-            menu('label="ADD DEVICE"', 1)
-            shots.take("40-settings-audio-device", "settings")
-            menu('label="ADD DEVICE"', 1, state="close")
-        elif tab == "models":
-            # The chat model open, from its top.
-            w.do("return d.click('title=\"gemini-flash\"')")
-            w.do(
-                "const card = d.find('title=\"gemini-flash\"'); let page = card.parent;"
-                " while (d.kind(page) !== 'ScrollPage') page = page.parent;"
-                " page.contentY = Math.min(card.mapToItem(page.contentItem, 0, 0).y - 12, page.contentHeight - page.height)",
-                0.4,
-            )
-            shots.take("42-settings-model", "settings")
-            w.do("return d.click('title=\"gemini-flash\"')")
-        elif tab == "answers":
-            scroll_end("settings.contentItem")
-            shots.take("45-settings-answers-end", "settings")
-        elif tab == "skills":
-            w.do("return d.click('title=\"reply\"')")
-            shots.take("47-settings-skill", "settings")
-            w.do("return d.click('title=\"reply\"')")
-    # A name that cannot be saved, then closing with it unsaved.
-    w.do("Eco.openConfigAt(4)")
-    w.do("return d.click('title=\"minutes\"')")
-    w.do("return d.type('label=\"NAME\" value=\"minutes\"', 'weekly minutes')")
+
+    def section(name):
+        w.do(f"Eco.openConfigAt(settings.view.at.{name})")
+
+    def item(name, row, number, picture, edit=None):
+        """Opens `row` of section `name` read, and written when `edit` names a picture."""
+        w.do(f"settings.view.open(settings.view.at.{name}, {q(row)})")
+        shots.take(f"{number}-settings-{picture}", "settings")
+        if edit:
+            w.do("return d.click('text=\"EDIT\"')")
+            w.do("d.blur('settings')")
+            shots.take(f"{edit[0]}-settings-{edit[1]}", "settings")
+            w.do("return d.click('text=\"CANCEL\"')")
+        w.do(f"settings.view.close(settings.view.at.{name})")
+
+    section("audio")
+    shots.take("39-settings-audio", "settings")
+    w.do(f"Eco.handle({{ type: 'devices', devices: Eco.devices.concat({q(DEVICES)}) }})")
+    w.do("settings.view.open(settings.view.at.audio, 'source:Them')")
+    w.do("return d.click('text=\"EDIT\"')")
     w.do("d.blur('settings')")
-    shots.take("51-settings-errors", "settings")
+    menu('label="ADD DEVICE"')
+    shots.take("40-settings-audio-source", "settings")
+    menu('label="ADD DEVICE"', state="close")
+    w.do("return d.click('text=\"CANCEL\"')")
+    w.do("settings.view.close(settings.view.at.audio)")
+    section("models")
+    shots.take("41-settings-models", "settings")
+    item("models", "gemini-flash", "42", "model", ("43", "model-edit"))
+    section("transcription")
+    shots.take("44-settings-transcription", "settings")
+    section("answers")
+    shots.take("45-settings-answers", "settings")
+    item("answers", "assistant", "46", "assistant")
+    section("skills")
+    shots.take("47-settings-skills", "settings")
+    item("skills", "reply", "48", "skill", ("49", "skill-edit"))
+    section("translation")
+    shots.take("50-settings-translation", "settings")
+    section("sessions")
+    shots.take("51-settings-sessions", "settings")
+    item("sessions", "meeting", "52", "kind")
+    section("interface")
+    shots.take("53-settings-interface", "settings")
+    # A new model saved with nothing filled is refused before it is sent.
+    section("models")
+    w.do("return d.click('text=\"ADD MODEL\"')")
+    w.do("return d.click('text=\"SAVE\"')")
+    w.do("d.blur('settings')")
+    shots.take("54-settings-errors", "settings")
     w.do("settings.attemptClose()")
-    shots.take("52-settings-unsaved", "settings")
-    w.do("settings.data.filter(o => d.kind(o) === 'ConfirmDialog').forEach(o => o.close()); settings.reset()")
+    shots.take("55-settings-unsaved", "settings")
+    w.do("settings.data.filter(o => d.kind(o) === 'ConfirmDialog').forEach(o => o.close()); settings.view.discardChanged()")
+    shots.until("!settings.dirty", "the new model to be dropped")
     w.do("Eco.toggleConfig()")
 
     # A change to a hook and a context file another program sent, held for the user.
     w.do(f"Eco.handle({q(PENDING)})")
     w.do("d.blur()")
-    shots.take("53-settings-pending")
+    shots.take("56-settings-pending")
     w.do(f"Eco.handle({q(dict(PENDING, id=None, hooks=[], files=[], models=[]))})")
 
     # The start screen once the daemon is gone.

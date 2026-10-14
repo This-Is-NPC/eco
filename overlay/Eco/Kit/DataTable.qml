@@ -3,7 +3,8 @@ import QtQuick
 import Eco.Core
 
 // DataTable lists records as rows of columns under a header; below 700 px each
-// row stacks its cells into lines instead. A row opens on click or Enter; ↑/↓
+// row stacks its cells into lines instead. A row opens on click or Enter, or,
+// when the table `picks`, a click picks it and a double click opens it; ↑/↓
 // move, ↑ on the first asks to leave upward, Delete asks to remove it, Esc asks
 // to go back. Each row may carry tools on its right, from `tools` (its root gets
 // the row's record as `entry`): Tab reaches those of the selected row only. Rows
@@ -36,6 +37,8 @@ Item {
   property var dimmed: entry => false
   property var idOf: entry => entry.id
   property string selectedId: ""
+  // Whether a click picks a row rather than opening it.
+  property bool picks: false
   property string emptyText
   // What the empty list offers to do about it, or "", and its icon.
   property string emptyAction
@@ -54,6 +57,7 @@ Item {
   readonly property var currentEntry: list.currentItem ? list.currentItem.modelData : null
 
   signal opened(var entry)
+  signal picked(var entry)
   signal removeRequested(var entry)
   signal backRequested()
   signal topLeft()
@@ -66,6 +70,21 @@ Item {
     listed = new Set(rows.map(entry => idOf(entry)))
     if (active)
       Qt.callLater(() => table.reveal(before))
+    Qt.callLater(table.follow)
+  }
+  onSelectedIdChanged: follow()
+
+  // Picking, the keyboard's row is the picked one, wherever the rows put it.
+  function follow() {
+    const at = picks && selectedId !== "" ? rows.findIndex(entry => idOf(entry) === selectedId) : -1
+    if (at >= 0)
+      list.currentIndex = at
+  }
+  // The keyboard moves to the row `step` away, which, picking, is picked.
+  function step(by) {
+    list.currentIndex += by
+    if (picks && list.currentItem)
+      picked(list.currentItem.modelData)
   }
 
   // Decode the rows that were not listed `before`.
@@ -80,8 +99,9 @@ Item {
   // Give the keyboard to the rows.
   function focusRows() { list.forceActiveFocus() }
 
+  // A column the columns lost before the rows were rebuilt takes no room.
   function columnWidth(index) {
-    return Math.max(0, width - 24 - toolsWidth) * columns[index].weight
+    return index < columns.length ? Math.max(0, width - 24 - toolsWidth) * columns[index].weight : 0
   }
 
   Rectangle {
@@ -128,15 +148,21 @@ Item {
       height: 26
       text: section
     }
-    keyNavigationEnabled: true
     activeFocusOnTab: true
-    onActiveFocusChanged: if (activeFocus && currentIndex < 0 && count > 0) currentIndex = 0
+    onActiveFocusChanged: {
+      if (activeFocus && currentIndex < 0 && count > 0)
+        currentIndex = 0
+      // The row the keyboard lands on is the one picked.
+      if (activeFocus && table.picks && currentItem)
+        table.picked(currentItem.modelData)
+    }
     Keys.onReturnPressed: if (currentItem) currentItem.open()
     Keys.onDeletePressed: if (currentItem) table.removeRequested(currentItem.modelData)
     Keys.onEscapePressed: table.backRequested()
-    Keys.onUpPressed: event => {
+    Keys.onDownPressed: if (currentIndex < count - 1) table.step(1)
+    Keys.onUpPressed: {
       if (currentIndex > 0) {
-        event.accepted = false
+        table.step(-1)
         return
       }
       positionViewAtBeginning()
@@ -159,6 +185,11 @@ Item {
       function open() {
         list.currentIndex = index
         table.opened(modelData)
+      }
+      function pick() {
+        list.currentIndex = index
+        list.forceActiveFocus()
+        table.picked(modelData)
       }
 
       function color(column) {
@@ -260,7 +291,8 @@ Item {
         anchors.fill: parent
         hoverEnabled: true
         cursorShape: Qt.PointingHandCursor
-        onClicked: row.open()
+        onClicked: table.picks ? row.pick() : row.open()
+        onDoubleClicked: if (table.picks) row.open()
       }
 
       // Only the selected row's tools are Tab stops; the pointer reaches any.

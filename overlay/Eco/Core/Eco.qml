@@ -206,7 +206,16 @@ Singleton {
     .concat(pendingConfig.files.map(file => I18n.t("pending.file", { path: file })))
     .concat(pendingConfig.models.map(model => I18n.t(model.api_key_env ? "pending.model_env" : model.api_key_omapass ? "pending.model_omapass" : model.api_key_credential ? "pending.model_credential" : "pending.model_keyless", model)))
     .join("\n")
-  onConnectedChanged: if (!connected) pendingConfig = null
+  // Gone, the daemon takes the held change with it, and a save under way never answers.
+  onConnectedChanged: {
+    if (connected)
+      return
+    pendingConfig = null
+    if (configSaving) {
+      configSaving = false
+      configSaveFailed(I18n.t("start.offline"))
+    }
+  }
   // Approve or reject the held change `id`, the one the window shows.
   function approveConfig(id) { send("config.approve " + token + " " + id) }
   function rejectConfig(id) { send("config.reject " + token + " " + id) }
@@ -504,7 +513,17 @@ Singleton {
   function setLanguage(sessionId, code) { send("session.language " + JSON.stringify({ id: sessionId, language: code })) }
   function requestConfig() { send("config") }
   function requestDevices() { send("devices") }
-  function saveConfig(draft) { send("config.set " + JSON.stringify(Object.assign({ token: token }, draft))) }
+  // A config.set is out, its answer not back yet: one save at a time.
+  property bool configSaving: false
+  // Sends `draft` to be saved; without the daemon it fails at once.
+  function saveConfig(draft) {
+    if (!connected) {
+      configSaveFailed(I18n.t("start.offline"))
+      return
+    }
+    configSaving = true
+    send("config.set " + JSON.stringify(Object.assign({ token: token }, draft)))
+  }
   // requestModels lists a provider's models, with its key from `section`.
   function requestModels(target, section) {
     if (!connected)
@@ -1130,6 +1149,7 @@ Singleton {
       pendingConfig = event.hooks.length + event.files.length + event.models.length > 0 ? event : null
       break
     case "config_saved":
+      configSaving = false
       tell([["status.saved"]], false)
       configSaveSucceeded()
       break
@@ -1167,8 +1187,12 @@ Singleton {
         if (found)
           found.list.setProperty(found.index, "hook", "failed")
       }
-      if (event.code === "config.invalid")
-        configSaveFailed((event.params && event.params.detail) || event.message || "")
+      // A save not taken: refused, held for approval, or behind one held.
+      if (configSaving && ["config.invalid", "config.pending", "config.busy"].includes(event.code)) {
+        configSaving = false
+        configSaveFailed(event.code === "config.invalid" ? (event.params && event.params.detail) || event.message || ""
+          : I18n.t("error." + event.code))
+      }
       // An error about one session or answer shows only in the window showing it.
       if (about ? onScreen === null || onScreen.id !== about : answer && failed === null)
         break

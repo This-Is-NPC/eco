@@ -8,6 +8,8 @@ LabFeedbackSamples 1.0 LabFeedbackSamples.qml
 LabIconGallery 1.0 LabIconGallery.qml
 LabMotionSamples 1.0 LabMotionSamples.qml
 LabMotionScreen 1.0 LabMotionScreen.qml
+LabPageSamples 1.0 LabPageSamples.qml
+LabPickTable 1.0 LabPickTable.qml
 LabSessionsTable 1.0 LabSessionsTable.qml
 LabSurfaceSample 1.0 LabSurfaceSample.qml
 LabSurfaceSamples 1.0 LabSurfaceSamples.qml

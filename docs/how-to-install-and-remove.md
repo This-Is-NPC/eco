@@ -88,10 +88,9 @@ change each of them. Start eco (step 5) and its window opens; `SUPER+ALT+C` open
 settings. **Models** registers a transcription model and a chat model, each
 with where its key comes from ([how to register models](how-to-register-models.md)),
 and **Audio** says who is heard
-([how to set up audio sources](how-to-set-up-audio-sources.md)). The settings
-ask for a default transcription model and the assistant's model before they
-save, and the first save writes the file; from then on the settings window
-edits it. Every field is in [`design.md` §9](design.md#9-configuration).
+([how to set up audio sources](how-to-set-up-audio-sources.md)). Each item
+is saved on its own — open it, **EDIT**, **SAVE** — and the first save writes
+the file; from then on the settings window edits it. Every field is in [`design.md` §9](design.md#9-configuration).
 
 Until then, what needs a model says so: a session started transcribes nothing
 and says `no transcription model is chosen`, and an answer fails with `no chat
@@ -193,11 +192,12 @@ eco: daemon running (pid 434054, version 0.1.0)
 `eco status` prints `eco: daemon stopped` and exits 3 when nothing answers, so a
 script can test it.
 
-**To have eco in the tray,** open **Settings › Interface**, turn on **SHOW
-ECO IN THE TRAY** and save: the icon shows in the bar's tray at once (on
+**To have eco in the tray,** open **Settings › Interface** (`Ctrl+8`),
+**EDIT**, turn on **SHOW ECO IN THE TRAY** and **SAVE**: the icon shows in the
+bar's tray at once (on
 Omarchy it may sit in the drawer behind the `<` arrow). A click opens the
 window; its menu opens a window, starts a session, opens the settings or stops
-eco. Turn it off and save, and it goes. It is off until you turn it on, and
+eco. Turn it off and **SAVE**, and it goes. It is off until you turn it on, and
 it shows only while the daemon runs. The same in `config.toml`:
 
 ```toml

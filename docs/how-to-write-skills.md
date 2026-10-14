@@ -25,31 +25,37 @@ line say **action** (`[[actions]]`, `action <name>`, `eco action`).
 
 ## 1. Add it
 
-Open the settings (`SUPER+ALT+C`), then **Skills** (`Ctrl+5`).
+Open the settings (`SUPER+ALT+C`), then **Skills**, section 05 (`Ctrl+5`): a
+table of the skills in the composer's order, each with the model it answers
+with and its hook.
 
-![The Skills tab: three closed cards — reply ("default · gemini-flash · HOOK · ON SEND"), minutes ("claude-haiku") and explain ("default · gemini-flash") — each with move up, move down and remove buttons, and ADD SKILL below them.](img/46-settings-skills.png)
+![The Skills section: ADD SKILL, VIEW, MOVE UP, MOVE DOWN and DELETE in the bar; a table of reply ("default · gemini-flash", "HOOK · ON SEND"), minutes (claude-haiku) and explain ("default · gemini-flash").](img/47-settings-skills.png)
 
-**ADD SKILL** opens a new card, with the fields an open card has:
-
-![The reply card open: NAME "reply"; PROMPT and OUTPUT FORMAT as text areas holding its prompt and format; MODEL "default · gemini-flash"; HOOK "~/bin/post-to-notes", with what the command is run with under it; SEND ON ITS OWN, off.](img/47-settings-skill.png)
+**ADD SKILL** opens a new skill, being edited:
 
 - **NAME** — one word, no spaces: shortcuts and `/name` call a skill by it.
-  `minutes`. A space is flagged as you type it, and the draft cannot be saved:
-
-  ![A skill renamed "weekly minutes": its NAME field outlined in red with "No spaces: shortcuts call a skill by its name." under it, a dot after "05 SKILLS", and "1 field needs fixing before saving." above the buttons.](img/51-settings-errors.png)
-
+  `minutes`. A space is flagged under the field as you type it
+  (`No spaces: shortcuts call a skill by its name.`), and the skill cannot be
+  saved until it is gone.
 - **PROMPT** — what to do.
 - **OUTPUT FORMAT** — what the answer looks like.
 - **MODEL** — a registered chat model, or the default, shown as
-  `default · <model>`, which follows **Settings › Answers**. A skill that names a
-  model answers with it in every kind of session.
+  `default · <model>`, which follows the assistant in **Settings › Answers**. A
+  skill that names a model answers with it in every kind of session.
 - **HOOK** — optional; step 6.
 
-**SAVE** (`Ctrl+S`). The skill is a chip in every session's composer at once.
+**SAVE** (`Ctrl+S`) saves this skill alone. The skill is a chip in every
+session's composer at once, and its screen shows it read:
+
+![The reply skill read: BACK, EDIT and DELETE in the bar; ABOUT with MODEL "default · gemini-flash", HOOK "~/bin/post-to-notes" and SEND ON ITS OWN off; its PROMPT and OUTPUT FORMAT below; RELATED with the model gemini-flash.](img/48-settings-skill.png)
+
+**EDIT** (`Ctrl+E`) opens the same fields again:
+
+![The reply skill being edited: SAVE and CANCEL in the bar; NAME "reply"; PROMPT and OUTPUT FORMAT as text areas holding its prompt and format; MODEL "default · gemini-flash"; HOOK "~/bin/post-to-notes", with what the command is run with under it; SEND ON ITS OWN, off.](img/49-settings-skill-edit.png)
 
 ## 2. Write the prompt and the format
 
-Every answer follows the rules in **Settings › Answers** — the language,
+Every answer follows the rules of the assistant in **Settings › Answers** — the language,
 brevity, never putting facts in your mouth. **A skill's prompt and format
 override them**, so a skill states its own behaviour rather than you changing
 the shared rules for it.
@@ -84,8 +90,9 @@ eco action c7fe3528d507 probe
 
 ## 4. Put it in order
 
-The chevrons on a card, or **Alt+↑** and **Alt+↓** inside it, move it. The
-order is the composer's: the first skill is chip 1 and **Alt+1**, up to nine.
+In the Skills table, pick the skill and press **MOVE UP** or **MOVE DOWN**;
+each move saves at once. The order is the composer's: the first skill is chip 1
+and **Alt+1**, up to nine.
 
 ## 5. Give it a key
 
@@ -119,13 +126,13 @@ On Windows it runs with `cmd /S /C` instead, so it reads the same variables as
 echo %ECO_SESSION%  %ECO_TITLE%>> "%TEMP%\eco-minutes.log"
 ```
 
-In the skill's card, **HOOK**:
+Open the skill, **EDIT**, and fill **HOOK**:
 
 ```sh
 printf "%s  %s\n" "$ECO_SESSION" "$ECO_TITLE" >> /tmp/eco-minutes.log
 ```
 
-With **SEND ON ITS OWN** it runs after every answer of that skill. Without it,
+Then **SAVE**. With **SEND ON ITS OWN** it runs after every answer of that skill. Without it,
 the answer's card has a send button, which says `SENDING…`, then `SENT` or
 `NOT SENT`:
 
@@ -182,17 +189,19 @@ saves nothing until you approve the exact command in the eco window
 
 **Renaming** a skill warns that Hyprland shortcuts call it by name
 (`action <name>`): update the bindings that used the old one. **Removing** one
-asks first, and says that the shortcuts that run it stop working and that the
-skills after it move up one place in the composer — so their **Alt+** numbers
-change.
+(**DELETE**, in the table or on its screen) asks first, and says that the
+shortcuts that run it stop working and that the skills after it move up one
+place in the composer — so their **Alt+** numbers change. **REMOVE** saves at
+once.
 
 ---
 
 ## What can go wrong
 
 **The name is refused** as you type it: `No spaces: shortcuts call a skill by its
-name.`, or `Another one already has this name.` A save with an empty name opens
-the card and says `Give it a name.`
+name.`, or `Another one already has this name.` A save with an empty name
+saves nothing, says `Give it a name.` under **NAME** and puts the keyboard
+there.
 
 **The skill is not there.** A key or a command naming a skill that does not
 exist — a typo, or a skill since renamed — fails, and the window's status line

@@ -58,7 +58,8 @@ ModalDialog {
       ["↑ · ↓ · PgUp · PgDn", "keys.lines"],
       ["Home · End", "keys.ends"],
       ["N", "keys.name_speaker"],
-      ["Tab", "keys.line_tools"]
+      ["Tab", "keys.line_tools"],
+      ["Enter · Esc", "keys.line_edit"]
     ]],
     ["keys.composer", [
       ["Enter", "keys.send"],
@@ -73,9 +74,12 @@ ModalDialog {
     ]],
     ["keys.settings_window", [
       ["Ctrl+1…8", "keys.tabs"],
+      ["Ctrl+Tab · Ctrl+Shift+Tab", "keys.tabs_turn"],
+      ["Enter", "keys.open_item"],
+      ["Delete", "keys.delete_item"],
+      ["Ctrl+E", "keys.edit_item"],
       ["Ctrl+S", "keys.save"],
-      ["Alt+↑ · Alt+↓", "keys.move_card"],
-      ["Esc", "keys.close"]
+      ["Esc", "keys.leave_item"]
     ]]
   ]
 
@@ -111,8 +115,12 @@ ModalDialog {
                 required property var modelData
                 Layout.fillWidth: true
                 spacing: 14
+                // A long chord wraps within its column rather than running over what it does.
                 Label {
                   Layout.preferredWidth: 170
+                  Layout.maximumWidth: 170
+                  Layout.alignment: Qt.AlignTop
+                  wrapMode: Text.Wrap
                   text: key.modelData[0]
                   color: Theme.primary
                   font.pixelSize: 11

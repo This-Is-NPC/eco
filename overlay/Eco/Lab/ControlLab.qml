@@ -401,34 +401,6 @@ Window {
             }
             ControlLabRow {
               width: parent.width
-              title: I18n.t("lab.settings_card")
-              ColumnLayout {
-                width: Math.min(420, lab.width - 260)
-                SettingsCard {
-                  id: labCard
-                  title: lab.fieldValue
-                  placeholder: I18n.t("lab.sample_placeholder")
-                  note: I18n.t("lab.sample_label")
-                  removeTip: I18n.t("settings.remove")
-                  movable: true
-                  first: true
-                  onToggled: expanded = !expanded
-                  onRemoved: lab.fieldValue = ""
-                  Field { Layout.fillWidth: true; label: I18n.t("lab.sample_label"); value: lab.fieldValue; onEdited: text => lab.fieldValue = text }
-                }
-                SettingsCard {
-                  title: I18n.t("lab.sample_kept")
-                  note: I18n.t("lab.sample_label")
-                  removable: false
-                  movable: true
-                  last: true
-                  onToggled: expanded = !expanded
-                  Field { Layout.fillWidth: true; label: I18n.t("lab.sample_label"); value: lab.fieldValue; onEdited: text => lab.fieldValue = text }
-                }
-              }
-            }
-            ControlLabRow {
-              width: parent.width
               title: I18n.t("lab.text_area")
               SettingsTextArea {
                 width: Math.min(420, parent.width)
@@ -462,6 +434,8 @@ Window {
             visible: lab.section === "data"
             Kicker { width: parent.width; text: I18n.t("lab.data_table") }
             LabSessionsTable { width: parent.width }
+            Kicker { width: parent.width; text: I18n.t("lab.data_table_picks") }
+            LabPickTable { width: parent.width }
             LabDataSamples { width: parent.width }
           }
 
@@ -469,6 +443,7 @@ Window {
             width: parent.width
             spacing: 14
             visible: lab.section === "surfaces"
+            LabPageSamples { width: parent.width }
             LabSurfaceSamples { width: parent.width }
           }
 

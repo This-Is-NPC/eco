@@ -72,7 +72,7 @@ Every command output was run against a test daemon with its own runtime, data
 and config directories, never the user's socket. Where that shows — a log path
 under a moved data directory — the page says what it reads on your machine.
 
-**Pictures under `img/` are generated.** `mise run shots` writes `01` to `51`
+**Pictures under `img/` are generated.** `mise run shots` writes `01` to `56`
 from the real overlay, offscreen, against an isolated daemon seeded with
 synthetic sessions and people; none of it is a real person, recording or key.
 There is no `shots:check`: the live session runs on the clock of the run and the

@@ -128,8 +128,8 @@ does the same through the `eco` skill —
 
 Every request is one conversation, built so the provider can reuse its start:
 
-1. **The rules** for every answer — **Settings › Answers** edits them. A skill's
-   own prompt and format override them.
+1. **The rules** for every answer — the assistant, in **Settings › Answers**,
+   holds them. A skill's own prompt and format override them.
 2. **Your context**: the global context files, always sent, and the **context
    slots** this session has on, each under its name.
 3. **The session**: its kind, its title, the lines heard and the notes kept,
@@ -155,9 +155,9 @@ Context files are read when the daemon builds its setup: an edit to one counts
 once the settings are saved or the daemon restarts.
 
 **A second model can check every answer.** With the reviewer on
-(**Settings › Answers**), each answer is first drafted unseen, and a second model
-rewrites it, cutting what the transcript, the notes and the context do not
-support. Only the rewrite shows and is kept. It costs a few seconds per answer.
+(**Settings › Answers**, the reviewer: **EDIT**, **Review answers**, **SAVE**),
+each answer is first drafted unseen, and a second model rewrites it, cutting
+what the transcript, the notes and the context do not support. Only the rewrite shows and is kept. It costs a few seconds per answer.
 
 ---
 
@@ -181,7 +181,7 @@ model of their own show. From the command line:
 {"ok":false,"code":"chat.none","message":"no chat model answers sessions of this kind"}
 ```
 
-Register a chat model and pick it under **Settings › Answers**
+Register a chat model and pick it for the assistant under **Settings › Answers**
 ([how to register models](how-to-register-models.md)).
 
 **The model failed.** The card stays, in red, with `No answer: <why>` (the ASK

@@ -90,14 +90,16 @@ the speech into segments, posts each one, keeps up to four in flight, and
 keeps the lines in order. A line shows when its segment is transcribed, not
 word by word.
 
-The same in the window: **Settings › Models**, ADD MODEL, type TRANSCRIPTION,
-provider **CUSTOM** with the base URL above and the key left empty:
+The same in the window: **Settings › Models**, **ADD MODEL**, **TYPE**
+**TRANSCRIPTION**, provider **CUSTOM** with the base URL above and the key
+left empty, then **SAVE**:
 
-![Settings on the Models tab: four model cards — whisper-lan, TRANSCRIPTION · whisper-large-v3-turbo, used by DEFAULT TRANSCRIPTION, MEETING, CONVERSAT…; deepgram, TRANSCRIPTION · nova-3, used by INTERVIEW; gemini-flash, CHAT · google/gemini-2.5-flash, used by ASSISTANT, TRANSLATION, MEETING…; claude-haiku, CHAT · anthropic/claude-haiku-4.5, used by minutes — and ADD MODEL.](img/41-settings-models.png)
+![The Models section: ADD MODEL, VIEW and DELETE in the bar, and a table of whisper-lan (TRANSCRIPTION, whisper-large-v3-turbo, used by DEFAULT TRANSCRIPTION, MEETING, CONVERSATION…), deepgram (TRANSCRIPTION, nova-3, INTERVIEW), gemini-flash (CHAT, google/gemini-2.5-flash, ASSISTANT, TRANSLATION, MEETING…) and claude-haiku (CHAT, anthropic/claude-haiku-4.5, minutes).](img/41-settings-models.png)
 
-Then **Settings › Transcription** makes it the default:
+Then **Settings › Transcription** makes it the default: **EDIT**, **DEFAULT
+MODEL** whisper-lan, **SAVE**:
 
-![Settings on the Transcription tab: DEFAULT MODEL whisper-lan, "Transcribes sessions whose kind picks no transcription model", then the offered spoken languages AUTO, EN, ES, PT and the default spoken language EN.](img/43-settings-transcription.png)
+![The Transcription section, read: ABOUT with DEFAULT MODEL whisper-lan, the offered spoken languages AUTO, EN, ES and PT, and DEFAULT SPOKEN LANGUAGE "EN · American English"; RELATED with the model whisper-lan; and "Transcribes sessions whose kind picks no transcription model".](img/44-settings-transcription.png)
 
 ## 5. Or only for some kinds of session
 
@@ -113,10 +115,10 @@ model = "whisper-1"
 kinds = ["idea"]          # idea sessions transcribe here; the rest keep [stt] model
 ```
 
-or, in the window, open the kind in **Settings › Sessions** and pick its
-transcription model:
+or, in the window, open the kind in **Settings › Sessions**, **EDIT**, pick
+its **TRANSCRIPTION** model and **SAVE**:
 
-![Settings on the Sessions tab: Meeting (DEFAULT), Conversation, Other and Idea transcribe with whisper-lan and answer with gemini-flash; interview transcribes with deepgram.](img/49-settings-sessions.png)
+![The Sessions section: a table of Meeting (DEFAULT), Conversation, Other and Idea, transcribing with "default · whisper-lan" and answering with "default · gemini-flash", and interview, transcribing with deepgram.](img/51-settings-sessions.png)
 
 **If that model is down, its sessions say so. Nothing falls back to another
 model** — a session that should stay at home does not quietly go to the cloud.
@@ -166,7 +168,7 @@ from its cache, in 1.5 s instead of 3.7 s.
 For live transcription without the machine at home, **Settings › Models** offers
 the **ELEVENLABS** preset when you add a transcription model: ElevenLabs Scribe
 v2 Realtime, reached straight from the daemon. Put `ELEVEN_LABS_API_KEY` in the
-daemon's environment, pick the preset and save. It uses
+daemon's environment, pick the preset and **SAVE**. It uses
 `wss://api.elevenlabs.io/v1/speech-to-text/realtime` with the model
 `scribe_v2_realtime`. The session's language is chosen when it starts; `auto`
 lets Scribe detect it. The English replay results are in
