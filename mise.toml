@@ -33,7 +33,7 @@ description = "Build eco-window, the Qt 6 program that runs the overlay, into ta
 depends = ["qt:install"]
 run = "scripts/window-build"
 run_windows = "python scripts/window-build"
-sources = ["window/**/*", "packaging/windows/eco.ico"]
+sources = ["window/**/*", "packaging/windows/eco.ico", "scripts/window-build"]
 outputs = { auto = true }
 
 [tasks.install]
