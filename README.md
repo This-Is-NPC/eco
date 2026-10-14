@@ -61,10 +61,11 @@ its first save ([the install page](docs/how-to-install-and-remove.md#3-register-
 Then, in the window:
 
 1. `SUPER+ALT+C` opens the settings, a section at a time down the left, each
-   a table of its items: **ADD**, fill it in, **SAVE** — each item is saved on
-   its own. **Audio** first: one audio source for you, marked THIS IS ME, and
-   one for everybody else; once each is saved, **ADD DEVICE** on it gives it
-   the default microphone, or the default output — what the laptop plays.
+   a table: a value in a row saves at once; an item opens, **EDIT**, **SAVE**.
+   **Audio** first: a row per device. On the default microphone, **HEARD AS**
+   › **New source…** names a source for you; under **AUDIO SOURCES**, light its
+   **YOU**. On the default output — what the laptop plays — **New source…**
+   names one for everybody else.
 2. **Models**: a transcription model and, for answers and translation, a chat
    model, each named once; pick one and press **DEFAULT FOR TRANSCRIPTION**,
    or **DEFAULT FOR CHAT**. eco records and transcribes with no chat model. Their
@@ -169,9 +170,10 @@ where they work:
   previous section · on the rail `↑` / `↓` / `Home` / `End` move and
   `Enter` / `Space` open the section · `↑` / `↓` pick a row · `Enter` /
   `Space` open it · `Delete` delete it, asking first · in a table inside an
-  item, `Enter` open the row or add it on an add screen, `Delete` remove it ·
-  `Ctrl+E` edit the row picked or the item open · on Interface, `Enter` /
-  `Space` turn the switch or open the language list · `Ctrl+S` save · `Esc`
+  item, `Enter` add the row on an add screen, `Delete` remove it ·
+  `Ctrl+E` edit the row picked or the item open · on a row with a value,
+  `Enter` / `Space` open its list, turn its switch or start writing it,
+  `Enter` saves and `Esc` puts it back · `Ctrl+S` save · `Esc`
   back one level, then close
 - anywhere, through Hyprland, or eco itself on Windows with `Win` for
   `SUPER`: `SUPER+ALT+N` new session · `SUPER+ALT+H`
@@ -206,7 +208,7 @@ again on the page where you meet it.
 
 - **The window shows in a shared screen, unless you hide it.** By default,
   sharing the whole screen in a call shows eco's answers. **Settings ›
-  Interface › HIDE FROM SCREEN SHARING** hides eco's windows in the share:
+  General › HIDE FROM SCREEN SHARING** hides eco's windows in the share:
   black on Linux, left out on Windows. Neither system can tell a screen share
   from a screenshot, so they are hidden in your own screenshots and recordings
   too. With it off, share a window, not the screen.

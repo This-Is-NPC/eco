@@ -13,6 +13,9 @@ QtObject {
   // columns on each line of a row stacked on a narrow window.
   property var columns: []
   property var stacked: [[0]]
+  // The field of a row naming the title it is listed under, or "" for none: a
+  // title opens each run of rows sharing it. A row with `dim` true steps back.
+  property string group: ""
   // It needs a chat model: until one is registered it says so instead.
   property bool chats: false
   // The text of its ADD command, or "" when nothing is added here.
@@ -31,6 +34,12 @@ QtObject {
   property Component tools: null
   property real toolsWidth: 0
   property string toolsTitle: ""
+  // What shows in place of the table, under the name and the note, or null
+  // for the table: created with `settings` (the SettingsView) and `section`
+  // (this), it may pick a row through `settings.picked`, whose commands the
+  // bar shows, and declare `takeFocus()`, called when the section takes the
+  // keyboard.
+  property Component body: null
   // The screen a row opens, an ItemPage file beside SettingsView; a new item's
   // row has the id "+".
   property string file: ""

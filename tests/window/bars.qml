@@ -7,21 +7,24 @@ import Eco.Window
 
 // Bars and tables pressed as a keyboard and a pointer press them, run by
 // tests/window.rs with a daemon socket that answers nothing: a row's own act
-// takes its Enter and Space, a row without one opens on Space, the guarded
-// command stands behind a hairline, a bar's readout gives way when narrow, the
+// takes its Enter and Space, a row without one opens on Space, live tools take
+// Tab row by row, new rows keep the keyboard on the table, the guarded command
+// stands behind a hairline, a bar's readout gives way when narrow, short names
+// stand in for long ones before icons do, the
 // sessions' NEW SESSION and N start a session, and the details' close closes
 // them. Each check that fails is printed, and the exit status is how many failed.
 Window {
   id: root
 
   width: 720
-  height: 600
+  height: 900
   visible: true
 
   property int failed: 0
   property TestCase keys: null
   property var acted: []
   property var opened: []
+  property var livePicked: []
   property int started: 0
   property bool detailsOpen: true
 
@@ -83,6 +86,25 @@ Window {
       onOpened: entry => root.opened = root.opened.concat(["acting:" + entry.id])
     }
     DataTable {
+      id: live
+      width: parent.width
+      height: 140
+      picks: true
+      columns: [{ title: "name", weight: 1 }]
+      rows: [{ id: "d" }, { id: "e" }]
+      cells: entry => [entry.id]
+      toolsAlways: true
+      toolsLive: true
+      toolsWidth: 40
+      tools: Item {
+        property var entry: ({})
+        implicitWidth: 30
+        implicitHeight: 20
+        Rectangle { objectName: "tool"; activeFocusOnTab: true; width: 30; height: 20 }
+      }
+      onPicked: entry => root.livePicked = root.livePicked.concat([entry.id])
+    }
+    DataTable {
       id: plain
       width: parent.width
       height: 140
@@ -99,6 +121,17 @@ Window {
     CommandRow {
       id: alone
       commands: [{ text: "DELETE", icon: "trash", role: "guarded", run: () => {} }]
+    }
+    PageBar {
+      id: shortBar
+      width: 520
+      height: 44
+      commands: [
+        { text: "ADD", icon: "plus", role: "primary", run: () => {} },
+        { text: "DEFAULT FOR CHAT", short: "FOR CHAT", icon: "check", run: () => {} },
+        { text: "DEFAULT FOR TRANSLATION", short: "FOR TRANSLATION", icon: "check", run: () => {} },
+        { text: "DEFAULT FOR REVIEW", short: "FOR REVIEW", icon: "check", run: () => {} }
+      ]
     }
     PageBar {
       id: bar
@@ -138,6 +171,23 @@ Window {
       root.keys.keyClick(Qt.Key_Space)
       root.check("Enter and Space run a row's own act", JSON.stringify(root.acted) === JSON.stringify(["a", "b"]))
       root.check("a row with its own act does not open", root.opened.length === 0)
+      live.focusRows()
+    },
+    () => {
+      root.keys.keyClick(Qt.Key_Tab)
+      const first = root.activeFocusItem
+      root.check("Tab from the rows reaches the picked row's tool", first !== null && first.objectName === "tool")
+      root.keys.keyClick(Qt.Key_Tab)
+      const second = root.activeFocusItem
+      root.check("Tab walks on to the next row's tool, which keeps the keyboard", second !== null && second.objectName === "tool" && second !== first)
+      root.check("the row a live tool is reached in is picked", root.livePicked[root.livePicked.length - 1] === "e")
+      live.rows = [{ id: "d" }, { id: "e" }]
+    },
+    () => {
+      let at = root.activeFocusItem
+      while (at !== null && at !== live)
+        at = at.parent
+      root.check("new rows keep the keyboard on the table", at === live)
       plain.focusRows()
     },
     () => {
@@ -146,11 +196,14 @@ Window {
       root.check("a hairline stands before the guarded command", root.hairline(mixed) !== null)
       root.check("no hairline before a guarded command alone", root.hairline(alone) === null)
       root.check("the readout shows on a wide bar", root.reads(bar, "7 SESSIONS"))
+      root.check("a tight bar shows the short names", root.reads(shortBar, "FOR CHAT") && !root.reads(shortBar, "DEFAULT FOR CHAT"))
+      shortBar.width = 300
       bar.width = 330
     },
     () => {
       root.check("the readout gives way on a narrow bar", !root.reads(bar, "7 SESSIONS"))
       root.check("the narrow bar keeps NEW SESSION named", root.reads(bar, "NEW SESSION"))
+      root.check("a bar too narrow for the short names shows icons", !root.reads(shortBar, "FOR CHAT") && root.reads(shortBar, "ADD"))
       history.visible = true
       history.active = true
       const sessions = root.find(history, item => root.kind(item, "PageBar"))

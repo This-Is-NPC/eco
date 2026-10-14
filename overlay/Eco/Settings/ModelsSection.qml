@@ -39,29 +39,32 @@ SettingsSection {
     }
   }
 
-  // DEFAULT FOR CHAT and FOR TRANSLATION for a chat model, FOR TRANSCRIPTION for
-  // a transcription one, each off on the model that is already that default;
-  // DEFAULT FOR CHAT, off, while no model is picked.
+  // DEFAULT FOR CHAT, FOR TRANSLATION and FOR REVIEW for a chat model, FOR
+  // TRANSCRIPTION for a transcription one, each off on the model that is
+  // already that default; DEFAULT FOR CHAT, off, while no model is picked.
   commands: (config, row) => {
     const model = row === null ? null : config.models.find(model => model.name === row.id)
     if (!model)
       return [{ text: I18n.t("settings.default_chat"), icon: "check", tip: I18n.t("settings.pick_row_tip"), enabled: false, run: () => {} }]
     const is = Draft.defaults(config, model.name)
-    const command = (use, text, tip, isTip) => {
+    const command = (use, text, tip, isTip, short) => {
       const already = is.some(entry => entry.use === use && !entry.inherited)
-      return { text: I18n.t(text), icon: "check", tip: I18n.t(already ? isTip : tip), enabled: !already && !Eco.configSaving,
+      return { text: I18n.t(text), short: short ? I18n.t(short) : "", icon: "check", tip: I18n.t(already ? isTip : tip), enabled: !already && !Eco.configSaving,
         run: () => settings.saveNow(d => Draft.makeDefault(d, use, model.name)) }
     }
     return model.type === "chat" ? [
-      command("chat", "settings.default_chat", "settings.default_chat_tip", "settings.default_chat_is"),
-      command("translation", "settings.default_translation", "settings.default_translation_tip", "settings.default_translation_is")
+      command("chat", "settings.default_chat", "settings.default_chat_tip", "settings.default_chat_is", "settings.default_chat_short"),
+      command("translation", "settings.default_translation", "settings.default_translation_tip", "settings.default_translation_is",
+        "settings.default_translation_short"),
+      command("review", "settings.default_review", "settings.default_review_tip", "settings.default_review_is", "settings.default_review_short")
     ] : [command("transcription", "settings.default_transcription", "settings.default_transcription_tip", "settings.default_transcription_is")]
   }
 
   // What the model `name` of `config` is the default for, as read: "" for nothing.
   function defaultsText(config, name) {
     return Draft.defaults(config, name).map(entry => entry.inherited ? I18n.t("settings.translation_inherited")
-      : I18n.t(entry.use === "chat" ? "settings.type_chat" : entry.use === "transcription" ? "settings.type_transcription" : "settings.translation")).join(" · ")
+      : I18n.t(({ chat: "settings.type_chat", transcription: "settings.type_transcription", translation: "settings.translation",
+        review: "settings.use_review" })[entry.use])).join(" · ")
   }
   function typeName(type) {
     return I18n.t(type === "chat" ? "settings.type_chat" : "settings.type_transcription")
@@ -77,10 +80,9 @@ SettingsSection {
   // kind what the kind uses it for.
   function links(config, name) {
     const at = settings.at
-    return Draft.users(config, name).filter(use => use.role === "reviewer" || use.role === "skill" || use.role === "kind").map(use => {
-      const link = use.role === "reviewer" ? settings.link(at.answers, "reviewer", I18n.t("settings.role_reviewer"))
-        : use.role === "skill" ? settings.link(at.skills, use.action, use.action)
-        : settings.link(at.sessions, use.kind, Eco.kindName(use.kind).toUpperCase())
+    return Draft.users(config, name).filter(use => use.role === "skill" || use.role === "kind").map(use => {
+      const link = use.role === "skill" ? settings.link(at.skills, use.action, use.action)
+        : settings.link(at.kinds, use.kind, Eco.kindName(use.kind).toUpperCase())
       const uses = use.role === "kind" ? use.uses.filter(use => use !== "transcription")
         .map(use => I18n.t(use === "chat" ? "settings.role_assistant" : "settings.translation")) : []
       return Object.assign(link, { group: [settings.sections[link.section].name].concat(uses.length ? [uses.join(" + ")] : []).join(" · ") })

@@ -229,7 +229,8 @@ eco/
 - **Audio sources:** the user groups devices into audio sources (`Eu`,
   `Recrutador`…; `[[participants]]` in the config); each device is its own
   stream, labelled with its audio source, so no diarization is needed. One
-  audio source may be marked as the user (THIS IS ME).
+  audio source may be marked as the user (YOU, under Settings › Audio ›
+  AUDIO SOURCES).
   Devices missing from `pw-dump` are reported and skipped, since `pw-record`
   silently falls back to the default device for an unknown target.
 - Format: mono, 16 kHz, s16le, in ~100 ms blocks.
@@ -249,13 +250,13 @@ eco/
   voices are kept like an import's, so their speakers get guesses.
 - **Echoes:** without headphones, or with headphones loud, the user's
   microphone hears the call and duplicates "their" speech as "me". Headphones
-  are recommended; two answers are built in. With `[audio] drop_echoes` (on by default; CAPTURE › YOUR
-  MICROPHONE › DROP ECHOES), a line of the user's whose words mostly follow, in
+  are recommended; two answers are built in. With `[audio] drop_echoes` (on by default; Settings › General ›
+  DROP ECHOES), a line of the user's whose words mostly follow, in
   order, what the others said in the last 20 s (at least 60% of them, and 4
   words or more) is their audio: dropped when it comes after theirs, taken back
   when it came first (an `unheard` record; clients get `transcript_removed`).
   Live sessions only; imports have one stream. With `[audio] echo_cancel`
-  (CAPTURE › YOUR MICROPHONE › ECHO CANCELLATION, off by default), while a
+  (Settings › General › ECHO CANCELLATION, off by default), while a
   session records eco runs PipeWire's `libpipewire-module-echo-cancel` (WebRTC,
   `monitor.mode`) inside a `pw-cli` it owns: the user's first microphone is
   captured through the module's source, which takes out what the **default
@@ -402,8 +403,8 @@ matters.
   URL has no path, as servers usually serve under `/v1`); an answer that ends
   without a word fails too, rather than leaving an empty card.
 - **Rules:** `rules` holds the rules every answer follows (language,
-  brevity, never putting facts in the user's mouth); the config window edits
-  them. An action's prompt and format override them, so a new action states
+  brevity, never putting facts in the user's mouth); Settings › Prompts
+  edits them. An action's prompt and format override them, so a new action states
   its own behaviour instead of changing the shared rules.
 - **Reviewer:** with `[reviewer] enabled`, every answer — an action or a free
   question — is first drafted unseen by its model, then the reviewer's `model`
@@ -414,6 +415,8 @@ matters.
   the draft (`suggestion_draft`) and keeps it on the answer, shown dimmed above
   it, to inspect what the reviewer changed. A reviewer whose model cannot be set
   up fails answers with that reason until it is fixed or turned off.
+  In the window, Models' DEFAULT FOR REVIEW picks `model`, General turns
+  `enabled` and `verbose` on, and Prompts holds `prompt`.
 - **Default model:** `[llm] model` names the assistant's; an action's `model`
   names another (e.g. a slower, better model for a deep action). Only the models
   something uses are set up. Latency measurements: [benchmarks.md](benchmarks.md).
@@ -916,7 +919,7 @@ hook = "~/bin/crm-push --board leads"       # run with ECO_SESSION and ECO_TITLE
 hook_auto = true                            # after every answer; else from its send button
 ```
 
-The config window saves one item at a time, sending the saved config with
+The config window saves one item or value at a time, sending the saved config with
 that item's change whole (§12.6); the daemon validates it, writes
 `config.toml` and restarts capture. A restart first stops the running pipeline
 and its capture or monitor task completely, then starts the new one, so a save
@@ -1131,7 +1134,7 @@ participant, kept until it is back or the import stops.
 ### 10.2 Commands
 
 `action <name>`, `ask <question>`,
-`config` (current config and devices, and in `echo_cancel` the error code that says why echo cancellation cannot run on this platform, `echo_cancel.unavailable` on Windows, or `null`; the Audio section's YOUR MICROPHONE shows that code's text in place of what the option does), `config.set <json>` (the config whole;
+`config` (current config and devices, and in `echo_cancel` the error code that says why echo cancellation cannot run on this platform, `echo_cancel.unavailable` on Windows, or `null`; General's ECHO CANCELLATION row is disabled with that code's text as its tip), `config.set <json>` (the config whole;
 a window adds `"token"`; one from another client that adds a hook, a context
 file or a model, or moves a model's key, is held, §9; while one is held, any
 other client's answers `config.busy`), `config.approve <token> <id>` and
@@ -1328,7 +1331,7 @@ run instead of opening the row. The control lab
   with its title in the accent. No side bars.
 - **Languages:** the interface is translated through JSON language packs in
   `overlay/Eco/Core/i18n/` (English, Brazilian Portuguese, Japanese), found and
-  reloaded on their own, chosen in Settings › Interface (`[ui] language`,
+  reloaded on their own, chosen in Settings › General (`[ui] language`,
   `auto` follows the system). Dates follow the chosen locale; daemon errors
   carry codes the overlay translates. See [i18n.md](i18n.md).
 
@@ -1570,9 +1573,10 @@ reconnects to the socket on its own.
   between it slides once per display frame (`FrameAnimation`). A `Canvas`
   repainted per frame looked as smooth but cost ~77% of a core; this costs
   ~12%. The same trace runs in the start screen's background,
-  inside the session capsule, and next to each captured device in the config
-  window.
-- **Input colours:** the user picks a colour per device (a palette of ten vivid
+  inside the session capsule, and in the LEVEL column of each device in the
+  config window's Audio section.
+- **Input colours:** the user picks a colour per device, in its row under
+  Settings › Audio (a palette of ten vivid
   colours, or automatic by position) so a trace says which input hears audio
   by colour alone; stored in `[colors]` (device id → `#rrggbb`). The palette is
   the theme's colours made readable, then their hues turned when the theme has
@@ -1612,12 +1616,13 @@ the rule in `packaging/hypr/eco.lua` gives it no size, so it keeps that one, and
 centres it on the screen (without `center`, Hyprland would centre it on the
 overlay, past the screen's edge).
 
-**Sections.** Eight, down the left in the kit's `TabRail`: 01 Audio, 02
-Models, 03 Transcription, 04 Answers, 05 Context, 06 Skills, 07 Sessions,
-08 Interface —
+**Sections.** Eight, down the left in the kit's `TabRail`, each named for
+the one question it answers: 01 Audio, 02 Models, 03 Languages, 04 Session
+kinds, 05 Prompts, 06 Context, 07 Skills, 08 General (`settings.at`: `audio`,
+`models`, `languages`, `kinds`, `prompts`, `context`, `skills`, `general`) —
 Audio first and Models second, since the sections after it pick from it, and
-Models sets the defaults: the chat, translation and transcription models used
-where nothing more specific picks one. The rail is a carousel in that order: the section on screen at
+Models sets the defaults: the chat, translation, review and transcription
+models used where nothing more specific picks one. The rail is a carousel in that order: the section on screen at
 its head beside the bar, the ones after it below, the ones before it coming
 round after the last. Folded, each tab shows only its number; under the
 pointer, with the keyboard on one of its tabs, or after a tap on its head, it
@@ -1639,45 +1644,46 @@ left; across a gap, on the right, the others outlined, the guarded one
 act on a picked row are there whether a row is picked or not, dimmed until one
 is with the reason in their tip, so the bar does not move as rows are picked.
 Icons say what a command does: a trash can destroys, × takes out of a list, a
-right chevron opens. When their names do not fit, each action but
-the main one shows only its icon, BACK only its chevron, on a bar narrower
-still the main action too, each name in its tip, and narrower again one menu
-holds them all. The window's close is a corner button on the masthead line,
+right chevron opens. When their names do not fit, BACK shows only its
+chevron and each action its short name where it has one (DEFAULT FOR CHAT
+becomes FOR CHAT); when even those do not fit, each action but the main one
+shows only its icon, on a bar narrower still the main action too, each name in
+its tip, and narrower again one menu holds them all. The window's close is a corner button on the masthead line,
 with the last message (`StatusLine`) left of it while there is one.
 
-**Tables.** Each section is a `DataTable` of its items under its name and
-what it is for.
-A click or ↑/↓ picks a row; a double click, Enter or Space opens it, when it
-has a screen: a spoken language has none, so Transcription has no VIEW or
-EDIT. The bar offers ADD (ADD AUDIO SOURCE, ADD MODEL, ADD LANGUAGE, ADD
+**Tables.** Each section is a `DataTable` under its name and what it is for.
+A simple value — ON/OFF, a choice, a name, a number — is changed in its row
+and saved at once (below, **Values in the row**); only content — models,
+session kinds, prompts, context, skills — has a screen of its own. A click or
+↑/↓ picks a row; on a table of items a double click, Enter or Space opens it,
+when it has a screen: a spoken language has none, so Languages has no VIEW or
+EDIT. The bar offers ADD (ADD MODEL, ADD LANGUAGE, ADD
 CONTEXT SLOT, ADD SKILL, ADD KIND), then, for the row picked, VIEW, EDIT, the
 section's own and DELETE. EDIT (`Ctrl+E` on the table) opens the row in its
 form, and SAVE, CANCEL or Esc returns to the table with the row still picked
 (under its new id, when the save renamed it); it is dimmed, with why, on a row
 whose screen has no form, as Global context's. The section's own: REFRESH
 DEVICES on Audio, which sends `devices` and changes nothing else; DEFAULT FOR
-CHAT and DEFAULT FOR TRANSLATION on a chat model and DEFAULT FOR TRANSCRIPTION
-on a transcription one, which set `[llm] model`, `[translation] model` and
-`[stt] model`, each dimmed on the model already that default; MAKE DEFAULT on
-Transcription, which sets `[stt] language`, and on Sessions, which moves the
-kind first. Each of these saves at once. ADD LANGUAGE opens a screen in the
+CHAT, DEFAULT FOR TRANSLATION and DEFAULT FOR REVIEW on a chat model and
+DEFAULT FOR TRANSCRIPTION on a transcription one, which set `[llm] model`,
+`[translation] model`, `[reviewer] model` and `[stt] model`, each dimmed on the
+model already that default; MAKE DEFAULT on Languages, which sets `[stt]
+language`, and on Session kinds, which moves the kind first. Each of these saves at once. ADD LANGUAGE opens a screen in the
 section, the languages not offered yet as a table, where choosing one saves it
 and returns to the table. Lists keep the order their entries were added in:
 nothing moves an entry. Models' DEFAULT column says which defaults a model is;
 a translation default that is not set follows the chat one and reads
 inherited there. DELETE, or Delete on a
 row, asks first in a dialog that says what follows, then saves at once.
-A part of the config that is not a list item — Audio's YOUR MICROPHONE row,
-Context's Global row — has DELETE dimmed, `Always kept`; Answers, whose two
-rows are both such parts, has no DELETE at all; an item that may not go yet,
-as the chat default, has it dimmed, with why in its tip. Until a chat model is
-registered, Answers, Context and Skills hold only NO CHAT
+A part of the config that is not a list item — Context's Global row — has
+DELETE dimmed, `Always kept`; Prompts, whose two rows are both such parts, has
+no ADD or DELETE at all; an item that may not go yet, as the chat default, has
+it dimmed, with why in its tip. Until a chat model is registered, Prompts,
+Context and Skills hold only NO CHAT
 MODEL, what it means, and REGISTER A CHAT MODEL, which opens a new model in
 Models; a kind offers no assistant or translation model then.
 
-**An item's screen.** An item opens read (`ItemPage`): its kind (none where
-its title says it, as YOUR MICROPHONE),
-its name, ABOUT — its facts — and RELATED, what it uses and what uses it, side
+**An item's screen.** An item opens read (`ItemPage`): its kind, its name, ABOUT — its facts — and RELATED, what it uses and what uses it, side
 by side from 640 px wide; with nothing related, RELATED is left out and ABOUT
 takes the width. Long texts, such as a skill's prompt, follow across the
 screen as they were written, their own lines kept. Each related
@@ -1695,30 +1701,39 @@ inside. Number fields take digits only and keep the last valid number. A
 form holds only single values — text, pickers, and chips that choose among
 fixed options, as a slot's kinds — never a collection.
 
-**Child tables.** A collection that belongs to an item — an audio source's
-devices, the files of the global context and of each context slot — is a
-titled `DataTable` on the item's read screen, under ABOUT and RELATED
-(`tables` in `ItemPage`), its rows in the order they were added. Its rows are
-changed from the bar: the table's ADD (ADD DEVICE, ADD FILE) — the main
-action of an item with no form, as the global context, otherwise beside the
-others —, then the row's own screen (a device's COLOUR) and REMOVE named for
-what it takes out (REMOVE DEVICE, REMOVE FILE), with × and not guarded, as ADD
-undoes it in one step; both are there whether a row is picked or not, dimmed
-until one is, and REMOVE asks first only when something follows (a source's
-last device, the last output). Each **saves at once**, as DELETE
-does, on a copy of the saved config, finding what it changes by its name, and
-the row stays picked. ADD and a row's own screen open a **child screen**
+**Child tables.** A collection that belongs to an item — the files of the
+global context and of each context slot — is a titled `DataTable` on the
+item's read screen, under ABOUT and RELATED (`tables` in `ItemPage`), its rows
+in the order they were added. Its rows are changed from the bar: the table's
+ADD (ADD FILE) — the main action of an item with no form, as the global
+context, otherwise beside the others —, then REMOVE named for what it takes
+out (REMOVE FILE), with × and not guarded, as ADD undoes it in one step; it is
+there whether a row is picked or not, dimmed until one is. Each **saves at
+once**, as DELETE does, on a copy of the saved config, finding what it changes
+by its name, and the row stays picked. ADD opens a **child screen**
 (`ChildScreen`) inside the item: the item's name small over its title, BACK
-(or Esc) back to the item without saving, and either a table of what can be
-added — the devices the source does not have with the source each is heard
-as now — where ADD or Enter adds
-the row picked, or a small form: a file's PATH with BROWSE, which adds every
-file chosen in the file dialog at once, or a device's colour picker with SAVE.
-A new item opens in its form, so its collections fill only after its first
-SAVE. A screen that saves and closes — a child screen, a section's choosing
-screen (`ChooseView`: ADD LANGUAGE), an item
-deleted — closes first, then saves: a table destroyed while the save
-changes its rows crashed the window.
+(or Esc) back to the item without saving, and a small form: a file's PATH with
+BROWSE, which adds every file chosen in the file dialog at once. A new item
+opens in its form, so its collections fill only after its first SAVE. A screen
+that saves and closes — a child screen, a section's choosing screen
+(`ChooseView`: ADD LANGUAGE), an item deleted — closes first, then saves: a
+table destroyed while the save changes its rows crashed the window.
+
+**Values in the row.** Audio and General are tables of values, each row's
+control inline: a `Dropdown`, a `ColorPicker`, a lit/dim ON/OFF `Chip`, or a
+field for a name (`SyncedBox`, `inline`) or a number (`NumberField`,
+`inline`). They are the table's `tools` (with `toolsTitle` naming the column,
+`toolsAlways` keeping them shown on every row and `toolsLive` keeping every
+row's working, not only the picked row's), and Enter, Space and a double click
+on the row run its `act()`: open the list, turn the switch, or start writing,
+where Enter, or leaving the field, saves and Esc puts the value back; either
+gives the keyboard back to the rows. Each saves at once, on a copy of the
+saved config; the controls show the saved config, so a refused save leaves
+them as they were, and the window's message says why. Tab from the rows
+reaches the control of the row picked, and goes on through the next rows'
+controls, picking each row it enters. General is a section's table; Audio's
+two tables are its `body`, a component the section draws in the table's place
+(`AudioBody`), whose rows the bar's commands act on as on a table's.
 
 **Saving one item.** An item is edited in an `ItemDraft`: a copy of the saved
 config that its form changes only where the item is. SAVE (`Ctrl+S`) sends
@@ -1766,10 +1781,11 @@ window, which never closes, and leave the process running unseen.
 **Keys.** `Ctrl+1`…`Ctrl+8` a section, `Ctrl+Tab` / `Ctrl+Shift+Tab` the next
 or previous one; on the rail ↑/↓/Home/End move and Enter or Space opens the
 section. In a section's table ↑/↓ pick a row, Enter or Space opens it, Delete
-deletes it (asking first); in a child table ↑/↓ pick, Enter or Space opens the
-row's own screen (on a child screen's table, adds the row), Delete removes it.
-On Interface, Enter or Space turns the switch picked or opens the language
-list. `Ctrl+E` edits the item picked on a table, or the item open, `Ctrl+S`
+deletes it (asking first); in a child table ↑/↓ pick, Delete removes the
+row, and on a child screen's table Enter adds it. On a row with a value, Enter
+or Space acts on its control — opens the list, turns the switch, or starts
+writing a name or a number, which Enter saves and Esc puts back — and Tab
+reaches the control. `Ctrl+E` edits the item picked on a table, or the item open, `Ctrl+S`
 saves it. Esc goes back one level: out of a child
 screen, out of editing (asking first when that drops changes), back to the
 table, then closes the window. Keys show only in the shortcuts dialog
@@ -1777,32 +1793,38 @@ table, then closes the window. Keys show only in the shortcuts dialog
 
 **The sections and their items.**
 
-- **Audio:** a row per audio source — its name, its devices (missing ones
-  marked `Unavailable device: <id>`) and YOU on the user — and last YOUR
-  MICROPHONE. A source reads whether it is you and its devices with their
-  kind and colour as the child table DEVICES, each row with its live trace at
-  its end while the device is heard; ADD DEVICE lists every device it does not
-  have and the source each is heard as now, adding one taking it from that
-  source; REMOVE DEVICE asks first when the source is left with no device or
-  the last output goes; COLOUR opens a device's screen with its colour picker. Edited, only its
-  name and THIS IS ME (one source at most is you). Deleting one asks first,
+- **Audio** (`AudioSection`), who is heard through which device: two tables
+  of values, no item screens. The first has a row per input and output of the
+  computer (`Eco.devices`), and one, dim and marked unavailable, per device a
+  source names that is not there: DEVICE, its label; KIND, MIC or OUT; LEVEL,
+  its live trace (`EcgTrace`) in its colour while it has signal
+  (`Eco.signals`); HEARD AS, a dropdown of every source, then Not heard, then
+  New source…; and COLOUR, a colour picker. Choosing a source gives the device
+  to it, taking it from the source that had it; Not heard takes it from its
+  source; New source… asks a name and creates that source with this device.
+  Each saves at once. The bar holds REFRESH DEVICES, which sends `devices` and
+  changes nothing else. Under it, AUDIO SOURCES, a row per audio source: NAME,
+  written in the row (Enter or leaving the field saves, Esc puts it back), and
+  YOU, a chip lit on the user's source (one source at most is you; lighting
+  one dims the other). DELETE deletes the source picked there, asking first,
   naming the devices no longer heard, whether nobody else is heard (it held the
-  only output device) and whether nobody is the user any more. YOUR MICROPHONE
-  holds DROP ECHOES and ECHO CANCELLATION, each beside what it does, or why
-  echo cancellation cannot run here.
-- **Models:** the registry and the defaults — a row per model, chat and
-  transcription alike: its name, type, the provider's model id, DEFAULT (what
-  it is the default for: CHAT, TRANSLATION, TRANSCRIPTION, or TRANSLATION
-  (INHERITED) on the chat default while no translation default is set) and
-  what else uses it. With a row picked, DEFAULT FOR CHAT and DEFAULT FOR
-  TRANSLATION on a chat model, DEFAULT FOR TRANSCRIPTION on a transcription
-  one, each saved at once and dimmed on the model that is already that
-  default (`Draft.defaults`, `Draft.makeDefault`); with none picked, DEFAULT
-  FOR CHAT, dimmed. Read: its type, what it is
+  only output device) and whether nobody is the user any more. Echoes are set
+  under General.
+- **Models** (`ModelsSection`): the registry and the defaults — a row per
+  model, chat and transcription alike: its name, type, the provider's model
+  id, DEFAULT (what it is the default for: CHAT, TRANSLATION, REVIEW,
+  TRANSCRIPTION, or TRANSLATION (INHERITED) on the chat default while no
+  translation default is set) and what else uses it. With a row picked,
+  DEFAULT FOR CHAT, DEFAULT FOR TRANSLATION and DEFAULT FOR REVIEW on a chat
+  model, DEFAULT FOR TRANSCRIPTION on a transcription one, each saved at once
+  and dimmed on the model that is already that default (`Draft.defaults`,
+  `Draft.makeDefault`); with none picked, DEFAULT FOR CHAT, dimmed. DEFAULT
+  FOR REVIEW sets `[reviewer] model` and leaves `enabled` as it is; nothing
+  else in the window picks the reviewer's model. Read: its type, what it is
   the default for, provider, base URL, model id, where its key comes from, and
   for chat its REASONING and extra fields, for transcription its price per
   minute; RELATED, what else uses it, grouped by the section that sets each
-  use (the reviewer, the skills that name it, and each kind once, under a
+  use (the skills that name it, and each kind once, under a
   group that says what the kinds in it use it for: assistant, translation or
   both, as the overlay's one resolver, `answering` in
   `overlay/Eco/Core/draft.js`, mirrors the daemon's precedence). Edited: its
@@ -1820,28 +1842,41 @@ table, then closes the window. Keys show only in the shortcuts dialog
   falls back to which model (as `answering` picks it) and whether the reviewer
   turns off. A new model starts from the base URL and key source of the last
   model of its type.
-- **Transcription:** a row per offered spoken language, DEFAULT on the one
-  new sessions start in; a language has no screen. ADD LANGUAGE opens
-  `AddLanguageView`, the languages eco knows that are not offered as a table,
-  where ADD LANGUAGE or Enter offers the one picked, saves and returns to the
-  table with it picked. For the row picked, MAKE DEFAULT and DELETE, which asks
-  first and, for the default, names the first language left, the new default;
-  the last language stays. The default transcription model is set on Models.
-- **Answers:** two rows, nothing added or deleted: the assistant — its model,
-  the chat default set on Models, read only, as a link; it answers questions
-  and the skills and kinds that pick none; the rules for every answer, the
-  context size and the answers running at the same time across all sessions,
-  the only fields EDIT holds, with the skills and kinds that answer with it as
-  links; and the reviewer (on, verbose, its own model and prompt).
-- **Context:** the files sent with answers, each row its name, when it is sent
-  and how many files: Global, sent with every answer, whose files, in the order
-  they were added, are its child table FILES (ADD FILE, REMOVE FILE), with no
-  form, so no EDIT; and a row per context slot (`On in <kinds>` or `When a
-  session turns it on`), the only rows ADD and DELETE reach — a slot's files
-  are the same child table, its form only its name and kinds, and deleting one
-  says which kinds no longer start with it on.
-- **Skills:** the actions in the composer's order, the order they were added
-  in, each row its name, its
+- **Languages** (`LanguagesSection`): a row per offered spoken language,
+  DEFAULT on the one new sessions start in; a language has no screen. ADD
+  LANGUAGE opens `AddLanguageView`, the languages eco knows that are not
+  offered as a table, where ADD LANGUAGE or Enter offers the one picked, saves
+  and returns to the table with it picked. For the row picked, MAKE DEFAULT and
+  DELETE, which asks first and, for the default, names the first language
+  left, the new default; the last language stays. The default transcription
+  model is set on Models.
+- **Session kinds** (`KindsSection`): the kinds, the default first (suggested
+  by the start and import dialogs), each row the kind, DEFAULT on the first and
+  the models its sessions transcribe and, once a chat model is registered,
+  answer with. Read: whether it is the default and its transcription,
+  assistant and translation models, each its own or the default named with the
+  model it inherits; its models and the context slots on from the start in it
+  as links; MAKE DEFAULT. Edited: its name, never empty or another kind's, and
+  those three models, noting that its assistant model answers questions and
+  the actions that name no model. Renaming or deleting a kind follows it into
+  the models and context slots; the last kind cannot be deleted, and deleting
+  another asks first, saying that its sessions keep it, which kind becomes the
+  default and that its own models and slots stop applying.
+- **Prompts** (`PromptsSection`), what instructions the models get: two rows,
+  nothing added or deleted — RULES FOR EVERY ANSWER, `rules`, and REVIEWER
+  PROMPT, `[reviewer] prompt`. Read, a prompt shows its text as written
+  (`ItemText`); EDIT holds only that text, in a `SettingsTextArea`. It holds NO
+  CHAT MODEL until a chat model is registered.
+- **Context** (`ContextSection`): the files sent with answers, each row its
+  name, when it is sent and how many files: Global, sent with every answer,
+  whose files, in the order they were added, are its child table FILES (ADD
+  FILE, REMOVE FILE), with no form, so no EDIT; and a row per context slot
+  (`On in <kinds>` or `When a session turns it on`), the only rows ADD and
+  DELETE reach — a slot's files are the same child table, its form only its
+  name and kinds, and deleting one says which kinds no longer start with it
+  on.
+- **Skills** (`SkillsSection`): the actions in the composer's order, the order
+  they were added in, each row its name, its
   model — or the default, named with the model it inherits (`default ·
   <model>`) — and its hook. Read: its model, hook and whether the hook sends on
   its own, then its prompt and output format, its model a link. Edited: its
@@ -1851,30 +1886,24 @@ table, then closes the window. Keys show only in the shortcuts dialog
   skill's name; renaming one warns that global shortcuts call it by name
   (`action <name>`), and deleting one asks first, saying those shortcuts stop
   working and the skills after it move up.
-- **Sessions:** the kinds, the default first (suggested by the start and
-  import dialogs), each row the kind, DEFAULT on the first and the models its
-  sessions transcribe and, once a chat model is registered, answer with. Read:
-  whether it is the default and its transcription, assistant and translation
-  models, each its own or the default named with the model it inherits; its
-  models and the context slots on from the start in it as links; MAKE DEFAULT.
-  Edited: its name, never empty or another kind's, and those three models,
-  noting that its assistant model answers questions and the actions that name
-  no model. Renaming or deleting a kind follows it into the models and context
-  slots; the last kind cannot be deleted, and deleting another asks first,
-  saying that its sessions keep it, which kind becomes the default and that
-  its own models and slots stop applying.
-- **Interface:** a table of three settings, each with its value beside it as
-  the control that changes it: interface language, a dropdown of `auto` and
-  the packs; HIDE FROM SCREEN SHARING (off by default), whose help says eco
-  then shows black in the user's screenshots and recordings too (§13); and
-  SHOW ECO IN THE TRAY (off by default, §12.7), each switch a chip lit ON or
-  dim OFF. The note says what the picked row does. This is the one exception
-  to "no control inline in a table": one value per row, the control inline,
-  saved at once — the section's `tools`, whose `act()` Enter, Space and a
-  double click on the row run (turn the switch, open the list). The controls
-  show the saved config, so a refused save leaves them as they were, and the
-  window's message says why. No screens, so no VIEW or EDIT, and no DELETE: the
-  bar is empty.
+- **General** (`GeneralSection`), how eco behaves: one table of values under
+  titles (the `DataTable`'s `section` groups), each value beside its name as
+  the control that changes it, saved at once. INTERFACE: the interface
+  language, a dropdown of `auto` and the packs; HIDE FROM SCREEN SHARING (off
+  by default), whose help says eco then shows black in the user's screenshots
+  and recordings too (§13); SHOW ECO IN THE TRAY (off by default, §12.7).
+  REVIEWER: REVIEW ANSWERS (`[reviewer] enabled`), the reviewer's model named
+  beside its switch, on or off, as a hint; turned on with no reviewer
+  model, `Draft.review` takes the chat default; and SHOW THE DRAFT
+  (`verbose`), dim while review is off. AUDIO: DROP ECHOES and ECHO
+  CANCELLATION (`[audio] drop_echoes`, `echo_cancel`), the latter disabled
+  while off where the daemon cannot cancel echoes (its `config` reply's
+  `echo_cancel` code, on Windows), with that code's text as its tip and note;
+  on, it can still be turned off. ANSWERS:
+  MAXIMUM CONTEXT (CHARACTERS) (`[llm] max_context_chars`) and ANSWERS AT THE SAME TIME
+  (`[llm] concurrency`), numbers written in the row. The note says what the
+  picked row does. No screens, so no VIEW or EDIT, and no DELETE: the bar is
+  empty.
 
 ### 12.7 The tray icon
 
@@ -2049,7 +2078,7 @@ leaves sessions, config, models and the agent skill.
   overlay also raises it above the settings, and a dialog it opens shows.
   Without the rules, Hyprland tiles both.
 - **Screen sharing:** off by default, eco's windows show in captures.
-  `[ui] hide_from_share` (Settings › Interface) makes the daemon set
+  `[ui] hide_from_share` (Settings › General) makes the daemon set
   Hyprland's `no_screen_share` on the windows of every `eco-window` it started
   (the overlay and its config window, found by pid) through the Lua dispatcher
   (`hyprctl dispatch`, in `src/adapters/window_hyprland.rs`): when a window

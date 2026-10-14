@@ -1,7 +1,7 @@
 import QtQuick
 import Eco.Core
 
-// SessionsSection is the session kinds, the default first: each row the kind,
+// KindsSection is the session kinds, the default first: each row the kind,
 // whether it is the default, the model its sessions transcribe with and, once
 // a chat model is registered, the one they answer with; a row opens KindView.
 // MAKE DEFAULT moves the picked kind first at once; the last kind stays, and
@@ -10,7 +10,7 @@ SettingsSection {
   // A chat model is registered: kinds answer with one.
   readonly property bool answers: Eco.config !== null && Draft.chats(Eco.config)
 
-  name: I18n.t("settings.sessions")
+  name: I18n.t("settings.kinds")
   note: I18n.t("settings.kind_help")
   columns: [{ title: I18n.t("settings.column_name"), weight: answers ? 0.28 : 0.4 }, { title: I18n.t("settings.kind_default"), weight: answers ? 0.14 : 0.2 },
     { title: I18n.t("settings.column_transcribes"), weight: answers ? 0.29 : 0.4 }].concat(answers ? [{ title: I18n.t("settings.column_answers"), weight: 0.29 }] : [])

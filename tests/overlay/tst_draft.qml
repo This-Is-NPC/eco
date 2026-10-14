@@ -107,6 +107,8 @@ TestCase {
       { role: "kind", kind: "talk", uses: ["transcription"] }])
     compare(Draft.users(d, ""), [])
     compare(Draft.users(d, "gone"), [])
+    d.reviewer.enabled = false
+    compare(Draft.users(d, "m")[2], { role: "reviewer" })
   }
 
   // A model's defaults are what it answers when nothing more specific picks a
@@ -126,6 +128,22 @@ TestCase {
     compare(Draft.defaults(d, "m"), [{ use: "chat", inherited: false }, { use: "translation", inherited: false }])
     Draft.makeDefault(d, "transcription", "w")
     compare([d.stt.model, Draft.defaults(d, "w")], ["w", [{ use: "transcription", inherited: false }]])
+    compare(Draft.problems(d), [])
+  }
+
+  // The reviewer's model is a default too: made one, review stays as it was.
+  function test_a_model_is_made_the_default_for_review() {
+    const d = draft(JSON.parse(JSON.stringify(registered)), "", "m")
+    d.models.push({ name: "x", type: "chat", base_url: "http://llm", model: "x" })
+    Draft.makeDefault(d, "review", "x")
+    compare(d.reviewer.enabled, false)
+    compare(d.reviewer.model, "x")
+    compare(Draft.defaults(d, "x"), [{ use: "review", inherited: false }])
+    d.reviewer.enabled = true
+    Draft.makeDefault(d, "review", "m")
+    compare([d.reviewer.enabled, d.reviewer.model], [true, "m"])
+    compare(Draft.defaults(d, "x"), [])
+    compare(Draft.defaults(d, "m"), [{ use: "chat", inherited: false }, { use: "translation", inherited: true }, { use: "review", inherited: false }])
     compare(Draft.problems(d), [])
   }
 

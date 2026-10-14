@@ -3,7 +3,7 @@ import QtTest
 import "../../overlay/Eco/Core/draft.js" as Draft
 
 // An audio source's devices have one owner, one source at most is the user,
-// and removing one says what stops being heard.
+// removing one says what stops being heard, and one is added or renamed in place.
 TestCase {
   name: "Audio"
 
@@ -55,25 +55,26 @@ TestCase {
     compare(Draft.sourceRemoval(d, 1, devices).noOutput, false)
   }
 
-  function test_taking_the_last_device_leaves_the_source_unheard() {
-    compare(Draft.unassignment(draft(), "Me", "@default-input", devices), { empty: true, noOutput: false })
-  }
-
-  function test_taking_one_of_two_outputs_keeps_the_source_heard() {
-    compare(Draft.unassignment(draft(), "Them", "usb-out", devices), { empty: false, noOutput: false })
-  }
-
-  function test_taking_the_last_output_says_nobody_else_is_heard() {
-    const d = draft()
-    Draft.assign(d, "usb-out", -1)
-    compare(Draft.unassignment(d, "Them", "@default-output", devices), { empty: true, noOutput: true })
-  }
-
   function test_a_device_colour_is_set_and_given_back_to_automatic() {
     const d = draft()
     Draft.recolor(d, "usb-out", "#ff5555")
     compare(d.colors, { "usb-out": "#ff5555" })
     Draft.recolor(d, "usb-out", "")
     compare(d.colors, {})
+  }
+
+  function test_a_new_source_is_heard_through_the_device_taken_from_its_owner() {
+    const d = draft()
+    Draft.addSource(d, "Guest", "usb-out")
+    compare(d.participants.map(person => person.name), ["Me", "Them", "Room", "Guest"])
+    compare(d.participants.map(person => person.devices), [["@default-input"], ["@default-output"], [], ["usb-out"]])
+    compare(d.participants[3].user, false)
+  }
+
+  function test_renaming_a_source_keeps_its_devices_and_whether_it_is_you() {
+    const d = draft()
+    Draft.renameSource(d, "Me", "Ana")
+    compare(d.participants[0], { name: "Ana", devices: ["@default-input"], user: true })
+    compare(d.participants.map(person => person.name), ["Ana", "Them", "Room"])
   }
 }

@@ -362,11 +362,21 @@ Window {
             ControlLabRow {
               width: parent.width
               title: I18n.t("lab.number_field")
-              NumberField {
-                width: Math.min(420, parent.width)
-                label: I18n.t("lab.sample_label")
-                number: lab.fieldNumber
-                onNumberEdited: number => lab.fieldNumber = number
+              Column {
+                spacing: 14
+                NumberField {
+                  width: Math.min(420, lab.width - 260)
+                  label: I18n.t("lab.sample_label")
+                  number: lab.fieldNumber
+                  onNumberEdited: number => lab.fieldNumber = number
+                }
+                // Inline, as a row's value: committed on Enter or leaving, Esc puts it back.
+                NumberField {
+                  width: 120
+                  inline: true
+                  number: lab.fieldNumber
+                  onNumberEdited: number => lab.fieldNumber = number
+                }
               }
             }
             ControlLabRow {
@@ -376,6 +386,14 @@ Window {
                 spacing: 8
                 TextBox { width: Math.min(420, lab.width - 260); placeholderText: I18n.t("lab.sample_placeholder") }
                 TextBox { width: Math.min(420, lab.width - 260); dense: true; placeholderText: I18n.t("lab.dense_placeholder") }
+                // Inline, as a row's value: committed on Enter or leaving, Esc puts it back.
+                SyncedBox {
+                  width: Math.min(220, lab.width - 260)
+                  dense: true
+                  inline: true
+                  value: lab.fieldValue
+                  onEditingFinished: if (text.trim() !== "") lab.fieldValue = text.trim()
+                }
               }
             }
             ControlLabRow {

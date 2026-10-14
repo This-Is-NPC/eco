@@ -7,8 +7,9 @@ import QtQuick.Layouts
 // which slide in when the page changes, ranked. BACK stands first, apart; then
 // the page's main action, solid, on the left; across a gap, on the right, the
 // others, outlined, the guarded ones last (CommandRow). When the names do not
-// fit, each action but the main one shows only its icon, or its short name
-// when it has none, and BACK only its chevron; on a bar narrower still, the
+// fit, BACK shows only its chevron and the actions their short names, or,
+// those too wide, each but the main one only its icon, or its short name when
+// it has none; on a bar narrower still, the
 // main one too, and narrower again one menu button holds them all, BACK first;
 // and at its end the page's readout, which gives way first.
 Rectangle {

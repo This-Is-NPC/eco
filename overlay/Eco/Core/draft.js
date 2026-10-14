@@ -68,9 +68,9 @@ function serves(draft, entry, use, kind, action) {
 }
 
 // What the model `name` of `draft` is the default for, as the daemon picks
-// it: [{use, inherited}], `use` "chat", "translation" or "transcription";
-// translation `inherited` when no translation default is set and it follows
-// the chat one.
+// it: [{use, inherited}], `use` "chat", "translation", "review" (the
+// reviewer's model, on or off) or "transcription"; translation `inherited`
+// when no translation default is set and it follows the chat one.
 function defaults(draft, name) {
   const found = []
   const is = use => !!name && answering(draft, use, "", null).name === name
@@ -78,18 +78,23 @@ function defaults(draft, name) {
     found.push({ use: "chat", inherited: false })
   if (is("translation"))
     found.push({ use: "translation", inherited: !answering(draft, "translation", "", null).own })
+  if (!!name && !!draft.reviewer && draft.reviewer.model === name)
+    found.push({ use: "review", inherited: false })
   if (is("transcription"))
     found.push({ use: "transcription", inherited: false })
   return found
 }
 
 // Make the model `name` the draft `d`'s default for `use`: "chat",
-// "translation" or "transcription".
+// "translation", "review" (the reviewer's model; on or off stays) or
+// "transcription".
 function makeDefault(d, use, name) {
   if (use === "chat")
     d.llm.model = name
   else if (use === "transcription")
     d.stt.model = name
+  else if (use === "review")
+    d.reviewer = Object.assign({ enabled: false }, d.reviewer, { model: name })
   else
     d.translation = Object.assign({}, d.translation, { model: name })
 }
@@ -150,9 +155,10 @@ function retype(d, index, type, presets) {
 
 // What uses the model named `name` in the draft now, as `answering` picks it:
 // [{role, kind, uses, action}], `role` one of "assistant", "transcriber",
-// "translation" (the translation default), "reviewer", "skill" (`action` its
-// name) or "kind" (`kind` once, with its `uses`: "chat", "transcription" and
-// "translation"). A model with no name, or none of that name, is used by nothing.
+// "translation" (the translation default), "reviewer" (its model, on or off),
+// "skill" (`action` its name) or "kind" (`kind` once, with its `uses`: "chat",
+// "transcription" and "translation"). A model with no name, or none of that
+// name, is used by nothing.
 function users(draft, name) {
   const entry = draft.models.find(model => model.name === name)
   if (!name || !entry)
@@ -166,7 +172,7 @@ function users(draft, name) {
     found.push({ role: "transcriber" })
   if (chat && answers("translation", ""))
     found.push({ role: "translation" })
-  if (chat && draft.reviewer && draft.reviewer.enabled && draft.reviewer.model === name)
+  if (chat && draft.reviewer && draft.reviewer.model === name)
     found.push({ role: "reviewer" })
   draft.actions.forEach(action => { if (action.model === name) found.push({ role: "skill", action: action.name }) })
   const uses = chat ? ["chat", "translation"] : ["transcription"]
@@ -417,15 +423,6 @@ function review(d, on) {
   d.reviewer = reviewer
 }
 
-// What answers with the assistant's model because it names none of its own,
-// as `answering` picks it: {skills, kinds}, the names of the skills and the kinds.
-function inheriting(draft) {
-  return {
-    skills: draft.actions.filter(action => !answering(draft, "chat", "", action).own).map(action => action.name),
-    kinds: draft.kinds.filter(kind => !serving(draft, "chat", kind))
-  }
-}
-
 // The files of a context in the draft `d`, sent in this order: the global
 // context's when `slot` is "", else those of the context slot named `slot`.
 function contextFiles(d, slot) {
@@ -445,17 +442,6 @@ function removeFile(d, slot, path) {
   files.splice(files.indexOf(path), 1)
 }
 
-// What taking the device `id` from the audio source named `name` of `draft`
-// leaves, given the `devices` there are ({id, kind}): `empty` when the source
-// is heard through no other device, `noOutput` when `id` was the last output
-// device any source had.
-function unassignment(draft, name, id, devices) {
-  const output = device => devices.some(entry => entry.id === device && entry.kind === "output")
-  const source = draft.participants.find(person => person.name === name)
-  return { empty: source.devices.every(device => device === id),
-    noOutput: output(id) && !draft.participants.some(person => person.devices.some(device => device !== id && output(device))) }
-}
-
 // Show the device `id` in `color` in the draft `d`, or in its automatic colour for "".
 function recolor(d, id, color) {
   d.colors = d.colors || {}
@@ -463,4 +449,16 @@ function recolor(d, id, color) {
     d.colors[id] = color
   else
     delete d.colors[id]
+}
+
+// Add the audio source `name` to the draft `d`, heard through the device `id`,
+// taken from whoever had it.
+function addSource(d, name, id) {
+  d.participants.push({ name: name, devices: [], user: false })
+  assign(d, id, d.participants.length - 1)
+}
+
+// Call the audio source named `from` of the draft `d` `to`.
+function renameSource(d, from, to) {
+  d.participants.find(person => person.name === from).name = to
 }

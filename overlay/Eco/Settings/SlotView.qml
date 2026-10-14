@@ -36,8 +36,8 @@ ItemPage {
 
   facts: [[I18n.t("contexts.kinds"), section.kindNames(slot.kinds)]]
   details: [ItemNote { text: I18n.t("answers.slot_note") }]
-  related: [{ title: settings.sections[settings.at.sessions].name,
-    items: slot.kinds.map(kind => settings.link(settings.at.sessions, kind, section.kindName(kind))) }]
+  related: [{ title: settings.sections[settings.at.kinds].name,
+    items: slot.kinds.map(kind => settings.link(settings.at.kinds, kind, section.kindName(kind))) }]
   tables: fresh ? [] : [section.filesTable(slot.files, section.slotName(key), addFile)]
 
   property Component addFile: AddFileScreen { slot: page.section.slotName(page.key) }

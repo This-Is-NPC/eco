@@ -5,12 +5,13 @@ import Eco.Core
 // CommandRow is a bar's actions, ranked: the main one (`role: "primary"`)
 // first and solid, then the others outlined, in the order given but the
 // guarded ones last behind a hairline, those of one `group` joined as one
-// control whose `checked` one is lit. Spread, the main one keeps the left edge and the
-// others the right. Each shows its name while the names fit in `room`; when
-// they do not, each shows its short name, or, with `iconsWhenTight`, every
-// action but the main one shows only its icon, its name in the tip, and when
-// even that is wider than `fit`, the main one too; wider still, one menu
-// button holds them all, `folds` first, those that cannot run left out.
+// control whose `checked` one is lit. Spread, the main one keeps the left edge
+// and the others the right. Each shows its name while the names fit in `room`;
+// when they do not, each shows its short name, or, with `iconsWhenTight` and
+// the short names still too wide, every action but the main one shows only its
+// icon, its name in the tip, and when even that is wider than `fit`, the main
+// one too; wider still, one menu button holds them all, `folds` first, those
+// that cannot run left out.
 Item {
   id: row
 
@@ -39,8 +40,10 @@ Item {
   readonly property bool divided: plain.length > 0 && guarded.length > 0
   readonly property real dividerWidth: divided ? 1 + spacing : 0
   readonly property bool tight: measure.implicitWidth + dividerWidth > room
+  // Tight, but every action's short name fits.
+  readonly property bool shortened: tight && commands.some(command => !!command.short) && shortMeasure.implicitWidth + dividerWidth <= room
   // Tight, and with only the main action named still wider than `fit`.
-  readonly property bool cramped: tight && iconsWhenTight && iconsWidth(true) > fit
+  readonly property bool cramped: tight && !shortened && iconsWhenTight && iconsWidth(true) > fit
   // Cramped, and with every action an icon still wider than `fit`.
   readonly property bool folded: cramped && iconsWidth(false) > fit
   // What the menu of a folded row lists.
@@ -71,6 +74,22 @@ Item {
         dense: true
         icon: modelData.icon || ""
         text: modelData.text
+      }
+    }
+  }
+  // The actions with their short names, as `measure`.
+  Row {
+    id: shortMeasure
+    opacity: 0
+    enabled: false
+    spacing: row.spacing
+    Repeater {
+      model: row.commands
+      delegate: TraceButton {
+        required property var modelData
+        dense: true
+        icon: modelData.icon || ""
+        text: modelData.short || modelData.text
       }
     }
   }
@@ -118,7 +137,7 @@ Item {
         delegate: TraceButton {
           required property var modelData
           readonly property bool main: row.isMain(modelData)
-          readonly property bool iconOnly: row.tight && row.iconsWhenTight && (!main || row.cramped) && !!modelData.icon
+          readonly property bool iconOnly: row.tight && !row.shortened && row.iconsWhenTight && (!main || row.cramped) && !!modelData.icon
           dense: true
           role: modelData.group ? (modelData.checked ? "primary" : "action")
             : modelData.role === "primary" || modelData.role === "guarded" ? modelData.role : "action"

@@ -2,7 +2,7 @@ import QtQuick
 import Eco.Core
 
 // AddLanguageView chooses a spoken language to offer from those eco knows that
-// are not offered yet; once saved it is picked on the Transcription table.
+// are not offered yet; once saved it is picked on the Languages table.
 ChooseView {
   title: I18n.t("settings.add_language")
   note: I18n.t("settings.add_language_note")

@@ -88,10 +88,10 @@ change each of them. Start eco (step 5) and its window opens; `SUPER+ALT+C` open
 settings. **Models** registers a transcription model and a chat model, each
 with where its key comes from ([how to register models](how-to-register-models.md)),
 and **Audio** says who is heard
-([how to set up audio sources](how-to-set-up-audio-sources.md)). Each item
-is saved on its own — open it, **EDIT**, **SAVE**; a list inside an item, as
-an audio source's devices, changes from the bar (**ADD DEVICE**, **REMOVE DEVICE**)
-and saves at once — and the first save writes the file; from then on the settings window edits it. Every field is in [`design.md` §9](design.md#9-configuration).
+([how to set up audio sources](how-to-set-up-audio-sources.md)). Each change
+is saved on its own — a value in a row, such as a device's **HEARD AS**, saves
+at once; an item such as a model opens, **EDIT**, **SAVE** — and the first save
+writes the file; from then on the settings window edits it. Every field is in [`design.md` §9](design.md#9-configuration).
 
 Until then, what needs a model says so: a session started transcribes nothing
 and says `no transcription model is chosen`, and an answer fails with `no chat
@@ -193,7 +193,7 @@ eco: daemon running (pid 434054, version 0.1.0)
 `eco status` prints `eco: daemon stopped` and exits 3 when nothing answers, so a
 script can test it.
 
-**To have eco in the tray,** open **Settings › Interface** (`Ctrl+8`) and
+**To have eco in the tray,** open **Settings › General** (`Ctrl+8`) and
 press the **OFF** chip of **SHOW ECO IN THE TRAY** to turn it **ON**: it saves at once, and the
 icon shows in the bar's tray at once (on
 Omarchy it may sit in the drawer behind the `<` arrow). A click opens the
@@ -494,12 +494,12 @@ refused and says so for each. On a desktop, `Win+Alt+C`, `N`, `H` and `E`
 were pressed and worked; `Win+Alt+A` and `Q` were chosen after `Win+Alt+1` and
 `2` were refused there, and were not pressed on a desktop yet.
 
-**Hiding from screen sharing** (**Settings › Interface › HIDE FROM SCREEN
+**Hiding from screen sharing** (**Settings › General › HIDE FROM SCREEN
 SHARING**) leaves eco's windows out of every capture, your own screenshots and
 recordings too; Microsoft documents this for Windows 10 2004 and later
 (read, not seen).
 
-**The tray icon** is turned on the same way, in **Settings › Interface ›
+**The tray icon** is turned on the same way, in **Settings › General ›
 SHOW ECO IN THE TRAY**; it shows in the notification area, perhaps among the
 hidden icons behind its `^` arrow, from which Windows lets you drag it onto
 the taskbar. Its click and menu do what they do on Linux.

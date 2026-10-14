@@ -25,11 +25,11 @@ line say **action** (`[[actions]]`, `action <name>`, `eco action`).
 
 ## 1. Add it
 
-Open the settings (`SUPER+ALT+C`), then **Skills**, section 06 (`Ctrl+6`): a
+Open the settings (`SUPER+ALT+C`), then **Skills**, section 07 (`Ctrl+7`): a
 table of the skills in the composer's order, each with the model it answers
 with and its hook.
 
-![The Skills section: ADD SKILL, VIEW, EDIT and DELETE in the bar; a table of reply ("default · gemini-flash", "HOOK · ON SEND"), minutes (claude-haiku) and explain ("default · gemini-flash").](img/47-settings-skills.png)
+![The Skills section: ADD SKILL, VIEW, EDIT and DELETE in the bar; a table of reply ("default · gemini-flash", "HOOK · ON SEND"), minutes (claude-haiku) and explain ("default · gemini-flash").](img/50-settings-skills.png)
 
 **ADD SKILL** opens a new skill, being edited:
 
@@ -48,15 +48,15 @@ Models** table. A
 **SAVE** (`Ctrl+S`) saves this skill alone. The skill is a chip in every
 session's composer at once, and its screen shows it read:
 
-![The reply skill read: BACK, EDIT and DELETE in the bar; ABOUT with MODEL "default · gemini-flash", HOOK "~/bin/post-to-notes" and SEND ON ITS OWN off; its PROMPT and OUTPUT FORMAT below; RELATED with the model gemini-flash.](img/48-settings-skill.png)
+![The reply skill read: BACK, EDIT and DELETE in the bar; ABOUT with MODEL "default · gemini-flash", HOOK "~/bin/post-to-notes" and SEND ON ITS OWN off; its PROMPT and OUTPUT FORMAT below; RELATED with the model gemini-flash.](img/51-settings-skill.png)
 
 **EDIT** (`Ctrl+E`) opens the same fields again:
 
-![The reply skill being edited: SAVE and CANCEL in the bar; NAME "reply"; PROMPT and OUTPUT FORMAT as text areas holding its prompt and format; MODEL "default · gemini-flash"; HOOK "~/bin/post-to-notes", with what the command is run with under it; SEND ON ITS OWN, off.](img/49-settings-skill-edit.png)
+![The reply skill being edited: SAVE and CANCEL in the bar; NAME "reply"; PROMPT and OUTPUT FORMAT as text areas holding its prompt and format; MODEL "default · gemini-flash"; HOOK "~/bin/post-to-notes", with what the command is run with under it; SEND ON ITS OWN, off.](img/52-settings-skill-edit.png)
 
 ## 2. Write the prompt and the format
 
-Every answer follows the rules of the assistant in **Settings › Answers** — the language,
+Every answer follows **RULES FOR EVERY ANSWER**, in **Settings › Prompts** — the language,
 brevity, never putting facts in your mouth. **A skill's prompt and format
 override them**, so a skill states its own behaviour rather than you changing
 the shared rules for it.

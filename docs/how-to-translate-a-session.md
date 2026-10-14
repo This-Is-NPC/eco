@@ -101,7 +101,7 @@ table (`Ctrl+2`): pick a chat model and press **DEFAULT FOR TRANSLATION**. It
 saves at once, and the model's DEFAULT column says TRANSLATION. Until one is
 set, the chat default translates, and its DEFAULT reads CHAT · TRANSLATION
 (INHERITED). A session kind may pick its own, on its screen in **Settings ›
-Sessions**. [How to register models](how-to-register-models.md#4-say-which-model-does-what)
+Session kinds**. [How to register models](how-to-register-models.md#4-say-which-model-does-what)
 shows the table.
 
 ---
@@ -111,10 +111,10 @@ shows the table.
 The first that applies ([design.md §6](design.md#6-answers)):
 
 1. the session kind's own translation model — the kind's screen in
-   **Settings › Sessions**, or
+   **Settings › Session kinds**, or
    `translates = ["idea"]` on a chat model in `config.toml`;
 2. the default translation model, `[translation] model`;
-3. the assistant's model, `[llm] model`.
+3. the chat default, `[llm] model`.
 
 Each translation is one request with only the text to translate — no
 transcript, no context — so it stays fast and cheap. **Translations never reach

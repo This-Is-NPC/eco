@@ -42,13 +42,16 @@ HOME = Path("/tmp/eco-shots")
 WIDE = (720, 720)
 SHORT = (420, 480)
 SETTINGS = (1040, 760)
+# Taller, for the sections whose tables hold every row only so: Audio and General.
+SETTINGS_TALL = (1040, 920)
 # The live session's lines, answers and note, from fixtures: nothing transcribes.
 LIVE = json.loads((FIXTURES / "live.json").read_text())
 # What comes after them: a sent and an unsent hook, a failed answer and one thinking.
 ANSWERS = json.loads((FIXTURES / "answers.json").read_text())
 # One source's transcription down and the other's back, as the daemon tells them.
 OUTAGE = json.loads((FIXTURES / "outage.json").read_text())
-# PipeWire devices to add to a source: under --replay the daemon lists none.
+# PipeWire devices for the Audio table: the isolated daemon lists only the
+# system defaults.
 DEVICES = json.loads((FIXTURES / "devices.json").read_text())
 
 
@@ -559,33 +562,41 @@ def scenes(w, shots, stop):
             w.do("return d.click('text=\"CANCEL\"')")
         w.do(f"settings.view.close(settings.view.at.{name})")
 
+    # The daemon lists only the system defaults: the Audio table gets these too.
+    w.do(f"Eco.handle({{ type: 'devices', devices: Eco.devices.concat({q(DEVICES)}) }})")
+    shots.size(*SETTINGS_TALL, which="settings")
     section("audio")
     shots.take("39-settings-audio", "settings")
-    w.do(f"Eco.handle({{ type: 'devices', devices: Eco.devices.concat({q(DEVICES)}) }})")
-    # A source read, its first device picked: its commands on the bar.
-    w.do("settings.view.open(settings.view.at.audio, 'source:Them')")
-    w.do("const p = settings.view.openPage; p.pickChild('devices', p.tables[0].rows[0].id)")
-    w.do("d.blur('settings')")
-    shots.take("40-settings-audio-source", "settings")
-    w.do("settings.view.close(settings.view.at.audio)")
+    # The HEARD AS list of the first device row, open; nothing is chosen from it.
+    heard = (
+        "(() => { const out = []; d.walk(settings.contentItem, out, 0);"
+        " return out.find(i => d.kind(i) === 'Dropdown' && d.shown(i)) })()"
+    )
+    w.do(f"{heard}.open()", 0.4)
+    shots.take("40-settings-audio-heard", "settings")
+    w.do(f"{heard}.data.find(o => d.kind(o) === 'MenuPopup').close()", 0.4)
+    shots.size(*SETTINGS, which="settings")
     section("models")
-    shots.take("41-settings-models", "settings")
     item("models", "gemini-flash", "42", "model", ("43", "model-edit"))
-    section("transcription")
-    shots.take("44-settings-transcription", "settings")
-    section("answers")
-    shots.take("45-settings-answers", "settings")
-    item("answers", "assistant", "46", "assistant")
+    # Back on the table with gemini-flash picked: the chat model's defaults on the bar.
+    shots.take("41-settings-models", "settings")
+    section("languages")
+    shots.take("44-settings-languages", "settings")
+    section("kinds")
+    shots.take("45-settings-kinds", "settings")
+    item("kinds", "meeting", "46", "kind")
+    section("prompts")
+    shots.take("47-settings-prompts", "settings")
+    item("prompts", "rules", "48", "prompt")
     section("context")
-    shots.take("50-settings-context", "settings")
+    shots.take("49-settings-context", "settings")
     section("skills")
-    shots.take("47-settings-skills", "settings")
-    item("skills", "reply", "48", "skill", ("49", "skill-edit"))
-    section("sessions")
-    shots.take("51-settings-sessions", "settings")
-    item("sessions", "meeting", "52", "kind")
-    section("interface")
-    shots.take("53-settings-interface", "settings")
+    shots.take("50-settings-skills", "settings")
+    item("skills", "reply", "51", "skill", ("52", "skill-edit"))
+    shots.size(*SETTINGS_TALL, which="settings")
+    section("general")
+    shots.take("53-settings-general", "settings")
+    shots.size(*SETTINGS, which="settings")
     # A new model saved with nothing filled is refused before it is sent.
     section("models")
     w.do("return d.click('text=\"ADD MODEL\"')")

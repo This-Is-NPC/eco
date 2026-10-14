@@ -1,5 +1,6 @@
 pragma ComponentBehavior: Bound
 import QtQuick
+import QtQuick.Controls.Basic as C
 import Eco.Core
 
 // DataTable lists records as rows of columns under a header; below 700 px each
@@ -8,9 +9,10 @@ import Eco.Core
 // it; ↑/↓ move, ↑ on the first asks to leave upward, Delete asks to remove it,
 // Esc asks to go back. Each row may carry tools on its right, from `tools` (its
 // root gets the row's record as `entry`): Tab reaches those of the selected row
-// only. Tools whose root has `act()` take the row's Enter, Space and double
-// click instead of opening it. Rows may also carry a status cell, and be listed
-// under group titles.
+// only, or, `toolsLive`, every row's, row by row. Tools whose root has `act()`
+// take the row's Enter, Space and double click instead of opening it; Esc, or
+// Enter a tool leaves, goes back to the rows. Rows may also carry a status
+// cell, and be listed under group titles.
 Item {
   id: table
 
@@ -36,6 +38,10 @@ Item {
   property string toolsTitle: ""
   // The tools stay on every row however narrow the table.
   property bool toolsAlways: false
+  // Every row's tools work, as values do, rather than the selected row's
+  // only: Tab from the rows reaches the selected row's, and walks on row by
+  // row, picking each row it enters.
+  property bool toolsLive: false
   // A record that steps back, as when it cannot be picked.
   property var dimmed: entry => false
   property var idOf: entry => entry.id
@@ -76,6 +82,28 @@ Item {
     Qt.callLater(table.follow)
   }
   onSelectedIdChanged: follow()
+
+  // Whether the keyboard was last on the rows or a row's tools, a list or a
+  // dialog they opened in between.
+  property bool held: false
+  readonly property Item overlay: C.Overlay.overlay
+  // New rows destroy the row the keyboard was on, which leaves the window
+  // with none: the rows take it back.
+  Connections {
+    target: table.Window.window
+    function onActiveFocusItemChanged() {
+      const item = table.Window.activeFocusItem
+      if (table.held && table.visible && (item === null || item === table.Window.contentItem)) {
+        list.forceActiveFocus()
+        return
+      }
+      let at = item
+      while (at !== null && at !== list && at !== table.overlay)
+        at = at.parent
+      if (at !== table.overlay)
+        table.held = at !== null
+    }
+  }
 
   // Picking, the keyboard's row is the picked one, wherever the rows put it.
   function follow() {
@@ -173,6 +201,7 @@ Item {
     Keys.onReturnPressed: if (currentItem) currentItem.act()
     Keys.onSpacePressed: if (currentItem) currentItem.act()
     Keys.onDeletePressed: if (currentItem) table.removeRequested(currentItem.modelData)
+    Keys.onTabPressed: event => event.accepted = table.toolsLive && currentItem !== null && currentItem.enterTools()
     Keys.onEscapePressed: table.backRequested()
     Keys.onDownPressed: if (currentIndex < count - 1) table.step(1)
     Keys.onUpPressed: {
@@ -209,6 +238,21 @@ Item {
         } else {
           open()
         }
+      }
+      // Gives the keyboard to the first of its tools; false when it has none.
+      function enterTools() {
+        const first = toolScope.nextItemInFocusChain(true)
+        if (!toolScope.visible || first === null || !isWithin(first))
+          return false
+        first.forceActiveFocus(Qt.TabFocusReason)
+        return true
+      }
+      function isWithin(item) {
+        for (let at = item; at !== null; at = at.parent) {
+          if (at === toolScope)
+            return true
+        }
+        return false
       }
       function pick() {
         list.currentIndex = index
@@ -319,11 +363,23 @@ Item {
         onDoubleClicked: if (table.picks) row.act()
       }
 
-      // Only the selected row's tools are Tab stops; the pointer reaches any.
+      // Only the selected row's tools are Tab stops, unless every row's are
+      // live; the pointer reaches any.
       FocusScope {
         id: toolScope
         visible: row.tooled
-        enabled: row.current || hover.hovered
+        enabled: table.toolsLive || row.current || hover.hovered
+        // A live tool the keyboard or the pointer reaches picks its row.
+        onActiveFocusChanged: {
+          if (activeFocus && table.toolsLive && !row.current) {
+            // The list hands the keyboard to its new current row: give it back.
+            const tool = Window.activeFocusItem
+            list.currentIndex = row.index
+            if (table.picks)
+              table.picked(row.modelData)
+            tool.forceActiveFocus(Qt.TabFocusReason)
+          }
+        }
         anchors { right: parent.right; rightMargin: 6; verticalCenter: parent.verticalCenter }
         width: tools.width
         height: tools.height
@@ -332,7 +388,16 @@ Item {
           sourceComponent: table.tools
           onLoaded: item.entry = Qt.binding(() => row.modelData)
         }
-        Keys.onEscapePressed: list.forceActiveFocus()
+        // Esc, and Enter a tool leaves, as a field confirming what was typed,
+        // give the keyboard back to the rows: the tool lets it go first, or
+        // the list would hand it straight back.
+        function leave() {
+          focus = false
+          list.forceActiveFocus()
+        }
+        Keys.onEscapePressed: leave()
+        Keys.onReturnPressed: leave()
+        Keys.onEnterPressed: leave()
       }
     }
   }

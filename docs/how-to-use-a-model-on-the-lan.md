@@ -94,9 +94,10 @@ The same in the window: **Settings › Models**, **ADD MODEL**, **TYPE**
 **TRANSCRIPTION**, provider **CUSTOM** with the base URL above and the key
 left empty, then **SAVE**. **BACK** returns to the table; pick whisper-lan
 there and press **DEFAULT FOR TRANSCRIPTION**. It saves at once, and its
-DEFAULT column says TRANSCRIPTION:
+DEFAULT column says TRANSCRIPTION (here with the chat model gemini-flash
+picked, so the bar holds the chat defaults):
 
-![The Models section: ADD MODEL, VIEW, EDIT, a dimmed DEFAULT FOR TRANSCRIPTION and a dimmed DELETE in the bar, and a table of whisper-lan (TRANSCRIPTION, whisper-large-v3-turbo, default TRANSCRIPTION, used by MEETING, CONVERSATION…, picked), deepgram (TRANSCRIPTION, nova-3, INTERVIEW), gemini-flash (CHAT, google/gemini-2.5-flash, default CHAT · TRANSLATION, MEETING…) and claude-haiku (CHAT, anthropic/claude-haiku-4.5, minutes).](img/41-settings-models.png)
+![The Models section: ADD MODEL, VIEW, EDIT, the defaults by their short names, a dimmed FOR CHAT, a dimmed FOR TRANSLATION and FOR REVIEW, and a dimmed DELETE in the bar, and a table of whisper-lan (TRANSCRIPTION, whisper-large-v3-turbo, default TRANSCRIPTION, used by MEETING, CONVERSATION…), deepgram (TRANSCRIPTION, nova-3, INTERVIEW), gemini-flash (CHAT, google/gemini-2.5-flash, default CHAT · TRANSLATION, MEETING…, picked) and claude-haiku (CHAT, anthropic/claude-haiku-4.5, default REVIEW, minutes).](img/41-settings-models.png)
 
 ## 5. Or only for some kinds of session
 
@@ -112,10 +113,10 @@ model = "whisper-1"
 kinds = ["idea"]          # idea sessions transcribe here; the rest keep [stt] model
 ```
 
-or, in the window, open the kind in **Settings › Sessions**, **EDIT**, pick
+or, in the window, open the kind in **Settings › Session kinds**, **EDIT**, pick
 its **TRANSCRIPTION** model and **SAVE**:
 
-![The Sessions section: a table of Meeting (DEFAULT), Conversation, Other and Idea, transcribing with "default · whisper-lan" and answering with "default · gemini-flash", and interview, transcribing with deepgram.](img/51-settings-sessions.png)
+![The Session kinds section: a table of Meeting (DEFAULT), Conversation, Other and Idea, transcribing with "default · whisper-lan" and answering with "default · gemini-flash", and interview, transcribing with deepgram.](img/45-settings-kinds.png)
 
 **If that model is down, its sessions say so. Nothing falls back to another
 model** — a session that should stay at home does not quietly go to the cloud.

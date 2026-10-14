@@ -65,6 +65,7 @@ Column {
     toolsTitle: I18n.t("interface.column_value")
     toolsWidth: 160
     toolsAlways: true
+    toolsLive: true
     tools: Item {
       id: value
       property var entry: ({})

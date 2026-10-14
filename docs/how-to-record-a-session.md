@@ -34,7 +34,7 @@ inputs; nothing is transcribed or kept. Inside one, the lines are kept as text.
 - **KIND** — what it is. The line under it says which models a session of that
   kind transcribes and answers with.
 - **LANGUAGE** — what will be spoken, from the languages offered in
-  **Settings › Transcription**, where ADD LANGUAGE offers another. `AUTO`
+  **Settings › Languages**, where ADD LANGUAGE offers another. `AUTO`
   leaves it to the transcriber.
 - **TAGS** — optional, several. The tags you already use are offered as you
   type.
@@ -183,7 +183,7 @@ by itself. Reopen it to go on.
 (`eco stop`, then `eco daemon --no-save`) keeps sessions in memory only.
 
 **The others see eco in a shared screen.** By default the window is not
-hidden from captures. In **Settings › Interface**, press the **OFF** chip of **HIDE
+hidden from captures. In **Settings › General**, under INTERFACE, press the **OFF** chip of **HIDE
 FROM SCREEN SHARING** to turn it **ON**, and eco's windows are hidden in the share,
 at once and in every window that opens later: on Linux they show black, on
 Windows they are left out of the picture. Neither Hyprland's `no_screen_share` nor Windows' capture

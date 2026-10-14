@@ -84,7 +84,7 @@ ModalDialog {
       ["Enter", "keys.open_child"],
       ["Delete", "keys.remove_child"],
       ["Ctrl+E", "keys.edit_item"],
-      ["Enter · Space", "keys.interface_act"],
+      ["Enter · Space", "keys.value_act"],
       ["Ctrl+S", "keys.save"],
       ["Esc", "keys.leave_item"]
     ]]

@@ -49,7 +49,7 @@ Item {
     id: alone
     width: root.width
     height: 300
-    title: "INTERFACE"
+    title: "GENERAL"
     facts: [["language", "English"]]
     related: [{ title: "Models", items: [] }]
   }
@@ -60,7 +60,7 @@ Item {
     kind: "model"
     title: "m"
     facts: [["type", "chat"]]
-    related: [{ title: "Answers", items: [{ section: 3, id: "assistant", text: "ASSISTANT" }] }]
+    related: [{ title: "Session kinds", items: [{ section: 3, id: "meeting", text: "MEETING" }] }]
   }
 
   Timer {

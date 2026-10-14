@@ -5,8 +5,9 @@ import Eco.Core
 import Eco.Kit
 
 // SettingsView is the settings one section at a time, each a table of its
-// items: a click picks one, a double click, Enter or Space opens it on a
-// screen of its own, read, where it may be edited and saved alone; EDIT or
+// items, or a body of its own in the table's place: a click picks one, a
+// double click, Enter or Space opens it on a screen of its own, read, where it
+// may be edited and saved alone; EDIT or
 // Ctrl+E opens the one picked to be written, and back to the table once saved
 // or cancelled. What is picked or open decides the commands the bar shows.
 // Removing an item saves at once, after asking.
@@ -20,17 +21,17 @@ Item {
   // Esc with nothing left to go back from.
   signal closeRequested()
 
-  // The sections' places, for links: settings.link(settings.at.answers, "assistant").
-  readonly property var at: ({ audio: 0, models: 1, transcription: 2, answers: 3, context: 4, skills: 5, sessions: 6, interface: 7 })
-  readonly property var sections: [audio, models, transcription, answers, context, skills, sessions, interfaceSection]
+  // The sections' places, for links: settings.link(settings.at.prompts, "rules").
+  readonly property var at: ({ audio: 0, models: 1, languages: 2, kinds: 3, prompts: 4, context: 5, skills: 6, general: 7 })
+  readonly property var sections: [audio, models, languages, kinds, prompts, context, skills, general]
   AudioSection { id: audio; settings: view }
   ModelsSection { id: models; settings: view }
-  TranscriptionSection { id: transcription; settings: view }
-  AnswersSection { id: answers; settings: view }
+  LanguagesSection { id: languages; settings: view }
+  KindsSection { id: kinds; settings: view }
+  PromptsSection { id: prompts; settings: view }
   ContextSection { id: context; settings: view }
   SkillsSection { id: skills; settings: view }
-  SessionsSection { id: sessions; settings: view }
-  InterfaceSection { id: interfaceSection; settings: view }
+  GeneralSection { id: general; settings: view }
 
   // A chat model is registered: until then answers and skills have nothing to run on.
   readonly property bool chats: Eco.config !== null && Draft.chats(Eco.config)
@@ -308,7 +309,15 @@ Item {
           view.unsaved = view.mark(view.unsaved, index, false)
           view.stale = view.mark(view.stale, index, false)
         }
-        function focusRows() { table.focusRows() }
+        // The section's own body, when it has one, takes the keyboard instead of the table.
+        function focusRows() {
+          if (body.item === null)
+            table.focusRows()
+          else if (typeof body.item.takeFocus === "function")
+            body.item.takeFocus()
+          else
+            body.item.forceActiveFocus()
+        }
         anchors.fill: parent
         shown: view.page === index
 
@@ -340,7 +349,7 @@ Item {
             id: table
             Layout.fillWidth: true
             Layout.fillHeight: true
-            visible: !stage.waiting
+            visible: !stage.waiting && stage.section.body === null
             picks: true
             active: stage.shown && stage.open === ""
             columns: stage.section.columns
@@ -348,10 +357,13 @@ Item {
             rows: stage.rows
             cells: row => row.cells || []
             idOf: row => row.id
+            section: stage.section.group
+            dimmed: row => row.dim === true
             tools: stage.section.tools
             toolsWidth: stage.section.toolsWidth
             toolsTitle: stage.section.toolsTitle
             toolsAlways: stage.section.tools !== null
+            toolsLive: stage.section.tools !== null
             selectedId: view.picked[stage.index] || ""
             loading: Eco.config === null && Eco.connected
             emptyText: Eco.config === null ? (Eco.connected ? I18n.t("config.loading") : I18n.t("start.offline")) : I18n.t("settings.empty")
@@ -359,6 +371,23 @@ Item {
             onOpened: row => view.enter(stage.index, row)
             onRemoveRequested: row => view.remove(stage.index, row)
             onBackRequested: view.closeRequested()
+          }
+          // The section's own body in place of the table, made once with the
+          // view and its section.
+          Item {
+            id: body
+            property Item item: null
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            visible: !stage.waiting && item !== null
+            // It fills the room the table would.
+            Component.onCompleted: {
+              if (stage.section.body === null)
+                return
+              item = stage.section.body.createObject(body, { settings: view, section: stage.section })
+              item.width = Qt.binding(() => body.width)
+              item.height = Qt.binding(() => body.height)
+            }
           }
           Item { Layout.fillHeight: true; visible: stage.waiting }
         }
