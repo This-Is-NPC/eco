@@ -1,3 +1,7 @@
-#!/usr/bin/env bash
-set -euo pipefail
-cargo llvm-cov --locked --summary-only "$@"
+#!/usr/bin/env python3
+"""Measure test coverage per file; arguments go to `cargo llvm-cov`."""
+
+import subprocess
+import sys
+
+sys.exit(subprocess.run(["cargo", "llvm-cov", "--locked", "--summary-only", *sys.argv[1:]]).returncode)

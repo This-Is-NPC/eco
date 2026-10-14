@@ -1,3 +1,8 @@
-#!/usr/bin/env bash
-set -euo pipefail
-cargo run --release --locked --quiet -- setup
+#!/usr/bin/env python3
+"""Download the Silero VAD and WeSpeaker CAM++ models into the eco data
+directory, through `eco setup` built from this tree."""
+
+import subprocess
+import sys
+
+sys.exit(subprocess.run(["cargo", "run", "--release", "--locked", "--quiet", "--", "setup"]).returncode)

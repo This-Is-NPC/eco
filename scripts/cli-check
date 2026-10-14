@@ -1,11 +1,13 @@
-#!/usr/bin/env bash
-# Fail when docs/cli.md is not what scripts/cli-gen writes from the eco binary.
-set -euo pipefail
+#!/usr/bin/env python3
+"""Fail when docs/cli.md is not what scripts/cli-gen writes from the eco binary."""
 
-page="$(mktemp)"
-trap 'rm -f "$page" "$page.tmp"' EXIT
-scripts/cli-gen "$page"
-if ! cmp -s docs/cli.md "$page"; then
-  echo "cli-check: docs/cli.md is stale (run mise run cli:gen)" >&2
-  exit 1
-fi
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+with tempfile.TemporaryDirectory() as scratch:
+    page = Path(scratch) / "cli.md"
+    subprocess.run([sys.executable, "scripts/cli-gen", str(page)], check=True)
+    if page.read_bytes() != Path("docs/cli.md").read_bytes():
+        sys.exit("cli-check: docs/cli.md is stale (run mise run cli:gen)")

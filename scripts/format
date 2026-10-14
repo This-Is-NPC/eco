@@ -1,3 +1,7 @@
-#!/usr/bin/env bash
-set -euo pipefail
-cargo fmt
+#!/usr/bin/env python3
+"""Format the Rust sources."""
+
+import subprocess
+import sys
+
+sys.exit(subprocess.run(["cargo", "fmt"]).returncode)

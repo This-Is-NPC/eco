@@ -22,6 +22,7 @@ _.file = ".env"
 [tasks.setup]
 description = "Download the Silero VAD and WeSpeaker CAM++ models into the eco data directory"
 run = "scripts/setup"
+run_windows = "python scripts/setup"
 
 [tasks."qt:install"]
 description = "Install the Qt eco-window builds with on Windows into .qt (on Linux, nothing: the system's Qt)"
@@ -89,38 +90,46 @@ run = "scripts/start"
 [tasks.lint]
 description = "Check formatting and clippy warnings"
 run = "scripts/lint"
+run_windows = "python scripts/lint"
 
 [tasks.format]
 description = "Format the Rust sources"
 run = "scripts/format"
+run_windows = "python scripts/format"
 
 [tasks.test]
 description = "Run the test suite (the VAD and speaker parity tests need the models; the window's, eco-window)"
 depends = ["setup", "window:build"]
 run = "scripts/test"
+run_windows = "python scripts/test"
 
 [tasks.coverage]
 description = "Measure test coverage per file with cargo-llvm-cov (slow instrumented build; not part of check)"
 depends = ["setup", "window:build"]
 run = "scripts/coverage"
+run_windows = "python scripts/coverage"
 
 [tasks."cli:gen"]
 description = "Regenerate docs/cli.md from the eco binary's usage spec"
 run = "scripts/cli-gen"
+run_windows = "python scripts/cli-gen"
 sources = ["src/**/*.rs", "Cargo.toml", "Cargo.lock", "scripts/cli-gen"]
 outputs = ["docs/cli.md"]
 
 [tasks."cli:check"]
 description = "Fail when docs/cli.md is not what the eco binary's usage spec generates"
 run = "scripts/cli-check"
+run_windows = "python scripts/cli-check"
 
 [tasks."docs:check"]
 description = "Fail when a relative link or image in README.md or docs/*.md does not resolve"
 run = "scripts/docs-check"
+run_windows = "python scripts/docs-check"
 
 [tasks."overlay:check"]
 description = "Fail when an overlay QML module imports one it may not, a relative import appears, a file is undeclared in its qmldir, or a Kit component is not shown in the control lab"
 run = "scripts/overlay-check"
+run_windows = "python scripts/overlay-check"
 
 [tasks.check]
 description = "Run lint, tests, the docs/cli.md check, the docs link check and the overlay module check"

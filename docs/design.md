@@ -2265,10 +2265,13 @@ installs it with `install.ps1`, as a release is installed, and `mise run
 uninstall:windows` takes it off
 ([how](how-to-install-and-remove.md#on-windows)); §13 says how the `PATH` is
 kept.
-The other tasks run bash
-scripts, which Windows does not; run the tests
-and lints there with `mise exec -- cargo test` and `mise exec -- cargo clippy
---all-targets -- -D warnings`. Recorded audio replays with
+On Windows mise runs a task's command through `cmd`, which runs no script
+by its shebang, so a task that runs there names a Python script, on the
+Python mise pins, in its `run_windows`: besides the tasks above, `mise run
+check` and the tasks it runs, `format`, `coverage` and `cli:gen` run from
+plain PowerShell. The others are bash scripts, for Linux alone; Windows ships
+no bash, and the first `bash` on its `PATH` may be WSL's, as it was on the
+machine eco is tested on. Recorded audio replays with
 `--replay <file.wav>` instead of joining a call.
 `mise run preview:controls` opens the control lab, and `mise run shots`
 regenerates `docs/img` from the real overlay against an isolated daemon.
