@@ -170,7 +170,7 @@ Window {
     id: provider
     visible: false
     width: root.width
-    target: "chat"
+    target: "llm"
     section: root.model
     onEdited: (key, value) => {
       const model = Object.assign({}, root.model)
