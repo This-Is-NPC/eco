@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.1](https://github.com/This-Is-NPC/eco/compare/v0.5.0...v0.5.1) (2026-10-14)
+
+
+### Bug Fixes
+
+* **packaging:** depend on the Qt the window was built with ([e80537f](https://github.com/This-Is-NPC/eco/commit/e80537f369d46f5d6c810599cf8c33b374e7b578))
+* **packaging:** depend on the Qt the window was built with ([9808912](https://github.com/This-Is-NPC/eco/commit/9808912bd055185c27ebca9581cb57a699287c80))
+
 ## [0.5.0](https://github.com/This-Is-NPC/eco/compare/v0.4.0...v0.5.0) (2026-10-14)
 
 
