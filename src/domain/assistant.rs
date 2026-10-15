@@ -13,7 +13,7 @@ use tokio::time::Instant;
 use crate::domain::action::Action;
 use crate::domain::billing::{Joined, Requests, priced, shares};
 use crate::domain::channel::Utterance;
-use crate::domain::diarization::{Diarization, normalized, speaker_of};
+use crate::domain::diarization::{Labelled, Labels, Said, dot, normalized};
 use crate::domain::echo;
 use crate::domain::events::{Event, error};
 use crate::domain::people::{GUESSING, Match, Person, SUGGESTING, ranked};
@@ -37,6 +37,10 @@ const TRANSLATIONS_AT_ONCE: usize = 3;
 /// How many stored sessions stay in memory once read or asked about; past it,
 /// the least recently used idle one leaves, its log still holding all of it.
 const LOADED_STORED: usize = 8;
+
+/// A live speaker's kept voice is replaced once their voice moved this far
+/// from it: a cosine below this.
+const MOVED: f32 = 0.98;
 
 /// Why an answer is not asked for while no chat model answers its session.
 const NO_CHAT: &str = "no chat model answers sessions of this kind";
@@ -231,6 +235,68 @@ fn guess(session: &Session, label: &str, ranking: &[Match]) -> Option<Match> {
         .take_while(|m| m.score >= GUESSING)
         .find(|m| !session.dismissed(label, &m.person))
         .cloned()
+}
+
+/// The voices a session keeps, read once.
+fn voices_of<'a>(
+    kept: &'a mut Option<BTreeMap<String, Vec<f32>>>,
+    people: &dyn PeopleStore,
+    session_id: &str,
+) -> &'a mut BTreeMap<String, Vec<f32>> {
+    kept.get_or_insert_with(|| people.voices(session_id))
+}
+
+/// The voice to keep for a live speaker who now sounds like `voice`, joined
+/// with the one their label had before them; `None` while it is close to the
+/// one last kept.
+fn moved(labelled: &Labelled, voice: &[f32]) -> Option<Vec<f32>> {
+    let current = match &labelled.base {
+        Some(base) => normalized(base.iter().zip(voice).map(|(a, b)| a + b).collect()),
+        None => voice.to_vec(),
+    };
+    let kept = labelled.kept.as_ref();
+    let still = kept.is_some_and(|kept| dot(kept, &current) >= MOVED);
+    (!still).then_some(current)
+}
+
+/// The label a live speaker of the input heard as `who` takes, with `voice`:
+/// that of a voice the session keeps close to theirs (≥ 0.70) and no other
+/// speaker of the input took, else `who` while no voice has it, else a new
+/// `Speaker N`.
+fn label_for(
+    session: &Session,
+    who: &str,
+    voice: Option<&[f32]>,
+    voices: &BTreeMap<String, Vec<f32>>,
+    labels: &Labels,
+) -> Labelled {
+    let taken: Vec<&str> = labels.values().map(|l| l.label.as_str()).collect();
+    let close = voice.and_then(|voice| {
+        voices
+            .iter()
+            .filter(|(label, _)| !taken.contains(&label.as_str()))
+            .map(|(label, kept)| (label, dot(kept, voice)))
+            .filter(|(_, score)| *score >= GUESSING)
+            .max_by(|a, b| a.1.total_cmp(&b.1))
+    });
+    if let Some((label, _)) = close {
+        return Labelled {
+            label: label.clone(),
+            base: voices.get(label).cloned(),
+            kept: None,
+        };
+    }
+    let label = if voices.contains_key(who) || taken.contains(&who) {
+        let given = labels.values().map(|l| &l.label);
+        let next = next_speaker(session.labels().iter().chain(voices.keys()).chain(given));
+        format!("Speaker {next}")
+    } else {
+        who.to_string()
+    };
+    Labelled {
+        label,
+        ..Labelled::default()
+    }
 }
 
 fn rounded(score: f32) -> f64 {
@@ -950,103 +1016,137 @@ impl Assistant {
         }
     }
 
-    /// What diarization found in a live input heard as `who`: each line, by its
-    /// time and its span in the input, goes to the voice that said most of it. A
-    /// voice close to one the session already keeps takes that speaker's label,
-    /// a single voice keeps `who`, and any other becomes a new `Speaker N`. The
-    /// voices are kept, so the session's speakers can be guessed for the user to
-    /// confirm; a speaker already identified adds the voice to their person's.
-    pub fn voices_heard(
-        &self,
-        session_id: &str,
-        who: &str,
-        lines: &[(f64, f64, f64)],
-        diarization: &Diarization,
-    ) {
-        let said: Vec<(f64, usize)> = lines
+    /// What diarization made known of a live input heard as `who`, for one
+    /// session. A speaker gets a label the first time one of their lines is
+    /// known: the label of a voice the session keeps that theirs is close to,
+    /// else `who` for the input's first voice, else a new `Speaker N`; their
+    /// lines move to it as they become known. Speakers found to be one share a
+    /// label: the lines of the one without a person move to the other's. A
+    /// speaker's voice is kept when it first comes and again whenever it
+    /// moved, so the session's speakers are guessed as the meeting goes; a
+    /// speaker already identified adds the voice to their person's.
+    pub fn voices_heard(&self, session_id: &str, who: &str, said: &Said, labels: &mut Labels) {
+        let joins = said
+            .merged
             .iter()
-            .filter_map(|&(at, start, end)| {
-                speaker_of(&diarization.turns, start, end).map(|speaker| (at, speaker))
-            })
-            .collect();
-        let mut found: Vec<usize> = Vec::new();
-        for &(_, speaker) in &said {
-            if !found.contains(&speaker) {
-                found.push(speaker);
-            }
-        }
-        if found.is_empty() {
+            .any(|(gone, _)| labels.contains_key(gone));
+        let drifted = said.voices.iter().any(|(speaker, voice)| {
+            let labelled = labels.get(speaker);
+            labelled.is_some_and(|labelled| moved(labelled, voice).is_some())
+        });
+        if said.lines.is_empty() && !joins && !drifted {
             return;
         }
+        let people = &*self.inner.people;
+        let mut kept: Option<BTreeMap<String, Vec<f32>>> = None;
+        let (mut changed, mut fresh) = (false, false);
         let mut state = self.state();
-        let mut voices = self.inner.people.voices(session_id);
         let heard = self.edit_session(&mut state, session_id, |session| {
-            let mut next = next_speaker(session.labels().iter().chain(voices.keys()));
-            let mut labels: Vec<String> = Vec::new();
-            for &speaker in &found {
-                let voice = &diarization.voices[speaker];
-                let kept = voices
-                    .iter()
-                    .filter(|(label, _)| !labels.contains(label))
-                    .map(|(label, kept)| {
-                        (
-                            label,
-                            kept.iter().zip(voice).map(|(a, b)| a * b).sum::<f32>(),
-                        )
-                    })
-                    .filter(|(_, score)| *score >= GUESSING)
-                    .max_by(|a, b| a.1.total_cmp(&b.1))
-                    .map(|(label, _)| label.clone());
-                let label = kept.unwrap_or_else(|| {
-                    if found.len() == 1 && !voices.contains_key(who) {
-                        who.to_string()
-                    } else {
-                        next += 1;
-                        format!("Speaker {}", next - 1)
+            let mut moves: Vec<(String, f64, String)> = Vec::new();
+            for &(gone, into) in &said.merged {
+                let Some(from) = labels.remove(&gone) else {
+                    continue;
+                };
+                use std::collections::btree_map::Entry as Slot;
+                let to = match labels.entry(into) {
+                    Slot::Vacant(slot) => {
+                        slot.insert(from);
+                        continue;
                     }
-                });
-                labels.push(label);
+                    Slot::Occupied(slot) => slot.into_mut(),
+                };
+                if to.label == from.label {
+                    continue;
+                }
+                let persons = (session.person_of(&from.label), session.person_of(&to.label));
+                let (left, joined) = match persons {
+                    // The user told them apart: their lines stay.
+                    (Some(a), Some(b)) if a != b => continue,
+                    (Some(_), None) => {
+                        let left = std::mem::replace(to, from);
+                        (left.label, to.label.clone())
+                    }
+                    _ => (from.label, to.label.clone()),
+                };
+                let lines = session.lines_of(&left);
+                moves.extend(
+                    lines
+                        .into_iter()
+                        .map(|at| (left.clone(), at, joined.clone())),
+                );
+                changed |= voices_of(&mut kept, people, session_id)
+                    .remove(&left)
+                    .is_some();
             }
-            let pairs: Vec<(f64, String)> = said
-                .iter()
-                .map(|(at, speaker)| {
-                    let index = found.iter().position(|s| s == speaker).expect("found");
-                    (*at, labels[index].clone())
+            for &(at, speaker) in &said.lines {
+                let label = match labels.get(&speaker) {
+                    Some(labelled) => labelled.label.clone(),
+                    None => {
+                        let voices = voices_of(&mut kept, people, session_id);
+                        let labelled = label_for(
+                            session,
+                            who,
+                            said.voices.get(&speaker).map(Vec::as_slice),
+                            voices,
+                            labels,
+                        );
+                        let label = labelled.label.clone();
+                        labels.insert(speaker, labelled);
+                        fresh = true;
+                        label
+                    }
+                };
+                if label != who {
+                    moves.push((who.to_string(), at, label));
+                }
+            }
+            let mut enrolled: Vec<(String, String, Vec<f32>)> = Vec::new();
+            for (speaker, labelled) in labels.iter_mut() {
+                let Some(current) = said.voices.get(speaker).and_then(|v| moved(labelled, v))
+                else {
+                    continue;
+                };
+                labelled.kept = Some(current.clone());
+                let voices = voices_of(&mut kept, people, session_id);
+                voices.insert(labelled.label.clone(), current.clone());
+                changed = true;
+                if let Some(person) = session.person_of(&labelled.label) {
+                    enrolled.push((person.to_string(), labelled.label.clone(), current));
+                }
+            }
+            let told: Vec<Event> = session
+                .voice_lines(&moves)
+                .into_iter()
+                .map(|(was, at, label)| {
+                    json!({
+                        "type": "transcript_reassigned", "session": session_id,
+                        "who": was, "at": at, "name": session.name_of(&label), "label": label,
+                    })
                 })
                 .collect();
-            let relabelled = session.split_speaker(who, &pairs);
-            let names: Vec<String> = relabelled
-                .iter()
-                .map(|label| session.name_of(label).to_string())
-                .collect();
-            let people: Vec<Option<String>> = labels
-                .iter()
-                .map(|label| session.person_of(label).map(String::from))
-                .collect();
-            (labels, people, relabelled, names)
+            (told, enrolled)
         });
-        let Some((labels, people, relabelled, names)) = heard else {
+        let Some((told, enrolled)) = heard else {
             return;
         };
-        for ((label, person), &speaker) in labels.iter().zip(&people).zip(&found) {
-            let voice = &diarization.voices[speaker];
-            let merged = match voices.get(label) {
-                Some(kept) => normalized(kept.iter().zip(voice).map(|(a, b)| a + b).collect()),
-                None => voice.clone(),
-            };
-            if let Some(mut person) = person.as_deref().and_then(|id| self.person(id)) {
-                person.enroll(session_id, label, merged.clone());
-                self.save_person(&person);
-            }
-            voices.insert(label.clone(), merged);
-        }
-        if let Err(failure) = self.inner.people.keep_voices(session_id, &voices) {
+        if let Some(voices) = kept.filter(|_| changed)
+            && let Err(failure) = people.keep_voices(session_id, &voices)
+        {
             self.store_failed(&failure);
         }
+        for (person_id, label, voice) in enrolled {
+            if let Some(mut person) = self.person(&person_id) {
+                person.enroll(session_id, &label, voice);
+                self.save_person(&person);
+            }
+        }
         drop(state);
-        self.emit(
-            json!({"type": "diarized", "session": session_id, "who": relabelled, "names": names}),
-        );
+        for event in told {
+            self.emit(event);
+        }
+        if changed || fresh {
+            self.announce_speakers(session_id);
+        }
     }
 
     /// Tell clients who a session's speakers are now.
@@ -5664,8 +5764,6 @@ mod tests {
 
     #[test]
     fn live_voices_are_guessed_until_the_user_decides() {
-        use crate::domain::diarization::Turn;
-
         let directory = tempfile::tempdir().unwrap();
         let log = Arc::new(SessionFiles::new(directory.path().join("sessions")));
         let store: Arc<dyn PeopleStore> =
@@ -5674,72 +5772,190 @@ mod tests {
         let sink = Arc::clone(&events);
         let emit: Emit = Arc::new(move |event| sink.lock().unwrap().push(event));
         let assistant = Assistant::new(emit, log.clone(), store.clone(), no_hooks());
-        let last = |kind: &str| {
-            let events = events.lock().unwrap();
-            let found = events.iter().rev().find(|e| e["type"] == kind);
-            found.cloned().unwrap()
-        };
+        let last = |kind: &str| last_of(&events, kind);
         let mut ana = Person::new("Ana");
         ana.enroll("earlier", "Speaker 1", vec![1.0, 0.0, 0.0]);
         store.save(&ana).unwrap();
-        let turn = |start, end, speaker| Turn {
-            start,
-            end,
-            speaker,
-        };
 
-        // Two voices among the others: the lines split, nobody is named.
+        // Two voices among the others: the input's first keeps its label, the
+        // other's lines move as they are known, and nobody is named.
         let mut call = Session::begin("Call", "meeting", LIVE, "pt", log.writer());
         call.hear_at("Eles", "Oi.", 10.0);
         call.hear_at("Eu", "Olá.", 11.0);
         call.hear_at("Eles", "Tudo bem?", 12.0);
         call.hear_at("Eles", "Vamos.", 14.0);
-        let diarization = Diarization {
-            turns: vec![turn(0.0, 3.0, 0), turn(3.0, 6.0, 1)],
-            voices: vec![normalized(vec![0.99, 0.1, 0.0]), vec![0.0, 0.0, 1.0]],
+        let mut labels = Labels::default();
+        let first = normalized(vec![0.99, 0.1, 0.0]);
+        let said = Said {
+            lines: vec![(10.0, 0), (12.0, 1), (14.0, 0)],
+            merged: Vec::new(),
+            voices: BTreeMap::from([(0, first.clone()), (1, vec![0.0, 0.0, 1.0])]),
         };
-        let lines = [(10.0, 0.5, 2.5), (12.0, 3.5, 5.0), (14.0, 1.0, 2.0)];
-        assistant.voices_heard(&call.id, "Eles", &lines, &diarization);
+        assistant.voices_heard(&call.id, "Eles", &said, &mut labels);
         assert_eq!(
-            last("diarized")["who"],
-            json!(["Speaker 1", "Eu", "Speaker 2", "Speaker 1"])
+            last("transcript_reassigned"),
+            json!({"type": "transcript_reassigned", "session": call.id, "who": "Eles", "at": 12.0, "label": "Speaker 1", "name": "Speaker 1"})
         );
+        assert_eq!(count(&events, "transcript_reassigned"), 1);
+        // The guess comes as soon as the voice does.
+        let speakers = last("session_speakers")["speakers"].clone();
+        assert_eq!(speakers[0]["label"], "Eles");
+        assert_eq!(speakers[0]["guess"]["name"], "Ana");
+        assert_eq!(speakers[2]["label"], "Speaker 1");
+        assert_eq!(speakers[2]["guess"], Value::Null);
+        let kept = store.voices(&call.id);
+        assert_eq!(kept.keys().collect::<Vec<_>>(), ["Eles", "Speaker 1"]);
+
+        // A voice that barely moved is not kept again; one that moved is.
+        let told = count(&events, "session_speakers");
+        let barely = Said {
+            voices: BTreeMap::from([(0, normalized(vec![0.98, 0.12, 0.0]))]),
+            ..Said::default()
+        };
+        assistant.voices_heard(&call.id, "Eles", &barely, &mut labels);
+        assert_eq!(count(&events, "session_speakers"), told);
+        assert_eq!(store.voices(&call.id)["Eles"], first);
+        let moved = Said {
+            voices: BTreeMap::from([(1, vec![0.0, 0.6, 0.8])]),
+            ..Said::default()
+        };
+        assistant.voices_heard(&call.id, "Eles", &moved, &mut labels);
+        assert_eq!(count(&events, "session_speakers"), told + 1);
+        assert_eq!(store.voices(&call.id)["Speaker 1"], [0.0, 0.6, 0.8]);
+
+        // Found to be one: the lines of the second move to the first.
+        let one = Said {
+            merged: vec![(1, 0)],
+            ..Said::default()
+        };
+        assistant.voices_heard(&call.id, "Eles", &one, &mut labels);
+        assert_eq!(last("transcript_reassigned")["who"], "Speaker 1");
+        assert_eq!(last("transcript_reassigned")["label"], "Eles");
+        assert!(!store.voices(&call.id).contains_key("Speaker 1"));
+        assert_eq!(labels.len(), 1);
         assistant.show(&call.id);
         let speakers = last("session_detail")["speakers"].clone();
-        assert_eq!(speakers[0]["person"], Value::Null);
-        assert_eq!(speakers[0]["guess"]["name"], "Ana");
-        assert_eq!(speakers[2]["guess"], Value::Null);
+        assert_eq!(speakers.as_array().unwrap().len(), 2);
 
         // Cleared, the guess stays gone; Ana is still offered by hand.
-        assistant.clear_guess(&call.id, "Speaker 1");
+        assistant.clear_guess(&call.id, "Eles");
         assistant.show(&call.id);
         let speakers = last("session_detail")["speakers"].clone();
         assert_eq!(speakers[0]["guess"], Value::Null);
         assert_eq!(speakers[0]["suggestions"][0]["name"], "Ana");
-        assistant.clear_guess(&call.id, "Speaker 1");
+        assistant.clear_guess(&call.id, "Eles");
         assert_eq!(last("error")["code"], "speaker.invalid");
 
-        // Confirmed, the speaker is Ana and her voice grows.
-        assistant.assign_person(&call.id, "Speaker 1", Some(&ana.id), "", None);
+        // Confirmed, the speaker is Ana and her voice grows, and follows the
+        // speaker's as it moves.
+        assistant.assign_person(&call.id, "Eles", Some(&ana.id), "", None);
         assistant.show(&call.id);
         assert_eq!(
             last("session_detail")["speakers"][0]["person"],
             json!(ana.id)
         );
         assert_eq!(store.people()[0].voiceprints.len(), 2);
+        let grown = Said {
+            voices: BTreeMap::from([(0, vec![0.8, 0.6, 0.0])]),
+            ..Said::default()
+        };
+        assistant.voices_heard(&call.id, "Eles", &grown, &mut labels);
+        let prints = store.people()[0].voiceprints.clone();
+        assert_eq!(prints.len(), 2);
+        assert_eq!(prints[1].label, "Eles");
+        assert_eq!(prints[1].voice, normalized(vec![0.8, 0.6, 0.0]));
 
         // One voice keeps the participant's label, and is guessed too.
         let mut chat = Session::begin("Chat", "meeting", LIVE, "pt", log.writer());
         chat.hear_at("Eles", "Bom dia.", 30.0);
-        let alone = Diarization {
-            turns: vec![turn(0.0, 2.0, 0)],
-            voices: vec![vec![1.0, 0.0, 0.0]],
-        };
-        assistant.voices_heard(&chat.id, "Eles", &[(30.0, 0.0, 2.0)], &alone);
+        let mut labels = Labels::default();
+        assistant.voices_heard(
+            &chat.id,
+            "Eles",
+            &alone(30.0, &[1.0, 0.0, 0.0]),
+            &mut labels,
+        );
         assistant.show(&chat.id);
         let speakers = last("session_detail")["speakers"].clone();
         assert_eq!(speakers[0]["label"], "Eles");
         assert_eq!(speakers[0]["guess"]["name"], "Ana");
+    }
+
+    #[test]
+    fn live_speakers_found_to_be_one_keep_the_person_named() {
+        let directory = tempfile::tempdir().unwrap();
+        let people = people_in(directory.path());
+        let (assistant, events, log) = stored_with(directory.path(), people.clone());
+        let mut call = Session::begin("Call", "meeting", LIVE, "pt", log.writer());
+        call.hear_at("Eles", "Oi.", 10.0);
+        call.hear_at("Eles", "Tudo bem?", 12.0);
+        call.hear_at("Eles", "Vamos.", 14.0);
+        let mut labels = Labels::default();
+        let said = Said {
+            lines: vec![(10.0, 0), (12.0, 1), (14.0, 2)],
+            merged: Vec::new(),
+            voices: BTreeMap::from([
+                (0, vec![1.0, 0.0, 0.0]),
+                (1, vec![0.0, 1.0, 0.0]),
+                (2, vec![0.0, 0.0, 1.0]),
+            ]),
+        };
+        assistant.voices_heard(&call.id, "Eles", &said, &mut labels);
+        assistant.assign_person(&call.id, "Speaker 2", None, "Bia", None);
+
+        // The one with a person keeps their label; the other's lines join it.
+        let one = Said {
+            merged: vec![(2, 1)],
+            ..Said::default()
+        };
+        assistant.voices_heard(&call.id, "Eles", &one, &mut labels);
+        let moved = last_of(&events, "transcript_reassigned");
+        assert_eq!(
+            (&moved["who"], &moved["at"], &moved["label"], &moved["name"]),
+            (
+                &json!("Speaker 1"),
+                &json!(12.0),
+                &json!("Speaker 2"),
+                &json!("Bia")
+            )
+        );
+        assert_eq!(labels[&1].label, "Speaker 2");
+
+        // Two people the user named stay apart.
+        assistant.assign_person(&call.id, "Eles", None, "Caio", None);
+        let before = count(&events, "transcript_reassigned");
+        let apart = Said {
+            merged: vec![(1, 0)],
+            ..Said::default()
+        };
+        assistant.voices_heard(&call.id, "Eles", &apart, &mut labels);
+        assert_eq!(count(&events, "transcript_reassigned"), before);
+        assistant.show(&call.id);
+        let speakers = last_of(&events, "session_detail")["speakers"].clone();
+        let named: Vec<&Value> = speakers
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| &s["name"])
+            .collect();
+        assert_eq!(named, [&json!("Caio"), &json!("Bia")]);
+
+        // A speaker joined into one not heard in this session yet lends them
+        // its label; a joined speaker never labelled changes nothing.
+        call.hear_at("Eles", "Até já.", 16.0);
+        let lent = Said {
+            lines: vec![(16.0, 5)],
+            merged: vec![(7, 8), (0, 5)],
+            voices: BTreeMap::from([(5, vec![0.0, 0.0, 1.0])]),
+        };
+        assistant.voices_heard(&call.id, "Eles", &lent, &mut labels);
+        assert_eq!(labels[&5].label, "Eles");
+        assert!(!labels.contains_key(&0));
+        assert_eq!(count(&events, "transcript_reassigned"), before);
+        let everyone = people.people();
+        let caio = everyone.iter().find(|p| p.name == "Caio").unwrap();
+        assert_eq!(caio.voiceprints.len(), 1);
+        assert_eq!(caio.voiceprints[0].voice, [0.0, 0.0, 1.0]);
     }
 
     #[test]
@@ -6188,14 +6404,12 @@ mod tests {
         BTreeMap::from([("Eles".to_string(), of.to_vec())])
     }
 
-    fn alone(voice: &[f32]) -> Diarization {
-        Diarization {
-            turns: vec![crate::domain::diarization::Turn {
-                start: 0.0,
-                end: 2.0,
-                speaker: 0,
-            }],
-            voices: vec![voice.to_vec()],
+    /// One line at `at`, said by a live input's only speaker, with `voice`.
+    fn alone(at: f64, voice: &[f32]) -> Said {
+        Said {
+            lines: vec![(at, 0)],
+            merged: Vec::new(),
+            voices: BTreeMap::from([(0, voice.to_vec())]),
         }
     }
 
@@ -6380,7 +6594,8 @@ mod tests {
         fails("removing a speaker's last line");
         assistant.merge_people(&ana, &bruno);
         fails("merging");
-        assistant.voices_heard(&call.id, "Eu", &[(11.0, 0.0, 2.0)], &alone(&[0.0, 1.0]));
+        let mut labels = Labels::default();
+        assistant.voices_heard(&call.id, "Eu", &alone(11.0, &[0.0, 1.0]), &mut labels);
         fails("keeping voices heard");
         assistant.forget_person(&ana);
         fails("forgetting");
@@ -6396,27 +6611,39 @@ mod tests {
         let (assistant, events, log) = stored_with(directory.path(), people.clone());
         let mut call = Session::begin("Call", "meeting", LIVE, "pt", log.writer());
         call.hear_at("Eles", "Oi.", 10.0);
-        let line = [(10.0, 0.0, 2.0)];
-        assistant.voices_heard(&call.id, "Eles", &line, &alone(&[1.0, 0.0]));
+        let mut labels = Labels::default();
+        assistant.voices_heard(&call.id, "Eles", &alone(10.0, &[1.0, 0.0]), &mut labels);
         assistant.assign_person(&call.id, "Eles", None, "Ana", None);
-        assistant.voices_heard(&call.id, "Eles", &line, &alone(&[0.8, 0.6]));
+
+        // Recording again, a new diarizer: the voice close to the one kept
+        // takes its label, and the two voices are kept as one.
+        call.hear_at("Eles", "De volta.", 20.0);
+        let mut again = Labels::default();
+        assistant.voices_heard(&call.id, "Eles", &alone(20.0, &[0.8, 0.6]), &mut again);
         let merged = normalized(vec![1.8, 0.6]);
         assert_eq!(people.voices(&call.id)["Eles"], merged);
         let ana = people.people()[0].clone();
         assert_eq!(ana.voiceprints.len(), 1);
         assert_eq!(ana.voiceprints[0].voice, normalized(merged));
 
+        // A voice close to none while the input's label has one: a new speaker.
+        call.hear_at("Eles", "Quem fala?", 30.0);
+        let mut third = Labels::default();
+        assistant.voices_heard(&call.id, "Eles", &alone(30.0, &[0.0, 1.0]), &mut third);
+        let moved = last_of(&events, "transcript_reassigned");
+        assert_eq!(
+            (&moved["at"], &moved["label"]),
+            (&json!(30.0), &json!("Speaker 1"))
+        );
+
         let before = events.lock().unwrap().len();
-        let silent = Diarization {
-            turns: Vec::new(),
-            voices: Vec::new(),
-        };
-        assistant.voices_heard(&call.id, "Eles", &line, &silent);
-        assistant.voices_heard("nope", "Eles", &line, &alone(&[1.0, 0.0]));
+        assistant.voices_heard(&call.id, "Eles", &Said::default(), &mut third);
+        let mut nowhere = Labels::default();
+        assistant.voices_heard("nope", "Eles", &alone(10.0, &[1.0, 0.0]), &mut nowhere);
         assert_eq!(
             events.lock().unwrap().len(),
             before,
-            "no voice found, or no session, hears nothing"
+            "nothing known, or no session, hears nothing"
         );
     }
 

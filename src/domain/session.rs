@@ -806,6 +806,15 @@ impl Session {
                     let labels: Option<Vec<&str>> = who.iter().map(Value::as_str).collect();
                     session.relabel(&labels.ok_or_else(not_labels)?);
                 }
+                "voiced" => {
+                    let not_lines = || LogError("\"lines\" is not a list of lines".into());
+                    let lines = field(item, "lines")?.as_array().ok_or_else(not_lines)?;
+                    for line in lines {
+                        let line = line.as_object().ok_or_else(not_lines)?;
+                        let (who, at) = (text(line, "who")?, number(line, "at")?);
+                        session.relabel_line(&who, at, &text(line, "label")?);
+                    }
+                }
                 "edited" => {
                     let (who, at) = (text(item, "who")?, number(item, "at")?);
                     session.rewrite(&who, at, &text(item, "text")?);
@@ -1333,31 +1342,35 @@ impl Session {
         (self.record)(as_record(json!({"type": "diarized", "who": who, "at": at})));
     }
 
-    /// Give the lines `who` was heard saying at the given times the labels paired
-    /// with them, as diarization told their voices apart; other lines keep theirs.
-    pub fn split_speaker(&mut self, who: &str, labels: &[(f64, String)]) -> Vec<String> {
-        let relabelled: Vec<String> = self
-            .timeline
+    /// Give lines the labels diarization found for their voices, each as
+    /// (label, at, new label); the lines found move, and are recorded and
+    /// returned.
+    pub fn voice_lines(&mut self, lines: &[(String, f64, String)]) -> Vec<(String, f64, String)> {
+        let moved: Vec<(String, f64, String)> = lines
             .iter()
-            .filter_map(|entry| match entry {
-                Entry::Speech(speech) => Some(speech),
-                Entry::Note(_) | Entry::Suggestion(_) => None,
-            })
-            .map(|speech| {
-                let found = labels
-                    .iter()
-                    .find(|(at, _)| speech.who == who && (speech.at - at).abs() < 1e-6);
-                found.map_or_else(|| speech.who.clone(), |(_, label)| label.clone())
-            })
+            .filter(|(who, at, label)| who != label && self.relabel_line(who, *at, label).is_some())
+            .cloned()
             .collect();
-        let current = self.timeline.iter().filter_map(|entry| match entry {
-            Entry::Speech(speech) => Some(&speech.who),
-            Entry::Note(_) | Entry::Suggestion(_) => None,
-        });
-        if current.ne(relabelled.iter()) {
-            self.assign_speakers(&relabelled);
+        if !moved.is_empty() {
+            let lines: Vec<Value> = moved
+                .iter()
+                .map(|(who, at, label)| json!({"who": who, "at": at, "label": label}))
+                .collect();
+            let at = self.now();
+            (self.record)(as_record(
+                json!({"type": "voiced", "lines": lines, "at": at}),
+            ));
         }
-        relabelled
+        moved
+    }
+
+    /// When the lines of the speaker `label` were said.
+    pub fn lines_of(&self, label: &str) -> Vec<f64> {
+        let lines = self.timeline.iter().filter_map(|entry| match entry {
+            Entry::Speech(speech) if speech.who == label => Some(speech.at),
+            _ => None,
+        });
+        lines.collect()
     }
 
     /// The context slots the user turned on, or `None` until they choose.
@@ -2623,25 +2636,45 @@ mod tests {
         let first = session.hear_at("Eles", "Oi.", 10.0);
         session.hear_at("Eu", "Olá.", 11.0);
         let third = session.hear_at("Eles", "Tudo bem?", 12.0);
-        let labels = [
-            (first.at, "Speaker 1".to_string()),
-            (third.at, "Speaker 2".to_string()),
+        let moves = [
+            ("Eles".to_string(), first.at, "Eles".to_string()),
+            ("Eles".to_string(), third.at, "Speaker 2".to_string()),
+            ("Eles".to_string(), 99.0, "Speaker 3".to_string()),
         ];
-        let who = session.split_speaker("Eles", &labels);
-        assert_eq!(who, ["Speaker 1", "Eu", "Speaker 2"]);
+        // Only a line that is there and changes label moves.
+        let moved = session.voice_lines(&moves);
+        assert_eq!(moved, [moves[1].clone()]);
+        assert_eq!(session.labels(), ["Eles", "Eu", "Speaker 2"]);
+        assert_eq!(session.lines_of("Speaker 2"), [third.at]);
+        assert_eq!(session.lines_of("Eles"), [first.at]);
         let logged = records.lock().unwrap().len();
-        // The same labels again change nothing and record nothing.
-        session.split_speaker("Speaker 1", &[(first.at, "Speaker 1".to_string())]);
+        // Nothing to move records nothing.
+        assert!(session.voice_lines(&moves[..1]).is_empty());
         assert_eq!(records.lock().unwrap().len(), logged);
+        // The input's speakers turn out to be one: the rest of its lines move.
+        let joined: Vec<(String, f64, String)> = session
+            .lines_of("Eles")
+            .into_iter()
+            .map(|at| ("Eles".to_string(), at, "Speaker 2".to_string()))
+            .collect();
+        session.voice_lines(&joined);
+        assert_eq!(session.labels(), ["Speaker 2", "Eu"]);
         session.dismiss_guess("Speaker 2", "ana");
         session.dismiss_guess("Speaker 2", "ana");
         let records = records.lock().unwrap().clone();
         let dismissals = records.iter().filter(|r| r["type"] == "guess_dismissed");
         assert_eq!(dismissals.count(), 1);
+        assert_eq!(records.iter().filter(|r| r["type"] == "voiced").count(), 2);
         let restored = Session::restore(&records, Box::new(|_| {})).unwrap();
-        assert_eq!(restored.labels(), ["Speaker 1", "Eu", "Speaker 2"]);
+        assert_eq!(restored.labels(), ["Speaker 2", "Eu"]);
         assert!(restored.dismissed("Speaker 2", "ana"));
         assert!(!restored.dismissed("Speaker 1", "ana"));
+        let mut bad = records.clone();
+        bad.push(as_record(json!({"type": "voiced", "lines": [1]})));
+        assert!(Session::restore(&bad, Box::new(|_| {})).is_err());
+        let mut bad = records.clone();
+        bad.push(as_record(json!({"type": "voiced", "lines": 1})));
+        assert!(Session::restore(&bad, Box::new(|_| {})).is_err());
     }
 
     #[test]
@@ -2787,10 +2820,9 @@ mod tests {
         session.hear_at("Eles", "Tchau.", 11.0);
         session.assign_speakers(&["A".into(), "B".into()]);
         assert_eq!(session.labels(), ["A", "B"]);
-        assert_eq!(
-            session.split_speaker("B", &[(11.0, "C".into())]),
-            ["A", "C"]
-        );
+        let moved = session.voice_lines(&[("B".into(), 11.0, "C".into())]);
+        assert_eq!(moved.len(), 1);
+        assert_eq!(session.labels(), ["A", "C"]);
         let untranslated: Vec<String> = session
             .untranslated("en")
             .into_iter()

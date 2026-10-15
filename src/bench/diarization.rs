@@ -11,7 +11,7 @@ use crate::adapters::speaker_tract::TractEmbedder;
 use crate::adapters::vad_silero::{SileroModel, SileroVad};
 use crate::bench::der::{Score, Segment, parse_rttm, parse_uem, score};
 use crate::domain::channel::segment_channel;
-use crate::domain::diarization::{Clustering, Diarizer, Turn};
+use crate::domain::diarization::{Clustering, Region, Turn, diarize as cluster, region};
 use crate::domain::segmenter::SegmenterConfig;
 use crate::paths;
 use crate::ports::{AudioError, SAMPLE_RATE};
@@ -66,25 +66,28 @@ fn peak_rss_mb() -> Option<f64> {
     Some(kb / 1024.0)
 }
 
-/// The speech regions of a recording, embedded.
-pub async fn diarize<'a>(
+/// The speech regions of a recording, embedded, and its length in seconds.
+pub async fn diarize(
     path: &Path,
     vad: &SileroModel,
-    embedder: &'a TractEmbedder,
-) -> Result<(Diarizer<'a>, f64)> {
+    embedder: &TractEmbedder,
+) -> Result<(Vec<Region>, f64)> {
     let mut source = WavFileSource::new(path.into(), false);
     let mut vad = SileroVad::new(vad.clone());
     let mut probability = |frame: &[i16]| {
         vad.probability(frame)
             .map_err(|e| AudioError(e.to_string()))
     };
-    let mut diarizer = Diarizer::new(embedder);
+    let mut regions = Vec::new();
     let (mut failed, mut heard) = (None, 0usize);
     let mut add = |segment: crate::domain::segmenter::Segment| {
         heard = heard.max(segment.start + segment.pcm.len());
         let start = segment.start as f64 / f64::from(SAMPLE_RATE);
-        if let Err(e) = diarizer.add(start, &segment.pcm) {
-            failed.get_or_insert(e);
+        match region(embedder, start, &segment.pcm) {
+            Ok(region) => regions.push(region),
+            Err(e) => {
+                failed.get_or_insert(e);
+            }
         }
     };
     segment_channel(
@@ -100,7 +103,7 @@ pub async fn diarize<'a>(
     if let Some(e) = failed {
         bail!("{}: {e}", path.display());
     }
-    Ok((diarizer, heard as f64 / f64::from(SAMPLE_RATE)))
+    Ok((regions, heard as f64 / f64::from(SAMPLE_RATE)))
 }
 
 fn hypothesis(turns: &[Turn]) -> Vec<Segment> {
@@ -153,28 +156,32 @@ pub async fn run(options: Options) -> Result<()> {
             Err(_) => None,
         };
         let started = Instant::now();
-        let (diarizer, length) = diarize(&base.with_extension("wav"), &vad, &embedder).await?;
+        let (regions, length) = diarize(&base.with_extension("wav"), &vad, &embedder).await?;
         let took = started.elapsed().as_secs_f64();
         println!(
             "{name}: {:.1} min in {took:.1} s ({:.0}x real time)",
             length / 60.0,
             length / took
         );
-        runs.push((name, reference, uem, diarizer));
+        runs.push((name, reference, uem, regions));
     }
     for (index, &threshold) in options.thresholds.iter().enumerate() {
         let clustering = Clustering {
             threshold,
             min_share: options.min_share,
+            ..Clustering::default()
         };
-        println!("\nthreshold {threshold}, min share {}", options.min_share);
+        println!(
+            "\nthreshold {threshold}, merge {}, min share {}",
+            clustering.merge, options.min_share
+        );
         println!(
             "{:10} {:>8} {:>8} {:>7} {:>7} {:>7} {:>6}",
             "recording", "speakers", "found", "missed", "f.alarm", "confus.", "DER %"
         );
         let mut all = Score::default();
-        for (name, reference, uem, diarizer) in &runs {
-            let turns = diarizer.finish(clustering).turns;
+        for (name, reference, uem, regions) in &runs {
+            let turns = cluster(regions, clustering).turns;
             if let Some(dir) = options.output.as_ref().filter(|_| index == 0) {
                 write_rttm(&dir.join(format!("{name}.rttm")), name, &turns)?;
             }
