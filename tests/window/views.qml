@@ -76,6 +76,7 @@ Item {
     thinking: ""
     failure: ""
     translatable: false
+    kind: "meeting"
     at: Date.now() / 1000
     stamp: "10:00:00"
   }

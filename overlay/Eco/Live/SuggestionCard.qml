@@ -36,8 +36,9 @@ SurfaceFrame {
   property string hookState: ""
   // The reply in the session's translation language, once it arrives.
   property string translation: ""
-  // A model translates its session.
+  // A model translates its session, of this kind.
   property bool translatable: true
+  property string kind: ""
   // How the finished answer went, as JSON {ttft, total} in ms and {cache} in %
   // (-1 unknown); empty when not measured.
   property string timing: ""
@@ -107,7 +108,7 @@ SurfaceFrame {
       name: "translate"
       size: 13
       tip: I18n.t("card.translate_tip")
-      reason: card.translatable ? "" : I18n.t("error.translation.none", { kind: Eco.onScreen ? Eco.kindName(Eco.onScreen.kind) : "" })
+      reason: card.translatable ? "" : I18n.t("error.translation.none", { kind: Eco.kindName(card.kind) })
       activeFocusOnTab: card.reachable
       onClicked: Eco.translateEntry(card.suggestionId)
     }

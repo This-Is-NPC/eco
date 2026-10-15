@@ -29,8 +29,10 @@ Item {
     if (sessionId)
       Eco.requestSpeakers(sessionId)
   }
-  // A model translates the session on screen, so its answers can be translated.
-  readonly property bool translates: Eco.onScreen !== null && Eco.modelsOf(Eco.onScreen.kind).translation !== ""
+  // The kind of the session on screen, and whether a model translates it, so
+  // its answers can be translated.
+  readonly property string kind: Eco.onScreen !== null ? Eco.onScreen.kind : ""
+  readonly property bool translates: kind !== "" && Eco.modelsOf(kind).translation !== ""
   // [{who, name, text}]: words still being said.
   property var partials: []
   property string emptyText: Eco.recording ? I18n.t("timeline.listening") : I18n.t("timeline.paused")
@@ -496,6 +498,7 @@ Item {
         hookState: entry.hook
         translation: entry.translation
         translatable: root.translates
+        kind: root.kind
         timing: entry.timing
         at: entry.at
         stamp: entry.stamp
