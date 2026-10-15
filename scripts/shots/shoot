@@ -474,7 +474,8 @@ def scenes(w, shots, stop):
     w.do("Eco.leaveSession()")
 
     w.do("Eco.openPeople()")
-    shots.until("Eco.view === 'people' && Eco.peopleHeard", "the people")
+    # The people view is made when shown; its rows take the keyboard once laid out.
+    shots.until("Eco.view === 'people' && Eco.peopleHeard && d.all().some(i => d.kind(i) === 'ListView' && i.activeFocus)", "the people")
     shots.take("30-people")
     w.do("Eco.historyForPerson(Eco.people.find(p => p.name === 'Ana Ribeiro').id)")
     shots.until("Eco.view === 'history'", "the person's sessions")
