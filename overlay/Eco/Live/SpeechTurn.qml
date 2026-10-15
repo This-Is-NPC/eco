@@ -62,10 +62,11 @@ Item {
     turn.splitting = false
   }
   // Saves the correction, or splits at the cursor; the daemon counts
-  // characters, the editor UTF-16 units.
+  // characters, the editor UTF-16 units. The spread counts characters; Qt's
+  // Array.from counts UTF-16 units.
   function confirm() {
     if (turn.splitting) {
-      Eco.splitLine(turn.sessionId, turn.who, turn.at, Array.from(editor.text.slice(0, editor.cursorPosition)).length)
+      Eco.splitLine(turn.sessionId, turn.who, turn.at, [...editor.text.slice(0, editor.cursorPosition)].length)
     } else {
       const text = editor.text.trim()
       if (text !== turn.text)
