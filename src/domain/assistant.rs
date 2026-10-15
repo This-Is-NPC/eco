@@ -6442,7 +6442,7 @@ mod tests {
             (
                 summary["title"].clone(),
                 summary["state"].clone(),
-                summary["suggestions"].clone()
+                summary["counts"]["answers"].clone()
             ),
             (json!("Entrevista"), json!("ended"), json!(1))
         );
