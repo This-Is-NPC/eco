@@ -444,3 +444,22 @@ here, and its tests run on Windows.
 | `src/adapters/notify_linux.rs` | new | 84.48% (9 of 58) | `NotifySend::notify`, which runs the real `notify-send` on a thread of its own and would show a notification on the desktop of whoever runs the tests; the arguments it builds and what it says when the program fails or is missing (`command`, `run`) are tested. |
 | `src/session.rs` | 96.79% | 96.81% | as in the update section; `notifier()`, one composition line that builds the real `NotifySend`; in `emitter()`, the terminal's line, which needs a terminal (`emitter()` is tested without one, and the terminal's printing in `src/adapters/terminal.rs`). |
 | `src/adapters/overlay.rs`, `src/config.rs` | 96.25%, 99.80% | 96.36%, 99.80% | as before. |
+
+## Meeting performance coverage (2026-10-14)
+
+Measured with `mise run coverage` on the tree that added timeline counts and
+pages, line merge and split, the session index, event subscriptions and live
+diarization; line numbers read from `cargo llvm-cov report
+--show-missing-lines`. Before is master at the commit the change started from.
+The whole crate: 96.95% of lines before, 97.15% after. Files whose numbers
+did not move are not named.
+
+| File | Lines before | Lines after | Left without a test, and why |
+|---|---|---|---|
+| `src/domain/index.rs` | new | 98.51% (2 of 134) | no line is named as missed: the report lists none, and its per-line view shows none at zero. |
+| `src/domain/diarization.rs` | 100.00% (0 of 421) | 99.86% (1 of 702) | as for `index.rs`: the summary counts one line that no line view shows at zero. |
+| `src/adapters/session_files.rs` | 99.70% (1 of 338) | 99.67% (2 of 605) | as for `index.rs`, before and after. |
+| `src/domain/assistant.rs` | 99.62% | 99.72% | states no command sequence reaches (2700, 2703, 3158, 3165, 3238–3239), and in `voices_heard` two joined speakers that hold the same label (1128): a label goes to one speaker only, so no update builds it. |
+| `src/adapters/diarizer_process.rs` | 95.69% | 97.61% | `spawn()` and `serve()`, the one-line entry points into the real `eco diarize` and its stdin and stdout; a `panic!` that reports a failed test. |
+| `src/adapters/control_socket.rs` | 97.53% | 97.66% | as before, and a test's wait for its two clients to connect. |
+| `src/domain/session.rs`, `src/session.rs`, `src/import.rs`, `src/main.rs`, `src/cli.rs` | 98.21%, 96.81%, 97.15%, 88.90%, 99.90% | 98.24%, 96.91%, 97.59%, 89.32%, 99.91% | as before. |
