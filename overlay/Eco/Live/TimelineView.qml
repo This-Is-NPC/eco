@@ -140,7 +140,10 @@ Item {
     const x = timeline.width / 2
     const top = timeline.indexAt(x, timeline.contentY + timeline.topMargin + 1)
     const bottom = timeline.indexAt(x, timeline.contentY + timeline.height - timeline.bottomMargin - 1)
-    if (Eco.moreBefore && (timeline.atYBeginning || (top >= 0 && top < root.near)))
+    // Above the first entry held, the view shows the header of earlier ones.
+    const first = timeline.itemAtIndex(0)
+    const above = first !== null && first.y > timeline.contentY + timeline.topMargin
+    if (Eco.moreBefore && (timeline.atYBeginning || above || (top >= 0 && top < root.near)))
       Eco.pageBefore()
     else if (Eco.moreAfter && (timeline.atYEnd || bottom >= timeline.count - root.near))
       Eco.pageAfter()
