@@ -1,5 +1,6 @@
 pragma ComponentBehavior: Bound
 import QtQuick
+import QtQuick.Layouts
 import Eco.Core
 import Eco.Kit
 
@@ -9,17 +10,24 @@ import Eco.Kit
 // unless the user scrolled up to read; then a pill counts what arrived below
 // and jumps back to it. An answer streaming taller than the view keeps its top
 // in view until the next entry comes. Below the lines, dimmed, what each
-// speaker is saying right now, until it becomes a line. From the keyboard, Tab
+// speaker is saying right now, until it becomes a line. A click on a line, or
+// Enter or the Menu key on it, opens its menu with everything that can be done
+// to it; merging keeps that line outlined until the next line picked merges
+// into it, and Esc, or the same line again, gives up. From the keyboard, Tab
 // reaches it on the newest entry: ↑/↓ and PgUp/PgDn move, Home/End go to
 // either end, N names the speaker of a line, and Tab moves into the tools of
-// the entry it is on.
+// a note or an answer.
 Item {
   id: root
 
   property alias model: timeline.model
   // The session on screen, so a speaker can be named in it.
   property string sessionId
-  onSessionIdChanged: if (sessionId) Eco.requestSpeakers(sessionId)
+  onSessionIdChanged: {
+    root.merging = null
+    if (sessionId)
+      Eco.requestSpeakers(sessionId)
+  }
   // A model translates the session on screen, so its answers can be translated.
   readonly property bool translates: Eco.onScreen !== null && Eco.modelsOf(Eco.onScreen.kind).translation !== ""
   // [{who, name, text}]: words still being said.
@@ -101,6 +109,86 @@ Item {
   // Seconds of silence after which a speaker's next line starts a new turn.
   readonly property int pause: 120
 
+  // >>> line menu (merge and split)
+  // The line {who, at} waiting for the line it merges with, or null.
+  property var merging: null
+  function isMerging(who, at) { return root.merging !== null && root.merging.who === who && Math.abs(root.merging.at - at) < 1e-6 }
+  // Everything that can be done to a line, as its menu lists it.
+  readonly property var lineActions: [
+    { id: "edit", icon: "edit", text: I18n.t("line.menu.edit") },
+    { id: "line_speaker", icon: "people", text: I18n.t("line.menu.speaker_line") },
+    { id: "speaker", icon: "people", text: I18n.t("line.menu.speaker_all") },
+    { id: "copy", icon: "copy", text: I18n.t("line.menu.copy") },
+    { id: "merge", icon: "merge", text: I18n.t("line.menu.merge") },
+    { id: "split", icon: "split", text: I18n.t("line.menu.split") },
+    { id: "remove", icon: "trash", text: I18n.t("line.menu.remove"), guarded: true }
+  ]
+  // A line clicked, or chosen from the keyboard, at `row`: its menu opens, or
+  // it merges into the line waiting; the waiting line itself gives up.
+  function lineClicked(turn, row) {
+    if (root.merging === null) {
+      lineMenu.line = turn
+      lineMenu.row = row
+      lineMenu.parent = turn.box
+      lineMenu.alignRight = turn.mine
+      lineMenu.open()
+      return
+    }
+    const same = root.isMerging(turn.who, turn.at)
+    const into = root.merging
+    root.merging = null
+    if (!same)
+      Eco.mergeLines(root.sessionId, into, { who: turn.who, at: turn.at })
+  }
+  function act(id, turn, row) {
+    const speaker = scope => Eco.speakerRequested({ session: root.sessionId, label: turn.who, name: turn.name, at: turn.at, scope: scope })
+    if (id === "edit")
+      turn.edit()
+    else if (id === "line_speaker")
+      speaker("line")
+    else if (id === "speaker")
+      speaker("speaker")
+    else if (id === "copy")
+      Eco.copy(turn.text)
+    else if (id === "merge") {
+      root.merging = { who: turn.who, at: turn.at }
+      // The keyboard goes to the timeline, on the line waiting, so Esc gives up.
+      timeline.currentIndex = row
+      timeline.forceActiveFocus()
+    } else if (id === "split")
+      turn.split()
+    else if (id === "remove")
+      Eco.removeLine(root.sessionId, turn.who, turn.at)
+  }
+
+  MenuPopup {
+    id: lineMenu
+    // The line it was opened on, and its row.
+    property var line: null
+    property int row: -1
+    entries: root.lineActions
+    onPicked: index => root.act(root.lineActions[index].id, lineMenu.line, lineMenu.row)
+  }
+
+  // While a line waits for its merge: what to do, and a way out.
+  RowLayout {
+    id: mergeStrip
+    visible: root.merging !== null
+    anchors { left: parent.left; right: parent.right; top: parent.top }
+    spacing: 10
+    Icon { name: "merge"; size: 11; color: Theme.primary }
+    Label {
+      Layout.fillWidth: true
+      text: I18n.t("line.merge_hint")
+      color: Theme.primary
+      font.pixelSize: 10
+      font.letterSpacing: 2
+      elide: Text.ElideRight
+    }
+    Chip { text: I18n.t("dialog.cancel"); onClicked: root.merging = null }
+  }
+  // <<< line menu
+
   // Whether the line at `index` is said by the speaker of the line just before
   // it, with no longer pause between them.
   // A delegate may ask with its old index while the lines change under it.
@@ -135,7 +223,7 @@ Item {
   }
 
   anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
-  height: Math.min(root.height, contentHeight + topMargin + bottomMargin)
+  height: Math.min(root.height - (mergeStrip.visible ? mergeStrip.height + 8 : 0), contentHeight + topMargin + bottomMargin)
   clip: true
   // An entry's outline never lies on the clip's edge, where a fractional scale
   // would cut it.
@@ -165,6 +253,10 @@ Item {
       root.jump()
     else if (event.key === Qt.Key_N && currentItem && currentItem.kind === "speech" && root.sessionId)
       Eco.speakerRequested({ session: root.sessionId, label: currentItem.who, name: currentItem.name, at: currentItem.at, scope: "speaker" })
+    else if ([Qt.Key_Return, Qt.Key_Enter, Qt.Key_Menu].includes(event.key) && currentItem && currentItem.kind === "speech" && root.sessionId)
+      root.lineClicked(currentItem.item, currentIndex)
+    else if (event.key === Qt.Key_Escape && root.merging !== null)
+      root.merging = null
     else
       return
     event.accepted = true
@@ -258,6 +350,8 @@ Item {
         continued: root.revision >= 0 && root.continues(entry.index)
         selected: entry.selected
         translation: entry.translation
+        merging: root.isMerging(entry.who, entry.at)
+        onClicked: root.lineClicked(this, entry.index)
       }
     }
 

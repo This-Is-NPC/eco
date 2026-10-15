@@ -21,8 +21,9 @@ use crate::domain::prompts::{
     LANGUAGES, action_request, conversation, question_request, review, translation,
 };
 use crate::domain::session::{
-    ENDED, Entry, HeardBy, INTERRUPTED, LIVE, LogError, Note, PAUSED, RECORDING, Rate, Session,
-    Source, Speech, Suggestion, Unclosed, folded, now, same_tag, summarize, tag_counts, tag_name,
+    ENDED, Entry, HeardBy, INTERRUPTED, LIVE, LineError, LogError, Note, PAUSED, RECORDING, Rate,
+    Session, Source, Speech, Suggestion, Unclosed, folded, now, same_tag, summarize, tag_counts,
+    tag_name,
 };
 use crate::domain::transcribers::Listening;
 use crate::ports::{
@@ -1642,16 +1643,7 @@ impl Assistant {
         match removed {
             Some((true, retired, person)) => {
                 if retired {
-                    if let Some(mut person) = person.and_then(|id| self.person(&id)) {
-                        person.unenroll(session_id, who);
-                        self.save_person(&person);
-                    }
-                    let mut voices = self.inner.people.voices(session_id);
-                    if voices.remove(who).is_some()
-                        && let Err(failure) = self.inner.people.keep_voices(session_id, &voices)
-                    {
-                        self.store_failed(&failure);
-                    }
+                    self.retire(session_id, who, person);
                 }
                 self.emit(json!({"type": "transcript_removed", "session": session_id, "who": who, "at": at}));
                 self.announce_speakers(session_id);
@@ -1660,6 +1652,131 @@ impl Assistant {
                 self.people();
             }
             Some((false, _, _)) => self.line_not_found(session_id, who, at),
+            None => self.not_found(session_id),
+        }
+    }
+
+    /// The speaker `who`, once `person`, has no line left in a session: the
+    /// person no longer speaks in it and the voice kept for the speaker goes.
+    fn retire(&self, session_id: &str, who: &str, person: Option<String>) {
+        if let Some(mut person) = person.and_then(|id| self.person(&id)) {
+            person.unenroll(session_id, who);
+            self.save_person(&person);
+        }
+        let mut voices = self.inner.people.voices(session_id);
+        if voices.remove(who).is_some()
+            && let Err(failure) = self.inner.people.keep_voices(session_id, &voices)
+        {
+            self.store_failed(&failure);
+        }
+    }
+
+    fn line_failed(&self, session_id: &str, failure: LineError, detail: &str) {
+        match failure {
+            LineError::NotFound(who, at) => self.line_not_found(session_id, &who, at),
+            LineError::Invalid => self.emit(error(
+                "line.invalid",
+                format!("session {session_id}: {detail}"),
+                json!({"id": session_id}),
+            )),
+        }
+    }
+
+    /// Translate again, when the session translates, the lines a merge or a
+    /// split rewrote.
+    fn retranslate(
+        &self,
+        session_id: &str,
+        again: Option<(Arc<Setup>, String, String)>,
+        lines: &[&Speech],
+    ) {
+        let Some((setup, kind, language)) = again else {
+            return;
+        };
+        for line in lines {
+            let of = Source::Line(line.at);
+            self.translate(&setup, session_id, &kind, &language, of, line.text.clone());
+        }
+    }
+
+    /// Merge two lines of a session — open, loaded or stored — into the earlier
+    /// one: their texts in time order, its time and speaker. Clients update it
+    /// and drop the other; the context and the export see one line.
+    pub fn merge_lines(&self, session_id: &str, into: (&str, f64), from: (&str, f64)) {
+        let merged = {
+            let mut state = self.state();
+            let setup = state.setup.clone();
+            self.edit_session(&mut state, session_id, |session| {
+                let people =
+                    [into.0, from.0].map(|who| (who, session.person_of(who).map(String::from)));
+                let (kept, gone) = session.merge_lines(into, from)?;
+                let retired = !session.labels().contains(&gone.who);
+                let person = people
+                    .into_iter()
+                    .find(|(who, _)| *who == gone.who)
+                    .and_then(|(_, p)| p);
+                let again = setup
+                    .zip(session.translation())
+                    .map(|(setup, language)| (setup, session.kind.clone(), language.to_string()));
+                Ok::<_, LineError>((kept, gone, retired, person, again))
+            })
+        };
+        match merged {
+            Some(Ok((kept, gone, retired, person, again))) => {
+                if retired {
+                    self.retire(session_id, &gone.who, person);
+                }
+                self.emit(json!({
+                    "type": "line_merged", "session": session_id,
+                    "into": {"who": kept.who, "at": kept.at},
+                    "from": {"who": gone.who, "at": gone.at}, "text": kept.text,
+                }));
+                self.retranslate(session_id, again, &[&kept]);
+                if retired {
+                    self.announce_speakers(session_id);
+                    self.announce_attendees(session_id);
+                    self.people();
+                }
+                self.sessions();
+            }
+            Some(Err(failure)) => {
+                self.line_failed(session_id, failure, "a line merges only into another line")
+            }
+            None => self.not_found(session_id),
+        }
+    }
+
+    /// Split the line `who` said at `at` in a session — open, loaded or stored —
+    /// before its character `offset`: it keeps the left part, and the right part
+    /// becomes a new line of theirs right below it.
+    pub fn split_line(&self, session_id: &str, who: &str, at: f64, offset: usize) {
+        let split = {
+            let mut state = self.state();
+            let setup = state.setup.clone();
+            self.edit_session(&mut state, session_id, |session| {
+                let (kept, new) = session.split_line(who, at, offset)?;
+                let name = session.name_of(&new.who).to_string();
+                let again = setup
+                    .zip(session.translation())
+                    .map(|(setup, language)| (setup, session.kind.clone(), language.to_string()));
+                Ok::<_, LineError>((kept, new, name, again))
+            })
+        };
+        match split {
+            Some(Ok((kept, new, name, again))) => {
+                self.emit(json!({
+                    "type": "line_split", "session": session_id,
+                    "of": {"who": kept.who, "at": kept.at}, "text": kept.text,
+                    "new": {"who": new.who, "name": name, "at": new.at, "text": new.text},
+                }));
+                self.retranslate(session_id, again, &[&kept, &new]);
+                self.sessions();
+            }
+            Some(Err(failure)) => self.line_failed(
+                session_id,
+                failure,
+                "a line splits only inside its text, with room before the next entry",
+            ),
             None => self.not_found(session_id),
         }
     }
@@ -5947,6 +6064,136 @@ mod tests {
         );
     }
 
+    /// The time of each line heard, in order.
+    fn heard_at(events: &Events) -> Vec<f64> {
+        let events = events.lock().unwrap();
+        let lines = events.iter().filter(|e| e["type"] == "transcript");
+        lines.map(|e| e["at"].as_f64().unwrap()).collect()
+    }
+
+    #[tokio::test]
+    async fn two_lines_merge_into_the_earlier_and_answers_see_one() {
+        let fake = llm(&["In English."]);
+        let (assistant, events) = make(&fake, true);
+        assistant.hear(&heard(), &utterance("Recrutador", "Bom dia."));
+        assistant.hear(&heard(), &utterance("Eu", "Tudo bem?"));
+        let id = assistant.state().session().unwrap().id.clone();
+        let at = heard_at(&events);
+        assistant.set_translation(&id, "en");
+        settle().await;
+        events.lock().unwrap().clear();
+        // The later line picked first still merges into the earlier one.
+        assistant.merge_lines(&id, ("Eu", at[1]), ("Recrutador", at[0]));
+        let merged = events
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|e| e["type"] == "line_merged")
+            .cloned()
+            .unwrap();
+        assert_eq!(
+            merged,
+            json!({"type": "line_merged", "session": id,
+                   "into": {"who": "Recrutador", "at": at[0]},
+                   "from": {"who": "Eu", "at": at[1]}, "text": "Bom dia. Tudo bem?"})
+        );
+        assert!(
+            kinds(&events).contains(&"session_speakers".to_string()),
+            "the speaker left with no line is announced gone"
+        );
+        let lines: Vec<Value> = shown_timeline(&assistant)
+            .into_iter()
+            .filter(|e| e["type"] == "transcript")
+            .collect();
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0]["text"], "Bom dia. Tudo bem?");
+        assert!(
+            lines[0]["translation"].is_null(),
+            "the old translation is dropped"
+        );
+        settle().await;
+        let again: Vec<Value> = events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|e| e["type"] == "translated")
+            .cloned()
+            .collect();
+        assert_eq!(again.len(), 1, "the merged line is translated again");
+        assert_eq!(again[0]["at"], json!(at[0]));
+        let calls = fake.calls.lock().unwrap().clone();
+        assert!(
+            calls
+                .iter()
+                .any(|(_, messages)| messages[1].content == "Bom dia. Tudo bem?"),
+            "the translator is asked for the merged text"
+        );
+
+        fake.calls.lock().unwrap().clear();
+        assistant.trigger(None, "ask");
+        settle().await;
+        let asked = fake.calls.lock().unwrap().clone();
+        let request = &asked
+            .iter()
+            .find(|(model, _)| model == "default/model")
+            .unwrap()
+            .1;
+        let said = &request.last().unwrap().content;
+        assert!(said.contains("Recrutador: Bom dia. Tudo bem?"), "{said}");
+        assert!(!said.contains("Eu: Tudo bem?"), "{said}");
+
+        assistant.merge_lines(&id, ("Recrutador", at[0]), ("Recrutador", at[0]));
+        assert_eq!(
+            events.lock().unwrap().last().unwrap()["code"],
+            "line.invalid"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_line_splits_at_the_cursor_into_a_line_right_below() {
+        let fake = llm(&["In English."]);
+        let (assistant, events) = make(&fake, true);
+        assistant.hear(&heard(), &utterance("Recrutador", "Bom dia. Tudo bem?"));
+        let id = assistant.state().session().unwrap().id.clone();
+        let at = heard_at(&events)[0];
+        assistant.set_translation(&id, "en");
+        settle().await;
+        events.lock().unwrap().clear();
+        assistant.split_line(&id, "Recrutador", at, 8);
+        let split = events.lock().unwrap()[0].clone();
+        assert_eq!(
+            split,
+            json!({"type": "line_split", "session": id,
+                   "of": {"who": "Recrutador", "at": at}, "text": "Bom dia.",
+                   "new": {"who": "Recrutador", "name": "Recrutador", "at": at + 0.001,
+                           "text": "Tudo bem?"}})
+        );
+        let lines: Vec<Value> = shown_timeline(&assistant)
+            .into_iter()
+            .filter(|e| e["type"] == "transcript")
+            .collect();
+        let texts: Vec<&Value> = lines.iter().map(|line| &line["text"]).collect();
+        assert_eq!(texts, [&json!("Bom dia."), &json!("Tudo bem?")]);
+        assert!(lines[0]["translation"].is_null());
+        settle().await;
+        let again = events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|e| e["type"] == "translated")
+            .count();
+        assert_eq!(again, 2, "both parts are translated");
+
+        for offset in [0, 99] {
+            assistant.split_line(&id, "Recrutador", at, offset);
+            assert_eq!(
+                events.lock().unwrap().last().unwrap()["code"],
+                "line.invalid",
+                "{offset}"
+            );
+        }
+    }
+
     #[tokio::test]
     async fn sessions_can_be_listed_shown_and_resumed() {
         let directory = tempfile::tempdir().unwrap();
@@ -6475,7 +6722,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let (assistant, events, _) = stored_with(directory.path(), people_in(directory.path()));
         let id = assistant.start("Call", "meeting", "pt", None);
-        let missing: [(&str, &dyn Fn()); 13] = [
+        let missing: [(&str, &dyn Fn()); 15] = [
             ("contexts", &|| assistant.set_contexts("nope", &[])),
             ("focus", &|| assistant.focus("nope")),
             ("timeline", &|| assistant.timeline("nope")),
@@ -6486,6 +6733,10 @@ mod tests {
             ("remove line", &|| {
                 assistant.remove_line("nope", "Eles", 1.0)
             }),
+            ("merge", &|| {
+                assistant.merge_lines("nope", ("Eles", 1.0), ("Eles", 2.0))
+            }),
+            ("split", &|| assistant.split_line("nope", "Eles", 1.0, 1)),
             ("send", &|| assistant.send("nope", "x")),
             ("remove", &|| assistant.remove("nope", "x")),
             ("translate", &|| assistant.set_translation("nope", "en")),
@@ -6505,6 +6756,10 @@ mod tests {
         assistant.delete_session("0123456789ab");
         assert_eq!(last_code(&events), "session.not_found");
         assistant.edit_line(&id, "Eles", 99.0, "x");
+        assert_eq!(last_code(&events), "line.not_found");
+        assistant.merge_lines(&id, ("Eles", 98.0), ("Eles", 99.0));
+        assert_eq!(last_code(&events), "line.not_found");
+        assistant.split_line(&id, "Eles", 99.0, 1);
         assert_eq!(last_code(&events), "line.not_found");
         assistant.rename(&id, "Call", "podcast");
         assert_eq!(last_code(&events), "session.invalid");

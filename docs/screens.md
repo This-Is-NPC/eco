@@ -217,8 +217,15 @@ From the top:
   speaker's name and time head each turn. Answers are framed cards, drawn as
   their Markdown streams, with the skill or question that asked for them, and
   translate, copy (`wl-copy`, as Markdown) and remove (×). A note is a card of
-  its own. Hovering a line shows ✎ to correct it and × to remove it; clicking a
-  speaker's name asks who they are (section 7).
+  its own. Clicking a line opens its menu: CORRECT, SPEAKER OF THIS LINE,
+  SPEAKER OF ALL THEIR LINES, COPY, MERGE WITH ANOTHER LINE, SPLIT IN TWO and
+  REMOVE; Enter or the Menu key opens it on the line the keyboard is on.
+  MERGE outlines the line and a strip says `PICK THE LINE TO MERGE WITH THIS
+  ONE`: the next line clicked joins it, the earlier line's time and speaker
+  kept; Esc, CANCEL or the same line again gives up. SPLIT opens the line with
+  its cursor near the middle; move it, then SPLIT HERE (or Enter) leaves the
+  text after the cursor as a new line right below. Clicking a speaker's name
+  asks who they are (section 7).
 - **The composer**: the skills as numbered chips, and a line to ask anything.
   Typing `/` lists the skills above the line as the word grows. NOTE (or
   `Shift+Enter`) keeps the text as a note instead of asking it. Where no chat
@@ -283,7 +290,9 @@ provider went down to take it.
 | conversation | `↑` `↓` `PgUp` `PgDn` | move through lines, notes and answers |
 | conversation | `Home` · `End` | the first or the last |
 | conversation | `N` | name the speaker of the line |
-| conversation | `Tab` | reach the line's tools |
+| conversation | `Enter` · `Menu` | open the line's menu; while merging, merge it with the line waiting |
+| conversation | `Esc` | stop merging |
+| conversation | `Tab` | reach the tools of a note or an answer |
 | composer | `Enter` | send the question |
 | composer | `Shift+Enter` | keep the text as a note |
 | composer | `/` | list the skills: `↑` `↓` choose, `Tab` completes, `Enter` runs |

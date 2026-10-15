@@ -486,6 +486,12 @@ Singleton {
   }
   function editLine(id, who, at, text) { send("session.line.edit " + JSON.stringify({ id: id, who: who, at: at, text: text })) }
   function removeLine(id, who, at) { send("session.line.remove " + JSON.stringify({ id: id, who: who, at: at })) }
+  // >>> line merge and split
+  // `into` and `from` are lines as {who, at}; the earlier keeps its time and speaker.
+  function mergeLines(id, into, from) { send("session.line.merge " + JSON.stringify({ id: id, into: into, from: from })) }
+  // `offset` counts the line's characters, not UTF-16 units.
+  function splitLine(id, who, at, offset) { send("session.line.split " + JSON.stringify({ id: id, who: who, at: at, offset: offset })) }
+  // <<< line merge and split
   function renameSpeaker(id, label, name) { send("session.speaker " + JSON.stringify({ id: id, label: label, name: name })) }
   // countOf counts the entries of a kind ("speech", "suggestion", "note") in a
   // session on screen, only `who`'s lines when given; a binding that calls it
@@ -839,16 +845,28 @@ Singleton {
     return onScreen !== null && onScreen.id === sessionId ? timeline : null
   }
 
-  // addSpeech adds a line: `who` is the label its speaker carries, `name` what
-  // the speaker goes by in that session.
-  function addSpeech(who, name, text, at, target, translation) {
-    const list = target
-    list.append({
+  // addSpeech adds a line, at the end or at `row`: `who` is the label its
+  // speaker carries, `name` what the speaker goes by in that session.
+  function addSpeech(who, name, text, at, target, translation, row) {
+    const line = {
       kind: "speech", key: "", who: who, name: name, text: text, mine: isUser(who), at: at,
       stamp: Qt.formatTime(new Date(at * 1000), "hh:mm:ss"),
       action: "", modelName: "", prompt: "", streaming: false, thinking: "", failure: "", draft: "", hook: "",
       translation: translation || "", timing: ""
-    })
+    }
+    if (row === undefined)
+      target.append(line)
+    else
+      target.insert(row, line)
+  }
+  // The row of the line `who` said at `at` in `list`, or -1, also without a list.
+  function lineRow(list, who, at) {
+    for (let i = 0; list && i < list.count; i++) {
+      const line = list.get(i)
+      if (line.kind === "speech" && line.who === who && Math.abs(line.at - at) < 1e-6)
+        return i
+    }
+    return -1
   }
 
   // `draft` is the unreviewed answer a reviewer rewrote, kept only to inspect;
@@ -1096,39 +1114,55 @@ Singleton {
       break
     case "transcript_edited": {
       const list = timelineOf(event.session)
-      for (let i = 0; list && i < list.count; i++) {
-        const line = list.get(i)
-        if (line.kind === "speech" && line.who === event.who && Math.abs(line.at - event.at) < 1e-6) {
-          list.setProperty(i, "text", event.text)
-          break
-        }
-      }
+      const row = lineRow(list, event.who, event.at)
+      if (row >= 0)
+        list.setProperty(row, "text", event.text)
       break
     }
     case "transcript_reassigned": {
       const list = timelineOf(event.session)
-      for (let i = 0; list && i < list.count; i++) {
-        const line = list.get(i)
-        if (line.kind === "speech" && line.who === event.who && Math.abs(line.at - event.at) < 1e-6) {
-          list.setProperty(i, "who", event.label)
-          list.setProperty(i, "name", event.name)
-          break
-        }
+      const row = lineRow(list, event.who, event.at)
+      if (row >= 0) {
+        list.setProperty(row, "who", event.label)
+        list.setProperty(row, "name", event.name)
       }
       break
     }
     case "transcript_removed": {
       // A line the user did not say: the others' audio, heard by the microphone.
       const list = timelineOf(event.session)
-      for (let i = 0; list && i < list.count; i++) {
-        const line = list.get(i)
-        if (line.kind === "speech" && line.who === event.who && Math.abs(line.at - event.at) < 1e-6) {
-          list.remove(i)
-          break
-        }
+      const row = lineRow(list, event.who, event.at)
+      if (row >= 0)
+        list.remove(row)
+      break
+    }
+    // >>> line merge and split
+    // The merged line takes the text and loses its translation until the new
+    // one comes; the other line goes.
+    case "line_merged": {
+      const list = timelineOf(event.session)
+      const into = lineRow(list, event.into.who, event.into.at)
+      if (into >= 0) {
+        list.setProperty(into, "text", event.text)
+        list.setProperty(into, "translation", "")
+      }
+      const from = lineRow(list, event.from.who, event.from.at)
+      if (from >= 0)
+        list.remove(from)
+      break
+    }
+    // The split line keeps its left part; the right part is a new line right below.
+    case "line_split": {
+      const list = timelineOf(event.session)
+      const row = lineRow(list, event.of.who, event.of.at)
+      if (row >= 0) {
+        list.setProperty(row, "text", event.text)
+        list.setProperty(row, "translation", "")
+        addSpeech(event.new.who, event.new.name, event.new.text, event.new.at, list, "", row + 1)
       }
       break
     }
+    // <<< line merge and split
     case "session_speakers":
       keepSpeakers(event.session, event.speakers)
       break

@@ -4,7 +4,8 @@
 //! a watched file and raising a window, run offscreen against `tests/window/bridge.qml`;
 //! on Windows, a copied text that outlives the window, on the real platform;
 //! the overlay's views driven as the daemon drives them, in
-//! `tests/window/views.qml`; the settings window's section keys, in
+//! `tests/window/views.qml`; a line's menu, merge and split, in
+//! `tests/window/lines.qml`; the settings window's section keys, in
 //! `tests/window/settings_keys.qml`; the toast stack, in
 //! `tests/window/toasts.qml`; the bars and tables of the views, pressed
 //! as a keyboard and a pointer press them, in `tests/window/bars.qml`; and the
@@ -260,6 +261,57 @@ async fn the_bars_and_tables_answer_their_keys() {
     .await
     .expect("the bars did not finish");
     assert!(status.success(), "{said}");
+}
+
+/// A line's menu, opened by a click and by the Menu key; a merge picked in it,
+/// given up or done on the next line clicked; and a split at the cursor,
+/// counted in characters: the window's own checks pass, and it sends the merge
+/// and the two splits, and no other change to a line.
+#[tokio::test]
+async fn a_lines_menu_merges_and_splits_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut listener = Listener::bind(dir.path());
+    let mut window = offscreen("lines", dir.path())
+        .env("ECO_SOCKET", listener.name())
+        .env("ECO_TOKEN", "secret")
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .unwrap();
+    let mut daemon = accept(&mut listener, &mut window).await;
+    let mut stderr = window.stderr.take().unwrap();
+    let mut said = String::new();
+    let mut sent = Vec::new();
+    let status = tokio::time::timeout(Duration::from_secs(30), async {
+        let lines = async {
+            let mut line = String::new();
+            while daemon.read_line(&mut line).await.unwrap_or(0) > 0 {
+                sent.push(line.trim_end().to_string());
+                line.clear();
+            }
+        };
+        let errors = tokio::io::AsyncReadExt::read_to_string(&mut stderr, &mut said);
+        let (_, read) = tokio::join!(lines, errors);
+        read.unwrap();
+        window.wait().await.unwrap()
+    })
+    .await
+    .expect("the lines did not finish");
+    assert!(status.success(), "{said}");
+    let changes: Vec<&str> = sent
+        .iter()
+        .map(String::as_str)
+        .filter(|line| line.starts_with("session.line."))
+        .collect();
+    assert_eq!(
+        changes,
+        [
+            r#"session.line.merge {"id":"s1","into":{"who":"Eles","at":100},"from":{"who":"Eu","at":101}}"#,
+            r#"session.line.split {"id":"s1","who":"Eles","at":102,"offset":6}"#,
+            r#"session.line.split {"id":"s1","who":"Eles","at":103,"offset":4}"#,
+        ]
+    );
 }
 
 /// The eco window says whether it is active once the daemon greets it; closing

@@ -5,10 +5,10 @@ import Eco.Kit
 // SpeechTurn is one line of the conversation in a box: the user's on the
 // right, everyone else's on the left tinted with their colour, every one at
 // full brightness. A line that continues the same speaker's turn drops the name
-// and time and sits close to the one before. Clicking the name names that speaker in this session; hovering
-// the line, or the keyboard on it, shows what can be done to it, in a gutter its
-// text never takes. A translated session shows each line's translation below it,
-// dimmer.
+// and time and sits close to the one before. Clicking the name names that
+// speaker in this session; clicking the box asks for the line's menu
+// (`clicked`), or picks it while another line waits for a merge. A translated
+// session shows each line's translation below it, dimmer.
 Item {
   id: turn
 
@@ -22,75 +22,69 @@ Item {
   property bool continued: false
   // The keyboard is on this line.
   property bool selected: false
-  // Words still being said: dim, without time or tools, not yet a line.
+  // Words still being said: dim, without time or menu, not yet a line.
   property bool partial: false
   property string previewColor: ""
-  // The line is being corrected in place; it ends only by saving or cancelling.
+  // The line is being corrected in place, or split; it ends only by
+  // confirming or cancelling.
   property bool editing: false
+  // The edit open is a split: the text stays, the cursor marks where.
+  property bool splitting: false
   // The line in the session's translation language, once it arrives.
   property string translation: ""
+  // This line waits for the line it merges with.
+  property bool merging: false
+  // The box the line's menu opens below.
+  readonly property Item box: block
+  signal clicked()
 
-  function save() {
-    const text = editor.text.trim()
-    if (text !== turn.text)
-      Eco.editLine(turn.sessionId, turn.who, turn.at, text)
+  // Opens the line to correct, the cursor at its end.
+  function edit() {
+    open(false)
+    editor.cursorPosition = editor.length
+  }
+  // Opens the line to split, the cursor at the word nearest its middle.
+  function split() {
+    open(true)
+    const space = turn.text.lastIndexOf(" ", Math.floor(turn.text.length / 2))
+    editor.cursorPosition = space > 0 ? space + 1 : Math.floor(turn.text.length / 2)
+    // A read-only text hides its cursor; this one marks where the line splits.
+    editor.cursorVisible = true
+  }
+  function open(splits) {
+    editor.text = turn.text
+    turn.splitting = splits
+    turn.editing = true
+    editor.forceActiveFocus()
+  }
+  function cancel() {
     turn.editing = false
+    turn.splitting = false
+  }
+  // Saves the correction, or splits at the cursor; the daemon counts
+  // characters, the editor UTF-16 units.
+  function confirm() {
+    if (turn.splitting) {
+      Eco.splitLine(turn.sessionId, turn.who, turn.at, Array.from(editor.text.slice(0, editor.cursorPosition)).length)
+    } else {
+      const text = editor.text.trim()
+      if (text !== turn.text)
+        Eco.editLine(turn.sessionId, turn.who, turn.at, text)
+    }
+    turn.cancel()
   }
 
   // Who eco guesses the speaker is by voice, until the user confirms or clears it.
   readonly property var guess: Eco.guessOf(turn.sessionId, turn.who)
   readonly property color tone: previewColor ? Theme.readable(previewColor, Theme.background, Theme.foreground)
     : turn.guess ? Eco.personColor(turn.guess.person) : Eco.speakerColor(turn.sessionId, turn.who, turn.name)
-  // Below this width the tools stack in a narrow column, so the text keeps the room.
-  readonly property bool narrow: turn.width < 360
-  // Room beside the text kept for the line's tools.
-  readonly property real gutter: turn.sessionId !== "" ? tools.implicitWidth + (narrow ? 8 : 12) : 0
-  // At most this wide: the whole width left beside the gutter on a narrow
-  // window, about three quarters of it otherwise.
-  readonly property real widest: turn.width < 520 ? turn.width - gutter : Math.min(turn.width * 0.78, turn.width - gutter)
+  // At most this wide: the whole width on a narrow window, about three
+  // quarters of it otherwise.
+  readonly property real widest: turn.width < 520 ? turn.width : turn.width * 0.78
   // From the edge of the box to its text.
   readonly property real inset: 10
 
   implicitHeight: body.y + body.height + 2
-
-  HoverHandler { id: hover }
-
-  // The line's tools, in the gutter on the side its text leaves free.
-  Grid {
-    id: tools
-    visible: turn.sessionId !== "" && !turn.partial && !turn.editing && (turn.selected || hover.hovered || remove.hovered || pencil.hovered || personButton.hovered)
-    columns: turn.narrow ? 1 : 3
-    spacing: turn.narrow ? 4 : 12
-    y: body.y + block.y + Math.min(0, (block.height - height) / 2)
-    x: turn.mine ? body.x - width - (turn.narrow ? 8 : 12) : body.x + body.width + (turn.narrow ? 8 : 12)
-    IconButton {
-      id: pencil
-      name: "edit"
-      tip: I18n.t("line.edit_tip")
-      activeFocusOnTab: turn.selected
-      onClicked: {
-        editor.text = turn.text
-        turn.editing = true
-        editor.forceActiveFocus()
-        editor.cursorPosition = editor.length
-      }
-    }
-    IconButton {
-      id: personButton
-      name: "people"
-      tip: I18n.t("assign.line_tip")
-      activeFocusOnTab: turn.selected
-      onClicked: Eco.speakerRequested({ session: turn.sessionId, label: turn.who, name: turn.name, at: turn.at, scope: "line" })
-    }
-    IconButton {
-      id: remove
-      name: "close"
-      tone: Theme.error
-      tip: I18n.t("line.remove_tip")
-      activeFocusOnTab: turn.selected
-      onClicked: Eco.removeLine(turn.sessionId, turn.who, turn.at)
-    }
-  }
 
   Column {
     id: body
@@ -136,6 +130,17 @@ Item {
       width: parent.width
       height: (turn.editing ? editor.implicitHeight : words.implicitHeight) + 14
       color: turn.mine ? Theme.highlight : Qt.tint(Theme.background, Qt.alpha(turn.tone, 0.1))
+      // The line waiting for its merge is outlined in the accent.
+      border.color: turn.merging ? Theme.primary : "transparent"
+      HoverHandler {
+        enabled: tap.enabled
+        cursorShape: Qt.PointingHandCursor
+      }
+      TapHandler {
+        id: tap
+        enabled: turn.sessionId !== "" && !turn.partial && !turn.editing
+        onTapped: turn.clicked()
+      }
       TextBlock {
         id: editor
         visible: turn.editing
@@ -143,8 +148,11 @@ Item {
         x: turn.inset
         width: parent.width - 2 * turn.inset
         horizontalAlignment: turn.mine ? Text.AlignRight : Text.AlignLeft
-        onAccepted: turn.save()
-        Keys.onEscapePressed: turn.editing = false
+        // A split keeps the text; the arrows and a click still move the cursor.
+        readOnly: turn.splitting
+        selectByKeyboard: true
+        onAccepted: turn.confirm()
+        Keys.onEscapePressed: turn.cancel()
       }
       Column {
         id: words
@@ -181,8 +189,13 @@ Item {
       visible: turn.editing
       x: body.width - width
       spacing: 8
-      Chip { text: I18n.t("dialog.cancel"); tip: "esc"; onClicked: turn.editing = false }
-      Chip { icon: "enter"; text: I18n.t("line.save"); tip: "enter"; checked: true; onClicked: turn.save() }
+      Chip { text: I18n.t("dialog.cancel"); onClicked: turn.cancel() }
+      Chip {
+        icon: turn.splitting ? "split" : "enter"
+        text: I18n.t(turn.splitting ? "line.split" : "line.save")
+        checked: true
+        onClicked: turn.confirm()
+      }
     }
   }
 }

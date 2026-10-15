@@ -521,6 +521,28 @@ fn number(record: &Record, key: &str) -> Result<f64, LogError> {
         .ok_or_else(|| LogError(format!("{key:?} is not a number")))
 }
 
+/// The line a record names under `key`, as `{"who", "at"}`.
+fn line_of(record: &Record, key: &str) -> Result<(String, f64), LogError> {
+    let line = field(record, key)?
+        .as_object()
+        .ok_or_else(|| LogError(format!("{key:?} is not a line")))?;
+    Ok((text(line, "who")?, number(line, "at")?))
+}
+
+/// Why two lines cannot be merged or a line cannot be split.
+#[derive(Debug, Clone, PartialEq)]
+pub enum LineError {
+    /// No line of this speaker at this time.
+    NotFound(String, f64),
+    /// A line merged into itself, or a split that leaves a side empty or has no
+    /// room before the next entry.
+    Invalid,
+}
+
+/// How far after a split line its right part is placed, unless the next entry
+/// is closer; then half the way to it.
+const SPLIT_STEP: f64 = 0.001;
+
 fn as_record(value: Value) -> Record {
     match value {
         Value::Object(map) => map,
@@ -822,6 +844,22 @@ impl Session {
                 "unheard" => {
                     let (who, at) = (text(item, "who")?, number(item, "at")?);
                     session.take_back(&who, at);
+                }
+                "merged" => {
+                    let (into, from) = (line_of(item, "into")?, line_of(item, "from")?);
+                    session.join(&into, &from, &text(item, "text")?);
+                }
+                "split" => {
+                    let (of, new) = (line_of(item, "of")?, field(item, "new")?);
+                    let new = new
+                        .as_object()
+                        .ok_or_else(|| LogError("\"new\" is not a line".into()))?;
+                    let new = Speech {
+                        who: text(new, "who")?,
+                        text: text(new, "text")?,
+                        at: number(new, "at")?,
+                    };
+                    session.cut(&of, &text(item, "text")?, new);
                 }
                 "removed" => {
                     let id = text(item, "id")?;
@@ -1260,11 +1298,23 @@ impl Session {
         Some(removed)
     }
 
-    fn take_back(&mut self, who: &str, at: f64) -> bool {
-        let line = self.timeline.iter().position(
+    /// Where in the timeline the line `who` said at `at` is.
+    fn line_index(&self, who: &str, at: f64) -> Option<usize> {
+        self.timeline.iter().position(
             |entry| matches!(entry, Entry::Speech(s) if s.who == who && (s.at - at).abs() < 1e-6),
-        );
-        let Some(index) = line else {
+        )
+    }
+
+    /// The line `who` said at `at`.
+    fn line(&self, who: &str, at: f64) -> Option<&Speech> {
+        self.timeline.iter().find_map(|entry| match entry {
+            Entry::Speech(s) if s.who == who && (s.at - at).abs() < 1e-6 => Some(s),
+            _ => None,
+        })
+    }
+
+    fn take_back(&mut self, who: &str, at: f64) -> bool {
+        let Some(index) = self.line_index(who, at) else {
             return false;
         };
         self.timeline.remove(index);
@@ -1282,11 +1332,16 @@ impl Session {
     }
 
     fn rewrite(&mut self, who: &str, at: f64, text: &str) -> bool {
-        let line = self.timeline.iter_mut().find_map(|entry| match entry {
-            Entry::Speech(s) if s.who == who && (s.at - at).abs() < 1e-6 => Some(s),
-            _ => None,
-        });
-        let edited = line.map(|speech| speech.text = text.into()).is_some();
+        let edited = match self
+            .line_index(who, at)
+            .map(|index| &mut self.timeline[index])
+        {
+            Some(Entry::Speech(speech)) => {
+                speech.text = text.into();
+                true
+            }
+            _ => false,
+        };
         // A corrected line's translation no longer says the same.
         if edited {
             self.translations.retain(|t| !t.of.is(&Source::Line(at)));
@@ -1312,6 +1367,101 @@ impl Session {
             (self.record)(as_record(json!({"type": "unheard", "who": who, "at": at})));
         }
         taken
+    }
+
+    /// Give the line `into` the text `text` and drop the line `from`; `false`
+    /// when either is gone.
+    fn join(&mut self, into: &(String, f64), from: &(String, f64), text: &str) -> bool {
+        self.line(&from.0, from.1).is_some()
+            && self.rewrite(&into.0, into.1, text)
+            && self.take_back(&from.0, from.1)
+    }
+
+    /// Merge two lines into the earlier one: their texts in time order, its
+    /// time and speaker. Gives the merged line and the line that left.
+    pub fn merge_lines(
+        &mut self,
+        (a_who, a_at): (&str, f64),
+        (b_who, b_at): (&str, f64),
+    ) -> Result<(Speech, Speech), LineError> {
+        let missing = |who: &str, at| LineError::NotFound(who.into(), at);
+        let a = self
+            .line(a_who, a_at)
+            .ok_or_else(|| missing(a_who, a_at))?
+            .clone();
+        let b = self
+            .line(b_who, b_at)
+            .ok_or_else(|| missing(b_who, b_at))?
+            .clone();
+        if a == b {
+            return Err(LineError::Invalid);
+        }
+        let (mut kept, gone) = if b.at < a.at { (b, a) } else { (a, b) };
+        kept.text = format!("{} {}", kept.text.trim_end(), gone.text.trim_start());
+        let (into, from) = ((kept.who.clone(), kept.at), (gone.who.clone(), gone.at));
+        self.join(&into, &from, &kept.text);
+        (self.record)(as_record(json!({
+            "type": "merged", "into": {"who": into.0, "at": into.1},
+            "from": {"who": from.0, "at": from.1}, "text": kept.text,
+        })));
+        Ok((kept, gone))
+    }
+
+    /// Leave the line `of` saying `text` and place `new` right after it;
+    /// `false` when it is gone.
+    fn cut(&mut self, of: &(String, f64), text: &str, new: Speech) -> bool {
+        let Some(index) = self.line_index(&of.0, of.1) else {
+            return false;
+        };
+        self.rewrite(&of.0, of.1, text);
+        self.timeline.insert(index + 1, Entry::Speech(new));
+        true
+    }
+
+    /// Split the line `who` said at `at` before its character `offset`: it keeps
+    /// the left part, and the right part becomes a new line of theirs right
+    /// after it, before the next entry. Gives both.
+    pub fn split_line(
+        &mut self,
+        who: &str,
+        at: f64,
+        offset: usize,
+    ) -> Result<(Speech, Speech), LineError> {
+        let line = self
+            .line(who, at)
+            .ok_or_else(|| LineError::NotFound(who.into(), at))?;
+        let cut = line.text.char_indices().nth(offset);
+        let (left, right) = match cut {
+            Some((byte, _)) => (line.text[..byte].trim(), line.text[byte..].trim()),
+            None => ("", ""),
+        };
+        let at = line.at;
+        let next = self
+            .timeline
+            .iter()
+            .map(Entry::at)
+            .filter(|t| *t > at + 1e-6)
+            .fold(f64::INFINITY, f64::min);
+        let step = SPLIT_STEP.min((next - at) / 2.0);
+        if left.is_empty() || right.is_empty() || step < 1e-5 {
+            return Err(LineError::Invalid);
+        }
+        let kept = Speech {
+            who: line.who.clone(),
+            text: left.into(),
+            at,
+        };
+        let new = Speech {
+            who: line.who.clone(),
+            text: right.into(),
+            at: at + step,
+        };
+        self.cut(&(kept.who.clone(), at), &kept.text, new.clone());
+        (self.record)(as_record(json!({
+            "type": "split", "of": {"who": kept.who, "at": at}, "text": kept.text,
+            "new": {"who": new.who, "at": new.at, "text": new.text},
+        })));
+        Ok((kept, new))
     }
 
     /// Give the lines heard so far, in order, the speakers `who` names.
@@ -2682,6 +2832,160 @@ mod tests {
             &restored.timeline[0],
             Entry::Speech(line) if line.text == "O Windhawk chegou."
         ));
+    }
+
+    fn lines(session: &Session) -> Vec<(String, String, f64)> {
+        session
+            .timeline
+            .iter()
+            .filter_map(|entry| match entry {
+                Entry::Speech(s) => Some((s.who.clone(), s.text.clone(), s.at)),
+                Entry::Note(_) | Entry::Suggestion(_) => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn two_lines_merge_into_the_earlier_and_the_merge_survives_restore() {
+        let (sink, records) = collecting();
+        let mut session = Session::begin("Call", "meeting", LIVE, "pt", sink);
+        session.hear_at("Eles", "Bom dia ", 10.0);
+        session.hear_at("Eu", " a todos.", 11.0);
+        session.hear_at("Eles", "Começamos?", 12.0);
+        session.set_translation("en");
+        session.translated(Source::Line(10.0), "en", "Good morning");
+        session.translated(Source::Line(11.0), "en", "everyone.");
+        // The later line clicked first: the merge keeps the earlier one's time and speaker.
+        let (kept, gone) = session.merge_lines(("Eu", 11.0), ("Eles", 10.0)).unwrap();
+        assert_eq!((kept.who.as_str(), kept.at), ("Eles", 10.0));
+        assert_eq!(kept.text, "Bom dia a todos.");
+        assert_eq!((gone.who.as_str(), gone.at), ("Eu", 11.0));
+        assert_eq!(session.translation_of(&Source::Line(10.0), "en"), None);
+        assert_eq!(session.translation_of(&Source::Line(11.0), "en"), None);
+        assert_eq!(
+            session.labels(),
+            ["Eles"],
+            "a speaker with no line left goes"
+        );
+        assert_eq!(
+            session.merge_lines(("Eles", 10.0), ("Eles", 10.0)),
+            Err(LineError::Invalid)
+        );
+        assert_eq!(
+            session.merge_lines(("Eles", 10.0), ("Eu", 11.0)),
+            Err(LineError::NotFound("Eu".into(), 11.0))
+        );
+        let records = records.lock().unwrap().clone();
+        let merged: Vec<&Record> = records.iter().filter(|r| r["type"] == "merged").collect();
+        assert_eq!(merged.len(), 1, "only a merge done is recorded");
+        assert_eq!(
+            Value::Object(merged[0].clone()),
+            json!({"type": "merged", "into": {"who": "Eles", "at": 10.0},
+                   "from": {"who": "Eu", "at": 11.0}, "text": "Bom dia a todos."})
+        );
+        let restored = Session::restore(&records, Box::new(|_| {})).unwrap();
+        assert_eq!(lines(&restored), lines(&session));
+        assert_eq!(
+            restored.untranslated("en").len(),
+            2,
+            "the merged line lacks English again, beside the one never translated"
+        );
+    }
+
+    #[test]
+    fn a_split_line_leaves_its_right_part_right_below_and_survives_restore() {
+        let (sink, records) = collecting();
+        let mut session = Session::begin("Call", "meeting", LIVE, "pt", sink);
+        session.hear_at("Eles", "Bom dia. Começamos?", 10.0);
+        session.hear_at("Eu", "Sim.", 10.0004);
+        session.set_translation("en");
+        session.translated(Source::Line(10.0), "en", "Good morning. Shall we?");
+        let (kept, new) = session.split_line("Eles", 10.0, 8).unwrap();
+        assert_eq!((kept.text.as_str(), kept.at), ("Bom dia.", 10.0));
+        assert_eq!(
+            (new.who.as_str(), new.text.as_str()),
+            ("Eles", "Começamos?")
+        );
+        // The next entry is closer than a step: half the way to it.
+        assert!((new.at - 10.0002).abs() < 1e-9, "{}", new.at);
+        assert_eq!(session.translation_of(&Source::Line(10.0), "en"), None);
+        assert_eq!(
+            lines(&session)
+                .iter()
+                .map(|l| l.1.as_str())
+                .collect::<Vec<_>>(),
+            ["Bom dia.", "Começamos?", "Sim."]
+        );
+        // With nothing after it, the right part lands a step on.
+        let (_, last) = session.split_line("Eu", 10.0004, 2).unwrap();
+        assert!((last.at - 10.0014).abs() < 1e-9, "{}", last.at);
+        // The offset counts characters, not bytes.
+        session.hear_at("Eu", "Não é?", 20.0);
+        assert_eq!(session.split_line("Eu", 20.0, 5).unwrap().1.text, "?");
+        for offset in [0, 6, 99] {
+            assert_eq!(
+                session.split_line("Eu", 20.0, offset),
+                Err(LineError::Invalid),
+                "{offset}"
+            );
+        }
+        session.hear_at("Eles", "Um dois", 30.0);
+        session.hear_at("Eu", "Três", 30.000_001_5);
+        assert_eq!(
+            session.split_line("Eles", 30.0, 3),
+            Err(LineError::Invalid),
+            "no room before the next entry"
+        );
+        assert_eq!(
+            session.split_line("Eles", 99.0, 1),
+            Err(LineError::NotFound("Eles".into(), 99.0))
+        );
+        let records = records.lock().unwrap().clone();
+        let split = records.iter().find(|r| r["type"] == "split").unwrap();
+        assert_eq!(
+            Value::Object(split.clone()),
+            json!({"type": "split", "of": {"who": "Eles", "at": 10.0}, "text": "Bom dia.",
+                   "new": {"who": "Eles", "at": new.at, "text": "Começamos?"}})
+        );
+        let restored = Session::restore(&records, Box::new(|_| {})).unwrap();
+        assert_eq!(lines(&restored), lines(&session));
+    }
+
+    #[test]
+    fn answers_carry_merged_and_split_lines() {
+        let mut session = Session::begin("Call", "meeting", LIVE, "pt", Box::new(|_| {}));
+        session.hear_at("Eles", "Bom dia", 10.0);
+        session.hear_at("Eles", "a todos. Vamos?", 11.0);
+        session.merge_lines(("Eles", 10.0), ("Eles", 11.0)).unwrap();
+        session.split_line("Eles", 10.0, 16).unwrap();
+        let said: Vec<String> = session
+            .context(1000)
+            .into_iter()
+            .filter_map(|entry| match entry {
+                Entry::Speech(s) => Some(s.text),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(said, ["Bom dia a todos.", "Vamos?"]);
+    }
+
+    #[test]
+    fn a_merge_or_split_record_naming_a_missing_line_changes_nothing() {
+        let records = logged(&[
+            json!({"type": "speech", "who": "Eles", "text": "Oi", "at": 2.0}),
+            json!({"type": "merged", "into": {"who": "Eles", "at": 2.0},
+                   "from": {"who": "Eles", "at": 3.0}, "text": "Oi tchau"}),
+            json!({"type": "split", "of": {"who": "Eu", "at": 2.0}, "text": "O",
+                   "new": {"who": "Eu", "at": 2.001, "text": "i"}}),
+        ]);
+        let restored = Session::restore(&records, Box::new(|_| {})).unwrap();
+        assert_eq!(lines(&restored), [("Eles".into(), "Oi".into(), 2.0)]);
+        let broken = logged(&[json!({"type": "split", "of": {"who": "Eu", "at": 2.0},
+                                     "text": "O", "new": "i"})]);
+        assert!(Session::restore(&broken, Box::new(|_| {})).is_err());
+        let broken = logged(&[json!({"type": "merged", "into": {"who": "Eu"},
+                                     "from": {"who": "Eu", "at": 2.0}, "text": "O"})]);
+        assert!(Session::restore(&broken, Box::new(|_| {})).is_err());
     }
 
     #[test]

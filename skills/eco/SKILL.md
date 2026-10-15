@@ -200,10 +200,16 @@ of its `transcript` entry in `eco show`.
 ```bash
 eco line <id> <who> <at> --text "…"   # its corrected text, everywhere the session is read
 eco line <id> <who> <at> --remove     # it leaves the session, its context and its export
+eco line <id> <who> <at> --merge "<who2>@<at2>"  # the two become one line: texts in time order, the earlier's time and speaker
+eco line <id> <who> <at> --split <offset>        # the text from that character on becomes a new line right below
 ```
 
-Prints `{session, who, at, text}` or `{session, who, at, removed}`. Correct or
-remove a line only when the user asks.
+Prints `{session, who, at, text}`, `{session, who, at, removed}`,
+`{session, into, from, text}` for a merge (`into` is the line kept), or
+`{session, of, text, new}` for a split (`new` is the line added, with its own
+`at`). The offset counts characters of the text. A merge or a split that cannot
+happen fails with `line.invalid`. Correct, remove, merge or split a line only
+when the user asks.
 
 ## Speakers and people
 

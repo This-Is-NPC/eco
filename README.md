@@ -170,7 +170,8 @@ where they work:
 - people screen: `F2` rename · `M` merge with someone else
 - stored session: `R` resume or reopen · `E` edit title and kind
 - conversation: `↑` / `↓` / `PgUp` / `PgDn` through lines, notes and answers ·
-  `Home` / `End` · `N` name the line's speaker · `Tab` the line's tools
+  `Home` / `End` · `N` name the line's speaker · `Enter` / `Menu` the line's
+  menu · `Esc` stop merging · `Tab` the tools of a note or an answer
 - question box: `Enter` send · `Shift+Enter` keep as a note · `/` list the
   skills · `Alt+1…9` run the skill with that number
 - settings: `1…8` section, outside a field being written, and `Ctrl+1…8`
