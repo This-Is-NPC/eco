@@ -37,8 +37,10 @@ Item {
   property bool merging: false
   // The line's menu is open: its button's tip would cover the line above.
   property bool menuShown: false
-  // The box the line's menu opens below.
+  // The box the line is written in.
   readonly property Item box: block
+  // The button the line's menu opens from.
+  readonly property Item menuButton: more
   signal clicked()
 
   // Opens the line to correct, the cursor at its end.
@@ -205,16 +207,19 @@ Item {
     }
   }
 
-  // The line's menu, always in sight: beside the line's top, on the side that
-  // faces the rest of the timeline. A line without a menu shows none.
+  // The line's menu, always in sight: beside the box's first row, on the side
+  // that faces the rest of the timeline; the menu opens from it. A line
+  // without a menu shows none.
   IconButton {
+    id: more
     visible: tap.enabled
     quiet: true
     highlighted: activeFocus
     implicitWidth: turn.gutter - 4
     implicitHeight: turn.gutter - 4
     x: turn.mine ? body.x - turn.gutter : body.x + body.width + 4
-    y: body.y
+    // Centred on the box's first row, however many rows it has.
+    y: body.y + block.y + 7 + line.implicitHeight / Math.max(1, line.lineCount) / 2 - height / 2
     name: "more"
     size: 12
     tip: turn.menuShown ? "" : I18n.t("line.menu.tip")

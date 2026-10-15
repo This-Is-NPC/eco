@@ -213,8 +213,9 @@ Item {
     if (root.merging === null) {
       lineMenu.line = turn
       lineMenu.row = row
-      lineMenu.parent = turn.box
-      lineMenu.alignRight = turn.mine
+      lineMenu.parent = turn.menuButton
+      // Open from the button toward the middle of the timeline, where it has room.
+      lineMenu.alignRight = turn.menuButton.mapToItem(root, turn.menuButton.width / 2, 0).x > root.width / 2
       turn.menuShown = true
       lineMenu.open()
       return
@@ -254,6 +255,8 @@ Item {
     entries: root.lineActions
     onPicked: index => root.act(root.lineActions[index].id, lineMenu.line, lineMenu.row)
     onClosed: if (line) line.menuShown = false
+    // Above its button when the list would run past the timeline's bottom.
+    above: parent !== null && parent.mapToItem(root, 0, parent.height).y + height + 8 > root.height
   }
 
   // While a line waits for its merge: what to do, and a way out.

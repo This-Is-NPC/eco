@@ -80,6 +80,7 @@ Window {
     },
     () => {
       root.check("a click on a line opens its menu", root.menu.opened && root.menu.line === root.turn("Bom dia."))
+      root.check("a line's menu opens from its more button", root.menu.parent === root.more(root.turn("Bom dia.")))
       root.check("the menu lists every line action",
         JSON.stringify(root.menu.entries.map(entry => entry.id)) === JSON.stringify(["edit", "line_speaker", "speaker", "copy", "merge", "split", "remove"]))
       root.keys.keyClick(Qt.Key_Escape)
@@ -88,6 +89,9 @@ Window {
       root.check("Esc closes the menu", !root.menu.opened)
       const button = root.more(root.turn("Tudo bem?"))
       root.check("a line shows its more button", button !== null && button.visible)
+      const box = root.turn("Tudo bem?").box
+      const middle = item => item.mapToItem(null, 0, item.height / 2).y
+      root.check("the more button sits level with a one-row line", button !== null && Math.abs(middle(button) - middle(box)) <= 1)
       // The pointer comes to the button before it clicks, as a user's does.
       if (button) {
         root.keys.mouseMove(button)
@@ -97,6 +101,7 @@ Window {
     () => {
       root.check("the more button opens its line's menu", root.menu.opened && root.menu.line === root.turn("Tudo bem?"))
       const button = root.more(root.turn("Tudo bem?"))
+      root.check("the menu opens from the more button", root.menu.parent === button)
       root.check("the more button's tip leaves while its menu is open", button !== null && button.tip === "")
       root.keys.keyClick(Qt.Key_Escape)
     },
