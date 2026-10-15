@@ -6581,6 +6581,20 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_line_merged_in_a_session_not_translated_is_not_translated() {
+        let fake = llm(&["In English."]);
+        let (assistant, events) = make(&fake, true);
+        assistant.hear(&heard(), &utterance("Recrutador", "Bom dia."));
+        assistant.hear(&heard(), &utterance("Recrutador", "Tudo bem?"));
+        let id = assistant.state().session().unwrap().id.clone();
+        let at = heard_at(&events);
+        assistant.merge_lines(&id, ("Recrutador", at[0]), ("Recrutador", at[1]));
+        settle().await;
+        assert_eq!(count(&events, "line_merged"), 1);
+        assert_eq!(count(&events, "translated"), 0);
+    }
+
+    #[tokio::test]
     async fn a_line_splits_at_the_cursor_into_a_line_right_below() {
         let fake = llm(&["In English."]);
         let (assistant, events) = make(&fake, true);

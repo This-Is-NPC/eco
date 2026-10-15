@@ -3793,6 +3793,18 @@ mod tests {
                 json!(1.0),
             ),
             (
+                format!(r#"session.timeline {{"id": "{id}", "before": 1.0}}"#),
+                vec!["session_timeline"],
+                "/0/before",
+                json!(1.0),
+            ),
+            (
+                format!(r#"session.timeline {{"id": "{id}", "after": 1.0}}"#),
+                vec!["session_timeline"],
+                "/0/after",
+                json!(1.0),
+            ),
+            (
                 format!(r#"session.timeline {{"id": "{id}", "before": 1.0, "after": 2.0}}"#),
                 vec!["session.invalid"],
                 "/0/params/detail",
