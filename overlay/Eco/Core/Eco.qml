@@ -55,14 +55,13 @@ Singleton {
   readonly property bool recording: session !== null && session.state === "recording"
   // A live session that records, any window's, or null: what the tray shows.
   readonly property var recordingSession: live.find(item => item.state === "recording") || null
-  // The session whose cost screen is open over it, only after the user asked
-  // for it, and what it cost as the daemon last said: {llm_usd, llm_unknown,
+  // The session whose COST tab is open, only after the user chose it, and
+  // what it cost as the daemon last said: {llm_usd, llm_unknown,
   // transcription_usd, transcription_unknown, total_usd, transcribed_s, parts,
   // items}, or null until it answers.
   property string costOf: ""
   property var cost: null
   onShownChanged: closeCost()
-  readonly property bool costShown: onScreen !== null && costOf === onScreen.id
   function openCost(id) {
     cost = null
     costOf = id

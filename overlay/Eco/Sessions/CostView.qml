@@ -4,11 +4,11 @@ import QtQuick.Layouts
 import Eco.Core
 import Eco.Kit
 
-// CostView is what one session cost, on its own screen, opened from its
-// details: the total, what the LLM (answers, reviews, translations) and the
+// CostView is a session's COST tab, asked for only when the tab is chosen:
+// the total, what the LLM (answers, reviews, translations) and the
 // transcription each add up to, why a part is unknown or estimated, and every
 // charge in its log, newest first. A live session's follows each new charge.
-// Keys: Esc goes back to the session.
+// Keys: Esc goes back to the conversation.
 ColumnLayout {
   id: view
 
@@ -26,7 +26,8 @@ ColumnLayout {
   spacing: 12
   focus: active
   onActiveChanged: if (active) table.focusRows()
-  Keys.onEscapePressed: backButton.press()
+  signal backRequested()
+  Keys.onEscapePressed: backRequested()
 
   function amount(usd, unknown) { return I18n.money(usd, unknown) }
   // How long was heard: seconds under a minute, else minutes.
@@ -61,14 +62,6 @@ ColumnLayout {
   RowLayout {
     Layout.fillWidth: true
     spacing: 10
-    TraceButton {
-      id: backButton
-      dense: true
-      role: "navigation"
-      icon: "chevron-left"
-      text: I18n.t("cost.back")
-      onClicked: Eco.closeCost()
-    }
     Item { Layout.fillWidth: true }
     Caption { text: I18n.t("cost.total") }
     Label {
@@ -153,6 +146,6 @@ ColumnLayout {
     stacked: [[0], [1, 2]]
     status: 3
     emptyText: I18n.t("cost.empty")
-    onBackRequested: backButton.press()
+    onBackRequested: view.backRequested()
   }
 }

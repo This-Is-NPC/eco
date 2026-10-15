@@ -25,26 +25,18 @@ Window {
   // Below this width, controls drop their labels and keep their icons.
   readonly property bool compact: width < 560
   // Below this height, the window keeps its room for the conversation: tighter
-  // margins, the actions only through `/` in the composer, and the voice
-  // guesses as a count on the details button.
+  // margins, and the actions only through `/` in the composer.
   readonly property bool short: height < 560
   // A short window wide enough for one header line puts the live session's
-  // capsule in the masthead; a compact one then drops the name and folds the
-  // language picker into the details.
+  // capsule in the masthead; a compact one then drops the name.
   readonly property bool joined: short && width >= 360 && current === "session" && Eco.session !== null
-  // Whether the session's COST button fits in the masthead; else it is in the details.
-  readonly property bool costInMast: !(joined && compact)
-  // Whether the session's details lie open over the conversation; another
-  // session on screen starts with them closed.
-  property bool details: false
   Connections {
     target: Eco
-    function onShownChanged() { panel.details = false }
     function onRaiseRequested() { Eco.raise(panel) }
   }
 
-  // A session on screen shows itself, or its cost once the user asked for it.
-  readonly property string current: Eco.onScreen !== null ? (Eco.costShown ? "cost" : "session") : Eco.view
+  // A session on screen shows itself, with its tabs.
+  readonly property string current: Eco.onScreen !== null ? "session" : Eco.view
 
   // Closing the window ends this process, the settings window with it and any
   // unsaved settings dropped; the daemon keeps any session going and opens it
@@ -80,15 +72,13 @@ Window {
         // Start says whether the daemon is there: offline or ready.
         section: panel.current === "session"
           ? Eco.titleOf(Eco.onScreen)
-          : panel.current === "cost"
-            ? I18n.t("section.cost", { title: Eco.titleOf(Eco.onScreen) })
           : panel.current === "start"
             ? I18n.t(Eco.connected ? "section.start" : "section.offline")
             : I18n.t("section." + panel.current)
         // A newer release, out of a session's way: it opens the release notes.
         NoticeChip {
           id: updateNotice
-          shown: Eco.updateNotice !== "" && panel.current !== "session" && panel.current !== "cost"
+          shown: Eco.updateNotice !== "" && panel.current !== "session"
           text: Eco.updateNotice === "" ? "" : I18n.t(panel.compact ? "update.notice_short" : "update.notice", { version: Eco.updateNotice })
           tip: I18n.t("update.notice_tip")
           closeTip: I18n.t("update.dismiss_tip")
@@ -96,22 +86,6 @@ Window {
           onDismissed: Eco.dismissUpdate()
         }
         SessionControl { visible: panel.joined; dense: true }
-        LanguagePicker { visible: Eco.session !== null && panel.current === "session" && !(panel.joined && panel.compact); compact: panel.compact || panel.short }
-        IconButton {
-          visible: panel.current === "session" && panel.costInMast
-          name: "cost"
-          tip: I18n.t("cost.tip")
-          onClicked: Eco.openCost(Eco.onScreen.id)
-        }
-        IconButton {
-          readonly property int guesses: panel.short && Eco.onScreen !== null ? Eco.guessesOf(Eco.onScreen.id).length : 0
-          visible: panel.current === "session"
-          name: "more"
-          count: guesses
-          tip: I18n.t("details.tip") + (guesses > 0 ? "\n" + I18n.t("guess.count", { n: guesses }) : "")
-          highlighted: panel.details
-          onClicked: panel.details = !panel.details
-        }
         IconButton {
           name: "settings"
           tip: I18n.t("settings.tip")
@@ -124,7 +98,7 @@ Window {
           visible: panel.current === "session"
           name: "close"
           tip: I18n.t("session.close_tip")
-          onClicked: { panel.details = false; Eco.leaveSession() }
+          onClicked: Eco.leaveSession()
         }
       }
 
@@ -265,7 +239,7 @@ Window {
         }
 
         // Each made when first shown: the sessions list kept after, for its
-        // filters; the people and the cost let go once they leave.
+        // filters; the people let go once they leave.
         ViewStage {
           objectName: "history"
           anchors.fill: parent
@@ -281,13 +255,6 @@ Window {
           view: PeopleView {}
         }
 
-        ViewStage {
-          objectName: "cost"
-          anchors.fill: parent
-          shown: panel.current === "cost"
-          view: CostView {}
-        }
-
         // The session on screen, live or stored. The keyboard starts in a live
         // one's composer.
         Stage {
@@ -300,10 +267,6 @@ Window {
             compact: panel.compact
             short: panel.short
             joined: panel.joined
-            costInMast: panel.costInMast
-            detailsOpen: panel.details
-            onDetailsRequested: panel.details = true
-            onDetailsClosed: panel.details = false
           }
         }
       }

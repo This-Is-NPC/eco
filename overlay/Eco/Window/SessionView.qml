@@ -5,30 +5,25 @@ import Eco.Kit
 import Eco.Live
 import Eco.Sessions
 
-// SessionView is a session on screen, live or stored, as one conversation: a
-// live one under its capsule, a stored one under a line saying when it was and
-// how long, with the way to resume it. On a short window the capsule may join
-// the masthead and the voice guesses are only counted on the details button.
-// The details lie in a panel opened over the top of the conversation, where
-// the guesses are reviewed, with cost only when the masthead has no room for
-// it; the composer asks and notes either one.
-// Esc closes the details, else goes back to the sessions like the close button
-// (a live one keeps recording); E edits, R resumes a stored one.
+// SessionView is a session on screen, live or stored: a live one under its
+// capsule, a stored one under a line saying when it was and how long, with the
+// way to resume it; then its tabs. CONVERSATION is the timeline, its language
+// and translation, and the composer; PEOPLE who takes part and who each speaker
+// is; SESSION its details; COST what it cost, asked for only when chosen.
+// Esc goes back to the conversation, else back to the sessions like the close
+// button (a live one keeps recording); E edits, R resumes a stored one.
 ColumnLayout {
-  id: view
+  id: screen
 
   property bool active: false
   property bool compact: false
   // A short window keeps its room for the conversation.
   property bool short: false
-  // Whether the capsule lies in the masthead row instead of here, and the
-  // language picker in the details.
+  // Whether the capsule lies in the masthead row instead of here.
   property bool joined: false
-  property bool detailsOpen: false
-  // Whether the masthead holds the session's COST; else the details do.
-  property bool costInMast: true
-  signal detailsRequested()
-  signal detailsClosed()
+  // The tab on screen: 0 conversation, 1 people, 2 session, 3 cost.
+  property int tab: 0
+  readonly property var tabs: [I18n.t("tab.conversation"), I18n.t("attendees.short"), I18n.t("tab.session"), I18n.t("cost.title")]
 
   readonly property bool live: Eco.session !== null
   property bool resuming: false
@@ -37,11 +32,28 @@ ColumnLayout {
 
   spacing: short ? 8 : 14
 
-  function focusEntry() { composer.focusEntry() }
+  function focusEntry() {
+    if (tab === 0 && live)
+      composer.focusEntry()
+    else
+      forceActiveFocus()
+  }
   // The height the composer takes at the bottom, with the space above it,
-  // and the conversation's above that.
-  readonly property real composerRoom: composer.height + spacing
-  readonly property real conversationHeight: conversation.height
+  // and the tab's above that.
+  readonly property real composerRoom: tab === 0 ? composer.height + spacing : 0
+  readonly property real conversationHeight: pages.height
+
+  // Choosing COST asks what the session cost; leaving it lets that go.
+  function choose(index) {
+    if (index === tab)
+      return
+    if (index === 3)
+      Eco.openCost(Eco.onScreen.id)
+    else if (tab === 3)
+      Eco.closeCost()
+    tab = index
+    focusEntry()
+  }
 
   function resume() {
     if (!resumable || resuming)
@@ -52,47 +64,44 @@ ColumnLayout {
 
   Connections {
     target: Eco
+    // Another session on screen starts at its conversation.
+    function onShownChanged() { screen.tab = 0 }
     function onSessionChanged() {
       if (Eco.session !== null)
-        view.resuming = false
+        screen.resuming = false
     }
     function onNoticed(notice) {
-      if (view.resuming && notice.kind === "error")
-        view.resuming = false
+      if (screen.resuming && notice.kind === "error")
+        screen.resuming = false
     }
   }
 
   focus: active
-  onActiveChanged: if (active) {
-    if (live)
-      focusEntry()
-    else
-      forceActiveFocus()
-  }
+  onActiveChanged: if (active) focusEntry()
   Keys.onEscapePressed: {
-    if (detailsOpen)
-      detailsClosed()
+    if (tab !== 0)
+      choose(0)
     else
       Eco.leaveSession()
   }
   Keys.onPressed: event => {
-    if (event.key === Qt.Key_R && view.resumable)
-      view.resume()
+    if (event.key === Qt.Key_R && screen.resumable)
+      screen.resume()
     else if (event.key === Qt.Key_E && Eco.onScreen !== null)
       Eco.renameRequested(Eco.onScreen)
   }
 
   SessionControl {
     Layout.fillWidth: true
-    visible: view.live && !view.joined
-    compact: view.compact
+    visible: screen.live && !screen.joined
+    compact: screen.compact
   }
 
   // A stored session: when it was, how long, how much was said; resuming it
   // turns this line into the capsule.
   Rectangle {
     Layout.fillWidth: true
-    visible: !view.live && Eco.stored !== null
+    visible: !screen.live && Eco.stored !== null
     implicitHeight: 40
     color: "transparent"
     border.color: Theme.line
@@ -119,13 +128,13 @@ ColumnLayout {
       TraceButton {
         dense: true
         role: "progress"
-        visible: view.resumable
+        visible: screen.resumable
         icon: "play"
-        text: view.compact ? "" : Eco.stored && Eco.stored.state === "interrupted" ? I18n.t("session.resume") : I18n.t("detail.reopen")
-        Layout.preferredWidth: view.compact ? 32 : -1
-        busy: view.resuming
+        text: screen.compact ? "" : Eco.stored && Eco.stored.state === "interrupted" ? I18n.t("session.resume") : I18n.t("detail.reopen")
+        Layout.preferredWidth: screen.compact ? 32 : -1
+        busy: screen.resuming
         tip: I18n.t("detail.resume_tip")
-        onClicked: view.resume()
+        onClicked: screen.resume()
       }
     }
   }
@@ -134,61 +143,92 @@ ColumnLayout {
   // records or its file is imported.
   TranscriptionStrip {
     Layout.fillWidth: true
-    sources: view.live || (Eco.stored !== null && Eco.stored.state === "importing") ? Eco.outages : []
+    sources: screen.live || (Eco.stored !== null && Eco.stored.state === "importing") ? Eco.outages : []
   }
 
-  GuessStrip {
+  // The tabs, wrapping on a narrow window.
+  Flow {
     Layout.fillWidth: true
-    visible: !view.short && count > 0
-    sessionId: Eco.onScreen ? Eco.onScreen.id : ""
-    onReviewed: view.detailsRequested()
-  }
-
-  Item {
-    id: conversation
-    Layout.fillWidth: true
-    Layout.fillHeight: true
-
-    TimelineView {
-      anchors.fill: parent
-      sessionId: Eco.onScreen ? Eco.onScreen.id : ""
-      partials: view.live ? Eco.partials : []
-      emptyText: !view.live ? I18n.t("detail.empty")
-        : Eco.recording ? I18n.t("timeline.listening") : I18n.t("timeline.paused")
-    }
-
-    // The details exist only while open or fading out.
-    Loader {
-      anchors { left: parent.left; right: parent.right; top: parent.top }
-      visible: opacity > 0
-      active: visible
-      opacity: view.detailsOpen ? 1 : 0
-      Behavior on opacity { NumberAnimation { duration: 140 } }
-      sourceComponent: SessionDetails {
-        maxHeight: conversation.height
-        session: Eco.onScreen
-        shown: view.detailsOpen
-        compact: view.compact
-        languageShown: view.joined && view.compact
-        costShown: !view.costInMast
-        // The close leaves with the panel: the keyboard goes where Esc puts it.
-        onCloseRequested: {
-          view.detailsClosed()
-          if (view.live)
-            view.focusEntry()
-          else
-            view.forceActiveFocus()
-        }
+    spacing: 18
+    Repeater {
+      model: screen.tabs
+      delegate: Tab {
+        required property string modelData
+        required property int index
+        label: modelData
+        digit: String(index + 1).padStart(2, "0")
+        current: screen.tab === index
+        // PEOPLE says when eco has voice guesses to review.
+        alert: index === 1 && guesses.count > 0
+        onChosen: screen.choose(index)
       }
     }
   }
 
-  Composer {
-    id: composer
+  Item {
+    id: pages
     Layout.fillWidth: true
-    Layout.fillHeight: false
-    session: Eco.onScreen
-    compact: view.compact
-    actionsShown: !view.short
+    Layout.fillHeight: true
+
+    Stage {
+      anchors.fill: parent
+      shown: screen.tab === 0
+
+      ColumnLayout {
+        anchors.fill: parent
+        spacing: screen.spacing
+
+        // What the conversation is heard in and translated into, and the
+        // voice guesses waiting to be reviewed.
+        RowLayout {
+          Layout.fillWidth: true
+          spacing: 10
+          GuessStrip {
+            id: guesses
+            Layout.fillWidth: true
+            sessionId: Eco.onScreen ? Eco.onScreen.id : ""
+            onReviewed: screen.choose(1)
+          }
+          Item { Layout.fillWidth: true; visible: !guesses.visible }
+          LanguagePicker { visible: screen.live; compact: screen.compact || screen.short }
+          TranslationView { session: Eco.onScreen }
+        }
+
+        TimelineView {
+          Layout.fillWidth: true
+          Layout.fillHeight: true
+          sessionId: Eco.onScreen ? Eco.onScreen.id : ""
+          partials: screen.live ? Eco.partials : []
+          emptyText: !screen.live ? I18n.t("detail.empty")
+            : Eco.recording ? I18n.t("timeline.listening") : I18n.t("timeline.paused")
+        }
+
+        Composer {
+          id: composer
+          Layout.fillWidth: true
+          session: Eco.onScreen
+          compact: screen.compact
+          actionsShown: !screen.short
+        }
+      }
+    }
+
+    // Each made when first chosen and let go once it leaves.
+    ViewStage {
+      anchors.fill: parent
+      shown: screen.tab === 1
+      view: SessionPeople { session: Eco.onScreen; compact: screen.compact }
+    }
+    ViewStage {
+      anchors.fill: parent
+      shown: screen.tab === 2
+      view: SessionDetails { session: Eco.onScreen }
+    }
+    ViewStage {
+      objectName: "cost"
+      anchors.fill: parent
+      shown: screen.tab === 3
+      view: CostView { onBackRequested: screen.choose(0) }
+    }
   }
 }
