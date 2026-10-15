@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.7.0](https://github.com/This-Is-NPC/eco/compare/v0.6.0...v0.7.0) (2026-10-15)
+
+
+### Features
+
+* **composer:** grow with the text and break lines ([f31f7e8](https://github.com/This-Is-NPC/eco/commit/f31f7e8ea35b434e8ab54062950eb3153c7a30fa))
+* **overlay:** session tabs and a multiline composer ([29f7d30](https://github.com/This-Is-NPC/eco/commit/29f7d300554f9a27533a41c52bc470ff6ce26fa3))
+* **overlay:** show a session in tabs ([5a3b74e](https://github.com/This-Is-NPC/eco/commit/5a3b74e5d7922bcd7c76b49c8b6c83146c4e7798))
+
 ## [0.6.0](https://github.com/This-Is-NPC/eco/compare/v0.5.1...v0.6.0) (2026-10-15)
 
 
