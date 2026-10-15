@@ -652,6 +652,24 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn a_log_whose_first_record_has_no_id_is_kept_and_indexed() {
+        let directory = tempfile::tempdir().unwrap();
+        let files = SessionFiles::new(directory.path().into());
+        let mut sink = files.writer();
+        sink(
+            json!({"type": "note", "text": "Oi"})
+                .as_object()
+                .unwrap()
+                .clone(),
+        );
+        // Not named in the index when written; read when asked for, under no id.
+        assert!(files.with_index(|logs| logs.is_empty()));
+        let entry = |records: &[Record]| json!(records.len());
+        assert_eq!(files.index(&entry, &always), [json!(1)]);
+        assert_eq!(on_disk(directory.path()).keys().collect::<Vec<_>>(), [""]);
+    }
+
+    #[test]
     fn a_missing_or_broken_index_is_rebuilt_and_a_kept_one_is_read() {
         let directory = tempfile::tempdir().unwrap();
         let files = SessionFiles::new(directory.path().into());

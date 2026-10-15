@@ -3109,10 +3109,7 @@ mod tests {
         let said: Vec<String> = session
             .context(1000)
             .into_iter()
-            .filter_map(|entry| match entry {
-                Entry::Speech(s) => Some(s.text),
-                _ => None,
-            })
+            .map(|entry| entry.texts()[0].to_string())
             .collect();
         assert_eq!(said, ["Bom dia a todos.", "Vamos?"]);
     }
@@ -3142,6 +3139,7 @@ mod tests {
         let mut session = Session::begin("Call", "meeting", LIVE, "pt", sink);
         session.hear_at("Eles", "Bom dia ", 10.0);
         session.hear_at("Eles", "a todos.", 11.0);
+        session.note("Pauta.");
         session.merge_lines(("Eles", 10.0), ("Eles", 11.0)).unwrap();
         // Diarization reaches the line after it was merged away.
         let late = [("Eles".to_string(), 11.0, "Speaker 2".to_string())];

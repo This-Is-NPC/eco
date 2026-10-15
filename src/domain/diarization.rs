@@ -889,6 +889,13 @@ mod tests {
         assert_eq!(normalized(vec![0.0, 0.0]), [0.0, 0.0]);
     }
 
+    #[test]
+    fn a_voice_with_no_sound_is_near_no_one() {
+        let mut speakers = Speakers::new(Clustering::default());
+        assert_eq!(speakers.assign(&[0.0, 0.0]), 0);
+        assert_eq!(speakers.assign(&[1.0, 0.0]), 1);
+    }
+
     fn line(session: &str, at: f64, start: f64, end: f64) -> HeardLine {
         HeardLine {
             session: session.into(),
