@@ -215,6 +215,7 @@ Item {
       lineMenu.row = row
       lineMenu.parent = turn.box
       lineMenu.alignRight = turn.mine
+      turn.menuShown = true
       lineMenu.open()
       return
     }
@@ -252,6 +253,7 @@ Item {
     property int row: -1
     entries: root.lineActions
     onPicked: index => root.act(root.lineActions[index].id, lineMenu.line, lineMenu.row)
+    onClosed: if (line) line.menuShown = false
   }
 
   // While a line waits for its merge: what to do, and a way out.

@@ -35,6 +35,8 @@ Item {
   property string translation: ""
   // This line waits for the line it merges with.
   property bool merging: false
+  // The line's menu is open: its button's tip would cover the line above.
+  property bool menuShown: false
   // The box the line's menu opens below.
   readonly property Item box: block
   signal clicked()
@@ -215,7 +217,7 @@ Item {
     y: body.y
     name: "more"
     size: 12
-    tip: I18n.t("line.menu.tip")
+    tip: turn.menuShown ? "" : I18n.t("line.menu.tip")
     activeFocusOnTab: turn.selected
     onClicked: turn.clicked()
   }

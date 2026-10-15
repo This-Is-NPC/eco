@@ -96,10 +96,14 @@ Window {
     },
     () => {
       root.check("the more button opens its line's menu", root.menu.opened && root.menu.line === root.turn("Tudo bem?"))
+      const button = root.more(root.turn("Tudo bem?"))
+      root.check("the more button's tip leaves while its menu is open", button !== null && button.tip === "")
       root.keys.keyClick(Qt.Key_Escape)
     },
     () => {
       root.check("Esc closes the menu", !root.menu.opened)
+      const button = root.more(root.turn("Tudo bem?"))
+      root.check("the more button's tip comes back once its menu closes", button !== null && button.tip !== "")
       root.list.forceActiveFocus()
       root.keys.keyClick(Qt.Key_Menu)
     },
