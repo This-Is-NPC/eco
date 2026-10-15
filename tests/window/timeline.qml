@@ -106,11 +106,16 @@ Item {
       for (let i = 450; i < 460; i++)
         Eco.handle({ type: "transcript", session: "s1", who: "Eles", name: "Eles", text: "new " + i, at: 3000 + i })
       root.check("nothing leaves while the user reads", Eco.timeline.count === Eco.timelineCap + 10)
+      // A line looked up indexes the rows held.
+      Eco.handle({ type: "transcript_edited", session: "s1", who: "Eles", at: 3459, text: "newest edited" })
       list.following = true
       root.check("following the newest again lets the oldest go", Eco.timeline.count === Eco.timelineCap && Eco.timeline.get(0).at === 1460)
+      root.check("the oldest leaving keeps the rows' index", Eco.rows !== null)
       // A change to a line applies only to a line held.
       Eco.handle({ type: "transcript_edited", session: "s1", who: "Eles", at: 1460, text: "edited" })
       root.check("a held line is edited", Eco.timeline.get(0).text === "edited")
+      Eco.handle({ type: "transcript_edited", session: "s1", who: "Eles", at: 3455, text: "late edited" })
+      root.check("a line is found after the oldest left", Eco.timeline.get(Eco.timeline.count - 5).text === "late edited")
       Eco.handle({ type: "transcript_removed", session: "s1", who: "Eles", at: 1401 })
       root.check("a line not held is not looked for", Eco.timeline.count === Eco.timelineCap)
     },

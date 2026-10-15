@@ -74,15 +74,30 @@ Singleton {
     onRowsInserted: (parent, first, last) => {
       if (root.rows !== null && last === root.timeline.count - 1)
         for (let i = first; i <= last; i++)
-          root.rows[root.rowKey(root.timeline.get(i))] = i
+          root.rows[root.rowKey(root.timeline.get(i))] = i + root.rowShift
       else
         root.rows = null
     }
-    onRowsRemoved: root.rows = root.timeline.count === 0 ? ({}) : null
+    // The oldest rows leaving, as the live cap lets them go, keep the index:
+    // the rows after them move up by as many.
+    onRowsAboutToBeRemoved: (parent, first, last) => {
+      if (root.rows !== null && first === 0 && last < root.timeline.count - 1) {
+        for (let i = first; i <= last; i++)
+          delete root.rows[root.rowKey(root.timeline.get(i))]
+        root.rowShift += last + 1
+      } else {
+        root.rows = null
+      }
+    }
+    onRowsRemoved: if (root.timeline.count === 0) root.rows = ({})
     onRowsMoved: root.rows = null
   }
-  // The timeline's row of each entry by rowKey, or null when it must be rebuilt.
+  // The timeline's row of each entry by rowKey, plus rowShift, or null when it
+  // must be rebuilt.
   property var rows: ({})
+  onRowsChanged: rowShift = 0
+  // How many rows left the top since the index was built.
+  property int rowShift: 0
   // rowKey names a row: an answer or a note by its id, a line by when it was heard.
   function rowKey(row) { return row.key || "@" + row.at }
   // rowOf gives the timeline's row named `key`, or -1.
@@ -94,7 +109,7 @@ Singleton {
       rows = known
     }
     const index = rows[key]
-    return index === undefined ? -1 : index
+    return index === undefined ? -1 : index - rowShift
   }
   // lineRow gives the row of the line `who` said at `at` in the session's
   // timeline on screen, or -1.
