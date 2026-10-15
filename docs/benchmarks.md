@@ -74,6 +74,11 @@ neither is on.
 
 ## Diarization (2026-10-05)
 
+These numbers are from the average-linkage clustering eco ran when the
+recording ended. Since then eco clusters online, as it hears each region
+(design.md §4), with thresholds argued from these, not measured; the tables
+below are not yet measured again with it.
+
 `mise run bench:diarization <dir>`: eco's diarization over 16 kHz mono WAVs
 with a reference RTTM (and UEM). Silero VAD and the segmenter cut speech
 regions as in a session; WeSpeaker CAM++ (Apache-2.0, through tract) embeds

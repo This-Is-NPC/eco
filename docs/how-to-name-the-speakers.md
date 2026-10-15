@@ -14,9 +14,11 @@ next time.
 
 - **The daemon is running.** `eco status` says
   `eco: daemon running (pid …, version …)`.
-- **There is a session with speakers in it.** An import, or a live session whose
-  capture has stopped. [How to import a recording](how-to-import-a-recording.md)
-  makes one in a minute.
+- **There is a session with speakers in it.** An import, or a live session:
+  its others' speakers are told apart while it records, a line moving to its
+  speaker a few seconds after it is said.
+  [How to import a recording](how-to-import-a-recording.md) makes one in a
+  minute.
 - **For guesses by voice, `eco setup` has run.** It downloads the speaker model
   (WeSpeaker CAM++) that tells voices apart. Without it the lines keep the name
   of their audio source and there are no voices to compare.
@@ -52,6 +54,11 @@ The part that matters is `speakers`:
 session came from a WebVTT transcript, and a transcript has no audio. An audio
 import, or the others' input of a live session, has `voice: true`, and then
 `suggestions` lists the people whose voice is close, with a score.
+
+In a live session the speakers, their voices and the guesses come while it
+records, and change as eco hears more. When eco finds that two speakers are one
+voice, the lines of one move to the other; a speaker you named keeps their
+label, and two speakers you named as different people stay apart.
 
 ## 2. Name a speaker
 

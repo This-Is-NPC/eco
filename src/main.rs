@@ -373,8 +373,8 @@ enum Bench {
         /// Speaker embedding model (ONNX); the one `eco setup` downloads by default.
         #[arg(long)]
         model: Option<PathBuf>,
-        /// Clustering thresholds to compare, e.g. 0.5,0.6,0.7.
-        #[arg(long, value_delimiter = ',', default_value = "0.65")]
+        /// New-speaker thresholds to compare, e.g. 0.4,0.5,0.6.
+        #[arg(long, value_delimiter = ',', default_value = "0.5")]
         threshold: Vec<f32>,
         /// Smallest share of the speech a speaker may hold.
         #[arg(long, default_value_t = 0.02)]
@@ -1062,7 +1062,7 @@ mod tests {
             (options.list, options.model, options.output),
             (None, None, None)
         );
-        assert_eq!(options.thresholds, [0.65]);
+        assert_eq!(options.thresholds, [0.5]);
         assert_eq!((options.min_share, options.collar), (0.02, 0.0));
     }
 

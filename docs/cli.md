@@ -178,9 +178,9 @@ Speaker embedding model (ONNX); the one `eco setup` downloads by default
 
 #### `--threshold… <THRESHOLD>`
 
-Clustering thresholds to compare, e.g. 0.5,0.6,0.7
+New-speaker thresholds to compare, e.g. 0.4,0.5,0.6
 
-**Default:** `0.65`
+**Default:** `0.5`
 
 #### `--min-share <MIN_SHARE>`
 

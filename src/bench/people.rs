@@ -12,7 +12,7 @@ use crate::adapters::speaker_tract::TractEmbedder;
 use crate::adapters::vad_silero::SileroModel;
 use crate::bench::der::{Segment, parse_rttm};
 use crate::bench::diarization::diarize;
-use crate::domain::diarization::{Clustering, Diarization};
+use crate::domain::diarization::{Clustering, Diarization, diarize as cluster};
 use crate::domain::people::{Person, ranked};
 use crate::paths;
 
@@ -51,8 +51,8 @@ pub async fn run(dir: PathBuf, series: Vec<String>) -> Result<()> {
                     .with_context(|| base.display().to_string())?,
             )
             .map_err(anyhow::Error::msg)?;
-            let (diarizer, _) = diarize(&base.with_extension("wav"), &vad, &embedder).await?;
-            let diarization = diarizer.finish(Clustering::default());
+            let (regions, _) = diarize(&base.with_extension("wav"), &vad, &embedder).await?;
+            let diarization = cluster(&regions, Clustering::default());
             let found = references(&diarization, &reference);
             println!("{name}: {} speakers found", found.len());
             for (index, (voice, who)) in diarization.voices.into_iter().zip(found).enumerate() {

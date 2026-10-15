@@ -246,12 +246,33 @@ eco/
   traces (§12.4). Nothing is transcribed or stored.
 - **Live voices:** while a session records, each input that is not the
   user's sends its speech to a child `eco diarize` (when `eco setup` installed
-  the speaker model), which keeps only embeddings in memory; nothing reaches
-  disk. When the capture stops (pause or end), each of that input's lines goes
-  to the voice that said most of it: a voice close (≥ 0.70) to one the session
-  already keeps takes that speaker's label, a single voice keeps the
-  audio source's, and others become `Speaker N` — a `diarized` record. The
-  voices are kept like an import's, so their speakers get guesses.
+  the speaker model); nothing reaches disk. The child tells the speakers apart
+  as it hears them, one speech region at a time: each 1.5 s window (every
+  0.75 s) joins the speaker whose running voice (the mean of their windows) is
+  nearest, or starts a new speaker when every voice is at a cosine distance of
+  0.5 or more. After each region, two speakers closer than 0.3 become one, and
+  a speaker heard for less than 2% of the windows, once 120 more windows came
+  after their first, joins the nearest larger one. It keeps the running
+  voices (at most 32 speakers) and nothing else, so a region costs the same
+  at the third hour as at the first minute, and pausing or stopping only ends
+  it. These thresholds were argued from the average-linkage ones measured
+  before ([benchmarks](benchmarks.md#diarization-2026-10-05)), not measured
+  themselves. For each region it prints the turns, the voices that changed and
+  the speakers joined.
+  The daemon keeps the last 5 minutes of turns and up to 256 lines that wait
+  for the child to hear past their end; each line then goes to the voice that
+  said most of it. The first time a voice says a line it gets a label: that of
+  a voice the session keeps close to it (≥ 0.70), else the audio source's for
+  the input's first voice, else `Speaker N`. Its lines move to that label as
+  they are known — a `voiced` record, and `transcript_reassigned` to clients.
+  Two speakers joined share a label: the lines of the one without a person
+  move to the other's, and two the user named as different people stay
+  apart. A voice is kept (§7.3) when it first comes and again whenever it
+  moved (cosine below 0.98 to the one kept), and the session's speakers are
+  told again, so guesses come during the meeting. At most 32 regions wait for
+  the child; past that, regions go without diarization and the daemon's log
+  says so. The child's stderr is read as it comes, and its last 4 kB are the
+  error when it fails.
 - **Echoes:** without headphones, or with headphones loud, the user's
   microphone hears the call and duplicates "their" speech as "me". Headphones
   are recommended; two answers are built in. With `[audio] drop_echoes` (on by default; Settings › General ›
@@ -588,7 +609,8 @@ the speakers of the session's summary.
 ### 7.3 Voices
 
 A diarized speaker's voice (the mean of its embeddings) is kept in
-`~/.local/share/eco/people/voices/<session>.json`, apart from the session.
+`~/.local/share/eco/people/voices/<session>.json`, apart from the session; a
+live speaker's is kept as it is heard and kept again when it moves (§4).
 eco never names a speaker on its own: a speaker whose voice scores ≥ 0.70
 against someone (cosine to the mean of their voiceprints; on AMI the closest
 wrong person scored 0.52) carries a **guess**. The user confirms it (the speaker
@@ -658,7 +680,8 @@ its length, and the VAD and the configured STT transcribe it as fast as they
 go, one line per phrase the STT times, each at its time in the recording.
 The lines start as the audio source chosen at import; meanwhile a child
 `eco diarize` (WeSpeaker CAM++ from `eco setup`, loaded only for the import)
-embeds the same speech, and when the file ends each line goes to the speaker
+hears the same speech as a live input's does (§4), the import waiting for it
+when it falls behind, and when the file ends each line goes to the speaker
 who talks most over it — `Speaker 1`, `Speaker 2`… in the order they first
 speak, a `diarized` record, renamed like any speaker. One voice found leaves
 the audio source. Measurements in [benchmarks.md](benchmarks.md). The session
@@ -790,7 +813,7 @@ and administrators (§15).
 | the icon `eco` the package installs, which names `notify-send`'s notifications | the registry key `HKCU\Software\Classes\AppUserModelId\This-Is-NPC.eco`, written by `eco setup` and by the daemon before a notification: `DisplayName` `eco`, `IconUri` the installed `share\eco\eco.ico` |
 
 A session log holds `session`, `state`, `speech`, `suggestion`, `removed`,
-`meta`, `speaker`, `diarized`, `person`, `attendee`, `unheard`, `edited`,
+`meta`, `speaker`, `diarized`, `voiced`, `person`, `attendee`, `unheard`, `edited`,
 `merged`, `split`, `line_person`, `transcriber`, `listening`, `billed`, `spent`, `tags` records, and also
 `language`, `translation`, `translated`, `context` and `guess_dismissed` (§5–§7).
 `--no-save` keeps it in memory. A removed suggestion is a `removed` record, and
