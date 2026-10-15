@@ -59,7 +59,7 @@ restarted).
 
 ```bash
 eco sessions                 # newest first: id, title, kind, source, language, state,
-eco sessions --kind meeting  #   started_at, duration_s, speech, suggestions, tags, cost
+eco sessions --kind meeting  #   started_at, duration_s, counts, tags, cost
 eco sessions --person <id>   # sessions linked to one person
 eco sessions --tag "Acme"    # sessions with that tag, any case
 eco sessions --search "prazo do contrato"  # sessions whose title, tags, lines, notes or answers hold it
@@ -210,11 +210,11 @@ remove a line only when the user asks.
 Imported recordings, and the others' audio of live sessions once capture
 stops, are split by voice: speakers are labelled `Speaker 1`, `Speaker 2`…
 (one voice keeps the label it was heard as) and `eco show` lists them in
-`speakers`: `{"label", "name", "person", "voice", "suggestions", "guess"}`.
+`speakers`: `{"label", "name", "person", "voice", "suggestions", "guess", "lines"}`.
 `voice` says eco kept the speaker's voice (not WebVTT imports, the user's own
 input, or speakers whose person was forgotten); `person` is the id of who they
-are, if known; `suggestions` are people whose voice is close
-(`{"person", "name", "score"}`). eco never names a speaker on its own: `guess`
+are, if known; `lines` is how many lines carry the label; `suggestions` are
+people whose voice is close (`{"person", "name", "score"}`). eco never names a speaker on its own: `guess`
 is the person their voice is very close to, waiting for the user. Confirm it
 with `--person`, or clear it with `--clear`; only do either when the user
 says so.

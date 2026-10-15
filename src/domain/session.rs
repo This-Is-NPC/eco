@@ -1680,6 +1680,30 @@ impl Session {
         labels
     }
 
+    /// How many lines, answers and notes the whole session holds.
+    pub fn counts(&self) -> Value {
+        let (mut lines, mut answers, mut notes) = (0, 0, 0);
+        for entry in &self.timeline {
+            match entry {
+                Entry::Speech(_) => lines += 1,
+                Entry::Suggestion(_) => answers += 1,
+                Entry::Note(_) => notes += 1,
+            }
+        }
+        json!({"lines": lines, "answers": answers, "notes": notes})
+    }
+
+    /// How many lines each label carries.
+    pub fn lines_by_label(&self) -> BTreeMap<&str, usize> {
+        let mut lines = BTreeMap::new();
+        for entry in &self.timeline {
+            if let Entry::Speech(speech) = entry {
+                *lines.entry(speech.who.as_str()).or_default() += 1;
+            }
+        }
+        lines
+    }
+
     /// The speakers' names in the order they first spoke.
     pub fn speakers(&self) -> Vec<String> {
         let mut names: Vec<String> = Vec::new();
@@ -1743,12 +1767,6 @@ fn total(entries: &[Entry]) -> usize {
 /// and what it cost, its transcription models priced by `rate`.
 pub fn summarize(records: &[Record], rate: impl Fn(&str) -> Rate) -> Result<Value, LogError> {
     let session = Session::restore(records, Box::new(|_| {}))?;
-    let speech = session
-        .timeline
-        .iter()
-        .filter(|e| matches!(e, Entry::Speech(_)))
-        .count();
-    let suggestions = session.timeline.len() - speech;
     Ok(json!({
         "id": session.id,
         "title": session.title,
@@ -1759,8 +1777,7 @@ pub fn summarize(records: &[Record], rate: impl Fn(&str) -> Rate) -> Result<Valu
         "started_at": session.started_at,
         // The time it ran: pauses, answers asked and renames made later do not count.
         "duration_s": session.runs().total().round_ties_even() as i64,
-        "speech": speech,
-        "suggestions": suggestions,
+        "counts": session.counts(),
         "speakers": session.speakers(),
         "people": session.person_ids(),
         "attendees": session.attendee_ids(),
@@ -2078,6 +2095,42 @@ mod tests {
     }
 
     #[test]
+    fn counts_follow_lines_answers_and_notes_added_and_removed() {
+        let (sink, _) = collecting();
+        let mut session = Session::begin("Entrevista", "meeting", LIVE, "pt", sink);
+        assert_eq!(
+            session.counts(),
+            json!({"lines": 0, "answers": 0, "notes": 0})
+        );
+        let first = now();
+        session.hear_at("Speaker 1", "Oi.", first);
+        session.hear_at("Speaker 2", "Olá.", first + 1.0);
+        session.hear_at("Speaker 1", "Tudo bem?", first + 2.0);
+        let answer = session.suggest("ask", "m", "ask", "Pedido: x");
+        let note = session.note("Lembrete.");
+        session.note("Outro.");
+        assert_eq!(
+            session.counts(),
+            json!({"lines": 3, "answers": 1, "notes": 2})
+        );
+        assert_eq!(
+            session.lines_by_label(),
+            BTreeMap::from([("Speaker 1", 2), ("Speaker 2", 1)])
+        );
+        session.remove(&answer.id);
+        session.remove(&note.id);
+        assert!(session.unhear("Speaker 1", first));
+        assert_eq!(
+            session.counts(),
+            json!({"lines": 2, "answers": 0, "notes": 1})
+        );
+        assert_eq!(
+            session.lines_by_label(),
+            BTreeMap::from([("Speaker 1", 1), ("Speaker 2", 1)])
+        );
+    }
+
+    #[test]
     fn restore_rebuilds_what_was_kept() {
         let (sink, records) = collecting();
         let mut session = Session::begin("Entrevista", "meeting", LIVE, "pt", sink);
@@ -2119,8 +2172,8 @@ mod tests {
             (Some("Entrevista"), Some("paused"))
         );
         assert_eq!(
-            (summary["speech"].as_u64(), summary["suggestions"].as_u64()),
-            (Some(1), Some(1))
+            summary["counts"],
+            json!({"lines": 1, "answers": 1, "notes": 0})
         );
         assert!(summary["duration_s"].as_i64().unwrap() >= 0);
         // An answer asked an hour later does not lengthen the recording.

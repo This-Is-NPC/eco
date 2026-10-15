@@ -4,7 +4,8 @@
 //! a watched file and raising a window, run offscreen against `tests/window/bridge.qml`;
 //! on Windows, a copied text that outlives the window, on the real platform;
 //! the overlay's views driven as the daemon drives them, in
-//! `tests/window/views.qml`; the settings window's section keys, in
+//! `tests/window/views.qml`; a long timeline read back and its counts, in
+//! `tests/window/timeline.qml`; the settings window's section keys, in
 //! `tests/window/settings_keys.qml`; the toast stack, in
 //! `tests/window/toasts.qml`; the bars and tables of the views, pressed
 //! as a keyboard and a pointer press them, in `tests/window/bars.qml`; and the
@@ -182,6 +183,27 @@ async fn the_overlay_views_pass_their_checks() {
     let output = tokio::time::timeout(Duration::from_secs(30), run)
         .await
         .expect("the views did not finish")
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+/// A 6000-line session read back loads and takes its translations within a
+/// time limit, and its counts are the daemon's after a line is added, edited or
+/// removed and after another session is shown.
+#[tokio::test]
+async fn a_long_timeline_loads_in_time_and_counts_what_the_daemon_says() {
+    let dir = tempfile::tempdir().unwrap();
+    let run = offscreen("timeline", dir.path())
+        .env("ECO_SOCKET", dir.path().join("no-daemon"))
+        .kill_on_drop(true)
+        .output();
+    let output = tokio::time::timeout(Duration::from_secs(60), run)
+        .await
+        .expect("the timeline did not finish")
         .unwrap();
     assert!(
         output.status.success(),

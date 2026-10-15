@@ -248,12 +248,19 @@ fn millis(duration: Duration) -> u64 {
 }
 
 /// What clients hear when the entry `id` leaves a session: a note or an answer.
-fn removed_event(entry: Option<&Entry>, id: &str) -> Event {
+fn removed_event(session: &Session, entry: Option<&Entry>, id: &str) -> Event {
     let kind = match entry {
         Some(Entry::Note(_)) => "note_removed",
         _ => "suggestion_removed",
     };
-    json!({"type": kind, "id": id})
+    counted(json!({"type": kind, "session": session.id, "id": id}), session)
+}
+
+/// `event`, about an entry added to or gone from `session`, with the session's
+/// counts after it.
+fn counted(mut event: Event, session: &Session) -> Event {
+    event["counts"] = session.counts();
+    event
 }
 
 fn note_event(note: &Note) -> Event {
@@ -895,6 +902,7 @@ impl Assistant {
         let everyone = self.inner.people.people();
         let name_of = |id: &str| everyone.iter().find(|p| p.id == id).map(|p| p.name.clone());
         let described = |m: &Match| json!({"person": m.person, "name": name_of(&m.person), "score": rounded(m.score)});
+        let lines = session.lines_by_label();
         session
             .labels()
             .iter()
@@ -915,6 +923,7 @@ impl Assistant {
                     "label": label, "name": session.name_of(label), "person": person,
                     "color": session.color_of(label), "voice": voices.contains_key(label),
                     "suggestions": suggestions, "guess": guess.as_ref().map(described),
+                    "lines": lines.get(label.as_str()).copied().unwrap_or_default(),
                 })
             })
             .collect()
@@ -1636,11 +1645,11 @@ impl Assistant {
                 let person = session.person_of(who).map(String::from);
                 let removed = session.unhear(who, at);
                 let retired = removed && !session.labels().iter().any(|label| label == who);
-                (removed, retired, person)
+                (removed, retired, person, session.counts())
             })
         };
         match removed {
-            Some((true, retired, person)) => {
+            Some((true, retired, person, counts)) => {
                 if retired {
                     if let Some(mut person) = person.and_then(|id| self.person(&id)) {
                         person.unenroll(session_id, who);
@@ -1653,13 +1662,14 @@ impl Assistant {
                         self.store_failed(&failure);
                     }
                 }
-                self.emit(json!({"type": "transcript_removed", "session": session_id, "who": who, "at": at}));
+                self.emit(json!({"type": "transcript_removed", "session": session_id, "who": who, "at": at,
+                                 "counts": counts}));
                 self.announce_speakers(session_id);
                 self.announce_attendees(session_id);
                 self.sessions();
                 self.people();
             }
-            Some((false, _, _)) => self.line_not_found(session_id, who, at),
+            Some((false, ..)) => self.line_not_found(session_id, who, at),
             None => self.not_found(session_id),
         }
     }
@@ -2177,7 +2187,7 @@ impl Assistant {
             }
         }
         let speech = session.hear_at(&utterance.who, &text, at);
-        self.emit(speech_event(session, &speech, utterance.latency));
+        self.emit(counted(speech_event(session, &speech, utterance.latency), session));
         if let Some(language) = session.translation().map(String::from) {
             let of = Source::Line(speech.at);
             self.translate(
@@ -2205,7 +2215,7 @@ impl Assistant {
             session.unhear(&user, at);
             let removed =
                 json!({"type": "transcript_removed", "session": session.id, "who": user, "at": at});
-            self.emit(removed);
+            self.emit(counted(removed, session));
         }
         line
     }
@@ -2293,7 +2303,7 @@ impl Assistant {
         let note = session.note(text);
         let mut event = note_event(&note);
         event["session"] = json!(session.id);
-        self.emit(event);
+        self.emit(counted(event, session));
     }
 
     /// The id of the session `session_id` names — the open one when it is none —
@@ -2371,10 +2381,11 @@ impl Assistant {
     ) {
         let session = state.pick(target);
         let suggestion = session.suggest(action, model, prompt, request);
-        self.emit(json!({
+        let start = json!({
             "type": "suggestion_start", "id": suggestion.id, "session": session.id, "action": suggestion.action,
             "model": suggestion.model, "prompt": suggestion.prompt, "at": suggestion.at,
-        }));
+        });
+        self.emit(counted(start, session));
         let queue = state.answering.entry(target.to_string()).or_default();
         if queue.running.is_none() {
             return self.stream(state, &suggestion.id);
@@ -2886,8 +2897,12 @@ impl Assistant {
         if state.holder(id).is_some() {
             return self.remove_from(&mut state, id);
         }
-        match self.edit_session(&mut state, session_id, |session| session.remove(id)) {
-            Some(removed) => self.emit(removed_event(removed.as_ref(), id)),
+        let removed = self.edit_session(&mut state, session_id, |session| {
+            let removed = session.remove(id);
+            removed_event(session, removed.as_ref(), id)
+        });
+        match removed {
+            Some(event) => self.emit(event),
             None => self.not_found(session_id),
         }
     }
@@ -2908,11 +2923,11 @@ impl Assistant {
                 streaming = true;
             }
         }
-        if let Some(removed) = state
-            .holder(suggestion_id)
-            .and_then(|session| session.remove(suggestion_id))
-        {
-            self.emit(removed_event(Some(&removed), suggestion_id));
+        if let Some(event) = state.holder(suggestion_id).and_then(|session| {
+            let removed = session.remove(suggestion_id)?;
+            Some(removed_event(session, Some(&removed), suggestion_id))
+        }) {
+            self.emit(event);
         }
         if let Some(session) = session {
             if streaming {
@@ -2999,6 +3014,7 @@ fn session_json(m: &Session) -> Value {
         "contexts": m.contexts(),
         "tags": m.tags(),
         "translating": m.translation(),
+        "counts": m.counts(),
     })
 }
 
@@ -5912,6 +5928,73 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn each_entry_added_or_removed_tells_the_whole_sessions_counts() {
+        let (assistant, events) = make(&llm(&["Resposta."]), true);
+        let id = assistant.snapshot()[0]["session"]["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let counts = |lines: u64, answers: u64, notes: u64| {
+            json!({"lines": lines, "answers": answers, "notes": notes})
+        };
+        assert_eq!(assistant.snapshot()[0]["live"][0]["counts"], counts(0, 0, 0));
+        assistant.hear(&heard(), &utterance("Recrutador", "Bom dia."));
+        assert_eq!(last_of(&events, "transcript")["counts"], counts(1, 0, 0));
+        assistant.hear(&heard(), &utterance("Recrutador", "Vamos começar?"));
+        assert_eq!(last_of(&events, "transcript")["counts"], counts(2, 0, 0));
+        assistant.note(None, "Ligar amanhã.");
+        let note = last_of(&events, "note");
+        assert_eq!(note["counts"], counts(2, 0, 1));
+        assistant.trigger(None, "ask");
+        let start = last_of(&events, "suggestion_start");
+        assert_eq!(start["counts"], counts(2, 1, 1));
+        settle().await;
+        assert_eq!(assistant.snapshot()[0]["session"]["counts"], counts(2, 1, 1));
+        assert_eq!(assistant.snapshot()[0]["live"][0]["counts"], counts(2, 1, 1));
+
+        assistant.remove(&id, start["id"].as_str().unwrap());
+        let gone = last_of(&events, "suggestion_removed");
+        assert_eq!(
+            (gone["session"].as_str(), &gone["counts"]),
+            (Some(id.as_str()), &counts(2, 0, 1))
+        );
+        assistant.remove(&id, note["id"].as_str().unwrap());
+        let gone = last_of(&events, "note_removed");
+        assert_eq!(
+            (gone["session"].as_str(), &gone["counts"]),
+            (Some(id.as_str()), &counts(2, 0, 0))
+        );
+        // Told again of an entry already gone, the counts stay what they are.
+        assistant.remove(&id, note["id"].as_str().unwrap());
+        assert_eq!(last_of(&events, "suggestion_removed")["counts"], counts(2, 0, 0));
+
+        assistant.announce_speakers(&id);
+        let speakers = last_of(&events, "session_speakers")["speakers"].clone();
+        assert_eq!(speakers[0]["lines"], 2);
+        let at = last_of(&events, "transcript")["at"].as_f64().unwrap();
+        assistant.remove_line(&id, "Recrutador", at);
+        assert_eq!(last_of(&events, "transcript_removed")["counts"], counts(1, 0, 0));
+        assert_eq!(last_of(&events, "session_speakers")["speakers"][0]["lines"], 1);
+    }
+
+    #[tokio::test]
+    async fn a_stored_sessions_summary_counts_its_lines_answers_and_notes() {
+        let directory = tempfile::tempdir().unwrap();
+        let (assistant, events, _) = stored_with(directory.path(), people_in(directory.path()));
+        let id = assistant.start("Call", "meeting", "pt", None);
+        assistant.hear(&heard(), &utterance("Eles", "Oi."));
+        assistant.note(None, "Ligar amanhã.");
+        assistant.end(None);
+        let counts = json!({"lines": 1, "answers": 0, "notes": 1});
+        assistant.show(&id);
+        let detail = last_of(&events, "session_detail")["session"].clone();
+        assert_eq!(detail["counts"], counts);
+        assert_eq!(detail.get("speech"), None, "the counts replace the old totals");
+        assistant.sessions();
+        assert_eq!(last_of(&events, "sessions")["sessions"][0]["counts"], counts);
+    }
+
+    #[tokio::test]
     async fn any_line_can_be_removed() {
         let (assistant, events) = make(&llm(&[]), true);
         assistant.hear(&heard(), &utterance("Recrutador", "Bom dia."));
@@ -5932,7 +6015,8 @@ mod tests {
             .clone();
         assert_eq!(
             last,
-            json!({"type": "transcript_removed", "session": id, "who": "Recrutador", "at": at})
+            json!({"type": "transcript_removed", "session": id, "who": "Recrutador", "at": at,
+                   "counts": {"lines": 1, "answers": 0, "notes": 0}})
         );
         let left: Vec<Value> = shown_timeline(&assistant)
             .into_iter()
