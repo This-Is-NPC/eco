@@ -857,6 +857,19 @@ Keys you put in `~/.config/uwsm/env` stay there until you delete those lines.
 **Something is missing, and you do not know what.** `eco doctor` runs every
 check and names the fix for each that fails ([Update](#which-version-and-is-everything-in-place)).
 
+**The window does not open after an install on a system not updated lately.**
+A release is built against the Qt Arch ships that day, and needs that Qt or a
+newer one. Up to 0.5.0 the package did not say so, and `journalctl --user -u
+eco` shows, each time the daemon tries to open a window:
+
+```
+/usr/lib/eco/eco-window: /usr/lib/libQt6Core.so.6: version `Qt_6.12' not found (required by /usr/lib/eco/eco-window)
+```
+
+Update the system (`sudo pacman -Syu`, or `omarchy-update`), then `eco
+restart`. Later packages depend on that Qt release, so pacman brings it along
+when it installs eco.
+
 **The models are missing.** The daemon will not start without them, and says
 which:
 
