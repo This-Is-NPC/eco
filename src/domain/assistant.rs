@@ -16,6 +16,7 @@ use crate::domain::channel::Utterance;
 use crate::domain::diarization::{Diarization, normalized, speaker_of};
 use crate::domain::echo;
 use crate::domain::events::{Event, error};
+use crate::domain::index::Indexed;
 use crate::domain::people::{GUESSING, Match, Person, SUGGESTING, ranked};
 use crate::domain::prompts::{
     LANGUAGES, action_request, conversation, question_request, review, translation,
@@ -670,24 +671,50 @@ impl Assistant {
     fn summary_of(&self, records: &[Record]) -> Result<Value, LogError> {
         let state = self.state();
         let setup = state.setup.as_deref();
-        let mut summary = summarize(records, |model| rate_in(setup, model))?;
-        let open = matches!(summary["state"].as_str(), Some(RECORDING | PAUSED));
-        if open && !summary["id"].as_str().is_some_and(|id| state.is_live(id)) {
-            summary["state"] = json!(INTERRUPTED);
-        }
-        Ok(summary)
+        let summary = summarize(records, |model| rate_in(setup, model))?;
+        Ok(settled(&state, summary))
     }
+
+    // The session index (docs/design.md §8).
+
+    /// Every stored session as the index keeps it, newest first, its cost
+    /// priced as `setup` prices it.
+    fn indexed(&self, setup: Option<&Setup>) -> Vec<Indexed> {
+        let rate = |model: &str| rate_in(setup, model);
+        let entry = |records: &[Record]| Indexed::of(records, rate).json();
+        let fresh = |kept: &Value| Indexed::read(kept).is_some_and(|kept| kept.priced_at(rate));
+        let entries = self.inner.log.index(&entry, &fresh);
+        entries.iter().filter_map(Indexed::read).collect()
+    }
+
+    /// The stored sessions `entries` name, read back from their logs.
+    fn restored<'a>(&self, entries: impl IntoIterator<Item = &'a Indexed>) -> Vec<Session> {
+        entries
+            .into_iter()
+            .filter_map(Indexed::id)
+            .filter_map(|id| self.inner.log.read(id))
+            .filter_map(|records| Session::restore(&records, Box::new(|_| {})).ok())
+            .collect()
+    }
+
+    // End of the session index.
 
     /// Announce every stored session, newest first; an unreadable log is skipped, not fatal.
     pub fn sessions(&self) {
+        let setup = self.state().setup.clone();
         let (found, unreadable): (Vec<_>, Vec<_>) = self
-            .inner
-            .log
-            .all()
-            .iter()
-            .map(|records| self.summary_of(records))
-            .partition(Result::is_ok);
-        let found: Vec<Value> = found.into_iter().map(Result::unwrap).collect();
+            .indexed(setup.as_deref())
+            .into_iter()
+            .map(|entry| entry.summary)
+            .partition(Option::is_some);
+        let found: Vec<Value> = {
+            let state = self.state();
+            found
+                .into_iter()
+                .flatten()
+                .map(|summary| settled(&state, summary))
+                .collect()
+        };
         self.emit(json!({"type": "sessions", "sessions": found}));
         if !unreadable.is_empty() {
             let count = unreadable.len();
@@ -704,14 +731,19 @@ impl Assistant {
     /// answers hold `query`, ignoring case and accents; newest first.
     pub fn search(&self, query: &str) {
         let needle = folded(query.trim());
+        let setup = self.state().setup.clone();
+        // Only a session its title and tags do not name is read for its lines.
         let ids: Vec<String> = self
-            .inner
-            .log
-            .all()
+            .indexed(setup.as_deref())
             .iter()
-            .filter_map(|records| Session::restore(records, Box::new(|_| {})).ok())
-            .filter(|session| session.mentions(&needle))
-            .map(|session| session.id)
+            .filter(|entry| {
+                entry.named(&needle)
+                    || self
+                        .restored([*entry])
+                        .first()
+                        .is_some_and(|session| session.mentions(&needle))
+            })
+            .filter_map(|entry| entry.id().map(String::from))
             .collect();
         self.emit(json!({"type": "sessions_found", "query": query, "ids": ids}));
     }
@@ -1080,11 +1112,13 @@ impl Assistant {
 
     /// Every stored session linked to `person_id`, with any speaker labels.
     fn sessions_with(&self, person_id: &str) -> Vec<(String, Vec<String>)> {
-        self.inner
-            .log
-            .all()
+        let setup = self.state().setup.clone();
+        let indexed = self.indexed(setup.as_deref());
+        let linked = indexed
             .iter()
-            .filter_map(|records| Session::restore(records, Box::new(|_| {})).ok())
+            .filter(|entry| entry.listed("people").iter().any(|id| id == person_id));
+        self.restored(linked)
+            .iter()
             .filter(|session| session.person_ids().iter().any(|id| id == person_id))
             .map(|session| (session.id.clone(), session.labels_of(person_id)))
             .collect()
@@ -1092,11 +1126,12 @@ impl Assistant {
 
     /// Announce everyone known: name, how many voices, the sessions they are in.
     pub fn people(&self) {
+        let setup = self.state().setup.clone();
         let mut taking_part: Vec<(String, String)> = Vec::new();
-        for records in self.inner.log.all() {
-            if let Ok(session) = Session::restore(&records, Box::new(|_| {})) {
-                for person in session.person_ids() {
-                    taking_part.push((person, session.id.clone()));
+        for entry in self.indexed(setup.as_deref()) {
+            if let Some(id) = entry.id() {
+                for person in entry.listed("people") {
+                    taking_part.push((person, id.to_string()));
                 }
             }
         }
@@ -1119,12 +1154,17 @@ impl Assistant {
     }
 
     pub fn adopt_live_speakers(&self) {
+        let setup = self.state().setup.clone();
+        let indexed = self.indexed(setup.as_deref());
+        let live = indexed.iter().filter(|entry| {
+            entry
+                .summary
+                .as_ref()
+                .is_some_and(|summary| summary["source"] == LIVE)
+        });
         let pending: Vec<(String, String, String)> = self
-            .inner
-            .log
-            .all()
-            .iter()
-            .filter_map(|records| Session::restore(records, Box::new(|_| {})).ok())
+            .restored(live)
+            .into_iter()
             .filter(|session| session.source == LIVE)
             .flat_map(|session| {
                 session
@@ -1721,19 +1761,23 @@ impl Assistant {
 
     /// Every session's id and tags, stored or only in memory, oldest first.
     fn tagged(&self) -> Vec<(String, Vec<String>)> {
-        let stored: Vec<Session> = self
-            .inner
-            .log
-            .all()
-            .iter()
-            .filter_map(|records| Session::restore(records, Box::new(|_| {})).ok())
-            .collect();
+        let setup = self.state().setup.clone();
+        let stored = self.indexed(setup.as_deref());
         let state = self.state();
         let mut sessions: Vec<(f64, String, Vec<String>)> = stored
             .iter()
-            .filter(|session| !state.loaded.contains_key(&session.id))
-            .chain(state.loaded.values())
-            .map(|s| (s.started_at, s.id.clone(), s.tags().to_vec()))
+            .filter_map(|entry| {
+                let id = entry.id()?;
+                let started_at = entry.summary.as_ref()?["started_at"].as_f64()?;
+                Some((started_at, id.to_string(), entry.listed("tags")))
+            })
+            .filter(|(_, id, _)| !state.loaded.contains_key(id))
+            .chain(
+                state
+                    .loaded
+                    .values()
+                    .map(|s| (s.started_at, s.id.clone(), s.tags().to_vec())),
+            )
             .collect();
         sessions.sort_by(|a, b| a.0.total_cmp(&b.0));
         sessions
@@ -2037,14 +2081,19 @@ impl Assistant {
         if setup.transcription_billing.is_empty() {
             return;
         }
-        let stored: Vec<Session> = self
-            .inner
-            .log
-            .all()
+        let indexed = self.indexed(Some(&*setup));
+        let billed: HashSet<&str> = indexed
             .iter()
-            .filter_map(|records| Session::restore(records, Box::new(|_| {})).ok())
+            .flat_map(|entry| entry.billed.iter().map(String::as_str))
             .collect();
-        let billed: HashSet<&str> = stored.iter().flat_map(Session::billed).collect();
+        // Only a session with a request never billed, or one a provider can still price, is read.
+        let stored = self.restored(indexed.iter().filter(|entry| {
+            entry.unclosed
+                || entry
+                    .unpaid
+                    .iter()
+                    .any(|model| setup.transcription_billing.contains_key(model))
+        }));
         // Requests left open, by id, with each session that listened to them.
         let mut unclosed: BTreeMap<String, Vec<(String, Unclosed)>> = BTreeMap::new();
         for session in &stored {
@@ -3075,6 +3124,16 @@ impl Drop for Bills {
 }
 
 /// What `setup` knows of the transcription model `model`'s price.
+/// A stored session's `summary` as it stands now: one left open that no
+/// daemon holds is interrupted.
+fn settled(state: &State, mut summary: Value) -> Value {
+    let open = matches!(summary["state"].as_str(), Some(RECORDING | PAUSED));
+    if open && !summary["id"].as_str().is_some_and(|id| state.is_live(id)) {
+        summary["state"] = json!(INTERRUPTED);
+    }
+    summary
+}
+
 fn rate_in(setup: Option<&Setup>, model: &str) -> Rate {
     setup.map_or_else(Rate::default, |setup| Rate {
         per_minute: setup.transcription_prices.get(model).copied(),
@@ -6163,8 +6222,12 @@ mod tests {
             self.0.writer()
         }
 
-        fn all(&self) -> Vec<Vec<Record>> {
-            self.0.all()
+        fn index(
+            &self,
+            entry: &dyn Fn(&[Record]) -> Value,
+            fresh: &dyn Fn(&Value) -> bool,
+        ) -> Vec<Value> {
+            self.0.index(entry, fresh)
         }
 
         fn read(&self, session_id: &str) -> Option<Vec<Record>> {
@@ -6810,5 +6873,63 @@ mod tests {
         settle().await;
         assert_eq!(fake.calls.lock().unwrap().len(), asked + 1);
         assert_eq!(count(&events, "translated"), 1);
+    }
+
+    /// Rewrite what the session index in `directory` keeps of the summary of
+    /// the session `id`, its log untouched.
+    fn tamper(directory: &std::path::Path, id: &str, field: &str, value: Value) {
+        let path = directory.join("sessions").join("index.json");
+        let mut index: Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        for log in index.as_object_mut().unwrap().values_mut() {
+            if log["id"] == id {
+                log["entry"]["summary"][field] = value.clone();
+            }
+        }
+        std::fs::write(&path, index.to_string()).unwrap();
+    }
+
+    #[test]
+    fn sessions_people_tags_and_search_read_the_index_until_the_log_changes() {
+        let directory = tempfile::tempdir().unwrap();
+        let people = people_in(directory.path());
+        let ana = Person::new("Ana");
+        people.save(&ana).unwrap();
+        let (assistant, _, log) = stored_with(directory.path(), people.clone());
+        let mut session = Session::begin("Kickoff", "meeting", LIVE, "pt", log.writer());
+        session.tag("Q3");
+        session.set_state(ENDED);
+        let id = session.id.clone();
+        drop(session);
+        assistant.sessions();
+        tamper(directory.path(), &id, "title", json!("Retro"));
+        tamper(directory.path(), &id, "tags", json!(["Q4"]));
+        tamper(directory.path(), &id, "people", json!([ana.id]));
+
+        // Another daemon over the same files answers from the index alone.
+        let (assistant, events, _) = stored_with(directory.path(), people);
+        assistant.sessions();
+        assert_eq!(last_of(&events, "sessions")["sessions"][0]["title"], "Retro");
+        assistant.tags();
+        assert_eq!(
+            last_of(&events, "tags")["tags"],
+            json!([{"tag": "Q4", "sessions": 1}])
+        );
+        assistant.people();
+        assert_eq!(last_of(&events, "people")["people"][0]["sessions"], json!([id]));
+        assistant.search("retro");
+        assert_eq!(last_of(&events, "sessions_found")["ids"], json!([id]));
+        // What the index does not name is still read from the log.
+        assistant.search("kickoff");
+        assert_eq!(last_of(&events, "sessions_found")["ids"], json!([id]));
+
+        // An edit to its log makes the index read it again.
+        assistant.rename(&id, "Daily", "meeting");
+        assistant.sessions();
+        let listed = &last_of(&events, "sessions")["sessions"][0];
+        assert_eq!(
+            (&listed["title"], &listed["tags"]),
+            (&json!("Daily"), &json!(["Q3"]))
+        );
     }
 }

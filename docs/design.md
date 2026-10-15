@@ -563,7 +563,8 @@ any other label shows as written.
 `sessions.search <text>` answers `sessions_found` with the ids, newest first: the
 sessions whose title, tags, lines, notes, questions or answers hold the text, in
 any case or accents, as they read now (removed and corrected lines count as
-they are).
+they are). Titles and tags come from the session index (§8); only the logs
+they do not match are read for the rest.
 
 ### 7.2 Speakers
 
@@ -748,6 +749,7 @@ below is built in `src/paths.rs` (§15).
 |---|---|---|
 | `~/.config/eco/config.toml` | the configuration (§9) | the daemon, from the config window's draft; hand edits work too, but comments are not kept |
 | `~/.local/share/eco/sessions/<start>-<title or kind>.jsonl` | one session, append-only JSON Lines; a second session with the same start second and title gets `-2`, then `-3`, before `.jsonl` | the daemon |
+| `~/.local/share/eco/sessions/index.json` | the session index: what eco knows of each log without reading it again (below); deleting it costs one slower listing | the daemon |
 | `~/.local/share/eco/people/<id>.json` | a person: name, color, voiceprints (§7.4) | the daemon |
 | `~/.local/share/eco/people/voices/<session>.json` | the voices of a session's diarized speakers (§7.3) | the daemon |
 | `~/.local/share/eco/models/` | the Silero VAD and WeSpeaker CAM++ models | `eco setup` |
@@ -786,6 +788,28 @@ it leaves the context of later actions as well as the screen.
 A daemon that stops mid-session leaves it open; the next start marks it
 `paused` and opens with no session. A stored session left open that no daemon
 holds is listed and shown as `interrupted`, never reopened by itself.
+
+**The session index.** `sessions/index.json`, beside the logs it describes,
+holds one object per log file, by file name: the session's `id`, the log's
+size in bytes and modification time in nanoseconds when it was read, and its
+`entry` — the session's summary as the `sessions` list sends it (id, title,
+kind, source, language, state, start, duration, how much was said, speakers, people,
+attendees, tags, cost), the price each transcription model had when that cost
+was summed, the transcription requests it was billed for, whether it listened
+to one never billed, and the models of those billed but not yet priced
+(`Indexed` in `src/domain/index.rs`). `sessions`, `sessions.search`, `people`,
+`tags`, the sessions a person is in, adopting speakers and pricing unpaid
+requests read it instead of every log: an entry is used while its log has
+the size and modification time it records and its prices are the setup's;
+otherwise that log alone is read again and its entry rewritten. A log no
+longer there leaves the index; a missing or unreadable index is rebuilt from
+the logs. Search reads only the logs whose title and tags do not hold the
+text; pricing, only the sessions with a request to close or price. A new
+session's log is named in the index at its first record, and a deleted one
+leaves it at once, so finding a session's log by its id reads one first line,
+not every log. The daemon holds the index in memory and writes it whole, to
+`index.json.partial` then renamed over it (`src/adapters/session_files.rs`).
+The index holds no line of what was said; it is as private as the logs.
 
 ---
 

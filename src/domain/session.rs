@@ -1742,14 +1742,18 @@ fn total(entries: &[Entry]) -> usize {
 /// What a session list shows: what, when, how long, in which state, how much,
 /// and what it cost, its transcription models priced by `rate`.
 pub fn summarize(records: &[Record], rate: impl Fn(&str) -> Rate) -> Result<Value, LogError> {
-    let session = Session::restore(records, Box::new(|_| {}))?;
+    Ok(summary(&Session::restore(records, Box::new(|_| {}))?, rate))
+}
+
+/// A session's summary, as `summarize` makes it from its log.
+pub fn summary(session: &Session, rate: impl Fn(&str) -> Rate) -> Value {
     let speech = session
         .timeline
         .iter()
         .filter(|e| matches!(e, Entry::Speech(_)))
         .count();
     let suggestions = session.timeline.len() - speech;
-    Ok(json!({
+    json!({
         "id": session.id,
         "title": session.title,
         "kind": session.kind,
@@ -1768,7 +1772,7 @@ pub fn summarize(records: &[Record], rate: impl Fn(&str) -> Rate) -> Result<Valu
         "translating": session.translation(),
         "tags": session.tags(),
         "cost": session.cost(rate),
-    }))
+    })
 }
 
 #[cfg(test)]
