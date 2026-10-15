@@ -5,6 +5,7 @@
 //! on Windows, a copied text that outlives the window, on the real platform;
 //! the overlay's views driven as the daemon drives them, in
 //! `tests/window/views.qml`; a long timeline read back and its counts, in
+//! `tests/window/counts.qml`; a long timeline read in pages, in
 //! `tests/window/timeline.qml`; the settings window's section keys, in
 //! `tests/window/settings_keys.qml`; the toast stack, in
 //! `tests/window/toasts.qml`; the bars and tables of the views, pressed
@@ -197,11 +198,33 @@ async fn the_overlay_views_pass_their_checks() {
 #[tokio::test]
 async fn a_long_timeline_loads_in_time_and_counts_what_the_daemon_says() {
     let dir = tempfile::tempdir().unwrap();
-    let run = offscreen("timeline", dir.path())
+    let run = offscreen("counts", dir.path())
         .env("ECO_SOCKET", dir.path().join("no-daemon"))
         .kill_on_drop(true)
         .output();
     let output = tokio::time::timeout(Duration::from_secs(60), run)
+        .await
+        .expect("the counts did not finish")
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+/// A long session's timeline in pages: an older page goes in above and the
+/// entry read stays put, the live timeline keeps its cap while it follows the
+/// newest, a found session opens around the time found, and a page not asked
+/// for is not put in.
+#[tokio::test]
+async fn the_timeline_reads_a_long_session_in_pages() {
+    let dir = tempfile::tempdir().unwrap();
+    let run = offscreen("timeline", dir.path())
+        .env("ECO_SOCKET", dir.path().join("no-daemon"))
+        .kill_on_drop(true)
+        .output();
+    let output = tokio::time::timeout(Duration::from_secs(30), run)
         .await
         .expect("the timeline did not finish")
         .unwrap();

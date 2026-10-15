@@ -212,7 +212,7 @@ ColumnLayout {
       table.focusRows()
     }
     onTopLeft: search.forceActiveFocus()
-    onOpened: session => Eco.showSession(session.id)
+    onOpened: session => Eco.showSession(session.id, Eco.foundAt(session.id))
     onDeleteRequested: session => Eco.deleteRequested(session)
     onBackRequested: Eco.goBack()
   }

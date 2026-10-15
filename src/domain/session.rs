@@ -2,6 +2,7 @@
 //! suggestions.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::ops::Range;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
@@ -148,6 +149,16 @@ pub struct Translation {
     pub text: String,
 }
 
+/// The part of a timeline a window asks for: the newest entries, those before
+/// or after a time — the oldest or newest it holds — or those around a time.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Page {
+    Newest,
+    Before(f64),
+    After(f64),
+    Around(f64),
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Entry {
     Speech(Speech),
@@ -161,6 +172,15 @@ impl Entry {
             Entry::Speech(speech) => speech.at,
             Entry::Note(note) => note.at,
             Entry::Suggestion(suggestion) => suggestion.at,
+        }
+    }
+
+    /// What it says: a line's or a note's text, an answer's question and text.
+    fn texts(&self) -> [&str; 2] {
+        match self {
+            Entry::Speech(speech) => [&speech.text, ""],
+            Entry::Note(note) => [&note.text, ""],
+            Entry::Suggestion(answer) => [&answer.prompt, &answer.text],
         }
     }
 
@@ -1719,15 +1739,56 @@ impl Session {
     /// Whether its title, tags, lines, notes, questions or answers hold `needle`,
     /// which is already `folded`.
     pub fn mentions(&self, needle: &str) -> bool {
-        let texts = self.timeline.iter().flat_map(|entry| match entry {
-            Entry::Speech(speech) => [speech.text.as_str(), ""],
-            Entry::Note(note) => [note.text.as_str(), ""],
-            Entry::Suggestion(answer) => [answer.prompt.as_str(), answer.text.as_str()],
-        });
         std::iter::once(self.title.as_str())
             .chain(self.tags.iter().map(String::as_str))
-            .chain(texts)
             .any(|text| folded(text).contains(needle))
+            || self.first_mention(needle).is_some()
+    }
+
+    /// When the first line, note, question or answer that holds `needle`, already
+    /// `folded`, was said or written.
+    pub fn first_mention(&self, needle: &str) -> Option<f64> {
+        self.timeline
+            .iter()
+            .find(|entry| {
+                entry
+                    .texts()
+                    .iter()
+                    .any(|text| folded(text).contains(needle))
+            })
+            .map(Entry::at)
+    }
+
+    /// Where in the timeline the entries of `page` are: at most `limit` of them,
+    /// and at least one. An entry is before a time when it is said before it.
+    pub fn page(&self, page: Page, limit: usize) -> Range<usize> {
+        let len = self.timeline.len();
+        let limit = limit.max(1);
+        let from = |at: f64| {
+            self.timeline
+                .iter()
+                .position(|entry| entry.at() >= at)
+                .unwrap_or(len)
+        };
+        match page {
+            Page::Newest => len.saturating_sub(limit)..len,
+            Page::Before(at) => {
+                let end = from(at);
+                end.saturating_sub(limit)..end
+            }
+            Page::After(at) => {
+                let start = self
+                    .timeline
+                    .iter()
+                    .position(|entry| entry.at() > at)
+                    .unwrap_or(len);
+                start..(start + limit).min(len)
+            }
+            Page::Around(at) => {
+                let end = (from(at).saturating_sub(limit / 2) + limit).min(len);
+                end.saturating_sub(limit)..end
+            }
+        }
     }
 
     /// Speech and completed suggestions to send, oldest first, within `max_chars`.
@@ -2861,6 +2922,77 @@ mod tests {
         session.finish(&answer.id);
         assert!(session.mentions(&folded("prazo")));
         assert!(!session.mentions(&folded("orçamento")));
+    }
+
+    #[test]
+    fn the_first_mention_is_when_its_entry_was_said() {
+        let (sink, _) = collecting();
+        let mut session = Session::begin("Prazo", "meeting", LIVE, "pt", sink);
+        session.hear_at("Eles", "Bom dia.", 10.0);
+        session.hear_at("Eles", "O prazo é sexta.", 20.0);
+        session.hear_at("Eles", "Outro prazo.", 30.0);
+        assert_eq!(session.first_mention(&folded("prazo")), Some(20.0));
+        assert_eq!(session.first_mention(&folded("orcamento")), None);
+        // The title mentions it, though no entry does.
+        assert!(session.mentions(&folded("prazo")));
+        assert_eq!(session.first_mention(&folded("bom")), Some(10.0));
+    }
+
+    /// A session of ten lines said at 0, 10 … 90 seconds.
+    fn ten_lines() -> Session {
+        let mut session = Session::begin("", "meeting", LIVE, "pt", Box::new(|_| {}));
+        for i in 0..10 {
+            session.timeline.push(Entry::Speech(Speech {
+                who: "Eles".into(),
+                text: format!("fala {i}"),
+                at: f64::from(i) * 10.0,
+            }));
+        }
+        session
+    }
+
+    #[test]
+    fn the_newest_page_is_the_end_of_the_timeline() {
+        let session = ten_lines();
+        assert_eq!(session.page(Page::Newest, 3), 7..10);
+        assert_eq!(session.page(Page::Newest, 300), 0..10);
+        // A page holds one entry at least.
+        assert_eq!(session.page(Page::Newest, 0), 9..10);
+        let empty = Session::begin("", "meeting", LIVE, "pt", Box::new(|_| {}));
+        assert_eq!(empty.page(Page::Newest, 3), 0..0);
+    }
+
+    #[test]
+    fn a_page_before_ends_just_before_the_oldest_entry_held() {
+        let session = ten_lines();
+        assert_eq!(session.page(Page::Before(70.0), 3), 4..7);
+        // Fewer than asked are left at the start, and none before the first.
+        assert_eq!(session.page(Page::Before(20.0), 3), 0..2);
+        assert_eq!(session.page(Page::Before(0.0), 3), 0..0);
+        // A time between entries ends the page at the first entry after it.
+        assert_eq!(session.page(Page::Before(65.0), 2), 5..7);
+        // A time after every entry is the newest page.
+        assert_eq!(session.page(Page::Before(1000.0), 2), 8..10);
+    }
+
+    #[test]
+    fn a_page_after_starts_just_after_the_newest_entry_held() {
+        let session = ten_lines();
+        assert_eq!(session.page(Page::After(20.0), 3), 3..6);
+        assert_eq!(session.page(Page::After(70.0), 3), 8..10);
+        assert_eq!(session.page(Page::After(90.0), 3), 10..10);
+        assert_eq!(session.page(Page::After(-1.0), 2), 0..2);
+    }
+
+    #[test]
+    fn a_page_around_a_time_centres_the_entry_said_then() {
+        let session = ten_lines();
+        assert_eq!(session.page(Page::Around(50.0), 4), 3..7);
+        // Near either end it slides to hold as many as asked.
+        assert_eq!(session.page(Page::Around(0.0), 4), 0..4);
+        assert_eq!(session.page(Page::Around(90.0), 4), 6..10);
+        assert_eq!(session.page(Page::Around(1000.0), 4), 6..10);
+        assert_eq!(session.page(Page::Around(50.0), 300), 0..10);
     }
 
     #[test]

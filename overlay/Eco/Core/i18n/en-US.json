@@ -147,6 +147,7 @@
   "session.end_confirm": "END?",
   "timeline.listening": "Listening…",
   "timeline.paused": "Session paused",
+  "timeline.earlier": "Earlier entries above",
   "timeline.you": "YOU",
   "timeline.question": "ASK",
   "card.remove_tip": "Remove: it leaves the screen and the context of later requests",

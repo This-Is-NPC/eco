@@ -44,6 +44,7 @@ use crate::domain::events::{Outages, error};
 use crate::domain::hub::{Capture, Hub};
 use crate::domain::notifications::{Notifications, Texts};
 use crate::domain::segmenter::{Segment, SegmenterConfig};
+use crate::domain::session::Page;
 use crate::domain::transcribers::{Listening, Transcribers};
 use crate::import;
 use crate::installer;
@@ -164,6 +165,9 @@ fn shortcut_refused(keys: &str, config_path: &Path) -> Value {
 
 /// The longest the assistant's model may send nothing before the request fails.
 const LLM_SILENCE: Duration = Duration::from_secs(120);
+
+/// The timeline entries a `session.timeline` page holds when it names no limit.
+const PAGE: usize = 300;
 
 /// One audio stream being captured, the participant it is heard as, and its colour.
 pub struct Input {
@@ -1685,6 +1689,43 @@ impl Session {
         }
     }
 
+    // Timeline pages (docs/design.md §10).
+    /// The page a `session.timeline` asks for: `{"id"}`, at most one of
+    /// `"before"`, `"after"` and `"around"`, a time or null (none is the newest
+    /// page), and `"limit"`, `PAGE` entries when it is left out.
+    fn page(&self, payload: &str) -> Option<(String, Page, usize)> {
+        let [id] = self.fields(payload, ["id"])?;
+        let request: Value = serde_json::from_str(payload).ok()?;
+        let at = |key: &str| request.get(key).and_then(Value::as_f64);
+        let page = match (at("before"), at("after"), at("around")) {
+            (None, None, None) => Ok(Page::Newest),
+            (Some(at), None, None) => Ok(Page::Before(at)),
+            (None, Some(at), None) => Ok(Page::After(at)),
+            (None, None, Some(at)) => Ok(Page::Around(at)),
+            _ => Err("only one of before, after and around"),
+        };
+        let limit = match request.get("limit") {
+            None | Some(Value::Null) => Ok(PAGE),
+            Some(limit) => limit
+                .as_u64()
+                .and_then(|limit| usize::try_from(limit).ok())
+                .filter(|limit| *limit > 0)
+                .ok_or("limit must be a whole number above 0"),
+        };
+        match (page, limit) {
+            (Ok(page), Ok(limit)) => Some((id, page, limit)),
+            (Err(detail), _) | (_, Err(detail)) => {
+                (self.emit)(error(
+                    "session.invalid",
+                    format!("session: {detail}"),
+                    json!({"detail": detail}),
+                ));
+                None
+            }
+        }
+    }
+    // End of timeline pages.
+
     fn fields<const N: usize>(&self, payload: &str, keys: [&str; N]) -> Option<[String; N]> {
         let request = serde_json::from_str::<Value>(payload).map_err(|e| e.to_string());
         let found = request.and_then(|request| {
@@ -1911,7 +1952,11 @@ impl Session {
             ("session.show", Some(id)) => self.assistant.show(id.trim()),
             ("session.delete", Some(id)) => self.assistant.delete_session(id.trim()),
             ("session.reopen", Some(id)) => self.assistant.reopen(id.trim()),
-            ("session.timeline", Some(id)) => self.assistant.timeline(id.trim()),
+            ("session.timeline", Some(payload)) => {
+                if let Some((id, page, limit)) = self.page(payload) {
+                    self.assistant.timeline(&id, page, limit);
+                }
+            }
             ("session.end", id) => self.assistant.end(id.map(str::trim)),
             ("session.import", Some(payload)) => self.import(payload),
             ("session.export", Some(id)) => {
@@ -3686,10 +3731,40 @@ mod tests {
                 json!(id),
             ),
             (
-                format!("session.timeline {id}"),
+                format!(r#"session.timeline {{"id": "{id}", "before": null, "limit": 300}}"#),
                 vec!["session_timeline"],
                 "/0/timeline/0/text",
                 json!("remember this"),
+            ),
+            (
+                format!(r#"session.timeline {{"id": "{id}"}}"#),
+                vec!["session_timeline"],
+                "/0/more_before",
+                json!(false),
+            ),
+            (
+                format!(r#"session.timeline {{"id": "{id}", "around": 1.0, "limit": 5}}"#),
+                vec!["session_timeline"],
+                "/0/around",
+                json!(1.0),
+            ),
+            (
+                format!(r#"session.timeline {{"id": "{id}", "before": 1.0, "after": 2.0}}"#),
+                vec!["session.invalid"],
+                "/0/params/detail",
+                json!("only one of before, after and around"),
+            ),
+            (
+                format!(r#"session.timeline {{"id": "{id}", "limit": 0}}"#),
+                vec!["session.invalid"],
+                "/0/params/detail",
+                json!("limit must be a whole number above 0"),
+            ),
+            (
+                r#"session.timeline {"before": 1.0}"#.into(),
+                vec!["session.invalid"],
+                "/0/params/detail",
+                json!("missing id"),
             ),
             (
                 format!(r#"session.rename {{"id": "{id}", "title": "Retro Q3", "kind": "idea"}}"#),
