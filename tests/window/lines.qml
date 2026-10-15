@@ -88,8 +88,11 @@ Window {
       root.check("Esc closes the menu", !root.menu.opened)
       const button = root.more(root.turn("Tudo bem?"))
       root.check("a line shows its more button", button !== null && button.visible)
-      if (button)
+      // The pointer comes to the button before it clicks, as a user's does.
+      if (button) {
+        root.keys.mouseMove(button)
         root.keys.mouseClick(button)
+      }
     },
     () => {
       root.check("the more button opens its line's menu", root.menu.opened && root.menu.line === root.turn("Tudo bem?"))
