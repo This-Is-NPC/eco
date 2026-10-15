@@ -3137,6 +3137,36 @@ mod tests {
     }
 
     #[test]
+    fn a_voice_found_for_a_line_merged_away_moves_nothing() {
+        let (sink, records) = collecting();
+        let mut session = Session::begin("Call", "meeting", LIVE, "pt", sink);
+        session.hear_at("Eles", "Bom dia ", 10.0);
+        session.hear_at("Eles", "a todos.", 11.0);
+        session.merge_lines(("Eles", 10.0), ("Eles", 11.0)).unwrap();
+        // Diarization reaches the line after it was merged away.
+        let late = [("Eles".to_string(), 11.0, "Speaker 2".to_string())];
+        assert!(session.voice_lines(&late).is_empty());
+        assert_eq!(session.labels(), ["Eles"]);
+        // A voiced record logged after the merge, naming it, is ignored on replay.
+        let mut replayed = logged(&[
+            json!({"type": "speech", "who": "Eles", "text": "Bom dia ", "at": 10.0}),
+            json!({"type": "speech", "who": "Eles", "text": "a todos.", "at": 11.0}),
+            json!({"type": "merged", "into": {"who": "Eles", "at": 10.0},
+                   "from": {"who": "Eles", "at": 11.0}, "text": "Bom dia a todos."}),
+        ]);
+        replayed.push(as_record(json!({"type": "voiced",
+            "lines": [{"who": "Eles", "at": 11.0, "label": "Speaker 2"}]})));
+        let restored = Session::restore(&replayed, Box::new(|_| {})).unwrap();
+        assert_eq!(
+            lines(&restored),
+            [("Eles".into(), "Bom dia a todos.".into(), 10.0)]
+        );
+        let records = records.lock().unwrap().clone();
+        let restored = Session::restore(&records, Box::new(|_| {})).unwrap();
+        assert_eq!(lines(&restored), lines(&session));
+    }
+
+    #[test]
     fn a_line_taken_back_stays_out() {
         let (sink, records) = collecting();
         let mut session = Session::begin("Call", "meeting", LIVE, "pt", sink);
