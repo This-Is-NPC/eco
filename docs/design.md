@@ -2225,7 +2225,14 @@ leaves sessions, config, models and the agent skill.
 
 - **User service:** `packaging/eco.service` runs `eco daemon --headless`
   (`Restart=on-failure`). `eco start` starts it through `systemctl --user`
-  (`src/adapters/service_systemd.rs`) when nothing answers on the socket.
+  (`src/adapters/service_systemd.rs`) when nothing answers on the socket. It
+  sets glibc's allocator for a long-running daemon: `MALLOC_ARENA_MAX=2`, so
+  threads share two arenas instead of one each, and
+  `MALLOC_TRIM_THRESHOLD_=131072`, so memory freed after a peak (a long
+  session read back, speakers clustered) goes back to the system instead of
+  staying resident. Environment, not `malloc_trim` called from the daemon,
+  which would take `unsafe` code. A daemon run some other way, and the daemon
+  on Windows, keep their allocator's defaults.
 - **Hyprland:** `packaging/hypr/eco.lua`, loaded from
   `~/.config/hypr/bindings.lua` by one line `eco setup` adds
   (`src/adapters/desktop_hyprland.rs`):
