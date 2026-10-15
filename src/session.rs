@@ -1678,14 +1678,7 @@ impl Session {
             .and_then(|request| request.get("at").and_then(Value::as_f64));
         match at {
             Some(at) => Some((id, who, at)),
-            None => {
-                (self.emit)(error(
-                    "session.invalid",
-                    String::from("session: missing at"),
-                    json!({"detail": "missing at"}),
-                ));
-                None
-            }
+            None => self.invalid("missing at"),
         }
     }
 
@@ -1714,17 +1707,38 @@ impl Session {
         };
         match (page, limit) {
             (Ok(page), Ok(limit)) => Some((id, page, limit)),
-            (Err(detail), _) | (_, Err(detail)) => {
-                (self.emit)(error(
-                    "session.invalid",
-                    format!("session: {detail}"),
-                    json!({"detail": detail}),
-                ));
-                None
-            }
+            (Err(detail), _) | (_, Err(detail)) => self.invalid(detail),
         }
     }
     // End of timeline pages.
+
+    /// The line a request names under `key`, as `{"who", "at"}`.
+    fn line_in(&self, payload: &str, key: &str) -> Option<(String, f64)> {
+        let request = serde_json::from_str::<Value>(payload).unwrap_or_default();
+        let line = &request[key];
+        match (line["who"].as_str(), line["at"].as_f64()) {
+            (Some(who), Some(at)) => Some((who.into(), at)),
+            _ => self.invalid(&format!("missing {key}")),
+        }
+    }
+
+    /// The character offset a request names, where a line splits.
+    fn offset(&self, payload: &str) -> Option<usize> {
+        let request = serde_json::from_str::<Value>(payload).unwrap_or_default();
+        let offset = request["offset"]
+            .as_u64()
+            .and_then(|n| usize::try_from(n).ok());
+        offset.or_else(|| self.invalid("missing offset"))
+    }
+
+    fn invalid<T>(&self, detail: &str) -> Option<T> {
+        (self.emit)(error(
+            "session.invalid",
+            format!("session: {detail}"),
+            json!({"detail": detail}),
+        ));
+        None
+    }
 
     fn fields<const N: usize>(&self, payload: &str, keys: [&str; N]) -> Option<[String; N]> {
         let request = serde_json::from_str::<Value>(payload).map_err(|e| e.to_string());
@@ -1739,15 +1753,10 @@ impl Session {
             }
             Ok(values)
         });
-        found
-            .map_err(|failure| {
-                (self.emit)(error(
-                    "session.invalid",
-                    format!("session: {failure}"),
-                    json!({"detail": failure}),
-                ));
-            })
-            .ok()
+        match found {
+            Ok(values) => Some(values),
+            Err(failure) => self.invalid(&failure),
+        }
     }
 
     /// Import a file into a new session: `{"path"}`, and optionally `"title"` (the
@@ -2028,6 +2037,22 @@ impl Session {
             ("session.line.remove", Some(payload)) => {
                 if let Some((id, who, at)) = self.line(payload) {
                     self.assistant.remove_line(&id, &who, at);
+                }
+            }
+            ("session.line.merge", Some(payload)) => {
+                if let Some([id]) = self.fields(payload, ["id"])
+                    && let Some((into, into_at)) = self.line_in(payload, "into")
+                    && let Some((from, from_at)) = self.line_in(payload, "from")
+                {
+                    self.assistant
+                        .merge_lines(&id, (&into, into_at), (&from, from_at));
+                }
+            }
+            ("session.line.split", Some(payload)) => {
+                if let Some((id, who, at)) = self.line(payload)
+                    && let Some(offset) = self.offset(payload)
+                {
+                    self.assistant.split_line(&id, &who, at, offset);
                 }
             }
             ("people", None) => self.assistant.people(),
@@ -3829,6 +3854,22 @@ mod tests {
                 "/0/params/at",
                 json!(2.5),
             ),
+            (
+                format!(
+                    r#"session.line.merge {{"id": "{id}", "into": {{"who": "Eu", "at": 3.5}}, "from": {{"who": "Eu", "at": 4.5}}}}"#
+                ),
+                vec!["line.not_found"],
+                "/0/params/at",
+                json!(3.5),
+            ),
+            (
+                format!(
+                    r#"session.line.split {{"id": "{id}", "who": "Eu", "at": 5.5, "offset": 2}}"#
+                ),
+                vec!["line.not_found"],
+                "/0/params/at",
+                json!(5.5),
+            ),
             ("people".into(), vec!["people"], "/0/people", json!([])),
             (
                 "people.adopt".into(),
@@ -4023,6 +4064,18 @@ mod tests {
             (
                 r#"session.line.remove {"id": "x", "who": "Eu"}"#,
                 "missing at",
+            ),
+            (
+                r#"session.line.merge {"id": "x", "into": {"who": "Eu", "at": 1}}"#,
+                "missing from",
+            ),
+            (
+                r#"session.line.merge {"id": "x", "into": {"who": "Eu"}, "from": {"who": "Eu", "at": 2}}"#,
+                "missing into",
+            ),
+            (
+                r#"session.line.split {"id": "x", "who": "Eu", "at": 1, "offset": -1}"#,
+                "missing offset",
             ),
             (
                 r#"person.assign_line {"id": "x", "who": "Eu", "at": 1}"#,

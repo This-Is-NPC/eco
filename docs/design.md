@@ -550,7 +550,15 @@ any other label shows as written.
 - **Edits:** its title and kind can be edited, open or stored (a `meta` record,
   which does not count toward the duration). The user can remove any line
   (`unheard`, as a dropped echo) or correct it in place: an `edited` record, so
-  the context, the export and the CLI read the correction.
+  the context, the export and the CLI read the correction. Two lines merge into
+  the earlier one, their texts in time order, its time and speaker: a `merged`
+  record, `{"into":{"who","at"},"from":{"who","at"},"text"}`. A line splits at a
+  character: a `split` record, `{"of":{"who","at"},"text","new":{"who","at","text"}}`,
+  the left part kept and the right part a new line of the same speaker whose
+  `at` is the line's plus 1 ms, or half the way to the next entry when that is
+  closer, so it lands right below. Restoring a log replays both; the lines they
+  rewrite lose their translations, translated again when the session
+  translates, and later answers carry the corrected lines.
 - **Delete:** an interrupted or ended session can be deleted; deletion removes
   its log and associated voice links. A live session, recording or paused,
   cannot be deleted: the daemon refuses with `session.live`. A log the disk
@@ -781,7 +789,7 @@ and administrators (§15).
 
 A session log holds `session`, `state`, `speech`, `suggestion`, `removed`,
 `meta`, `speaker`, `diarized`, `person`, `attendee`, `unheard`, `edited`,
-`line_person`, `transcriber`, `listening`, `billed`, `spent`, `tags` records, and also
+`merged`, `split`, `line_person`, `transcriber`, `listening`, `billed`, `spent`, `tags` records, and also
 `language`, `translation`, `translated`, `context` and `guess_dismissed` (§5–§7).
 `--no-save` keeps it in memory. A removed suggestion is a `removed` record, and
 it leaves the context of later actions as well as the screen.
@@ -1136,6 +1144,8 @@ session it shows:
 {"type":"session_renamed","id":"…","title":"…","kind":"idea"}
 {"type":"speaker_renamed","session":"…","label":"Eles","name":"Ana"}
 {"type":"transcript_removed","session":"…","who":"Eu","at":1791083841.2,"counts":{"lines":40,"answers":2,"notes":1}}
+{"type":"line_merged","session":"…","into":{"who":"Eles","at":1791083840.1},"from":{"who":"Eu","at":1791083841.2},"text":"…","counts":{"lines":40,"answers":2,"notes":1}}
+{"type":"line_split","session":"…","of":{"who":"Eles","at":1791083840.1},"text":"…","new":{"who":"Eles","name":"Ana","at":1791083840.101,"text":"…"},"counts":{"lines":41,"answers":2,"notes":1}}
 {"type":"diarized","session":"…","who":["Speaker 1","Speaker 2",…],"names":["Ana","Speaker 2",…]}
 {"type":"import_date","path":"/home/me/retro.mp4","at":1790759700.0}
 {"type":"import_started","session":{…},"total_s":1834.2}
@@ -1154,8 +1164,9 @@ session it shows:
 `counts` is what the whole session holds: its lines, answers and notes. Every
 session the daemon describes carries it — the one shown, each live one, each
 summary — and so does every event that adds an entry to a session or takes one
-away (`transcript`, `transcript_removed`, `note`, `note_removed`,
-`suggestion_start`, `suggestion_removed`), with the counts after it. A window
+away (`transcript`, `transcript_removed`, `line_merged`, `line_split`,
+`note`, `note_removed`, `suggestion_start`, `suggestion_removed`), with the
+counts after it. A window
 shows these counts and never counts its own timeline, which may hold only part
 of the session. A speaker's `lines` is how many lines carry its label.
 
@@ -1281,6 +1292,13 @@ and `session_tags` with `{"session","tags"}`, then `tags`), `tag.rename <json>`
 empty text removes the line), `session.line.remove <json>`
 (`{"id","who","at"}`: removes a line of speech, an
 `unheard` record and `transcript_removed`; `line.not_found` when it is gone),
+`session.line.merge <json>` (`{"id","into":{"who","at"},"from":{"who","at"}}`:
+the two lines become the earlier one, a `merged` record and `line_merged`,
+whose `into` is the line kept and `from` the line gone), `session.line.split
+<json>` (`{"id","who","at","offset"}`, the offset in characters of the text: a
+`split` record and `line_split`, whose `new` is the line added right below;
+`line.not_found` when a line is gone, `line.invalid` for a line merged with
+itself or a split that leaves a side empty),
 `people`, `person.assign <json>` (`{"session","label","person","name"}`: a known
 person's id, or `""` and a name — the person called that, or a new one),
 `person.assign_line <json>` (`{"id","who","at","person","name"}`),
@@ -1535,9 +1553,14 @@ reconnects to the socket on its own.
   answer's latency and cache share show on hovering its card's heading, in the
   window showing its session only; errors about a session show only there too.
 - **Lines:** every line shows its speaker and time; clicking a speaker's name
-  names it in that session. × beside a line on hover removes it, or
-  `eco line … --remove`; ✎ beside it corrects it in place (Enter saves, Esc
-  cancels).
+  names it in that session. Clicking a line, or Enter or the Menu key on it,
+  opens its menu (the kit's `MenuPopup`): correct, the speaker of this line or
+  of all their lines, copy, merge, split, remove. CORRECT opens it in place
+  (Enter saves, Esc cancels). MERGE outlines the line and a strip asks for the
+  line to merge with: the next line clicked, or chosen with Enter, merges, and
+  Esc, CANCEL or the same line again gives up. SPLIT opens the line with its
+  cursor, read-only; SPLIT HERE, or Enter, splits it there. The CLI does the
+  same with `eco line … --remove`, `--text`, `--merge WHO@AT` and `--split`.
 - **Conversation:** a chat — the user's lines on the right, everyone else on
   the left, the speaker's name, time, and color on every line.
 - **Notices:** what the window has to say — a save, a refusal, an error of the
@@ -1698,8 +1721,9 @@ reconnects to the socket on its own.
   none carries an index, and its top edge stays where it opened as it grows.
   Tables are one Tab stop: ↑/↓ choose, Enter opens, Delete asks to remove, and
   only the selected row's tools are Tab stops. The timeline is one Tab stop too,
-  entering on the newest entry: ↑/↓/PgUp/PgDn/Home/End move, the entry shows its
-  tools to Tab into, and N names a line's speaker. A view that appears puts the
+  entering on the newest entry: ↑/↓/PgUp/PgDn/Home/End move, a note or an
+  answer shows its tools to Tab into, Enter or Menu opens a line's menu, and N
+  names a line's speaker. A view that appears puts the
   keyboard where it is used (the composer in a session), and scrolling views
   follow the focus. `?` or F1 lists every key.
 - **Motion only where it means something** — a state, new content, or the

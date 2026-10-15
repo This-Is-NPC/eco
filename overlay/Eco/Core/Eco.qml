@@ -549,6 +549,12 @@ Singleton {
   }
   function editLine(id, who, at, text) { send("session.line.edit " + JSON.stringify({ id: id, who: who, at: at, text: text })) }
   function removeLine(id, who, at) { send("session.line.remove " + JSON.stringify({ id: id, who: who, at: at })) }
+  // >>> line merge and split
+  // `into` and `from` are lines as {who, at}; the earlier keeps its time and speaker.
+  function mergeLines(id, into, from) { send("session.line.merge " + JSON.stringify({ id: id, into: into, from: from })) }
+  // `offset` counts the line's characters, not UTF-16 units.
+  function splitLine(id, who, at, offset) { send("session.line.split " + JSON.stringify({ id: id, who: who, at: at, offset: offset })) }
+  // <<< line merge and split
   function renameSpeaker(id, label, name) { send("session.speaker " + JSON.stringify({ id: id, label: label, name: name })) }
   // countOf gives how many entries of a kind ("lines", "answers", "notes") the
   // whole session holds, as the daemon last said.
@@ -1276,6 +1282,34 @@ Singleton {
         timeline.remove(index)
       break
     }
+    // >>> line merge and split
+    // The merged line takes the text and loses its translation until the new
+    // one comes; the other line goes.
+    case "line_merged": {
+      keepCounts(event.session, event.counts)
+      const into = lineRow(event.session, event.into.who, event.into.at)
+      if (into >= 0) {
+        timeline.setProperty(into, "text", event.text)
+        timeline.setProperty(into, "translation", "")
+      }
+      const from = lineRow(event.session, event.from.who, event.from.at)
+      if (from >= 0)
+        timeline.remove(from)
+      break
+    }
+    // The split line keeps its left part; the right part is a new line right
+    // below, held only where the split line is.
+    case "line_split": {
+      keepCounts(event.session, event.counts)
+      const row = lineRow(event.session, event.of.who, event.of.at)
+      if (row >= 0) {
+        timeline.setProperty(row, "text", event.text)
+        timeline.setProperty(row, "translation", "")
+        timeline.insert(row + 1, speechRow(event.new.who, event.new.name, event.new.text, event.new.at, "", false))
+      }
+      break
+    }
+    // <<< line merge and split
     case "session_speakers":
       keepSpeakers(event.session, event.speakers)
       break

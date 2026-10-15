@@ -59,6 +59,8 @@ ModalDialog {
       ["↑ · ↓ · PgUp · PgDn", "keys.lines"],
       ["Home · End", "keys.ends"],
       ["N", "keys.name_speaker"],
+      ["Enter · Menu", "keys.line_menu"],
+      ["Esc", "keys.merge_cancel"],
       ["Tab", "keys.line_tools"],
       ["Enter · Esc", "keys.line_edit"]
     ]],

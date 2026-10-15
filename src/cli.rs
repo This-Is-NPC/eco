@@ -123,6 +123,10 @@ pub enum LineChange {
     Remove,
     /// Its text becomes this.
     Edit(String),
+    /// It and the line this speaker said at this time become one.
+    Merge(String, f64),
+    /// It splits before this character.
+    Split(usize),
 }
 
 /// Who a speaker is.
@@ -892,7 +896,7 @@ impl Client {
         .await
     }
 
-    /// Remove or correct a line; returns what became of it.
+    /// Remove, correct, merge or split a line; returns what became of it.
     async fn line(
         &mut self,
         id: &str,
@@ -907,17 +911,35 @@ impl Client {
                 line["text"] = json!(text);
                 "session.line.edit"
             }
+            LineChange::Merge(other, other_at) => {
+                line = json!({"id": id, "into": {"who": who, "at": at},
+                              "from": {"who": other, "at": other_at}});
+                "session.line.merge"
+            }
+            LineChange::Split(offset) => {
+                line["offset"] = json!(offset);
+                "session.line.split"
+            }
         };
         self.send(&format!("{command} {line}")).await?;
+        // A merge or a split names its lines as `{"who", "at"}`.
+        let named = |line: &Value| line["who"] == who && line["at"].as_f64() == Some(at);
         self.until(|event| {
-            let ours =
-                event["session"] == id && event["who"] == who && event["at"].as_f64() == Some(at);
+            let session = event["session"] == id;
+            let ours = session && named(event);
             match event["type"].as_str() {
                 Some("transcript_removed") if ours => Some(Ok(
                     json!({"session": id, "who": who, "at": at, "removed": true}),
                 )),
                 Some("transcript_edited") if ours => Some(Ok(
                     json!({"session": id, "who": who, "at": at, "text": event["text"]}),
+                )),
+                Some("line_merged") if session && (named(&event["into"]) || named(&event["from"])) => {
+                    Some(Ok(json!({"session": id, "into": event["into"],
+                                   "from": event["from"], "text": event["text"]})))
+                }
+                Some("line_split") if session && named(&event["of"]) => Some(Ok(
+                    json!({"session": id, "of": event["of"], "text": event["text"], "new": event["new"]}),
                 )),
                 _ => failure_in(event, &["session.", "line."]).map(Err),
             }
@@ -1694,6 +1716,44 @@ mod tests {
         };
         let line = client.handle(request).await.unwrap();
         assert_eq!(line["text"], "Windhawk");
+    }
+
+    #[tokio::test]
+    async fn lines_are_merged_and_split_by_who_and_when() {
+        let other = json!({"type": "line_merged", "session": "n1", "into": {"who": "Eu", "at": 9.0},
+                           "from": {"who": "Eu", "at": 9.5}, "text": "x"});
+        let ours = json!({"type": "line_merged", "session": "n1", "into": {"who": "Eu", "at": 1.0},
+                          "from": {"who": "Eles", "at": 1.5}, "text": "Oi. Tudo bem?"});
+        let mut client = talking_to(
+            r#"session.line.merge {"id":"n1","into":{"who":"Eles","at":1.5},"from":{"who":"Eu","at":1.0}}"#,
+            vec![other, ours],
+        );
+        let merged = client
+            .line("n1", "Eles", 1.5, LineChange::Merge("Eu".into(), 1.0))
+            .await
+            .unwrap();
+        assert_eq!(merged["text"], "Oi. Tudo bem?");
+        assert_eq!(merged["into"], json!({"who": "Eu", "at": 1.0}));
+
+        let split = json!({"type": "line_split", "session": "n1", "of": {"who": "Eles", "at": 1.5},
+                           "text": "Oi.", "new": {"who": "Eles", "name": "Ana", "at": 1.501, "text": "Tudo bem?"}});
+        let mut client = talking_to(
+            r#"session.line.split {"id":"n1","who":"Eles","at":1.5,"offset":3}"#,
+            vec![split],
+        );
+        let split = client
+            .line("n1", "Eles", 1.5, LineChange::Split(3))
+            .await
+            .unwrap();
+        assert_eq!(split["new"]["text"], "Tudo bem?");
+
+        let invalid = json!({"type": "error", "code": "line.invalid", "message": "no room"});
+        let mut client = talking_to(
+            r#"session.line.split {"id":"n1","who":"Eles","at":1.5,"offset":0}"#,
+            vec![invalid],
+        );
+        let failed = client.line("n1", "Eles", 1.5, LineChange::Split(0)).await;
+        assert_eq!(failed.unwrap_err().code, "line.invalid");
     }
 
     #[tokio::test]

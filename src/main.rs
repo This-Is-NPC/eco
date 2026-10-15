@@ -228,6 +228,12 @@ enum Command {
         /// Its corrected text.
         #[arg(long, group = "change")]
         text: Option<String>,
+        /// Merge it with the line `who` said at `at` (see `eco show`): one line, their texts in time order, at the time and speaker of the earlier.
+        #[arg(long, group = "change", value_name = "WHO@AT", value_parser = line_named)]
+        merge: Option<(String, f64)>,
+        /// Split it before this character: the rest becomes a new line of the same speaker right below.
+        #[arg(long, group = "change", value_name = "OFFSET")]
+        split: Option<usize>,
     },
     /// The tags that group sessions, several per session.
     Tag {
@@ -580,11 +586,18 @@ impl From<Command> for Run {
                 at,
                 remove: _,
                 text,
+                merge,
+                split,
             } => cli::Request::Line {
                 id,
                 who,
                 at,
-                change: text.map_or(cli::LineChange::Remove, cli::LineChange::Edit),
+                change: match (text, merge, split) {
+                    (Some(text), _, _) => cli::LineChange::Edit(text),
+                    (_, Some((other, other_at)), _) => cli::LineChange::Merge(other, other_at),
+                    (_, _, Some(offset)) => cli::LineChange::Split(offset),
+                    (None, None, None) => cli::LineChange::Remove,
+                },
             },
             Command::People { action } => cli::Request::People(match action {
                 None => cli::People::List,
@@ -706,6 +719,15 @@ fn key(command: KeyChange) -> Result<String> {
         KeyChange::Remove { name } => credentials::remove(&name),
     };
     Ok(done.map_err(|failure| config::ConfigError(failure.to_string()))?)
+}
+
+/// A line named `WHO@AT`: who said it and when.
+fn line_named(value: &str) -> std::result::Result<(String, f64), String> {
+    let (who, at) = value
+        .rsplit_once('@')
+        .ok_or_else(|| format!("{value:?} is not WHO@AT"))?;
+    let at = at.parse::<f64>().map_err(|e| format!("{at:?}: {e}"))?;
+    Ok((who.into(), at))
 }
 
 /// What `eco window <words>` asks, as a global shortcut's command runs it.
@@ -1337,6 +1359,37 @@ mod tests {
         );
         assert_eq!(
             rejected(&["line", "n1", "me", "3.5", "--remove", "--text", "fixed"]),
+            ErrorKind::ArgumentConflict
+        );
+    }
+
+    #[test]
+    fn line_is_merged_with_another_or_split_at_a_character() {
+        assert!(matches!(
+            request(&["line", "n1", "me", "3.5", "--merge", "Speaker 1@7.25"]),
+            cli::Request::Line { change: cli::LineChange::Merge(who, at), .. }
+                if who == "Speaker 1" && at == 7.25
+        ));
+        assert!(matches!(
+            request(&["line", "n1", "me", "3.5", "--split", "12"]),
+            cli::Request::Line {
+                change: cli::LineChange::Split(12),
+                ..
+            }
+        ));
+        for wrong in ["Speaker 1", "Speaker 1@soon"] {
+            assert_eq!(
+                rejected(&["line", "n1", "me", "3.5", "--merge", wrong]),
+                ErrorKind::ValueValidation,
+                "{wrong}"
+            );
+        }
+        assert_eq!(
+            rejected(&["line", "n1", "me", "3.5", "--split=-1"]),
+            ErrorKind::ValueValidation
+        );
+        assert_eq!(
+            rejected(&["line", "n1", "me", "3.5", "--split", "2", "--merge", "me@4"]),
             ErrorKind::ArgumentConflict
         );
     }
