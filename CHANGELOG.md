@@ -1,5 +1,47 @@
 # Changelog
 
+## [0.6.0](https://github.com/This-Is-NPC/eco/compare/v0.5.1...v0.6.0) (2026-10-15)
+
+
+### ⚠ BREAKING CHANGES
+
+* **timeline:** session summaries (`eco sessions`, `eco show`) carry `counts` {lines, answers, notes} instead of `speech` and `suggestions`.
+
+### Features
+
+* **lines:** merge and split lines from a line menu ([652335b](https://github.com/This-Is-NPC/eco/commit/652335bd99383209c4b0b2763ec67448b149dfae))
+* **socket:** let a client leave out event types ([9e52a93](https://github.com/This-Is-NPC/eco/commit/9e52a93894f5b4873acdeb4963179c6c3104cff2))
+* **timeline:** open a line's menu from a visible button ([54cf353](https://github.com/This-Is-NPC/eco/commit/54cf3534c96309b65cdf76e1507256a77d2f90ed))
+
+
+### Bug Fixes
+
+* **details:** lay the panel out before scrolling to the speakers ([73c1643](https://github.com/This-Is-NPC/eco/commit/73c16431720b53ea6716cf103f7bdd99135d2b82))
+* **diarization:** start a speaker at 0.7, as measured ([4bd454e](https://github.com/This-Is-NPC/eco/commit/4bd454e6787f9a26c51e293f8f3aaccbaa2dc092))
+* **overlay:** disable what needs a chat model instead of hiding it ([fb8ef6c](https://github.com/This-Is-NPC/eco/commit/fb8ef6c98c851e4caa202de64f5172710203f611))
+* **overlay:** give a view made when shown the keyboard ([bf17e39](https://github.com/This-Is-NPC/eco/commit/bf17e390ba7a7aebd436f3f50830eb0dc5d1184e))
+* **search:** find a session its log's title names ([8101fde](https://github.com/This-Is-NPC/eco/commit/8101fde9a62fb994fd830b6f7c69b5637da1cd8e))
+* **sessions:** index a log whose first record has no id ([a9e070c](https://github.com/This-Is-NPC/eco/commit/a9e070c4e922941cb81dce1c7c43c5b99a70d306))
+* **sessions:** read a stored time back exactly ([52c173f](https://github.com/This-Is-NPC/eco/commit/52c173fa3f146c1a37ee710ae7928627aa5d57e4))
+* **settings:** say a skill has no chat model ([9232968](https://github.com/This-Is-NPC/eco/commit/9232968296a59714355bb46b6779bbc7fc8cfea7))
+* **timeline:** ask for earlier entries under the header ([d33e0a2](https://github.com/This-Is-NPC/eco/commit/d33e0a2226f7147890812102e9fd86b557d401fb))
+* **timeline:** count a split's offset in characters ([aa9d322](https://github.com/This-Is-NPC/eco/commit/aa9d322879c2a2ed4f181bbd3004cb72a9def4bf))
+* **timeline:** drop the line button's tip while its menu is open ([b94e395](https://github.com/This-Is-NPC/eco/commit/b94e395b1ce598da9b2072d1a820821c857d2ed9))
+* **timeline:** keep the place read when an older page goes in ([5a61ce9](https://github.com/This-Is-NPC/eco/commit/5a61ce90914bc3d623b5333eedc071eff15ecde8))
+* **timeline:** name the kind an answer cannot be translated in ([b684f31](https://github.com/This-Is-NPC/eco/commit/b684f3155d24f3c5932b31c2aa3c3dfe220e4c24))
+* **timeline:** open a line's menu from its button, level with the line ([adfd620](https://github.com/This-Is-NPC/eco/commit/adfd6201d399ee450ecfab8886e06eb59bac3998))
+
+
+### Performance Improvements
+
+* **diarization:** tell live speakers apart as they speak ([9698baf](https://github.com/This-Is-NPC/eco/commit/9698baf0512a1a3e148f94fa07367e880692fab3))
+* **overlay:** make views and settings only while shown ([5d41da4](https://github.com/This-Is-NPC/eco/commit/5d41da423074b2073e44a9c80114b7f612057de9))
+* **service:** give freed memory back to the system ([31ffc73](https://github.com/This-Is-NPC/eco/commit/31ffc7357d2364b3f65d2034d75a7804662a96a5))
+* **sessions:** read stored sessions from an index ([ac1b000](https://github.com/This-Is-NPC/eco/commit/ac1b000248604a5b9d620a5c1730e8ae83c2d566))
+* **timeline:** keep the row index when the oldest rows leave ([b02e88f](https://github.com/This-Is-NPC/eco/commit/b02e88f15e38c8f62417f3d640137a78236a5ae6))
+* **timeline:** read long sessions in pages ([1b0c693](https://github.com/This-Is-NPC/eco/commit/1b0c6933b7be23d86824e6e3ccdf7875f3bb58b5))
+* **timeline:** take session counts from the daemon ([43c82a3](https://github.com/This-Is-NPC/eco/commit/43c82a38c593d89917a89f75c0a028c65ad13be8))
+
 ## [0.5.1](https://github.com/This-Is-NPC/eco/compare/v0.5.0...v0.5.1) (2026-10-14)
 
 
