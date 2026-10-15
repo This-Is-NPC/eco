@@ -445,6 +445,29 @@ here, and its tests run on Windows.
 | `src/session.rs` | 96.79% | 96.81% | as in the update section; `notifier()`, one composition line that builds the real `NotifySend`; in `emitter()`, the terminal's line, which needs a terminal (`emitter()` is tested without one, and the terminal's printing in `src/adapters/terminal.rs`). |
 | `src/adapters/overlay.rs`, `src/config.rs` | 96.25%, 99.80% | 96.36%, 99.80% | as before. |
 
+## Long meetings (2026-10-14)
+
+Release builds of this tree and of the commit before it, each against its own
+isolated home and socket, the window offscreen and driven over its test
+socket; anonymous memory is the window's or the daemon's `Pss_Anon` or
+`Anonymous` after a forced `gc()`. Synthetic data: lines of random words, an
+answer every 120 lines, a translation of each.
+
+| What | Before | After |
+|---|---|---|
+| Window, live session fed 6000 lines: anon growth per 1000 lines | 11.0 MB (12.5 overall) | 6.6 MB (8.7 overall); feeding events for a session not on screen grows the same harness by 6.0 MB per 1000, so the timeline's own share is about 0.6 MB |
+| Window, rows held after 6000 live lines | 6050 | 1000 (the live cap) |
+| Window, 6000 lines put in at once (one page in `tests/window/counts.qml`) | 57 s (an earlier run) | 43–47 ms; 6050 translations after it 13–14 ms |
+| Window, a stored 6000-line session opened | shown in 24.1–24.8 s, anon 131 → 210 MB, then 255 MB | shown in 0.06–0.37 s with its newest 300 entries, anon +0–4 MB |
+| Window, idle at start | 54 MB | 35 MB |
+| Window, settings opened then closed | made at start, so no step | +18 MB at the first opening, kept after it closes; opening it again adds 0–1 MB |
+| Daemon, 300 stored sessions of 300 lines: `sessions`, `people`, `tags`, `sessions.search` | idle 168 MB anon, 278 MB after the first calls; 0.12–0.18 s each | 29 MB anon idle, 32 MB after; 0.02 s each, search 0.10–0.12 s |
+| `signal` events while a session records, to a client that leaves out `signal` as the tray does | 31.2 per second (every client took every event) | 0; a plain client still gets 31.2 per second |
+| Diarizer child, 3 h of synthetic speech in 4 s regions | peak 374 MB RSS, climbing from 0 to 353 MB anon in the 20 s of clustering at the end | peak 124 MB RSS, 101–103 MB anon in the first and last quarter; stopping ends it with no step; it prints 2400 lines, 42 MB in all, one per region |
+
+The search still reads each log whose title and tags do not hold the words,
+for its lines.
+
 ## Meeting performance coverage (2026-10-14)
 
 Measured with `mise run coverage` on the tree that added timeline counts and
