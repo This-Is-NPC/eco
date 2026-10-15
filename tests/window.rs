@@ -316,9 +316,10 @@ async fn closing_the_window_tells_the_daemon_and_ends_the_process() {
     assert!(status.success(), "eco-window exited with {status}");
 }
 
-/// The tray icon follows the sessions, and its click and menu send what `eco
-/// window` and `eco stop` send: a context click nothing, a click and Open
-/// `focus`, then New session, Settings and Stop eco.
+/// The tray icon leaves out the events it draws nothing from, follows the
+/// sessions, and its click and menu send what `eco window` and `eco stop`
+/// send: a context click nothing, a click and Open `focus`, then New session,
+/// Settings and Stop eco.
 #[tokio::test]
 async fn the_tray_shows_the_state_and_its_menu_sends_the_cli_lines() {
     let dir = tempfile::tempdir().unwrap();
@@ -332,6 +333,21 @@ async fn the_tray_shows_the_state_and_its_menu_sends_the_cli_lines() {
         .spawn()
         .unwrap();
     let mut daemon = accept(&mut listener, &mut tray).await;
+    // First it leaves out what it draws nothing from, keeping the sessions and errors.
+    let events = read(&mut daemon).await;
+    let except: Value = serde_json::from_str(events.strip_prefix("events ").unwrap()).unwrap();
+    let except: Vec<&str> = except["except"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|kind| kind.as_str().unwrap())
+        .collect();
+    for left in ["signal", "transcript_partial", "suggestion_delta"] {
+        assert!(except.contains(&left), "{left} still sent");
+    }
+    for kept in ["session", "error", "snapshot"] {
+        assert!(!except.contains(&kept), "{kept} left out");
+    }
     let mut lines = Vec::new();
     for _ in 0..5 {
         lines.push(read(&mut daemon).await);

@@ -1090,6 +1090,14 @@ connection (`SYNC` in `src/adapters/control_socket.rs`). `eco window` uses it
 daemon reads its line, which then may never run. It is one mechanism on both
 platforms, for a named pipe cannot close its writing half alone.
 
+A client that draws only some events says which types it does not want:
+`events {"except": ["signal", "transcript_partial", …]}`. Its connection takes
+the line, runs no command, and from then on sends that client no event of those
+types; the next `events` replaces the list, and anything but a list of strings
+under `except` receives every type again (`EVENTS` in
+`src/adapters/control_socket.rs`). The greeting is sent before any line is
+read, so it always arrives. The tray (§12.7) sends it on every connection.
+
 ### 10.1 Events
 
 A new client first receives `snapshot`; a window asks for the timeline of the
@@ -1291,7 +1299,9 @@ it is refused with `daemon.recording`, and the window asks before it sends
 `{detail}`; a second `update.install` while one runs or waits is
 `update.busy`),
 `sync` (no command: the connection answers `synced` to this client alone once
-it has read every line before it, §10) and `stop`.
+it has read every line before it, §10), `events <json>` (no command either:
+`{"except": [types]}`, the event types this connection no longer receives,
+§10) and `stop`.
 
 ---
 
@@ -2043,6 +2053,10 @@ session records; its tooltip is `eco · idle` or `eco · recording · <title>`.
 A click sends `window.call {"call":"focus"}` and the menu's **Open** the same,
 **New session** `new_session`, **Settings** `config` — each the line `eco
 window` sends (§10.2) — and **Stop eco** `stop`, the line `eco stop` sends.
+It draws only the live sessions, from `session`, and takes the errors: on every
+connection it first sends `events` (§10) with every other type the daemon
+sends, the input meters (`signal`, about 31 a second per input) and the words
+being said first among them.
 `tests/window.rs` runs it offscreen and checks the lines and the states.
 
 The tray is part of the windows' lifecycle in `src/adapters/overlay.rs`, but
