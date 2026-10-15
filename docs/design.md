@@ -1609,8 +1609,9 @@ reconnects to the socket on its own.
   answer's latency and cache share show on hovering its card's heading, in the
   window showing its session only; errors about a session show only there too.
 - **Lines:** every line shows its speaker and time; clicking a speaker's name
-  names it in that session. Clicking a line, or Enter or the Menu key on it,
-  opens its menu (the kit's `MenuPopup`): correct, the speaker of this line or
+  names it in that session. Clicking a line, its `⋯` (a quiet `IconButton`
+  beside its top), or Enter or the Menu key on it, opens its menu (the kit's
+  `MenuPopup`): correct, the speaker of this line or
   of all their lines, copy, merge, split, remove. CORRECT opens it in place
   (Enter saves, Esc cancels). MERGE outlines the line and a strip asks for the
   line to merge with: the next line clicked, or chosen with Enter, merges, and

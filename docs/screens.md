@@ -217,9 +217,12 @@ From the top:
   speaker's name and time head each turn. Answers are framed cards, drawn as
   their Markdown streams, with the skill or question that asked for them, and
   translate, copy (`wl-copy`, as Markdown) and remove (×). A note is a card of
-  its own. Clicking a line opens its menu: CORRECT, SPEAKER OF THIS LINE,
-  SPEAKER OF ALL THEIR LINES, COPY, MERGE WITH ANOTHER LINE, SPLIT IN TWO and
-  REMOVE; Enter or the Menu key opens it on the line the keyboard is on.
+  its own. Every line has a faint `⋯` button beside its top, on the side
+  facing the rest of the conversation; it, or a click on the line, opens the
+  line's menu: CORRECT, SPEAKER OF THIS LINE, SPEAKER OF ALL THEIR LINES, COPY,
+  MERGE WITH ANOTHER LINE, SPLIT IN TWO and REMOVE. Enter or the Menu key opens
+  it on the line the keyboard is on, and Tab reaches that line's `⋯`. A line
+  still being transcribed, or being corrected or split, has no `⋯`.
   MERGE outlines the line and a strip says `PICK THE LINE TO MERGE WITH THIS
   ONE`: the next line clicked joins it, the earlier line's time and speaker
   kept; Esc, CANCEL or the same line again gives up. SPLIT opens the line with

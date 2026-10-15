@@ -5,8 +5,8 @@ import Eco.Kit
 import Eco.Live
 
 // A session's lines clicked and keyed as a user does, run by tests/window.rs,
-// which reads what the window sends: a click and the Menu key open a line's
-// menu; MERGE keeps the line outlined until the next line clicked merges into
+// which reads what the window sends: a click, the line's "more" button and the
+// Menu key open a line's menu, and a line being split has no button; MERGE keeps the line outlined until the next line clicked merges into
 // it, and Esc or the same line again gives up; SPLIT opens the line with its
 // cursor, and its confirm splits there, counting characters; the daemon's
 // line_merged and line_split change the lines shown and the counts. Each check that fails is
@@ -42,6 +42,8 @@ Window {
   function kind(item, name) { return String(item).startsWith(name) }
   // The line on screen saying `text`.
   function turn(text) { return find(view, item => kind(item, "SpeechTurn") && item.text === text) }
+  // The "more" button of the line `line`.
+  function more(line) { return find(line, item => kind(item, "IconButton") && item.name === "more") }
   readonly property var menu: view.data.find(item => kind(item, "MenuPopup"))
   readonly property Item list: find(view, item => kind(item, "QQuickListView"))
   // The menu's entry the keyboard is on.
@@ -84,6 +86,17 @@ Window {
     },
     () => {
       root.check("Esc closes the menu", !root.menu.opened)
+      const button = root.more(root.turn("Tudo bem?"))
+      root.check("a line shows its more button", button !== null && button.visible)
+      if (button)
+        root.keys.mouseClick(button)
+    },
+    () => {
+      root.check("the more button opens its line's menu", root.menu.opened && root.menu.line === root.turn("Tudo bem?"))
+      root.keys.keyClick(Qt.Key_Escape)
+    },
+    () => {
+      root.check("Esc closes the menu", !root.menu.opened)
       root.list.forceActiveFocus()
       root.keys.keyClick(Qt.Key_Menu)
     },
@@ -121,6 +134,8 @@ Window {
     () => {
       const line = root.turn("Vamos começar agora")
       root.check("SPLIT opens the line with its cursor", line.editing && line.splitting)
+      const button = root.more(line)
+      root.check("a line being split hides its more button", button !== null && !button.visible)
       // Sent: session.line.split of Eles at 102 at character 6.
       root.keys.keyClick(Qt.Key_Home)
       for (let i = 0; i < 6; i++)

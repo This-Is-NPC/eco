@@ -178,6 +178,11 @@ Window {
                 count: 3
                 tip: I18n.t("guess.count", { n: 3 })
               }
+              IconButton {
+                name: "more"
+                quiet: true
+                tip: I18n.t("line.menu.tip")
+              }
             }
             ControlLabRow {
               width: parent.width

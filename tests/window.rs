@@ -329,10 +329,10 @@ async fn the_bars_and_tables_answer_their_keys() {
     assert!(status.success(), "{said}");
 }
 
-/// A line's menu, opened by a click and by the Menu key; a merge picked in it,
-/// given up or done on the next line clicked; and a split at the cursor,
-/// counted in characters: the window's own checks pass, and it sends the merge
-/// and the two splits, and no other change to a line.
+/// A line's menu, opened by a click, by its "more" button and by the Menu
+/// key; a merge picked in it, given up or done on the next line clicked; and a
+/// split at the cursor, counted in characters: the window's own checks pass,
+/// and it sends the merge and the two splits, and no other change to a line.
 #[tokio::test]
 async fn a_lines_menu_merges_and_splits_it() {
     let dir = tempfile::tempdir().unwrap();

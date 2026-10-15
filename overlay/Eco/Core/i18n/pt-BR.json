@@ -247,6 +247,7 @@
   "line.menu.merge": "JUNTAR COM OUTRA FALA",
   "line.menu.split": "DIVIDIR EM DUAS",
   "line.menu.remove": "REMOVER",
+  "line.menu.tip": "O que fazer com esta fala",
   "line.merge_hint": "ESCOLHA A FALA PARA JUNTAR A ESTA",
   "line.split": "DIVIDIR AQUI",
   "section.people": "pessoas",

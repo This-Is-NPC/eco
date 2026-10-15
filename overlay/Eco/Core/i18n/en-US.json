@@ -247,6 +247,7 @@
   "line.menu.merge": "MERGE WITH ANOTHER LINE",
   "line.menu.split": "SPLIT IN TWO",
   "line.menu.remove": "REMOVE",
+  "line.menu.tip": "What can be done to this line",
   "line.merge_hint": "PICK THE LINE TO MERGE WITH THIS ONE",
   "line.split": "SPLIT HERE",
   "section.people": "people",

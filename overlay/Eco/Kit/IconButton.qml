@@ -11,6 +11,9 @@ Rectangle {
   property bool highlighted: false
   // A count waiting behind the button, on a badge at its corner; none hides it.
   property int count: 0
+  // No frame and a fainter glyph until hovered or highlighted, for a button
+  // repeated on every row of a list.
+  property bool quiet: false
   readonly property bool hovered: pointer.containsMouse
 
   signal clicked()
@@ -18,8 +21,11 @@ Rectangle {
   implicitWidth: 28
   implicitHeight: 28
   activeFocusOnTab: true
+  Accessible.role: Accessible.Button
+  Accessible.name: tip
+  Accessible.onPressAction: press()
   color: hovered || highlighted ? Qt.alpha(tone, 0.1) : "transparent"
-  border.color: hovered || highlighted ? tone : Theme.line
+  border.color: hovered || highlighted ? tone : quiet ? "transparent" : Theme.line
   scale: pointer.pressed ? 0.9 : 1
 
   Behavior on color { ColorAnimation { duration: 150 } }
@@ -35,7 +41,7 @@ Rectangle {
     anchors.centerIn: parent
     name: button.name
     size: button.size
-    color: button.hovered || button.highlighted ? button.tone : Theme.dim
+    color: button.hovered || button.highlighted ? button.tone : button.quiet ? Qt.alpha(Theme.dim, 0.6) : Theme.dim
     Behavior on color { ColorAnimation { duration: 150 } }
   }
 

@@ -247,6 +247,7 @@
   "line.menu.merge": "別の発言と結合",
   "line.menu.split": "二つに分割",
   "line.menu.remove": "削除",
+  "line.menu.tip": "この発言でできること",
   "line.merge_hint": "この発言と結合する発言を選んでください",
   "line.split": "ここで分割",
   "section.people": "人物",

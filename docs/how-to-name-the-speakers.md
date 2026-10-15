@@ -119,7 +119,8 @@ eco assign 90a8bbae6b73 line "Speaker 2" 1791499984.8514547 --person 9bb9e6f8bd1
 Only that line changes. It gets a label of its own (`Speaker 2#8cb25e72`), so
 the rest of `Speaker 2` stays who it was.
 
-In the window, click the line and pick **SPEAKER OF THIS LINE** in its menu.
+In the window, click the line, or the `⋯` beside its top, and pick **SPEAKER
+OF THIS LINE** in its menu.
 When one line holds two speakers, pick **SPLIT IN TWO** first, put the cursor
 where the second one starts, and press **SPLIT HERE**; then fix the new line.
 Two lines that are one sentence go back together with **MERGE WITH ANOTHER

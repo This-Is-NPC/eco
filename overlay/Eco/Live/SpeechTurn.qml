@@ -6,8 +6,9 @@ import Eco.Kit
 // right, everyone else's on the left tinted with their colour, every one at
 // full brightness. A line that continues the same speaker's turn drops the name
 // and time and sits close to the one before. Clicking the name names that
-// speaker in this session; clicking the box asks for the line's menu
-// (`clicked`), or picks it while another line waits for a merge. A translated
+// speaker in this session; clicking the box, or the "more" button beside its
+// top, asks for the line's menu (`clicked`), or picks it while another line
+// waits for a merge. A translated
 // session shows each line's translation below it, dimmer.
 Item {
   id: turn
@@ -79,9 +80,11 @@ Item {
   readonly property var guess: Eco.guessOf(turn.sessionId, turn.who)
   readonly property color tone: previewColor ? Theme.readable(previewColor, Theme.background, Theme.foreground)
     : turn.guess ? Eco.personColor(turn.guess.person) : Eco.speakerColor(turn.sessionId, turn.who, turn.name)
-  // At most this wide: the whole width on a narrow window, about three
-  // quarters of it otherwise.
-  readonly property real widest: turn.width < 520 ? turn.width : turn.width * 0.78
+  // The room beside the box that its "more" button takes.
+  readonly property real gutter: 24
+  // At most this wide: the whole width but the button's room on a narrow
+  // window, about three quarters of it otherwise.
+  readonly property real widest: turn.width < 520 ? turn.width - turn.gutter : turn.width * 0.78
   // From the edge of the box to its text.
   readonly property real inset: 10
 
@@ -198,5 +201,22 @@ Item {
         onClicked: turn.confirm()
       }
     }
+  }
+
+  // The line's menu, always in sight: beside the line's top, on the side that
+  // faces the rest of the timeline. A line without a menu shows none.
+  IconButton {
+    visible: tap.enabled
+    quiet: true
+    highlighted: activeFocus
+    implicitWidth: turn.gutter - 4
+    implicitHeight: turn.gutter - 4
+    x: turn.mine ? body.x - turn.gutter : body.x + body.width + 4
+    y: body.y
+    name: "more"
+    size: 12
+    tip: I18n.t("line.menu.tip")
+    activeFocusOnTab: turn.selected
+    onClicked: turn.clicked()
   }
 }
