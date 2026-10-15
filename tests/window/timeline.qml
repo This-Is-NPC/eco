@@ -37,7 +37,7 @@ Item {
   }
 
   // The index of the entry at the top of the view.
-  function top() {
+  function topEntry() {
     let index = -1
     for (let y = list.contentY + list.topMargin + 1; index < 0 && y < list.contentY + list.height; y += 4)
       index = list.indexAt(list.width / 2, y)
@@ -83,17 +83,15 @@ Item {
     },
     () => {
       root.check("nearing the top asks for the page before the oldest entry held", root.asked({ id: "s1", before: 1700 }))
-      root.held = root.top()
+      root.held = root.topEntry()
       root.heldOffset = list.itemAtIndex(root.held).y - list.contentY
       Eco.handle(root.page("s1", { before: 1700 }, root.lines(1400, 300), true, false))
       root.check("the older page goes above", Eco.timeline.count === 600 && Eco.timeline.get(0).at === 1400)
-      const kept = list.itemAtIndex(root.held + 300)
-      root.check("the entry read stays where it was", kept !== null && Math.abs(kept.y - list.contentY - root.heldOffset) < 1)
       root.check("no other page is asked for at once", Eco.timelineAsked === null)
     },
     () => {
       const kept = list.itemAtIndex(root.held + 300)
-      root.check("the entry read is still where it was once laid out", kept !== null && Math.abs(kept.y - list.contentY - root.heldOffset) < 1)
+      root.check("the entry read stays where it was once laid out", kept !== null && Math.abs(kept.y - list.contentY - root.heldOffset) < 1)
       root.check("far from the top, no other page is asked for", Eco.timelineAsked === null)
       // Back at the newest, following it, while the session goes on.
       list.positionViewAtEnd()

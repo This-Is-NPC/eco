@@ -101,8 +101,11 @@ Item {
         if (entry.fresh)
           root.arrived(entry.key)
       }
-      if (root.anchor >= 0)
-        root.keep(last - first + 1)
+      // The view learns of the entries after this, so it is put back after it.
+      if (root.anchor >= 0) {
+        root.added += last - first + 1
+        Qt.callLater(root.keep)
+      }
     }
     // A cleared timeline is another one loading: it starts at its end.
     function onRowsRemoved() {
@@ -126,6 +129,8 @@ Item {
   // far below the view's top it was; -1 when none goes in.
   property int anchor: -1
   property real anchorOffset: 0
+  // How many entries went in above it.
+  property int added: 0
 
   // Asks for the entries beyond those held once the view, away from the
   // newest it follows, nears either end.
@@ -153,15 +158,17 @@ Item {
   }
 
   // Puts the entry noted back where it was, `added` entries further down.
-  function keep(added) {
-    const index = root.anchor + added
+  function keep() {
+    if (root.anchor < 0)
+      return
+    const index = root.anchor + root.added
     root.anchor = -1
+    root.added = 0
     timeline.forceLayout()
+    timeline.positionViewAtIndex(index, ListView.Beginning)
     const item = timeline.itemAtIndex(index)
     if (item)
       timeline.contentY = item.y - root.anchorOffset
-    else
-      timeline.positionViewAtIndex(index, ListView.Beginning)
   }
 
   Connections {
