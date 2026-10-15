@@ -1161,7 +1161,7 @@ A new client first receives `snapshot`; a window asks for the timeline of the
 session it shows:
 
 ```json
-{"type":"snapshot","session":{"id":"…","title":"Entrevista","kind":"meeting","source":"live","language":"pt","state":"recording","started_at":1791083833.3,"active_s":312.4,"running_since":1791084400.0,"counts":{"lines":40,"answers":2,"notes":1}},"kinds":["meeting","conversation","other","idea"],"kind_models":{"meeting":{"transcription":"deepgram","chat":"gemini","translation":"gemini","actions":["ask","probe"]},"idea":{"transcription":"whisper-lan","chat":"qwen-lan","translation":"gemini","actions":["ask","probe"]}},"default_models":{"transcription":"deepgram","chat":"gemini","translation":"gemini","actions":["ask","probe"]},"hooks":["probe"],"participants":[{"name":"Eu","user":true},{"name":"Eles","user":false}],"inputs":[{"id":"@default-input","label":"Default microphone","participant":"Eu","color":"#ffb000"}]}
+{"type":"snapshot","session":{"id":"…","title":"Entrevista","kind":"meeting","source":"live","language":"pt","state":"recording","started_at":1791083833.3,"active_s":312.4,"running_since":1791084400.0,"counts":{"lines":40,"answers":2,"notes":1}},"kinds":["meeting","conversation","other","idea"],"kind_models":{"meeting":{"transcription":"deepgram","chat":"gemini","translation":"gemini","actions":["ask","probe"]},"idea":{"transcription":"whisper-lan","chat":"qwen-lan","translation":"gemini","actions":["ask","probe"]}},"default_models":{"transcription":"deepgram","chat":"gemini","translation":"gemini","actions":["ask","probe"]},"actions":["ask","probe"],"hooks":["probe"],"participants":[{"name":"Eu","user":true},{"name":"Eles","user":false}],"inputs":[{"id":"@default-input","label":"Default microphone","participant":"Eu","color":"#ffb000"}]}
 {"type":"signal","input":"@default-input","level":0.42,"speech":true}
 {"type":"session","session":{…} or null,"live":[{…} for each live session],"transcribers":[{"model":"deepgram","language":"pt","sessions":2}]}
 {"type":"session_opened","id":"…","window":2}
@@ -1658,7 +1658,8 @@ reconnects to the socket on its own.
   says which models a kind runs on once it is picked (`kind_models` in the
   snapshot: `{kind: {"transcription", "chat", "translation", "actions"}}`, each
   model by name or `""` for none, and the actions a model answers there;
-  `default_models` the same for a kind no longer configured), scrolls in a short window with
+  `default_models` the same for a kind no longer configured; `actions` lists
+  every skill, those no model answers too), scrolls in a short window with
   its buttons kept below, and without an input it cannot start: it says so and
   offers the Audio settings.
 - **Several windows:** opening the app again opens another window on a live
@@ -1924,9 +1925,13 @@ A part of the config that is not a list item — Context's Global row — has
 DELETE dimmed, `Always kept`; Prompts, whose two rows are both such parts, has
 no ADD or DELETE at all; an item that may not go yet, as the chat default, has
 it dimmed, with why in its tip. Until a chat model is registered, Prompts,
-Context and Skills hold only NO CHAT
-MODEL, what it means, and REGISTER A CHAT MODEL, which opens a new model in
-Models; a kind offers no assistant or translation model then.
+Context and Skills say NO CHAT MODEL above their tables, what it means, and
+REGISTER A CHAT MODEL, which opens a new model in Models; their tables work as
+ever. A kind's assistant and translation pickers, a skill's model picker and
+the reviewer's switch, while off, stay dimmed then, saying `Needs a chat
+model`. What cannot run for want of a model is never hidden: it stays on
+screen, off, its hint saying why (the Kit's `reason`, on `Chip`,
+`TraceButton`, `IconButton`, `Dropdown`, `PickRow` and `ContextChips`).
 
 **An item's screen.** An item opens read (`ItemPage`): its kind, its name, ABOUT — its facts — and RELATED, what it uses and what uses it, side
 by side from 640 px wide; with nothing related, RELATED is left out and ABOUT
@@ -2097,8 +2102,8 @@ table, then closes the window. Keys show only in the shortcuts dialog
   model is set on Models.
 - **Session kinds** (`KindsSection`): the kinds, the default first (suggested
   by the start and import dialogs), each row the kind, DEFAULT on the first and
-  the models its sessions transcribe and, once a chat model is registered,
-  answer with. Read: whether it is the default and its transcription,
+  the models its sessions transcribe and answer with, `No chat model` where
+  none answers. Read: whether it is the default and its transcription,
   assistant and translation models, each its own or the default named with the
   model it inherits; its models and the context slots on from the start in it
   as links; MAKE DEFAULT. Edited: its name, never empty or another kind's, and
@@ -2110,8 +2115,8 @@ table, then closes the window. Keys show only in the shortcuts dialog
 - **Prompts** (`PromptsSection`), what instructions the models get: two rows,
   nothing added or deleted — RULES FOR EVERY ANSWER, `rules`, and REVIEWER
   PROMPT, `[reviewer] prompt`. Read, a prompt shows its text as written
-  (`ItemText`); EDIT holds only that text, in a `SettingsTextArea`. It holds NO
-  CHAT MODEL until a chat model is registered.
+  (`ItemText`); EDIT holds only that text, in a `SettingsTextArea`. It says NO
+  CHAT MODEL above its table until a chat model is registered.
 - **Context** (`ContextSection`): the files sent with answers, each row its
   name, when it is sent and how many files: Global, sent with every answer,
   whose files, in the order they were added, are its child table FILES (ADD

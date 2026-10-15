@@ -152,6 +152,7 @@ Window {
               TraceButton { role: "primary"; icon: "plus"; text: I18n.t("start.begin") }
               TraceButton { role: "navigation"; icon: "list"; text: I18n.t("start.history") }
               TraceButton { role: "action"; icon: "import"; text: I18n.t("start.import") }
+              TraceButton { role: "progress"; icon: "enter"; text: I18n.t("composer.send"); reason: I18n.t("lab.chip_reason") }
             }
             ControlLabRow {
               width: parent.width
@@ -182,6 +183,11 @@ Window {
                 name: "more"
                 quiet: true
                 tip: I18n.t("line.menu.tip")
+              }
+              IconButton {
+                name: "translate"
+                tip: I18n.t("card.translate_tip")
+                reason: I18n.t("lab.chip_reason")
               }
             }
             ControlLabRow {
@@ -220,6 +226,12 @@ Window {
                   current: ""
                   label: I18n.t("settings.pick_model")
                   invalid: true
+                  describe: option => option === "first" ? I18n.t("lab.option_first") : I18n.t("lab.option_second")
+                }
+                Dropdown {
+                  options: ["first", "second"]
+                  current: "first"
+                  reason: I18n.t("lab.chip_reason")
                   describe: option => option === "first" ? I18n.t("lab.option_first") : I18n.t("lab.option_second")
                 }
                 // Options under group titles, as a model's key picker lists them.
@@ -279,6 +291,15 @@ Window {
                   current: ""
                   describe: () => I18n.t("settings.default_model", { name: I18n.t("lab.option_first") })
                   dim: true
+                }
+                PickRow {
+                  width: parent.width
+                  text: I18n.t("lab.sample_label")
+                  options: [""]
+                  current: ""
+                  describe: () => I18n.t("settings.default_model", { name: I18n.t("lab.option_first") })
+                  dim: true
+                  reason: I18n.t("lab.chip_reason")
                 }
               }
             }
@@ -340,9 +361,16 @@ Window {
             ControlLabRow {
               width: parent.width
               title: I18n.t("lab.context_chips")
-              ContextChips {
-                on: lab.contextSlots
-                onChanged: slots => lab.contextSlots = slots
+              Column {
+                spacing: 8
+                ContextChips {
+                  on: lab.contextSlots
+                  onChanged: slots => lab.contextSlots = slots
+                }
+                ContextChips {
+                  on: lab.contextSlots
+                  reason: I18n.t("lab.chip_reason")
+                }
               }
             }
           }

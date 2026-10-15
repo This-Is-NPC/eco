@@ -181,8 +181,10 @@ picked unseen. Tags offer the existing ones as they are typed. The context
 slots are chips: those of the chosen kind start lit — `resume` is off here
 because it belongs to `interview`. WHO WILL BE HEARD lists the sources and their
 inputs; in the picture it is only the replayed file. Where no chat model
-answers the kind, the models line says only `Transcribes with whisper-lan` and no
-context slots are offered.
+answers the kind, the models line says only `Transcribes with whisper-lan`, and
+the context slots stay, dimmed, their hint saying `No chat model answers
+<kind> sessions — register one under Settings › Models` (`<kind>` is a
+placeholder for the kind's name).
 
 **Without an input** the dialog cannot start: it says `No input configured:
 nothing would be heard.` and offers AUDIO SETTINGS.
@@ -232,9 +234,10 @@ From the top:
 - **The composer**: the skills as numbered chips, and a line to ask anything.
   Typing `/` lists the skills above the line as the word grows. NOTE (or
   `Shift+Enter`) keeps the text as a note instead of asking it. Where no chat
-  model answers the session's kind, the line reads `Write a note`, there is no
-  SEND, `Enter` keeps a note, and only the skills that name a model of their own
-  show.
+  model answers the session's kind, the line reads `Write a note` and `Enter`
+  keeps a note; SEND and the skills that name no model of their own stay,
+  dimmed, and their hint says `No chat model answers <kind> sessions — register
+  one under Settings › Models`.
 
 ![The same session with "/" typed in the composer: a small list above it, "/reply" marked, "/minutes" and "/explain", over the last line and the skill chips.](img/06-live-skills.png)
 
@@ -448,9 +451,13 @@ From then on every line and answer carries its translation under it:
 The model that translates is set in Settings › Models (DEFAULT FOR
 TRANSLATION), or for a session kind in Settings › Session kinds; whether a session
 translates is chosen only here. Where no model translates the session's
-kind, there is no TRANSLATION line (unless the session still translates, to turn
-it off) and no translate button on its answers; CONTEXT goes too when nothing
-answers in that kind.
+kind, the TRANSLATION line stays, dimmed (unless the session still translates,
+to turn it off), its hint saying `No model translates <kind> sessions —
+register a chat model under Settings › Models, or pick one for the kind under
+Settings › Session kinds`, with SETTINGS › MODELS beside it, which opens the
+settings there; the translate button on its answers is dimmed with the same
+hint. CONTEXT stays too when nothing answers in that kind, its slots dimmed,
+saying that no chat model answers there.
 
 # 7. Who is who
 
@@ -773,8 +780,10 @@ cannot be deleted. Opened:
 ![The session kind Meeting, read: the bar with BACK, EDIT, a dimmed MAKE DEFAULT and DELETE; ABOUT with DEFAULT "Yes: suggested first when a session is created or imported", TRANSCRIPTION default · whisper-lan, ASSISTANT default · gemini-flash, TRANSLATION default · gemini-flash; RELATED with MODELS › whisper-lan, gemini-flash.](img/46-settings-kind.png)
 
 Edited, a kind has its name and its own transcription, assistant and
-translation models — only the transcription one until a chat model is
-registered.
+translation models. Until a chat model is registered, the assistant and
+translation pickers are dimmed and read `No chat model`, their hint saying
+`Needs a chat model: register one under Settings › Models`, and the ANSWERS
+WITH column of the table reads `No chat model`.
 
 **Prompts** — what instructions the models get:
 
@@ -819,12 +828,15 @@ Edited, it has the name, the prompt, the format, the model and its hook:
 
 A new name warns that global shortcuts call skills by name.
 
-**Until a chat model is registered**, PROMPTS, CONTEXT and SKILLS hold only NO
-CHAT MODEL and "eco records and transcribes without one. Answers, skills and
-translation need a chat model: register one under Models and make it the
-default for chat there.", and their bar holds only REGISTER A CHAT MODEL, which
-opens a new model under Models. Models works as ever. It is not pictured: the
-pictures run with chat models registered.
+**Until a chat model is registered**, PROMPTS, CONTEXT and SKILLS say NO CHAT
+MODEL above their tables, with "eco records and transcribes without one.
+Answers, skills and translation need a chat model: register one under Models
+and make it the default for chat there." and a REGISTER A CHAT MODEL button,
+which opens a new model under Models; their tables and bars work as ever. A
+skill's MODEL picker is dimmed, reading `No chat model`, and under General the
+reviewer's switch is dimmed while off, each with the hint `Needs a chat model:
+register one under Settings › Models`. It is not pictured: the pictures run
+with chat models registered.
 
 **General** — how eco behaves, as one table of settings under five titles, each
 with its value beside it as the control that changes it. In the picture the

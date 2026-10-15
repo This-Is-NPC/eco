@@ -5,7 +5,8 @@ import Eco.Core
 // "navigation" leaves for another view and slides away; "primary" is the
 // view's main action, outlined and washed in the accent; "guarded" takes the
 // error tone; any other ("progress", "action") stays in place. `filled`
-// draws it solid in its tone, as a bar's main action is.
+// draws it solid in its tone, as a bar's main action is. With a `reason` it is
+// off: it reads disabled and does nothing, but says why on hover.
 Rectangle {
   id: button
 
@@ -13,6 +14,8 @@ Rectangle {
   property string text
   property string icon
   property string tip
+  // Why it cannot be pressed now; empty while it can.
+  property string reason
   property bool dense: false
   property bool filled: false
   property bool armed: false
@@ -21,7 +24,8 @@ Rectangle {
   property color tone: role === "guarded" ? Theme.error : Theme.primary
   readonly property bool primary: role === "primary"
   readonly property bool running: busy
-  readonly property bool hovered: pointer.containsMouse
+  readonly property bool off: !enabled || reason !== ""
+  readonly property bool hovered: pointer.containsMouse && reason === ""
   readonly property color ink: armed || filled ? Theme.readable(Theme.background, tone, Theme.foreground) : tone
 
   signal clicked()
@@ -33,10 +37,10 @@ Rectangle {
   implicitHeight: dense ? 28 : 44
   activeFocusOnTab: true
   clip: true
-  opacity: enabled ? 1 : 0.35
+  opacity: off ? 0.35 : 1
   color: armed || filled ? tone : (primary ? Qt.alpha(tone, 0.08) : "transparent")
   border.color: primary || filled ? tone : Theme.line
-  scale: pointer.pressed ? 0.97 : 1
+  scale: pointer.pressed && !off ? 0.97 : 1
   transform: Translate { id: departure }
 
   Behavior on color { ColorAnimation { duration: 180 } }
@@ -49,7 +53,7 @@ Rectangle {
   onArmedChanged: if (armed) guardNudge.restart()
 
   function press() {
-    if (!enabled || (running && !allowClickWhileBusy))
+    if (off || (running && !allowClickWhileBusy))
       return
     if (role === "navigation") {
       if (depart.running)
@@ -118,11 +122,11 @@ Rectangle {
     id: pointer
     anchors.fill: parent
     hoverEnabled: true
-    cursorShape: Qt.PointingHandCursor
+    cursorShape: button.off ? Qt.ArrowCursor : Qt.PointingHandCursor
     onClicked: button.press()
   }
 
   GuardNudge { id: guardNudge; targetObject: contentShift }
   FocusRing { border.color: button.armed || button.filled ? Theme.background : Theme.primary }
-  Hint { visible: (button.hovered || button.activeFocus) && button.tip.length > 0; text: button.tip }
+  Hint { visible: (pointer.containsMouse || button.activeFocus) && text.length > 0; text: button.reason || button.tip }
 }

@@ -10,6 +10,8 @@ Singleton {
   id: root
 
   readonly property bool connected: link.connected
+  // Every skill, by name, those no model answers too: kindModels says which run where.
+  property var actions: []
   // The actions with a hook: their answers can be sent to it.
   property var hooks: []
   property var participants: []
@@ -1057,6 +1059,7 @@ Singleton {
   function handle(event) {
     switch (event.type) {
     case "snapshot":
+      actions = event.actions || []
       hooks = event.hooks || []
       participants = event.participants
       inputs = event.inputs

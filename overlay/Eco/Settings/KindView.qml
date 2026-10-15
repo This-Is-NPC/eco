@@ -24,10 +24,9 @@ ItemPage {
   // The name its models and context slots know it by in the draft (see
   // Draft.renameKind): its saved one until another name is its own.
   property string following: ""
-  readonly property bool chat: Draft.chats(config)
   // The models its sessions transcribe, answer and translate with.
-  readonly property var uses: [["transcription", I18n.t("settings.type_transcription")]]
-    .concat(chat ? [["chat", I18n.t("settings.role_assistant")], ["translation", I18n.t("settings.translation")]] : [])
+  readonly property var uses: [["transcription", I18n.t("settings.type_transcription")],
+    ["chat", I18n.t("settings.role_assistant")], ["translation", I18n.t("settings.translation")]]
 
   // Renames it to `text` in the draft; the change holds where and from what.
   function rename(text) {
@@ -52,7 +51,7 @@ ItemPage {
 
   extra: [section.makeDefault(Eco.config, key)]
   facts: (Eco.config.kinds[0] === key ? [[I18n.t("settings.kind_default"), I18n.t("settings.kind_is_default")]] : [])
-    .concat(uses.map(use => [use[1], section.modelName(config, use[0], key)]))
+    .concat(uses.map(use => [use[1], section.modelName(config, use[0], key) || (use[0] === "transcription" ? "" : I18n.t("settings.no_chat"))]))
   related: {
     const at = settings.at
     const models = [...new Set(uses.map(use => Draft.answering(config, use[0], key, null).name).filter(name => name))]
@@ -77,5 +76,5 @@ ItemPage {
     kind: page.following
     onChanged: change => item.update(change)
   }
-  ItemNote { visible: page.chat; text: I18n.t("settings.kind_chat_note") }
+  ItemNote { text: I18n.t("settings.kind_chat_note") }
 }

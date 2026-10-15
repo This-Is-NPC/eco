@@ -3257,6 +3257,7 @@ impl Assistant {
         let setup = state.setup.as_deref();
         let session = json!({
             "type": "snapshot",
+            "actions": setup.map(|s| s.actions.iter().map(|a| a.name.clone()).collect::<Vec<_>>()).unwrap_or_default(),
             "hooks": setup
                 .map(|s| s.actions.iter().filter(|a| s.hook_of(&a.name).is_some()).map(|a| a.name.clone()).collect::<Vec<_>>())
                 .unwrap_or_default(),
@@ -4942,6 +4943,8 @@ mod tests {
         settle().await;
         assert_eq!(last_of(&events, "suggestion_end")["type"], "suggestion_end");
         assert_eq!(cheap.calls.lock().unwrap()[0].0, "cheap/model");
+        // Every skill still reaches clients, those nothing answers too, to be shown off.
+        assert_eq!(assistant.snapshot()[0]["actions"], json!(["probe", "ask"]));
     }
 
     #[tokio::test]

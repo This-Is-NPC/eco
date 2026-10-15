@@ -127,8 +127,11 @@ model id, what it is the default for and what else uses it.
 ![The Models section: the rail of sections down the left, with 02 marked; the bar with ADD MODEL, VIEW, EDIT, the defaults by their short names, a dimmed FOR CHAT, a dimmed FOR TRANSLATION and FOR REVIEW, and a dimmed DELETE; "Register each model once — chat or transcription — with its provider, and make it a default from the bar"; and a table of whisper-lan (TRANSCRIPTION, whisper-large-v3-turbo, default TRANSCRIPTION, used by MEETING, CONVERSATION…), deepgram (TRANSCRIPTION, nova-3, INTERVIEW), gemini-flash (CHAT, google/gemini-2.5-flash, default CHAT · TRANSLATION, MEETING…, picked) and claude-haiku (CHAT, anthropic/claude-haiku-4.5, default REVIEW, minutes).](img/41-settings-models.png)
 
 **A chat model is optional.** Without one eco records, transcribes and keeps
-notes; the **Prompts**, **Context** and **Skills** sections say NO CHAT MODEL, with **REGISTER A CHAT MODEL** back here. Skip to step 3 if you only want
-transcripts.
+notes; the **Prompts**, **Context** and **Skills** sections say NO CHAT MODEL
+above their tables, with **REGISTER A CHAT MODEL** back here, and what needs one
+— asking, skills, translation, context slots, the reviewer, a kind's assistant
+and translation pickers — stays on screen, dimmed, its hint saying why. Skip to
+step 3 if you only want transcripts.
 
 **ADD MODEL** opens a new model, marked NEW and EDITING, starting from the
 provider and key source of the last model of its type. A new model is the

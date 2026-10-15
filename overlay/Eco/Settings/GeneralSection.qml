@@ -139,7 +139,8 @@ SettingsSection {
         checked: value.on
         dim: !value.on
         // Off while it cannot run here, unless it is on: it can always be turned off.
-        reason: value.key === "echo_cancel" && !value.on ? section.echoUnavailable : ""
+        reason: value.on ? "" : value.key === "echo_cancel" ? section.echoUnavailable
+          : value.key === "review" && Eco.config !== null && !Draft.chats(Eco.config) ? I18n.t("settings.needs_chat") : ""
         onClicked: section.toggle(value.key, value.on)
       }
       // The reviewer's model, the one it reviews with when on.

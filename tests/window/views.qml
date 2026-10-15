@@ -1,6 +1,7 @@
 import QtQuick
 import Eco.Core
 import Eco.Live
+import Eco.Sessions
 import Eco.Settings
 
 // Overlay views driven as the daemon drives them, run by tests/window.rs: each
@@ -30,6 +31,17 @@ Item {
     }
     return false
   }
+  // The first item under `item` that `test` takes, or null.
+  function find(item, test) {
+    for (const child of item.children) {
+      if (test(child))
+        return child
+      const found = find(child, test)
+      if (found)
+        return found
+    }
+    return null
+  }
 
   SuggestionCard {
     id: card
@@ -44,6 +56,35 @@ Item {
     failure: ""
     at: Date.now() / 1000
     stamp: "10:00:00"
+  }
+
+  // What needs a chat model, in a session of a kind none answers or translates
+  // and in settings with none registered: it stays, off, saying why.
+  readonly property var chatless: ({ id: "s9", kind: "meeting", language: "pt", translating: "", contexts: null })
+  TranslationView { id: translation; width: root.width; session: root.chatless }
+  ContextView { id: slots; width: root.width; session: root.chatless }
+  Composer { id: composer; width: root.width; session: root.chatless }
+  SuggestionCard {
+    id: untranslated
+    width: root.width
+    suggestionId: "a2"
+    text: "Kafka"
+    action: "chat"
+    modelName: "m"
+    prompt: "which queue?"
+    streaming: false
+    thinking: ""
+    failure: ""
+    translatable: false
+    at: Date.now() / 1000
+    stamp: "10:00:00"
+  }
+  KindModels {
+    id: kindModels
+    width: root.width
+    kind: "meeting"
+    draft: ({ kinds: ["meeting"], actions: [], models: [{ name: "w", type: "transcription", kinds: [] }],
+      stt: { model: "w" }, llm: { model: "" }, translation: { model: "" } })
   }
 
   // An item of the settings with nothing related, and one with a link.
@@ -76,6 +117,40 @@ Item {
     interval: 50
     running: true
     onTriggered: {
+      Eco.actions = ["probe"]
+      Eco.contexts = [{ name: "cv", kinds: ["meeting"] }]
+      Eco.kindModels = { meeting: { transcription: "w", chat: "", translation: "", actions: [] } }
+      const noChat = I18n.t("error.chat.none", { kind: Eco.kindName("meeting") })
+      const noTranslation = I18n.t("error.translation.none", { kind: Eco.kindName("meeting") })
+      const picker = root.find(translation, item => item.options !== undefined && item.label !== undefined)
+      root.check("the translation picker stays with no model to translate", translation.visible && picker !== null && picker.visible)
+      root.check("the translation picker is off and says why", picker !== null && picker.reason === noTranslation)
+      root.check("the way to the models shows", root.shows(translation, I18n.t("settings.open_models")))
+      const slot = root.find(slots, item => item.text === "cv")
+      root.check("the context slots stay with no chat model", slots.visible && slot !== null && slot.visible)
+      root.check("a context slot is off and says why", slot !== null && slot.reason === noChat)
+      const skill = root.find(composer, item => item.text === "1  PROBE")
+      root.check("a skill no model answers stays", skill !== null && skill.visible)
+      root.check("a skill no model answers is off and says why", skill !== null && skill.reason === noChat)
+      const send = root.find(composer, item => item.icon === "enter" && item.reason !== undefined)
+      root.check("SEND stays with no chat model", send !== null && send.visible)
+      root.check("SEND is off and says why", send !== null && send.reason === noChat)
+      const translate = root.find(untranslated, item => item.name === "translate")
+      root.check("translating an answer stays with no model to translate", translate !== null && translate.visible)
+      root.check("translating an answer is off and says why", translate !== null && translate.reason === noTranslation)
+      const picks = ["settings.type_transcription", "settings.role_assistant", "settings.translation"]
+        .map(key => root.find(kindModels, item => item.text === I18n.t(key) && item.reason !== undefined))
+      root.check("a kind keeps its assistant and translation picks with no chat model", picks.every(pick => pick !== null && pick.visible))
+      root.check("only the picks that need a chat model are off, saying why",
+        picks[0].reason === "" && picks[1].reason === I18n.t("settings.needs_chat") && picks[2].reason === I18n.t("settings.needs_chat"))
+      // Once a model answers and translates there, they are on again.
+      Eco.kindModels = { meeting: { transcription: "w", chat: "m", translation: "m", actions: ["probe"] } }
+      root.check("the translation picker is on with a model to translate", picker.reason === "" && !root.shows(translation, I18n.t("settings.open_models")))
+      root.check("context slots, skills and SEND are on with a chat model", slot.reason === "" && skill.reason === "" && send.reason === "")
+      Eco.kindModels = ({})
+      Eco.contexts = []
+      Eco.actions = []
+
       // The wait is told until the first word arrives, not while it streams.
       const waiting = I18n.t("card.waiting", { seconds: card.waited })
       root.check("the card waits before the first word", root.shows(card, waiting))
