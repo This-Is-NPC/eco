@@ -833,8 +833,9 @@ impl Assistant {
                 if entry.named(&needle) {
                     return Some((id, None));
                 }
-                let at = self.restored([entry]).first()?.first_mention(&needle)?;
-                Some((id, Some(at)))
+                let session = self.restored([entry]).pop()?;
+                let at = session.first_mention(&needle);
+                (at.is_some() || session.named(&needle)).then_some((id, at))
             })
             .collect();
         // When each first mentions it, for a window to open it there.

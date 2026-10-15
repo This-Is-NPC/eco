@@ -1899,6 +1899,13 @@ impl Session {
         names
     }
 
+    /// Whether its title or a tag holds `needle`, which is already `folded`.
+    pub fn named(&self, needle: &str) -> bool {
+        std::iter::once(&self.title)
+            .chain(&self.tags)
+            .any(|text| folded(text).contains(needle))
+    }
+
     /// When the first line, note, question or answer that holds `needle`, already
     /// `folded`, was said or written.
     pub fn first_mention(&self, needle: &str) -> Option<f64> {
