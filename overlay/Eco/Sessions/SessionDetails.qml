@@ -35,7 +35,7 @@ Rectangle {
   // made when it opens.
   function opened() {
     Eco.requestSpeakers(sessionId)
-    rows.forceLayout()
+    rows.ensurePolished()
     page.scrollTo(speakers.guessing ? speakers.y : 0)
   }
   onShownChanged: if (shown) opened()
