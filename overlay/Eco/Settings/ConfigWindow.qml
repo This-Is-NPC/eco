@@ -10,10 +10,10 @@ import Eco.Kit
 Window {
   id: window
 
-  // The sections, for what drives the window.
-  readonly property SettingsView view: settings
+  // The sections, for what drives the window, or null while it is closed.
+  readonly property SettingsView view: content.item ? content.item.view : null
   // Some item has changes not saved.
-  readonly property bool dirty: settings.dirty
+  readonly property bool dirty: view !== null && view.dirty
 
   // Fixed, untranslated: packaging/hypr/eco.lua matches the window by this title.
   title: "eco · settings"
@@ -25,7 +25,8 @@ Window {
   color: Theme.background
   // Shown while the settings are open. The window is created once and then kept:
   // destroying a window makes Qt write its pipeline cache to disk, and the whole
-  // interface waits for that, often for seconds.
+  // interface waits for that, often for seconds. What it shows is made each time
+  // it opens and let go when it closes.
   visible: Eco.configOpen
   // Closed by the compositor: the window is kept, as above, and the settings
   // close, unless an item has changes not saved: then it asks first.
@@ -38,14 +39,15 @@ Window {
 
   // Chooses a section and gives it the keyboard, so the carousel folds away.
   function choose(index) {
-    settings.forget()
-    page = (index + settings.sections.length) % settings.sections.length
-    rail.pinned = false
-    Qt.callLater(settings.takeFocus)
+    if (content.item === null) {
+      page = index
+      return
+    }
+    content.item.choose(index)
   }
   function attemptClose() {
     if (dirty)
-      confirmClose.open()
+      content.item.askToClose()
     else
       Eco.configOpen = false
   }
@@ -56,118 +58,137 @@ Window {
     function onConfigPageRequested(page) { window.choose(page) }
   }
 
-  Shortcut { sequences: ["?", "F1"]; onActivated: shortcuts.open() }
-  // Ctrl with a section's number chooses it; Ctrl+Tab and Ctrl+Shift+Tab turn
-  // the carousel.
-  Repeater {
-    model: settings.sections.length
-    delegate: Item {
-      required property int index
-      Shortcut { sequence: "Ctrl+" + (index + 1); onActivated: window.choose(index) }
-    }
-  }
-  Shortcut { sequence: "Ctrl+Tab"; onActivated: window.choose(window.page + 1) }
-  Shortcut { sequences: ["Ctrl+Shift+Tab", "Ctrl+Backtab"]; onActivated: window.choose(window.page - 1) }
-
-  // Esc that nothing inside took (an open list or dialog takes its own) closes
-  // the window. A section's number that nothing inside took chooses it: a
-  // field being written takes its digits.
-  Item {
+  // The settings themselves, while the window is open.
+  Loader {
+    id: content
     anchors.fill: parent
-    anchors.margins: 28
+    active: Eco.configOpen
     focus: true
-    Keys.onEscapePressed: window.attemptClose()
-    Keys.onPressed: event => {
-      const number = event.key - Qt.Key_0
-      if ((event.modifiers & ~Qt.KeypadModifier) !== Qt.NoModifier || number < 1 || number > settings.sections.length)
-        return
-      window.choose(number - 1)
-      event.accepted = true
-    }
+    sourceComponent: Item {
+      readonly property SettingsView view: settings
 
-    // Declared in the order Tab follows: the rail, the bar, the section, the
-    // window's close, the toasts.
-    TabRail {
-      id: rail
-      anchors.top: masthead.bottom
-      anchors.topMargin: 20
-      // Over the bar and the section while it unfolds.
-      z: 1
-      // A section with an item whose changes are not saved is marked.
-      tabs: settings.sections.map((section, index) => ({ name: section.name, marked: settings.unsaved.includes(index) }))
-      current: window.page
-      onChosen: index => window.choose(index)
-    }
-
-    PageBar {
-      id: bar
-      anchors { left: parent.left; leftMargin: rail.foldedWidth + 16; right: parent.right; top: rail.top }
-      height: rail.headHeight
-      commands: settings.commands
-      section: window.page
-    }
-
-    // The section on screen, framed beside the carousel and under its bar.
-    Rectangle {
-      id: frame
-      anchors { left: bar.left; right: parent.right; top: bar.bottom; topMargin: 16; bottom: parent.bottom }
-      color: "transparent"
-      border.color: Theme.line
-
-      SettingsView {
-        id: settings
-        anchors { fill: parent; margins: 20 }
-        page: window.page
-        onWanted: index => window.page = index
-        onCloseRequested: window.attemptClose()
+      function choose(index) {
+        settings.forget()
+        window.page = (index + settings.sections.length) % settings.sections.length
+        rail.pinned = false
+        Qt.callLater(settings.takeFocus)
       }
-    }
+      function askToClose() { confirmClose.open() }
 
-    // The top line, with the window's close in the corner.
-    Masthead {
-      id: masthead
-      anchors { left: parent.left; right: parent.right; top: parent.top }
-      section: I18n.t("section.config")
-      IconButton {
-        name: "close"
-        tip: I18n.t("settings.close").toLowerCase()
-        onClicked: window.attemptClose()
+      Shortcut { sequences: ["?", "F1"]; onActivated: shortcuts.open() }
+      // Ctrl with a section's number chooses it; Ctrl+Tab and Ctrl+Shift+Tab turn
+      // the carousel.
+      Repeater {
+        model: settings.sections.length
+        delegate: Item {
+          required property int index
+          Shortcut { sequence: "Ctrl+" + (index + 1); onActivated: window.choose(index) }
+        }
       }
-    }
+      Shortcut { sequence: "Ctrl+Tab"; onActivated: window.choose(window.page + 1) }
+      Shortcut { sequences: ["Ctrl+Shift+Tab", "Ctrl+Backtab"]; onActivated: window.choose(window.page - 1) }
 
-    // What happened, in toasts in the section's corner, inside its frame.
-    ToastStack {
-      anchors { right: parent.right; bottom: parent.bottom; margins: 12 }
-      width: Math.min(340, frame.width - 24)
-      maxHeight: frame.height - 24
-      notices: Eco.notices
-      onDismissed: id => Eco.dismiss(id)
-    }
-  }
+      // Esc that nothing inside took (an open list or dialog takes its own) closes
+      // the window. A section's number that nothing inside took chooses it: a
+      // field being written takes its digits.
+      Item {
+        anchors.fill: parent
+        anchors.margins: 28
+        focus: true
+        Keys.onEscapePressed: window.attemptClose()
+        Keys.onPressed: event => {
+          const number = event.key - Qt.Key_0
+          if ((event.modifiers & ~Qt.KeypadModifier) !== Qt.NoModifier || number < 1 || number > settings.sections.length)
+            return
+          window.choose(number - 1)
+          event.accepted = true
+        }
 
-  ShortcutsDialog { id: shortcuts }
-  // Closing with changes not saved saves them first, keeps editing or discards
-  // them; an item whose changes another save overtook is not saved from here.
-  ConfirmDialog {
-    id: confirmClose
-    title: I18n.t("settings.close_title")
-    question: I18n.t("settings.close_question")
-    confirmText: I18n.t("settings.discard_changes")
-    cancelText: I18n.t("settings.keep_editing")
-    onConfirmed: {
-      settings.discardChanged()
-      Eco.configOpen = false
-    }
-    TraceButton {
-      dense: true
-      role: "progress"
-      icon: "enter"
-      text: I18n.t("settings.save_close")
-      enabled: !settings.conflict && !Eco.configSaving
-      tip: settings.conflict ? I18n.t("settings.stale") : ""
-      onClicked: {
-        confirmClose.close()
-        settings.saveAll(() => Eco.configOpen = false)
+        // Declared in the order Tab follows: the rail, the bar, the section, the
+        // window's close, the toasts.
+        TabRail {
+          id: rail
+          anchors.top: masthead.bottom
+          anchors.topMargin: 20
+          // Over the bar and the section while it unfolds.
+          z: 1
+          // A section with an item whose changes are not saved is marked.
+          tabs: settings.sections.map((section, index) => ({ name: section.name, marked: settings.unsaved.includes(index) }))
+          current: window.page
+          onChosen: index => window.choose(index)
+        }
+
+        PageBar {
+          id: bar
+          anchors { left: parent.left; leftMargin: rail.foldedWidth + 16; right: parent.right; top: rail.top }
+          height: rail.headHeight
+          commands: settings.commands
+          section: window.page
+        }
+
+        // The section on screen, framed beside the carousel and under its bar.
+        Rectangle {
+          id: frame
+          anchors { left: bar.left; right: parent.right; top: bar.bottom; topMargin: 16; bottom: parent.bottom }
+          color: "transparent"
+          border.color: Theme.line
+
+          SettingsView {
+            id: settings
+            anchors { fill: parent; margins: 20 }
+            page: window.page
+            onWanted: index => window.page = index
+            onCloseRequested: window.attemptClose()
+          }
+        }
+
+        // The top line, with the window's close in the corner.
+        Masthead {
+          id: masthead
+          anchors { left: parent.left; right: parent.right; top: parent.top }
+          section: I18n.t("section.config")
+          IconButton {
+            name: "close"
+            tip: I18n.t("settings.close").toLowerCase()
+            onClicked: window.attemptClose()
+          }
+        }
+
+        // What happened, in toasts in the section's corner, inside its frame.
+        ToastStack {
+          anchors { right: parent.right; bottom: parent.bottom; margins: 12 }
+          width: Math.min(340, frame.width - 24)
+          maxHeight: frame.height - 24
+          notices: Eco.notices
+          onDismissed: id => Eco.dismiss(id)
+        }
+      }
+
+      ShortcutsDialog { id: shortcuts }
+      // Closing with changes not saved saves them first, keeps editing or discards
+      // them; an item whose changes another save overtook is not saved from here.
+      ConfirmDialog {
+        id: confirmClose
+        title: I18n.t("settings.close_title")
+        question: I18n.t("settings.close_question")
+        confirmText: I18n.t("settings.discard_changes")
+        cancelText: I18n.t("settings.keep_editing")
+        onConfirmed: {
+          settings.discardChanged()
+          Eco.configOpen = false
+        }
+        TraceButton {
+          dense: true
+          role: "progress"
+          icon: "enter"
+          text: I18n.t("settings.save_close")
+          enabled: !settings.conflict && !Eco.configSaving
+          tip: settings.conflict ? I18n.t("settings.stale") : ""
+          onClicked: {
+            confirmClose.close()
+            settings.saveAll(() => Eco.configOpen = false)
+          }
+        }
       }
     }
   }

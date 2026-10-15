@@ -4,5 +4,10 @@ Description=eco voice sessions daemon
 [Service]
 Type=exec
 ExecStart=@ECO_BINARY@ daemon --headless
+# glibc's allocator: two arenas, and freed memory past 128 KiB given back to
+# the system, so a peak (a long session read back, speakers clustered) does
+# not stay resident (docs/design.md §13).
+Environment=MALLOC_ARENA_MAX=2
+Environment=MALLOC_TRIM_THRESHOLD_=131072
 Restart=on-failure
 RestartSec=2

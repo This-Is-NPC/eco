@@ -123,6 +123,19 @@ mod tests {
         assert!(session(|_| None).is_empty());
     }
 
+    #[test]
+    fn the_service_gives_freed_memory_back_and_keeps_two_arenas() {
+        let unit = include_str!("../../packaging/eco.service");
+        let environment: Vec<&str> = unit
+            .lines()
+            .filter_map(|line| line.strip_prefix("Environment="))
+            .collect();
+        assert_eq!(
+            environment,
+            ["MALLOC_ARENA_MAX=2", "MALLOC_TRIM_THRESHOLD_=131072"]
+        );
+    }
+
     /// A systemctl that notes each call in `dir/calls` and fails the one whose
     /// second argument is `fails`.
     fn systemctl(dir: &Path, fails: &str) -> std::path::PathBuf {

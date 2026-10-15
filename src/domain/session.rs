@@ -1886,15 +1886,6 @@ impl Session {
         names
     }
 
-    /// Whether its title, tags, lines, notes, questions or answers hold `needle`,
-    /// which is already `folded`.
-    pub fn mentions(&self, needle: &str) -> bool {
-        std::iter::once(self.title.as_str())
-            .chain(self.tags.iter().map(String::as_str))
-            .any(|text| folded(text).contains(needle))
-            || self.first_mention(needle).is_some()
-    }
-
     /// When the first line, note, question or answer that holds `needle`, already
     /// `folded`, was said or written.
     pub fn first_mention(&self, needle: &str) -> Option<f64> {
@@ -1977,8 +1968,12 @@ fn total(entries: &[Entry]) -> usize {
 /// What a session list shows: what, when, how long, in which state, how much,
 /// and what it cost, its transcription models priced by `rate`.
 pub fn summarize(records: &[Record], rate: impl Fn(&str) -> Rate) -> Result<Value, LogError> {
-    let session = Session::restore(records, Box::new(|_| {}))?;
-    Ok(json!({
+    Ok(summary(&Session::restore(records, Box::new(|_| {}))?, rate))
+}
+
+/// A session's summary, as `summarize` makes it from its log.
+pub fn summary(session: &Session, rate: impl Fn(&str) -> Rate) -> Value {
+    json!({
         "id": session.id,
         "title": session.title,
         "kind": session.kind,
@@ -1996,7 +1991,7 @@ pub fn summarize(records: &[Record], rate: impl Fn(&str) -> Rate) -> Result<Valu
         "translating": session.translation(),
         "tags": session.tags(),
         "cost": session.cost(rate),
-    }))
+    })
 }
 
 #[cfg(test)]
@@ -2163,13 +2158,12 @@ mod tests {
     }
 
     #[test]
-    fn search_finds_a_tag_and_counts_keep_the_first_casing() {
+    fn tag_counts_keep_the_first_casing() {
         let mut first = Session::begin("A", "meeting", LIVE, "en", Box::new(|_| {}));
         first.tag("Cliente Ágil");
         let mut second = Session::begin("B", "idea", LIVE, "en", Box::new(|_| {}));
         second.tag("cliente ágil");
         second.tag("Beta");
-        assert!(second.mentions(&folded("AGIL")));
         let counts = tag_counts([first.tags(), second.tags()]);
         assert_eq!(
             counts,
@@ -3224,8 +3218,8 @@ mod tests {
         let mut session = Session::begin("Call", "meeting", LIVE, "pt", sink);
         let answer = session.suggest("ask", "m", "Qual é o prazo?", "Pedido");
         session.finish(&answer.id);
-        assert!(session.mentions(&folded("prazo")));
-        assert!(!session.mentions(&folded("orçamento")));
+        assert!(session.first_mention(&folded("prazo")).is_some());
+        assert!(session.first_mention(&folded("orçamento")).is_none());
     }
 
     #[test]
@@ -3237,8 +3231,6 @@ mod tests {
         session.hear_at("Eles", "Outro prazo.", 30.0);
         assert_eq!(session.first_mention(&folded("prazo")), Some(20.0));
         assert_eq!(session.first_mention(&folded("orcamento")), None);
-        // The title mentions it, though no entry does.
-        assert!(session.mentions(&folded("prazo")));
         assert_eq!(session.first_mention(&folded("bom")), Some(10.0));
     }
 

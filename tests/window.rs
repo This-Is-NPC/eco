@@ -13,7 +13,8 @@
 //! as a keyboard and a pointer press them, in `tests/window/bars.qml`; and the
 //! eco window closed with the settings open,
 //! saying so to the daemon before it exits,
-//! in `tests/window/close.qml`; and the tray icon's states and menu, in
+//! in `tests/window/close.qml`; its views and settings made only while
+//! wanted, in `tests/window/lazy.qml`; and the tray icon's states and menu, in
 //! `tests/window/tray.qml`. Needs `mise run window:build`.
 
 use std::path::{Path, PathBuf};
@@ -236,6 +237,26 @@ async fn the_timeline_reads_a_long_session_in_pages() {
     );
 }
 
+/// The eco window's views and its settings are made only while wanted: a view
+/// when first shown, the settings each time they open, let go when they close.
+#[tokio::test]
+async fn views_and_settings_are_made_when_shown() {
+    let dir = tempfile::tempdir().unwrap();
+    let run = offscreen("lazy", dir.path())
+        .env("ECO_SOCKET", dir.path().join("no-daemon"))
+        .kill_on_drop(true)
+        .output();
+    let output = tokio::time::timeout(Duration::from_secs(30), run)
+        .await
+        .expect("the views did not finish")
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
 /// The settings window's section keys, pressed as a keyboard presses them:
 /// a section's number, bare or with Ctrl, a field keeping its digits, and the
 /// rail unfolding under the keyboard.
@@ -413,9 +434,10 @@ async fn closing_the_window_tells_the_daemon_and_ends_the_process() {
     assert!(status.success(), "eco-window exited with {status}");
 }
 
-/// The tray icon follows the sessions, and its click and menu send what `eco
-/// window` and `eco stop` send: a context click nothing, a click and Open
-/// `focus`, then New session, Settings and Stop eco.
+/// The tray icon leaves out the events it draws nothing from, follows the
+/// sessions, and its click and menu send what `eco window` and `eco stop`
+/// send: a context click nothing, a click and Open `focus`, then New session,
+/// Settings and Stop eco.
 #[tokio::test]
 async fn the_tray_shows_the_state_and_its_menu_sends_the_cli_lines() {
     let dir = tempfile::tempdir().unwrap();
@@ -429,6 +451,21 @@ async fn the_tray_shows_the_state_and_its_menu_sends_the_cli_lines() {
         .spawn()
         .unwrap();
     let mut daemon = accept(&mut listener, &mut tray).await;
+    // First it leaves out what it draws nothing from, keeping the sessions and errors.
+    let events = read(&mut daemon).await;
+    let except: Value = serde_json::from_str(events.strip_prefix("events ").unwrap()).unwrap();
+    let except: Vec<&str> = except["except"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|kind| kind.as_str().unwrap())
+        .collect();
+    for left in ["signal", "transcript_partial", "suggestion_delta"] {
+        assert!(except.contains(&left), "{left} still sent");
+    }
+    for kept in ["session", "error", "snapshot"] {
+        assert!(!except.contains(&kept), "{kept} left out");
+    }
     let mut lines = Vec::new();
     for _ in 0..5 {
         lines.push(read(&mut daemon).await);

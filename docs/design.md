@@ -140,7 +140,7 @@ files import modules by name (`import Eco.Kit`), never by relative path:
 | `Eco.Sessions` | history, a session's details (attendees, speakers, context, translation), people, cost, the import strip | `Eco.Core`, `Eco.Kit` |
 | `Eco.Dialogs` | start, import, rename, speaker assignment | `Eco.Core`, `Eco.Kit` |
 | `Eco.Settings` | the settings window: its sections, the screen of each kind of item, and the draft an item is edited in | `Eco.Core`, `Eco.Kit` |
-| `Eco.Window` | the composing root: `OverlayPanel`, the eco window, and `SessionView`, which joins the live session to its details | every module above |
+| `Eco.Window` | the composing root: `OverlayPanel`, the eco window; `SessionView`, which joins the live session to its details; and `ViewStage`, a `Stage` whose view is made the first time it is shown — the sessions list then kept, for its filters, the people and the cost let go once they leave | every module above |
 | `Eco.Lab` | the control lab | any |
 
 Live, Sessions, Dialogs and Settings never import each other: a piece two of
@@ -571,10 +571,11 @@ any other label shows as written.
 `sessions.search <text>` answers `sessions_found` with the ids, newest first: the
 sessions whose title, tags, lines, notes, questions or answers hold the text, in
 any case or accents, as they read now (removed and corrected lines count as
-they are). `found_at` gives, by id, when the first line, note, question or
-answer that holds it was said; a session found only by its title or tags has
-none. A window opens a found session there, with a timeline page around that
-time (§10.1).
+they are). Titles and tags come from the session index (§8); only the logs
+they do not match are read for the rest. `found_at` gives, by id, when the
+first line, note, question or answer that holds it was said; a session its
+title or tags name has none, and opens at its newest. A window opens a found session there, with
+a timeline page around that time (§10.1).
 
 ### 7.2 Speakers
 
@@ -759,6 +760,7 @@ below is built in `src/paths.rs` (§15).
 |---|---|---|
 | `~/.config/eco/config.toml` | the configuration (§9) | the daemon, from the config window's draft; hand edits work too, but comments are not kept |
 | `~/.local/share/eco/sessions/<start>-<title or kind>.jsonl` | one session, append-only JSON Lines; a second session with the same start second and title gets `-2`, then `-3`, before `.jsonl` | the daemon |
+| `~/.local/share/eco/sessions/index.json` | the session index: what eco knows of each log without reading it again (below); deleting it costs one slower listing | the daemon |
 | `~/.local/share/eco/people/<id>.json` | a person: name, color, voiceprints (§7.4) | the daemon |
 | `~/.local/share/eco/people/voices/<session>.json` | the voices of a session's diarized speakers (§7.3) | the daemon |
 | `~/.local/share/eco/models/` | the Silero VAD and WeSpeaker CAM++ models | `eco setup` |
@@ -797,6 +799,28 @@ it leaves the context of later actions as well as the screen.
 A daemon that stops mid-session leaves it open; the next start marks it
 `paused` and opens with no session. A stored session left open that no daemon
 holds is listed and shown as `interrupted`, never reopened by itself.
+
+**The session index.** `sessions/index.json`, beside the logs it describes,
+holds one object per log file, by file name: the session's `id`, the log's
+size in bytes and modification time in nanoseconds when it was read, and its
+`entry` — the session's summary as the `sessions` list sends it (id, title,
+kind, source, language, state, start, duration, how much was said, speakers, people,
+attendees, tags, cost), the price each transcription model had when that cost
+was summed, the transcription requests it was billed for, whether it listened
+to one never billed, and the models of those billed but not yet priced
+(`Indexed` in `src/domain/index.rs`). `sessions`, `sessions.search`, `people`,
+`tags`, the sessions a person is in, adopting speakers and pricing unpaid
+requests read it instead of every log: an entry is used while its log has
+the size and modification time it records and its prices are the setup's;
+otherwise that log alone is read again and its entry rewritten. A log no
+longer there leaves the index; a missing or unreadable index is rebuilt from
+the logs. Search reads only the logs whose title and tags do not hold the
+text; pricing, only the sessions with a request to close or price. A new
+session's log is named in the index at its first record, and a deleted one
+leaves it at once, so finding a session's log by its id reads one first line,
+not every log. The daemon holds the index in memory and writes it whole, to
+`index.json.partial` then renamed over it (`src/adapters/session_files.rs`).
+The index holds no line of what was said; it is as private as the logs.
 
 ---
 
@@ -1101,6 +1125,14 @@ connection (`SYNC` in `src/adapters/control_socket.rs`). `eco window` uses it
 daemon reads its line, which then may never run. It is one mechanism on both
 platforms, for a named pipe cannot close its writing half alone.
 
+A client that draws only some events says which types it does not want:
+`events {"except": ["signal", "transcript_partial", …]}`. Its connection takes
+the line, runs no command, and from then on sends that client no event of those
+types; the next `events` replaces the list, and anything but a list of strings
+under `except` receives every type again (`EVENTS` in
+`src/adapters/control_socket.rs`). The greeting is sent before any line is
+read, so it always arrives. The tray (§12.7) sends it on every connection.
+
 ### 10.1 Events
 
 A new client first receives `snapshot`; a window asks for the timeline of the
@@ -1344,7 +1376,9 @@ it is refused with `daemon.recording`, and the window asks before it sends
 `{detail}`; a second `update.install` while one runs or waits is
 `update.busy`),
 `sync` (no command: the connection answers `synced` to this client alone once
-it has read every line before it, §10) and `stop`.
+it has read every line before it, §10), `events <json>` (no command either:
+`{"except": [types]}`, the event types this connection no longer receives,
+§10) and `stop`.
 
 ---
 
@@ -1794,7 +1828,11 @@ A QtQuick `Window` ("eco · settings", fixed and untranslated, as `packaging/hyp
 from the overlay or with `window.call {"call":"config"}` (§10.2).
 It is created the first time it opens and then only shown and hidden: Qt writes
 its pipeline cache to disk when a window is destroyed, and the interface would
-wait for that, often for seconds. Each opening asks the daemon for the config.
+wait for that, often for seconds. What it shows — the rail, the sections and
+their items — is made each time it opens and let go when it closes (a `Loader`
+in `ConfigWindow`), so closed settings hold no memory but the bare window.
+Closing still asks first when an item has changes not saved. Each opening asks
+the daemon for the config.
 It asks for 1040×760, or its screen less a 96 px margin when that is smaller;
 the rule in `packaging/hypr/eco.lua` gives it no size, so it keeps that one, and
 centres it on the screen (without `center`, Hyprland would centre it on the
@@ -2103,6 +2141,10 @@ session records; its tooltip is `eco · idle` or `eco · recording · <title>`.
 A click sends `window.call {"call":"focus"}` and the menu's **Open** the same,
 **New session** `new_session`, **Settings** `config` — each the line `eco
 window` sends (§10.2) — and **Stop eco** `stop`, the line `eco stop` sends.
+It draws only the live sessions, from `session`, and takes the errors: on every
+connection it first sends `events` (§10) with every other type the daemon
+sends, the input meters (`signal`, about 31 a second per input) and the words
+being said first among them.
 `tests/window.rs` runs it offscreen and checks the lines and the states.
 
 The tray is part of the windows' lifecycle in `src/adapters/overlay.rs`, but
@@ -2285,7 +2327,14 @@ leaves sessions, config, models and the agent skill.
 
 - **User service:** `packaging/eco.service` runs `eco daemon --headless`
   (`Restart=on-failure`). `eco start` starts it through `systemctl --user`
-  (`src/adapters/service_systemd.rs`) when nothing answers on the socket.
+  (`src/adapters/service_systemd.rs`) when nothing answers on the socket. It
+  sets glibc's allocator for a long-running daemon: `MALLOC_ARENA_MAX=2`, so
+  threads share two arenas instead of one each, and
+  `MALLOC_TRIM_THRESHOLD_=131072`, so memory freed after a peak (a long
+  session read back, speakers clustered) goes back to the system instead of
+  staying resident. Environment, not `malloc_trim` called from the daemon,
+  which would take `unsafe` code. A daemon run some other way, and the daemon
+  on Windows, keep their allocator's defaults.
 - **Hyprland:** `packaging/hypr/eco.lua`, loaded from
   `~/.config/hypr/bindings.lua` by one line `eco setup` adds
   (`src/adapters/desktop_hyprland.rs`):
