@@ -62,8 +62,9 @@ someone added to it without speaking. [How to name the
 speakers](how-to-name-the-speakers.md). `--tag` ignores case.
 
 Each session in the list carries, among other fields, `id`, `title`, `kind`, `source`, `language`,
-`state`, `started_at`, `duration_s`, `speech`, `suggestions`, `speakers`,
-`people`, `tags`, `translating` and `cost`.
+`state`, `started_at`, `duration_s`, `counts` (`{"lines", "answers", "notes"}`,
+what the whole session holds), `speakers`, `people`, `tags`, `translating` and
+`cost`.
 
 ## 3. The ones recording now
 

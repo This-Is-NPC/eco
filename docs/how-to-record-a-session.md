@@ -111,7 +111,7 @@ Read it back:
 
 ```bash
 eco sessions                                  # every session, newest first
-eco show dea44e92fd25 | jq '.data.session | {title, kind, source, language, state, duration_s, speech, path}'
+eco show dea44e92fd25 | jq '.data.session | {title, kind, source, language, state, duration_s, lines: .counts.lines, path}'
 ```
 
 ```
@@ -122,7 +122,7 @@ eco show dea44e92fd25 | jq '.data.session | {title, kind, source, language, stat
   "language": "pt",
   "state": "ended",
   "duration_s": 282,
-  "speech": 1,
+  "lines": 1,
   "path": "/tmp/eco-hook/data/eco/sessions/2026-10-08-182901-cost-check.jsonl"
 }
 ```

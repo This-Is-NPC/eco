@@ -69,7 +69,39 @@ Singleton {
   function closeCost() { costOf = "" }
   // The timeline of the session on screen: speech turns, notes and suggestion
   // cards, oldest first.
-  property ListModel timeline: ListModel {}
+  property ListModel timeline: ListModel {
+    // Rows appended enter the index; any other change leaves it to be rebuilt.
+    onRowsInserted: (parent, first, last) => {
+      if (root.rows !== null && last === root.timeline.count - 1)
+        for (let i = first; i <= last; i++)
+          root.rows[root.rowKey(root.timeline.get(i))] = i
+      else
+        root.rows = null
+    }
+    onRowsRemoved: root.rows = root.timeline.count === 0 ? ({}) : null
+    onRowsMoved: root.rows = null
+  }
+  // The timeline's row of each entry by rowKey, or null when it must be rebuilt.
+  property var rows: ({})
+  // rowKey names a row: an answer or a note by its id, a line by when it was heard.
+  function rowKey(row) { return row.key || "@" + row.at }
+  // rowOf gives the timeline's row named `key`, or -1.
+  function rowOf(key) {
+    if (rows === null) {
+      const known = {}
+      for (let i = 0; i < timeline.count; i++)
+        known[rowKey(timeline.get(i))] = i
+      rows = known
+    }
+    const index = rows[key]
+    return index === undefined ? -1 : index
+  }
+  // lineRow gives the row of the line `who` said at `at` in the session's
+  // timeline on screen, or -1.
+  function lineRow(sessionId, who, at) {
+    const index = timelineOf(sessionId) ? rowOf("@" + at) : -1
+    return index >= 0 && timeline.get(index).who === who ? index : -1
+  }
   // What the window shows without a session on screen: "start", "history" or "people".
   property string view: "start"
   // The views the user came through to `view`; back returns to the last.
@@ -106,8 +138,11 @@ Singleton {
       const input = inputs.find(item => item.participant === who)
       return Object.assign({ who: who, color: input ? inputColor(input.id) : Theme.dim }, links[who])
     })
-  // Session id -> its speakers as the daemon last said: {label, name, person, voice, suggestions, guess}.
+  // Session id -> its speakers as the daemon last said: {label, name, person, voice, suggestions, guess, lines}.
   property var sessionSpeakers: ({})
+  // Session id -> what the whole session holds as the daemon last said:
+  // {lines, answers, notes}, whatever part of it the timeline holds.
+  property var sessionCounts: ({})
   // The people linked to sessions ({id, name, voices, sessions}), by name.
   property var people: []
   // Whether `people` holds what the daemon said: until then no one is unknown.
@@ -487,18 +522,23 @@ Singleton {
   function editLine(id, who, at, text) { send("session.line.edit " + JSON.stringify({ id: id, who: who, at: at, text: text })) }
   function removeLine(id, who, at) { send("session.line.remove " + JSON.stringify({ id: id, who: who, at: at })) }
   function renameSpeaker(id, label, name) { send("session.speaker " + JSON.stringify({ id: id, label: label, name: name })) }
-  // countOf counts the entries of a kind ("speech", "suggestion", "note") in a
-  // session on screen, only `who`'s lines when given; a binding that calls it
-  // follows the timeline's length.
-  function countOf(sessionId, kind, who) {
-    const list = timelineOf(sessionId)
-    let count = 0
-    for (let i = 0; list && i < list.count; i++) {
-      const entry = list.get(i)
-      if (entry.kind === kind && (!who || entry.who === who))
-        count++
-    }
-    return count
+  // countOf gives how many entries of a kind ("lines", "answers", "notes") the
+  // whole session holds, as the daemon last said.
+  function countOf(sessionId, kind) {
+    const counts = sessionCounts[sessionId]
+    return counts ? counts[kind] : 0
+  }
+  // keepCounts keeps the counts the daemon sent for a session, if any.
+  function keepCounts(sessionId, counts) {
+    if (counts)
+      sessionCounts = Object.assign({}, sessionCounts, { [sessionId]: counts })
+  }
+  // keepLiveCounts keeps the counts of each live session.
+  function keepLiveCounts() {
+    const kept = Object.assign({}, sessionCounts)
+    for (const item of live)
+      kept[item.id] = item.counts
+    sessionCounts = kept
   }
   // speakerNames lists the names other speakers go by in a session on screen.
   function speakerNames(sessionId) {
@@ -814,10 +854,8 @@ Singleton {
   }
 
   function locate(id) {
-    for (let i = timeline.count - 1; i >= 0; i--)
-      if (timeline.get(i).key === id)
-        return { list: timeline, index: i }
-    return null
+    const index = rowOf(id)
+    return index < 0 ? null : { list: timeline, index: index }
   }
 
   // speaking keeps what `who` is saying now; an empty text drops it.
@@ -903,6 +941,7 @@ Singleton {
       // A daemon met again sends the timeline again.
       followed = ""
       live = event.live || []
+      keepLiveCounts()
       follow()
       send("people")
       send("tags")
@@ -915,6 +954,7 @@ Singleton {
       break
     case "session":
       live = event.live || []
+      keepLiveCounts()
       transcribers = event.transcribers || []
       // The rows follow the sessions started, paused, resumed or ended.
       if (view === "history")
@@ -1056,6 +1096,7 @@ Singleton {
     }
     case "session_detail":
       keepSpeakers(event.session.id, event.speakers || [])
+      keepCounts(event.session.id, event.session.counts)
       if (event.session.id !== shown || session !== null)
         break
       stored = event.session
@@ -1073,6 +1114,7 @@ Singleton {
       break
     case "transcript": {
       // Several sessions may record at once; a line goes to the one it was heard in.
+      keepCounts(event.session, event.counts)
       const list = timelineOf(event.session)
       if (list)
         addSpeech(event.who, event.name, event.text, event.at, list, event.translation)
@@ -1095,38 +1137,25 @@ Singleton {
         speaking(event.who, event.name, event.text)
       break
     case "transcript_edited": {
-      const list = timelineOf(event.session)
-      for (let i = 0; list && i < list.count; i++) {
-        const line = list.get(i)
-        if (line.kind === "speech" && line.who === event.who && Math.abs(line.at - event.at) < 1e-6) {
-          list.setProperty(i, "text", event.text)
-          break
-        }
-      }
+      const index = lineRow(event.session, event.who, event.at)
+      if (index >= 0)
+        timeline.setProperty(index, "text", event.text)
       break
     }
     case "transcript_reassigned": {
-      const list = timelineOf(event.session)
-      for (let i = 0; list && i < list.count; i++) {
-        const line = list.get(i)
-        if (line.kind === "speech" && line.who === event.who && Math.abs(line.at - event.at) < 1e-6) {
-          list.setProperty(i, "who", event.label)
-          list.setProperty(i, "name", event.name)
-          break
-        }
+      const index = lineRow(event.session, event.who, event.at)
+      if (index >= 0) {
+        timeline.setProperty(index, "who", event.label)
+        timeline.setProperty(index, "name", event.name)
       }
       break
     }
     case "transcript_removed": {
       // A line the user did not say: the others' audio, heard by the microphone.
-      const list = timelineOf(event.session)
-      for (let i = 0; list && i < list.count; i++) {
-        const line = list.get(i)
-        if (line.kind === "speech" && line.who === event.who && Math.abs(line.at - event.at) < 1e-6) {
-          list.remove(i)
-          break
-        }
-      }
+      keepCounts(event.session, event.counts)
+      const index = lineRow(event.session, event.who, event.at)
+      if (index >= 0)
+        timeline.remove(index)
       break
     }
     case "session_speakers":
@@ -1143,6 +1172,7 @@ Singleton {
       break
     }
     case "note": {
+      keepCounts(event.session, event.counts)
       const list = timelineOf(event.session)
       if (list)
         addNote(event.id, event.text, event.at, list)
@@ -1150,6 +1180,7 @@ Singleton {
     }
     case "note_removed":
     case "suggestion_removed": {
+      keepCounts(event.session, event.counts)
       flushStream()
       // A failed answer stays on screen with its reason until the user closes it.
       const found = locate(event.id)
@@ -1168,6 +1199,7 @@ Singleton {
       signalFor(event.input).push(event.level, event.speech)
       break
     case "suggestion_start": {
+      keepCounts(event.session, event.counts)
       const list = timelineOf(event.session)
       if (list)
         addSuggestion(event.id, event.action, event.model, event.prompt, "", true, event.at, list)
@@ -1193,15 +1225,9 @@ Singleton {
     }
     case "translated": {
       // A line is found by when it was heard, an answer by its id.
-      const list = timelineOf(event.session)
-      for (let i = 0; list && i < list.count; i++) {
-        const row = list.get(i)
-        const match = event.id ? row.key === event.id : row.kind === "speech" && Math.abs(row.at - event.at) < 1e-6
-        if (match) {
-          list.setProperty(i, "translation", event.text)
-          break
-        }
-      }
+      const index = timelineOf(event.session) ? rowOf(event.id || "@" + event.at) : -1
+      if (index >= 0)
+        timeline.setProperty(index, "translation", event.text)
       break
     }
     case "session_translation": {

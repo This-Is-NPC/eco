@@ -1096,7 +1096,7 @@ A new client first receives `snapshot`; a window asks for the timeline of the
 session it shows:
 
 ```json
-{"type":"snapshot","session":{"id":"…","title":"Entrevista","kind":"meeting","source":"live","language":"pt","state":"recording","started_at":1791083833.3,"active_s":312.4,"running_since":1791084400.0},"kinds":["meeting","conversation","other","idea"],"kind_models":{"meeting":{"transcription":"deepgram","chat":"gemini","translation":"gemini","actions":["ask","probe"]},"idea":{"transcription":"whisper-lan","chat":"qwen-lan","translation":"gemini","actions":["ask","probe"]}},"default_models":{"transcription":"deepgram","chat":"gemini","translation":"gemini","actions":["ask","probe"]},"hooks":["probe"],"participants":[{"name":"Eu","user":true},{"name":"Eles","user":false}],"inputs":[{"id":"@default-input","label":"Default microphone","participant":"Eu","color":"#ffb000"}]}
+{"type":"snapshot","session":{"id":"…","title":"Entrevista","kind":"meeting","source":"live","language":"pt","state":"recording","started_at":1791083833.3,"active_s":312.4,"running_since":1791084400.0,"counts":{"lines":40,"answers":2,"notes":1}},"kinds":["meeting","conversation","other","idea"],"kind_models":{"meeting":{"transcription":"deepgram","chat":"gemini","translation":"gemini","actions":["ask","probe"]},"idea":{"transcription":"whisper-lan","chat":"qwen-lan","translation":"gemini","actions":["ask","probe"]}},"default_models":{"transcription":"deepgram","chat":"gemini","translation":"gemini","actions":["ask","probe"]},"hooks":["probe"],"participants":[{"name":"Eu","user":true},{"name":"Eles","user":false}],"inputs":[{"id":"@default-input","label":"Default microphone","participant":"Eu","color":"#ffb000"}]}
 {"type":"signal","input":"@default-input","level":0.42,"speech":true}
 {"type":"session","session":{…} or null,"live":[{…} for each live session],"transcribers":[{"model":"deepgram","language":"pt","sessions":2}]}
 {"type":"session_opened","id":"…","window":2}
@@ -1105,34 +1105,34 @@ session it shows:
 {"type":"window_share","pids":[10872,11240],"hidden":true}
 {"type":"synced"}
 {"type":"session_timeline","session":"…","timeline":[{"type":"transcript",…},{"type":"note",…},{"type":"suggestion",…}]}
-{"type":"transcript","session":"…","who":"Eles","name":"Ana","text":"...","at":1791083840.1,"latency_ms":990}
+{"type":"transcript","session":"…","who":"Eles","name":"Ana","text":"...","at":1791083840.1,"latency_ms":990,"counts":{"lines":41,"answers":2,"notes":1}}
 {"type":"transcript_partial","session":"…","who":"Eles","name":"Ana","text":"so the next…"}
 {"type":"transcription","who":"Eles","state":"down","code":"stt.down","detail":"stalled: nothing heard for 15s"}
 {"type":"transcription","who":"Eu","state":"down","code":"capture.down","detail":"Default microphone: not connected"}
 {"type":"transcription","who":"Eles","state":"back","down_s":318.4,"dropped_s":18.2}
-{"type":"suggestion_start","id":"54401f25","session":"…","action":"chat","model":"google/gemini-3.5-flash-lite","prompt":"Ele citou Kafka?","at":1791083860.0}
+{"type":"suggestion_start","id":"54401f25","session":"…","action":"chat","model":"google/gemini-3.5-flash-lite","prompt":"Ele citou Kafka?","at":1791083860.0,"counts":{"lines":41,"answers":3,"notes":1}}
 {"type":"suggestion_thinking","id":"54401f25","text":"..."}
 {"type":"suggestion_draft","id":"54401f25","text":"..."}
 {"type":"suggestion_delta","id":"54401f25","text":"..."}
 {"type":"suggestion_end","id":"54401f25","ttft_ms":350,"total_ms":3400,"prompt_tokens":1919,"cached_tokens":1791,"cost_usd":null}
-{"type":"suggestion_removed","id":"2f45de79"}
+{"type":"suggestion_removed","session":"…","id":"2f45de79","counts":{"lines":41,"answers":2,"notes":1}}
 {"type":"session_cost","session":"…","cost":{"llm_usd":0.0031,"llm_unknown":false,"transcription_usd":0.0924,"transcription_unknown":false,"total_usd":0.0955,"transcribed_s":{"deepgram":720.0},"parts":[{"for":"answer","usd":0.0031,"unknown":false},{"for":"transcription","usd":0.0924,"unknown":false}],"items":[{"for":"transcription","at":1791084120.2,"model":"deepgram","usd":0.0924,"unknown":null,"estimate":false,"seconds":720.0,"prompt":null,"count":null},{"for":"answer","at":1791083863.4,"model":"google/gemini-3.5-flash-lite","usd":0.0031,"unknown":null,"estimate":false,"seconds":null,"prompt":"Ele citou Kafka?","count":null}]}}
 {"type":"hook_started","session":"…","id":"54401f25"}
 {"type":"hook_sent","session":"…","id":"54401f25"}
 {"type":"session_translation","session":"…","translating":"en"}
 {"type":"translated","session":"…","at":1791083840.1,"language":"en","text":"…","ms":640}
-{"type":"note","id":"9c1d2e3f","session":"…","text":"Migrei um app WPF para MVVM.","at":1791083870.4}
-{"type":"note_removed","id":"9c1d2e3f"}
-{"type":"sessions","sessions":[{"id":"…","title":"…","kind":"idea","source":"live","language":"pt","state":"paused","started_at":…,"duration_s":312,"speech":40,"suggestions":3,"speakers":["Eu","Ana"],"cost":{…as in session_cost, without parts and items…}}]}
+{"type":"note","id":"9c1d2e3f","session":"…","text":"Migrei um app WPF para MVVM.","at":1791083870.4,"counts":{"lines":41,"answers":2,"notes":2}}
+{"type":"note_removed","session":"…","id":"9c1d2e3f","counts":{"lines":41,"answers":2,"notes":1}}
+{"type":"sessions","sessions":[{"id":"…","title":"…","kind":"idea","source":"live","language":"pt","state":"paused","started_at":…,"duration_s":312,"counts":{"lines":40,"answers":2,"notes":1},"speakers":["Eu","Ana"],"cost":{…as in session_cost, without parts and items…}}]}
 {"type":"sessions_found","query":"prazo","ids":["…"]}
-{"type":"session_detail","session":{…summary…},"timeline":[…transcript, note and suggestion events…],"speakers":[{"label":"Speaker 1","name":"Ana","person":"…","voice":true,"suggestions":[],"guess":null},{"label":"Speaker 2","name":"Speaker 2","person":null,"voice":true,"suggestions":[{"person":"…","name":"Bruno","score":0.82}],"guess":{"person":"…","name":"Bruno","score":0.82}}]}
+{"type":"session_detail","session":{…summary…},"timeline":[…transcript, note and suggestion events…],"speakers":[{"label":"Speaker 1","name":"Ana","person":"…","voice":true,"suggestions":[],"guess":null,"lines":25},{"label":"Speaker 2","name":"Speaker 2","person":null,"voice":true,"suggestions":[{"person":"…","name":"Bruno","score":0.82}],"guess":{"person":"…","name":"Bruno","score":0.82},"lines":15}]}
 {"type":"session_deleted","id":"…"}
 {"type":"transcript_reassigned","session":"…","who":"Speaker 1","at":1791083841.2,"label":"Speaker 1#abc12345","name":"Ana"}
 {"type":"person_assigned_all","session":"…","speakers":2}
 {"type":"people","people":[{"id":"…","name":"Ana","voices":3,"sessions":["…"]}]}
 {"type":"session_renamed","id":"…","title":"…","kind":"idea"}
 {"type":"speaker_renamed","session":"…","label":"Eles","name":"Ana"}
-{"type":"transcript_removed","session":"…","who":"Eu","at":1791083841.2}
+{"type":"transcript_removed","session":"…","who":"Eu","at":1791083841.2,"counts":{"lines":40,"answers":2,"notes":1}}
 {"type":"diarized","session":"…","who":["Speaker 1","Speaker 2",…],"names":["Ana","Speaker 2",…]}
 {"type":"import_date","path":"/home/me/retro.mp4","at":1790759700.0}
 {"type":"import_started","session":{…},"total_s":1834.2}
@@ -1147,6 +1147,14 @@ session it shows:
 {"type":"update_progress","stage":"installing","version":"0.5.0","detail":""}
 {"type":"error","code":"session.none","params":{},"message":"start a session first"}
 ```
+
+`counts` is what the whole session holds: its lines, answers and notes. Every
+session the daemon describes carries it — the one shown, each live one, each
+summary — and so does every event that adds an entry to a session or takes one
+away (`transcript`, `transcript_removed`, `note`, `note_removed`,
+`suggestion_start`, `suggestion_removed`), with the counts after it. A window
+shows these counts and never counts its own timeline, which may hold only part
+of the session. A speaker's `lines` is how many lines carry its label.
 
 `update` is what the daemon knows of releases (§13): the version it runs
 (`current`), the latest release's version (`latest`, `null` before any check

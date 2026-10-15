@@ -63,7 +63,7 @@ eco show 90a8bbae6b73
 ```
 
 ```json
-{"ok":true,"data":{"session":{"id":"90a8bbae6b73","title":"Acme kickoff","kind":"meeting","source":"import","language":"en","state":"ended","started_at":1791499970.3514547,"duration_s":14,"speech":4,"suggestions":0,"speakers":["Speaker 1","Speaker 2"],…,"path":"/home/you/.local/share/eco/sessions/2026-10-08-195250-acme-kickoff.jsonl","bytes":777},"timeline":[{"type":"transcript","session":"90a8bbae6b73","who":"Speaker 1","name":"Speaker 1","text":"Let's start with the onboarding plan for Acme.","at":1791499971.3514547,"latency_ms":0},…]}}
+{"ok":true,"data":{"session":{"id":"90a8bbae6b73","title":"Acme kickoff","kind":"meeting","source":"import","language":"en","state":"ended","started_at":1791499970.3514547,"duration_s":14,"counts":{"lines":4,"answers":0,"notes":0},"speakers":["Speaker 1","Speaker 2"],…,"path":"/home/you/.local/share/eco/sessions/2026-10-08-195250-acme-kickoff.jsonl","bytes":777},"timeline":[{"type":"transcript","session":"90a8bbae6b73","who":"Speaker 1","name":"Speaker 1","text":"Let's start with the onboarding plan for Acme.","at":1791499971.3514547,"latency_ms":0},…]}}
 ```
 
 Teams writes speakers as `<v Name>` spans and Zoom as `Name: text`; both are

@@ -15,9 +15,9 @@ ModalDialog {
   property string scope: "speaker"
   // The line picked, by its time, or 0 for none.
   property double at: 0
-  readonly property int affected: scope === "speaker" ? Eco.countOf(sessionId, "speech", label) : 1
   // What the daemon says of this speaker, or null until it has.
   readonly property var info: Eco.speakersOf(sessionId).find(s => s.label === label) || null
+  readonly property int affected: scope === "speaker" ? (info !== null ? info.lines : 0) : 1
   property var others: []
   // The known person picked, or "".
   property string chosen: ""
