@@ -10,7 +10,8 @@
 //! as a keyboard and a pointer press them, in `tests/window/bars.qml`; and the
 //! eco window closed with the settings open,
 //! saying so to the daemon before it exits,
-//! in `tests/window/close.qml`; and the tray icon's states and menu, in
+//! in `tests/window/close.qml`; its views and settings made only while
+//! wanted, in `tests/window/lazy.qml`; and the tray icon's states and menu, in
 //! `tests/window/tray.qml`. Needs `mise run window:build`.
 
 use std::path::{Path, PathBuf};
@@ -176,6 +177,26 @@ fn offscreen(qml: &str, dir: &Path) -> Command {
 async fn the_overlay_views_pass_their_checks() {
     let dir = tempfile::tempdir().unwrap();
     let run = offscreen("views", dir.path())
+        .env("ECO_SOCKET", dir.path().join("no-daemon"))
+        .kill_on_drop(true)
+        .output();
+    let output = tokio::time::timeout(Duration::from_secs(30), run)
+        .await
+        .expect("the views did not finish")
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+/// The eco window's views and its settings are made only while wanted: a view
+/// when first shown, the settings each time they open, let go when they close.
+#[tokio::test]
+async fn views_and_settings_are_made_when_shown() {
+    let dir = tempfile::tempdir().unwrap();
+    let run = offscreen("lazy", dir.path())
         .env("ECO_SOCKET", dir.path().join("no-daemon"))
         .kill_on_drop(true)
         .output();

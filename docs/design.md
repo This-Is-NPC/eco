@@ -140,7 +140,7 @@ files import modules by name (`import Eco.Kit`), never by relative path:
 | `Eco.Sessions` | history, a session's details (attendees, speakers, context, translation), people, cost, the import strip | `Eco.Core`, `Eco.Kit` |
 | `Eco.Dialogs` | start, import, rename, speaker assignment | `Eco.Core`, `Eco.Kit` |
 | `Eco.Settings` | the settings window: its sections, the screen of each kind of item, and the draft an item is edited in | `Eco.Core`, `Eco.Kit` |
-| `Eco.Window` | the composing root: `OverlayPanel`, the eco window, and `SessionView`, which joins the live session to its details | every module above |
+| `Eco.Window` | the composing root: `OverlayPanel`, the eco window; `SessionView`, which joins the live session to its details; and `ViewStage`, a `Stage` whose view is made the first time it is shown — the sessions list then kept, for its filters, the people and the cost let go once they leave | every module above |
 | `Eco.Lab` | the control lab | any |
 
 Live, Sessions, Dialogs and Settings never import each other: a piece two of
@@ -1768,7 +1768,11 @@ A QtQuick `Window` ("eco · settings", fixed and untranslated, as `packaging/hyp
 from the overlay or with `window.call {"call":"config"}` (§10.2).
 It is created the first time it opens and then only shown and hidden: Qt writes
 its pipeline cache to disk when a window is destroyed, and the interface would
-wait for that, often for seconds. Each opening asks the daemon for the config.
+wait for that, often for seconds. What it shows — the rail, the sections and
+their items — is made each time it opens and let go when it closes (a `Loader`
+in `ConfigWindow`), so closed settings hold no memory but the bare window.
+Closing still asks first when an item has changes not saved. Each opening asks
+the daemon for the config.
 It asks for 1040×760, or its screen less a 96 px margin when that is smaller;
 the rule in `packaging/hypr/eco.lua` gives it no size, so it keeps that one, and
 centres it on the screen (without `center`, Hyprland would centre it on the
