@@ -73,7 +73,15 @@ Item {
   signal emptyActed()
 
   implicitHeight: headerHeight + (compact ? 0 : 10) + list.topMargin + list.bottomMargin + Math.max(52, list.contentHeight)
+  // Shown, the rows take the keyboard; a view made as it is shown is still
+  // invisible when it turns active, so they take it once it shows, if
+  // nothing holds it.
   onActiveChanged: if (active) list.forceActiveFocus()
+  onVisibleChanged: {
+    const holder = Window.activeFocusItem
+    if (visible && active && (holder === null || holder === Window.contentItem))
+      list.forceActiveFocus()
+  }
   onRowsChanged: {
     const before = listed
     listed = new Set(rows.map(entry => idOf(entry)))

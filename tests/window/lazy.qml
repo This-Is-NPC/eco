@@ -57,6 +57,10 @@ QtObject {
     () => {
       const people = root.view("people")
       root.check("the people are made when shown, active", people !== null && people.active)
+      let focused = root.shell.activeFocusItem
+      while (focused !== null && focused !== people)
+        focused = focused.parent
+      root.check("the people's rows take the keyboard", people !== null && focused === people)
       const history = root.view("history")
       root.check("the sessions list is kept, inactive", history !== null && !history.active)
       Eco.view = "start"
