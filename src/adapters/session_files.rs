@@ -419,6 +419,19 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn a_line_comes_back_at_the_very_time_it_was_heard() {
+        let directory = tempfile::tempdir().unwrap();
+        let files = SessionFiles::new(directory.path().into());
+        let mut session = Session::begin("", "meeting", LIVE, "pt", files.writer());
+        // A time the default float parse reads one step off.
+        let at = 1792034916.0726755;
+        session.hear_at("Recrutador", "Oi.", at);
+        let records = files.read(&session.id).unwrap();
+        let heard = records.iter().find(|r| r["type"] == "speech").unwrap();
+        assert_eq!(heard["at"].as_f64(), Some(at));
+    }
+
+    #[test]
     fn files_name_sessions_and_pause_the_unfinished() {
         let directory = tempfile::tempdir().unwrap();
         let files = SessionFiles::new(directory.path().into());
