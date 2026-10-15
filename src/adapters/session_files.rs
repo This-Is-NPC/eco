@@ -295,7 +295,10 @@ impl SessionLog for SessionFiles {
                     _ => {
                         changed = true;
                         let records = records(&path);
-                        let id = records.first().and_then(|head| head["id"].as_str());
+                        let id = records
+                            .first()
+                            .and_then(|head| head.get("id"))
+                            .and_then(Value::as_str);
                         IndexedLog {
                             id: id.unwrap_or_default().into(),
                             bytes,
