@@ -66,7 +66,8 @@ ModalDialog {
     ]],
     ["keys.composer", [
       ["Enter", "keys.send"],
-      ["Shift+Enter", "keys.note"],
+      ["Shift+Enter", "keys.newline"],
+      ["Ctrl+Enter", "keys.note"],
       ["/", "keys.run_action"],
       ["Alt+1…9", "keys.run_numbered"]
     ]],

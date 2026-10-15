@@ -2,6 +2,7 @@ import QtQuick
 import QtTest
 import Eco.Core
 import Eco.Kit
+import Eco.Live
 import Eco.Sessions
 import Eco.Settings
 import Eco.Window
@@ -12,8 +13,10 @@ import Eco.Window
 // Tab row by row, new rows keep the keyboard on the table, the guarded command
 // stands behind a hairline, a bar's readout gives way when narrow, short names
 // stand in for long ones before icons do, the
-// sessions' NEW SESSION and N start a session, the details' close closes
-// them, and a model's key picker lists each source's names under its title,
+// sessions' NEW SESSION and N start a session, the composer grows with a
+// line Shift+Enter breaks and sends it whole on Enter or keeps it as a note on
+// Ctrl+Enter, a session's tab is chosen
+// and Esc goes back to the conversation, and a model's key picker lists each source's names under its title,
 // its keyboard stepping over the titles, a pick setting that source's field. Each check that fails is printed, and the exit status is how many failed.
 Window {
   id: root
@@ -28,7 +31,9 @@ Window {
   property var opened: []
   property var livePicked: []
   property int started: 0
-  property bool detailsOpen: true
+  property var asked: []
+  property var noted: []
+  property real composerHeight: 0
   // The model the key picker edits, changed as the model page changes it.
   property var model: ({ base_url: "https://openrouter.ai/api/v1", model: "m", api_key_env: "OPENROUTER_API_KEY" })
 
@@ -162,6 +167,14 @@ Window {
     }
   }
 
+  ComposerSurface {
+    id: composer
+    visible: false
+    width: root.width
+    onSubmitted: text => root.asked.push(text)
+    onNoted: text => root.noted.push(text)
+  }
+
   HistoryView {
     id: history
     visible: false
@@ -173,8 +186,6 @@ Window {
     visible: false
     width: root.width
     height: 500
-    detailsOpen: root.detailsOpen
-    onDetailsClosed: root.detailsOpen = false
   }
 
   ProviderFields {
@@ -200,6 +211,23 @@ Window {
   // The checks, one per tick, each after what the one before set off settled.
   readonly property var steps: [
     () => root.keys = Qt.createQmlObject("import QtTest; TestCase { when: false }", root.contentItem, "keys"),
+    () => {
+      composer.visible = true
+      composer.focusEntry()
+      root.composerHeight = composer.height
+      root.keys.keyClick("a")
+      root.keys.keyClick(Qt.Key_Return, Qt.ShiftModifier)
+      root.keys.keyClick("b")
+    },
+    () => {
+      root.check("the composer grows with a line Shift+Enter breaks", composer.height > root.composerHeight)
+      root.keys.keyClick(Qt.Key_Return)
+      root.check("Enter sends the lines whole", JSON.stringify(root.asked) === JSON.stringify(["a\nb"]))
+      root.keys.keyClick("c")
+      root.keys.keyClick(Qt.Key_Return, Qt.ControlModifier)
+      root.check("Ctrl+Enter keeps the text as a note", JSON.stringify(root.noted) === JSON.stringify(["c"]))
+      composer.visible = false
+    },
     () => acting.focusRows(),
     () => {
       root.keys.keyClick(Qt.Key_Return)
@@ -256,11 +284,14 @@ Window {
       session.visible = true
     },
     () => {
-      const close = root.find(session, item => item.visible && item.name === "chevron-up" && root.kind(item, "IconButton"))
-      root.check("the details have a close", close !== null)
-      if (close)
-        root.keys.mouseClick(close)
-      root.check("the details' close closes them", !root.detailsOpen)
+      const people = root.find(session, item => item.visible && item.label === I18n.t("attendees.short") && root.kind(item, "Tab"))
+      root.check("the session has a PEOPLE tab", people !== null)
+      if (people)
+        root.keys.mouseClick(people)
+      root.check("a tab clicked is chosen", session.tab === 1)
+      session.forceActiveFocus()
+      root.keys.keyClick(Qt.Key_Escape)
+      root.check("Esc goes back to the conversation", session.tab === 0)
       session.visible = false
       tables.visible = false
       provider.visible = true

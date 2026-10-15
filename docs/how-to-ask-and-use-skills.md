@@ -64,7 +64,7 @@ newer one replaces the one waiting. Different sessions answer side by side.
 
 ## 3. Keep a note
 
-Type the fact and press **NOTE**, or Shift+Enter. It stays in the timeline as a
+Type the fact and press **NOTE**, or Ctrl+Enter. It stays in the timeline as a
 **NOTE** card, and every later question and skill reads it as
 `Nota do usuário: …` among the lines heard. It is how you tell the model what
 nobody said out loud: "the pilot customers are Acme and Brightline".

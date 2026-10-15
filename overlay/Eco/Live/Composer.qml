@@ -21,7 +21,7 @@ ComposerSurface {
     + (compact ? "_short" : ""))
 
   onActionChosen: name => Eco.triggerOn(target, name)
-  onSubmitted: text => Eco.askOn(target, text.replace(/\n/g, " "))
+  onSubmitted: text => Eco.askOn(target, text)
 
   onNoted: text => Eco.noteOn(target, text)
 }

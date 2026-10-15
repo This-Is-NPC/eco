@@ -70,8 +70,8 @@ Item {
   SessionDetails {
     id: details
     width: root.width
+    height: root.height
     session: Eco.onScreen
-    shown: true
   }
 
   Timer {
