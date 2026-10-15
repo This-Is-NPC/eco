@@ -240,6 +240,12 @@ how sending went: SENDING…, SENT or NOT SENT.
 The window follows the newest entry. Scrolled up, a `↓ N new` pill above the
 composer counts what arrived below; a click or `End` goes back down.
 
+A long session comes in pages. While the window follows the newest entry it
+keeps the last 1000; above them it says `Earlier entries above`, and scrolling
+up brings the earlier ones in, a page at a time, with a trace under that line
+while one loads. The entry being read stays where it was. Not pictured: the
+pictured session is short.
+
 ![The live session scrolled up to its first answer, a REPLY card marked SENT in green; at the bottom of the conversation, above the skill chips, a pill "↓ 4 NEW".](img/08-live-new.png)
 
 Paused, the capsule turns amber and reads PAUSED, its time stopped, and PAUSE
@@ -368,6 +374,10 @@ That line says when it was, how long, and how much was said, and offers the way
 back into it: REOPEN for an ended session, RESUME for a paused or interrupted
 one (`R`). Either turns the line into the capsule. The composer works here too:
 a question asked afterwards is answered from the stored transcript.
+
+A session opened from a search opens where the search found it, that entry in
+the middle of the view, not at its end; scrolling either way brings the rest,
+and `End` goes to its newest entry.
 
 Each person keeps their colour across sessions; a speaker nobody has named
 (`Speaker 3`) still gets one of their own.

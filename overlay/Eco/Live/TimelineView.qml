@@ -12,7 +12,8 @@ import Eco.Kit
 // speaker is saying right now, until it becomes a line. From the keyboard, Tab
 // reaches it on the newest entry: ↑/↓ and PgUp/PgDn move, Home/End go to
 // either end, N names the speaker of a line, and Tab moves into the tools of
-// the entry it is on.
+// the entry it is on. A long session comes in pages: nearing either end of
+// what it holds asks for the next, and a page above keeps the reading place.
 Item {
   id: root
 
@@ -48,8 +49,13 @@ Item {
     root.unseen++
   }
 
-  // Goes to the end and follows it again, past an answer still streaming.
+  // Goes to the end and follows it again, past an answer still streaming; the
+  // newest entries come back first when older ones were read.
   function jump() {
+    if (Eco.moreAfter) {
+      Eco.pageNewest()
+      return
+    }
     const newest = timeline.count > 0 ? timeline.model.get(timeline.count - 1) : null
     root.released = newest && newest.streaming ? newest.key : ""
     root.held = ""
@@ -74,14 +80,21 @@ Item {
         root.arrived(entry.key)
       }
     }
+    function onRowsAboutToBeInserted(parent, first) {
+      if (first === 0 && timeline.count > 0)
+        root.hold()
+    }
     function onRowsInserted(parent, first, last) {
       root.revision++
       for (let row = first; row <= last; row++) {
         const entry = timeline.model.get(row)
         if (entry.streaming)
           root.streams[entry.key] = true
-        root.arrived(entry.key)
+        if (entry.fresh)
+          root.arrived(entry.key)
       }
+      if (root.anchor >= 0)
+        root.keep(last - first + 1)
     }
     // A cleared timeline is another one loading: it starts at its end.
     function onRowsRemoved() {
@@ -97,6 +110,65 @@ Item {
 
   // The keyboard is on the timeline or in the entry it is on.
   readonly property bool keyboard: timeline.activeFocus || (timeline.currentItem !== null && Focus.within(Window.activeFocusItem, timeline.currentItem))
+
+  // Timeline pages (docs/design.md §10).
+  // How near either end of what it holds, in entries, the view asks for more.
+  readonly property int near: 20
+  // The entry at the top of the view while a page goes in above it, and how
+  // far below the view's top it was; -1 when none goes in.
+  property int anchor: -1
+  property real anchorOffset: 0
+
+  // Asks for the entries beyond those held once the view, away from the
+  // newest it follows, nears either end.
+  function reach() {
+    if (timeline.count === 0 || timeline.following)
+      return
+    const x = timeline.width / 2
+    const top = timeline.indexAt(x, timeline.contentY + timeline.topMargin + 1)
+    const bottom = timeline.indexAt(x, timeline.contentY + timeline.height - timeline.bottomMargin - 1)
+    if (Eco.moreBefore && (timeline.atYBeginning || (top >= 0 && top < root.near)))
+      Eco.pageBefore()
+    else if (Eco.moreAfter && (timeline.atYEnd || bottom >= timeline.count - root.near))
+      Eco.pageAfter()
+  }
+
+  // Notes the entry at the top of the view before a page goes in above it.
+  function hold() {
+    // Past the strip above the entries, or the spacing between two.
+    let top = -1
+    for (let y = timeline.contentY + timeline.topMargin + 1; top < 0 && y < timeline.contentY + timeline.height; y += 4)
+      top = timeline.indexAt(timeline.width / 2, y)
+    const item = top >= 0 ? timeline.itemAtIndex(top) : null
+    root.anchor = item ? top : -1
+    root.anchorOffset = item ? item.y - timeline.contentY : 0
+  }
+
+  // Puts the entry noted back where it was, `added` entries further down.
+  function keep(added) {
+    const index = root.anchor + added
+    root.anchor = -1
+    timeline.forceLayout()
+    const item = timeline.itemAtIndex(index)
+    if (item)
+      timeline.contentY = item.y - root.anchorOffset
+    else
+      timeline.positionViewAtIndex(index, ListView.Beginning)
+  }
+
+  Connections {
+    target: Eco
+    // A jump from a search: the entry found shows in the middle of the view,
+    // which stops following the newest.
+    function onTimelineJumped(index) {
+      timeline.following = false
+      root.centre(index)
+      // Again once the entries around it are laid out.
+      Qt.callLater(root.centre, index)
+    }
+  }
+  function centre(index) { timeline.positionViewAtIndex(index, ListView.Center) }
+  // End of timeline pages.
 
   // Seconds of silence after which a speaker's next line starts a new turn.
   readonly property int pause: 120
@@ -117,7 +189,14 @@ Item {
   id: timeline
 
   property bool following: true
-  onFollowingChanged: if (following) { root.unseen = 0; root.seen = {} }
+  onFollowingChanged: {
+    Eco.timelineFollowing = following
+    if (following) {
+      root.unseen = 0
+      root.seen = {}
+      Eco.capTimeline()
+    }
+  }
 
   // Keeps the newest entry in view: its end, or the top of an answer
   // streaming taller than the view.
@@ -143,7 +222,13 @@ Item {
   bottomMargin: 1
   spacing: 4
   model: Eco.timeline
-  onMovementEnded: following = atYEnd
+  // Only the session's own end is followed, not the end of a page held.
+  onMovementEnded: {
+    following = atYEnd && !Eco.moreAfter
+    root.reach()
+  }
+  onContentYChanged: Qt.callLater(root.reach)
+  Component.onCompleted: Eco.timelineFollowing = following
   onContentHeightChanged: if (following) Qt.callLater(follow)
   onCountChanged: if (following) Qt.callLater(follow)
   // A strip appearing above takes room from the view, never the newest entry.
@@ -154,7 +239,7 @@ Item {
   activeFocusOnTab: true
   keyNavigationEnabled: true
   onActiveFocusChanged: if (activeFocus && (currentIndex < 0 || currentIndex >= count)) currentIndex = count - 1
-  onCurrentIndexChanged: following = currentIndex === count - 1
+  onCurrentIndexChanged: following = currentIndex === count - 1 && !Eco.moreAfter
   Keys.onPressed: event => {
     const page = { [Qt.Key_PageDown]: 5, [Qt.Key_PageUp]: -5 }[event.key]
     if (page !== undefined)
@@ -168,6 +253,22 @@ Item {
     else
       return
     event.accepted = true
+  }
+
+  // Above what it holds, the earlier entries a scroll up brings.
+  header: Item {
+    width: timeline.width
+    height: Eco.moreBefore ? 28 : 0
+    visible: Eco.moreBefore
+    Caption {
+      anchors.centerIn: parent
+      text: I18n.t("timeline.earlier")
+    }
+    LoadingTrace {
+      anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
+      height: 2
+      running: Eco.timelineAsked !== null && Eco.timelineAsked.before !== null
+    }
   }
 
   footer: Column {
@@ -192,10 +293,11 @@ Item {
   }
 
   // Removed lines fade; what they leave behind closes up instead of jumping.
+  // Entries put in above, a page read back, move nothing.
   remove: Transition {
     NumberAnimation { property: "opacity"; to: 0; duration: 140 }
   }
-  displaced: Transition {
+  removeDisplaced: Transition {
     NumberAnimation { property: "y"; duration: 180; easing.type: Easing.OutCubic }
   }
 
@@ -221,6 +323,7 @@ Item {
     required property string hook
     required property string translation
     required property string timing
+    required property bool fresh
 
     width: timeline.width
     sourceComponent: kind === "speech" ? speech : kind === "note" ? note : suggestion
@@ -230,7 +333,7 @@ Item {
 
     // A new line slides in from its speaker's side; answers rise from below.
     transform: Translate { id: shift }
-    ListView.onAdd: arrive.start()
+    ListView.onAdd: if (entry.fresh) arrive.start()
     ParallelAnimation {
       id: arrive
       NumberAnimation { target: entry; property: "opacity"; from: 0; to: 1; duration: 260; easing.type: Easing.OutCubic }

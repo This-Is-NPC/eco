@@ -563,7 +563,10 @@ any other label shows as written.
 `sessions.search <text>` answers `sessions_found` with the ids, newest first: the
 sessions whose title, tags, lines, notes, questions or answers hold the text, in
 any case or accents, as they read now (removed and corrected lines count as
-they are).
+they are). `found_at` gives, by id, when the first line, note, question or
+answer that holds it was said; a session found only by its title or tags has
+none. A window opens a found session there, with a timeline page around that
+time (§10.1).
 
 ### 7.2 Speakers
 
@@ -1104,7 +1107,7 @@ session it shows:
 {"type":"window_focus","pid":10872}
 {"type":"window_share","pids":[10872,11240],"hidden":true}
 {"type":"synced"}
-{"type":"session_timeline","session":"…","timeline":[{"type":"transcript",…},{"type":"note",…},{"type":"suggestion",…}]}
+{"type":"session_timeline","session":"…","before":1791083840.1,"after":null,"around":null,"timeline":[{"type":"transcript",…},{"type":"note",…},{"type":"suggestion",…}],"more_before":true,"more_after":true}
 {"type":"transcript","session":"…","who":"Eles","name":"Ana","text":"...","at":1791083840.1,"latency_ms":990}
 {"type":"transcript_partial","session":"…","who":"Eles","name":"Ana","text":"so the next…"}
 {"type":"transcription","who":"Eles","state":"down","code":"stt.down","detail":"stalled: nothing heard for 15s"}
@@ -1124,8 +1127,8 @@ session it shows:
 {"type":"note","id":"9c1d2e3f","session":"…","text":"Migrei um app WPF para MVVM.","at":1791083870.4}
 {"type":"note_removed","id":"9c1d2e3f"}
 {"type":"sessions","sessions":[{"id":"…","title":"…","kind":"idea","source":"live","language":"pt","state":"paused","started_at":…,"duration_s":312,"speech":40,"suggestions":3,"speakers":["Eu","Ana"],"cost":{…as in session_cost, without parts and items…}}]}
-{"type":"sessions_found","query":"prazo","ids":["…"]}
-{"type":"session_detail","session":{…summary…},"timeline":[…transcript, note and suggestion events…],"speakers":[{"label":"Speaker 1","name":"Ana","person":"…","voice":true,"suggestions":[],"guess":null},{"label":"Speaker 2","name":"Speaker 2","person":null,"voice":true,"suggestions":[{"person":"…","name":"Bruno","score":0.82}],"guess":{"person":"…","name":"Bruno","score":0.82}}]}
+{"type":"sessions_found","query":"prazo","ids":["…"],"found_at":{"…":1791083840.1}}
+{"type":"session_detail","session":{…summary…},"speakers":[{"label":"Speaker 1","name":"Ana","person":"…","voice":true,"suggestions":[],"guess":null},{"label":"Speaker 2","name":"Speaker 2","person":null,"voice":true,"suggestions":[{"person":"…","name":"Bruno","score":0.82}],"guess":{"person":"…","name":"Bruno","score":0.82}}]}
 {"type":"session_deleted","id":"…"}
 {"type":"transcript_reassigned","session":"…","who":"Speaker 1","at":1791083841.2,"label":"Speaker 1#abc12345","name":"Ana"}
 {"type":"person_assigned_all","session":"…","speakers":2}
@@ -1177,6 +1180,29 @@ that source's `down` event, until it is back or no transcriber reads it any
 more. An import streamed to its model is a source too, named by its
 participant, kept until it is back or the import stops.
 
+**Timeline pages.** A window holds part of a long session's timeline and asks
+for the rest as it scrolls. `session.timeline <json>` takes `{"id"}` and at
+most one of `"before"`, `"after"` and `"around"`, a time or `null`, with
+`"limit"` (300 when left out; above 0). None of the three is the newest page;
+`before` is the time of the oldest entry the window holds and answers the
+entries said before it, `after` the newest one's and answers those after it,
+and `around` answers the page centred on the first entry said at or after that
+time, for a session opened from a search (§7.1). The answer,
+`session_timeline`, says back the `before`, `after` and `around` asked, so a
+window takes only the page it waits for, and holds the entries oldest first
+with `more_before` and `more_after`: whether the session has entries beyond
+them. A live session and a stored one are asked alike; `session.show` carries
+no timeline. The window puts an older page above and keeps the entry read where
+it was, and keeps at most 1000 entries: while it follows the newest, the oldest
+leave and come back as it scrolls up; a page read above lets the newest go,
+which come back as it scrolls down. A new line, note or answer goes in only
+while the window holds the session's newest entries, and the events that
+change an entry (`transcript_edited`, `transcript_removed`, `translated`, …)
+change it only where the window holds it, and `diarized` has a timeline held
+in part asked for again; the counts come from the daemon, not
+from what the window holds. `eco session show` reads the whole timeline in
+pages of 1000.
+
 ### 10.2 Commands
 
 `action <name>`, `ask <question>`,
@@ -1205,8 +1231,8 @@ ever kept or sent),
 `session.start <json>` (`{"title","kind","language","tags"}`; the kind defaults
 to the first, the tags are added as by `session.tag`;
 it records beside the live ones and is shown; with `"window"`, `session_opened`
-tells that window to show it), `session.timeline <id>` (`session_timeline` of a
-live session),
+tells that window to show it), `session.timeline <json>` (a page of a live or
+stored session's timeline, as §10.1 says),
 `window.show <json>` (`{"window","session"}`: the session a window shows now, or
 `""`), `window.closed <json>` (`{"window"}`: the window is closing and its
 process exiting; it is no longer open, so `overlay.open` opens a new one, and a
@@ -1224,7 +1250,8 @@ that takes one; the newest window open gets `window_call` with its number,
 `session.pause [<id>]`, `session.resume [<id>]`, `session.end [<id>]` (the live
 session named, or the one shown; ending it shows the one shown before),
 `session.toggle` (the one shown),
-`sessions` (list), `sessions.search <text>`, `session.show <id>` (read back),
+`sessions` (list), `sessions.search <text>`, `session.show <id>` (read back:
+`session_detail` with the summary and speakers; the timeline comes in pages),
 `session.delete <id>`, `session.reopen <id>` (resume
 an interrupted or ended one beside the live ones, or show a live one),
 `session.rename <json>` (`{"id","title","kind"}`; a configured kind or the one
@@ -1485,7 +1512,8 @@ reconnects to the socket on its own.
   newest entry, but an answer streaming taller than the view keeps its top in
   view until the next entry comes, and once the user scrolls up a "↓ N new" pill
   above the composer counts the lines, answers and finished answers that
-  arrived below — a click or End goes back to the end and follows again —; and
+  arrived below — a click or End goes back to the end and follows again —; a
+  long session's entries come in pages as it scrolls (§10.1); and
   at the bottom the composer: the skills as chips numbered for Alt+1…9, which
   run them whether the chips show or not (a window under 560 px tall hides
   them), and a line to ask anything or, with the note button or Shift+Enter, to

@@ -147,6 +147,7 @@
   "session.end_confirm": "終了する？",
   "timeline.listening": "聞き取り中…",
   "timeline.paused": "セッションは一時停止中",
+  "timeline.earlier": "これより前の記録は上に",
   "timeline.you": "あなた",
   "timeline.question": "質問",
   "card.remove_tip": "削除：画面から消え、以降のリクエストの文脈からも外れます",

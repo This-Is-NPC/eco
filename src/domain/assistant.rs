@@ -1,6 +1,7 @@
 //! Runs the session: its lifecycle, what it hears, and actions over its timeline.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
+use std::ops::Range;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
@@ -21,8 +22,9 @@ use crate::domain::prompts::{
     LANGUAGES, action_request, conversation, question_request, review, translation,
 };
 use crate::domain::session::{
-    ENDED, Entry, HeardBy, INTERRUPTED, LIVE, LogError, Note, PAUSED, RECORDING, Rate, Session,
-    Source, Speech, Suggestion, Unclosed, folded, now, same_tag, summarize, tag_counts, tag_name,
+    ENDED, Entry, HeardBy, INTERRUPTED, LIVE, LogError, Note, PAUSED, Page, RECORDING, Rate,
+    Session, Source, Speech, Suggestion, Unclosed, folded, now, same_tag, summarize, tag_counts,
+    tag_name,
 };
 use crate::domain::transcribers::Listening;
 use crate::ports::{
@@ -267,13 +269,12 @@ fn suggestion_event(s: &Suggestion) -> Event {
     })
 }
 
-/// A session's timeline as events, each line and answer with its translation into
-/// the session's translation language when there is one.
-pub fn timeline_events(session: &Session) -> Vec<Event> {
+/// The entries of a session's timeline in `range` as events, each line and answer
+/// with its translation into the session's translation language when there is one.
+pub fn timeline_events(session: &Session, range: Range<usize>) -> Vec<Event> {
     let language = session.translation();
     let translated = |of: Source| language.and_then(|l| session.translation_of(&of, l));
-    session
-        .timeline
+    session.timeline[range]
         .iter()
         .map(|entry| {
             let (mut event, of) = match entry {
@@ -652,18 +653,32 @@ impl Assistant {
         self.announce(&mut state);
     }
 
-    /// Announce the timeline of the live session `session_id`, for a window that
-    /// shows it.
-    pub fn timeline(&self, session_id: &str) {
-        let state = self.state();
-        if !state.is_live(session_id) {
-            return self.not_found(session_id);
+    // Timeline pages (docs/design.md §10).
+    /// Announce a page of the timeline of session `session_id`, live or stored,
+    /// for a window that shows it: at most `limit` entries, oldest first, and
+    /// whether the session has more before and after them.
+    pub fn timeline(&self, session_id: &str, page: Page, limit: usize) {
+        let mut state = self.state();
+        if let Err(event) = self.load(&mut state, session_id) {
+            return self.emit(event);
         }
+        let session = &state.loaded[session_id];
+        let range = session.page(page, limit);
+        let asked = |at: Option<f64>| at.map_or(Value::Null, |at| json!(at));
+        let (before, after, around) = match page {
+            Page::Newest => (None, None, None),
+            Page::Before(at) => (Some(at), None, None),
+            Page::After(at) => (None, Some(at), None),
+            Page::Around(at) => (None, None, Some(at)),
+        };
         self.emit(json!({
             "type": "session_timeline", "session": session_id,
-            "timeline": timeline_events(&state.loaded[session_id]),
+            "before": asked(before), "after": asked(after), "around": asked(around),
+            "more_before": range.start > 0, "more_after": range.end < session.timeline.len(),
+            "timeline": timeline_events(session, range),
         }));
     }
+    // End of timeline pages.
 
     /// A stored session's summary, read now: one left open that no daemon holds
     /// is interrupted; its transcription costs what the setup's prices say.
@@ -704,20 +719,32 @@ impl Assistant {
     /// answers hold `query`, ignoring case and accents; newest first.
     pub fn search(&self, query: &str) {
         let needle = folded(query.trim());
-        let ids: Vec<String> = self
+        let found: Vec<(String, Option<f64>)> = self
             .inner
             .log
             .all()
             .iter()
             .filter_map(|records| Session::restore(records, Box::new(|_| {})).ok())
             .filter(|session| session.mentions(&needle))
-            .map(|session| session.id)
+            .map(|session| {
+                let at = session.first_mention(&needle);
+                (session.id, at)
+            })
             .collect();
-        self.emit(json!({"type": "sessions_found", "query": query, "ids": ids}));
+        // When each first mentions it, for a window to open it there.
+        let found_at: serde_json::Map<String, Value> = found
+            .iter()
+            .filter_map(|(id, at)| at.map(|at| (id.clone(), json!(at))))
+            .collect();
+        let ids: Vec<String> = found.into_iter().map(|(id, _)| id).collect();
+        self.emit(
+            json!({"type": "sessions_found", "query": query, "ids": ids, "found_at": found_at}),
+        );
     }
 
-    /// Announce one stored session with its timeline, to read it back. What is
-    /// still untranslated is translated now, when the session translates.
+    /// Announce one stored session and its speakers, to read it back; its timeline
+    /// comes in pages (`timeline`). What is still untranslated is translated now,
+    /// when the session translates.
     pub fn show(&self, session_id: &str) {
         let setup = self.state().setup.clone();
         let summary = self.inner.log.read(session_id).and_then(|records| {
@@ -727,17 +754,16 @@ impl Assistant {
             let storage = self.inner.log.storage(session_id)?;
             summary["path"] = json!(storage.path);
             summary["bytes"] = json!(storage.bytes);
-            let timeline = timeline_events(&session);
             let missing = session.translation().map(|language| {
                 let lines = session.untranslated(language);
                 (session.kind.clone(), language.to_string(), lines)
             });
-            Some((summary, timeline, speakers, missing))
+            Some((summary, speakers, missing))
         });
         match summary {
-            Some((summary, timeline, speakers, missing)) => {
+            Some((summary, speakers, missing)) => {
                 self.emit(json!({
-                    "type": "session_detail", "session": summary, "timeline": timeline, "speakers": speakers,
+                    "type": "session_detail", "session": summary, "speakers": speakers,
                 }));
                 if let (Some(setup), Some((kind, language, lines))) = (setup, missing) {
                     for (of, text) in lines {
@@ -3337,7 +3363,8 @@ mod tests {
     /// The timeline of the session shown, as a window showing it gets it.
     fn shown_timeline(assistant: &Assistant) -> Vec<Value> {
         let state = assistant.state();
-        timeline_events(state.session().expect("a session is shown"))
+        let session = state.session().expect("a session is shown");
+        timeline_events(session, 0..session.timeline.len())
     }
 
     fn kinds(events: &Events) -> Vec<String> {
@@ -3465,7 +3492,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let log: Arc<dyn SessionLog> = Arc::new(SessionFiles::new(directory.path().into()));
         let mut said = Session::begin("Kickoff", "meeting", LIVE, "pt", log.writer());
-        said.hear_at("Eles", "A reunião de prazo fica para sexta.", now());
+        let heard = said.hear_at("Eles", "A reunião de prazo fica para sexta.", now());
         let mut removed = Session::begin("Daily", "meeting", LIVE, "pt", log.writer());
         let line = removed.hear_at("Eles", "O prazo mudou.", now());
         removed.unhear("Eles", line.at);
@@ -3489,6 +3516,14 @@ mod tests {
         assert_eq!(found("reuniao"), [said.id.clone()]);
         assert_eq!(found("ideias"), [noted.id.clone()]);
         assert!(found("mudou").is_empty(), "a removed line is not there");
+        // A window opens each where it is first mentioned; a title has no time.
+        assistant.search("reuniao");
+        assert_eq!(
+            last_of(&events, "sessions_found")["found_at"],
+            json!({said.id.clone(): heard.at})
+        );
+        assistant.search("ideias");
+        assert_eq!(last_of(&events, "sessions_found")["found_at"], json!({}));
     }
 
     #[test]
@@ -3675,8 +3710,14 @@ mod tests {
             .find(|e| e["type"] == "session_detail")
             .cloned()
             .unwrap();
-        assert_eq!(detail["timeline"][0]["translation"], "In English.");
+        assert!(
+            detail.get("timeline").is_none(),
+            "the timeline comes in pages"
+        );
         assert_eq!(detail["session"]["translating"], "en");
+        assistant.timeline(&id, Page::Newest, 300);
+        let page = last_of(&events, "session_timeline");
+        assert_eq!(page["timeline"][0]["translation"], "In English.");
 
         assistant.set_translation(&id, "ja");
         settle().await;
@@ -5109,7 +5150,7 @@ mod tests {
         );
         // A window that shows the first asks for its timeline.
         events.lock().unwrap().clear();
-        assistant.timeline(&first);
+        assistant.timeline(&first, Page::Newest, 300);
         let timeline = events.lock().unwrap()[0].clone();
         assert_eq!(timeline["type"], "session_timeline");
         assert_eq!(timeline["session"], json!(first));
@@ -5274,7 +5315,7 @@ mod tests {
             .map(|e| e["id"].as_str().unwrap().to_string())
             .collect();
         assistant.remove(&closed, &answers[0]);
-        assistant.show(&closed);
+        assistant.timeline(&closed, Page::Newest, 300);
         let detail = events.lock().unwrap().last().unwrap().clone();
         let kept: Vec<&str> = detail["timeline"]
             .as_array()
@@ -5984,7 +6025,7 @@ mod tests {
             ),
             (json!("Entrevista"), json!("ended"), json!(1))
         );
-        assistant.show(&id);
+        assistant.timeline(&id, Page::Newest, 300);
         let detail = events.lock().unwrap().last().unwrap().clone();
         let timeline: Vec<&str> = detail["timeline"]
             .as_array()
@@ -6478,7 +6519,9 @@ mod tests {
         let missing: [(&str, &dyn Fn()); 13] = [
             ("contexts", &|| assistant.set_contexts("nope", &[])),
             ("focus", &|| assistant.focus("nope")),
-            ("timeline", &|| assistant.timeline("nope")),
+            ("timeline", &|| {
+                assistant.timeline("nope", Page::Newest, 300)
+            }),
             ("show", &|| assistant.show("nope")),
             ("guess", &|| assistant.clear_guess("nope", "Eles")),
             ("speakers", &|| assistant.announce_speakers("nope")),
@@ -6530,6 +6573,83 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_timeline_comes_in_pages_that_say_what_is_left() {
+        let directory = tempfile::tempdir().unwrap();
+        let (assistant, events, log) = stored_with(directory.path(), people_in(directory.path()));
+        let mut stored = Session::begin("Long", "meeting", LIVE, "pt", log.writer());
+        for i in 0..5 {
+            stored.hear_at("Eles", &format!("fala {i}"), 100.0 + f64::from(i));
+        }
+        stored.set_state(ENDED);
+        let page = |page: Page, limit: usize| {
+            assistant.timeline(&stored.id, page, limit);
+            let event = last_of(&events, "session_timeline");
+            let texts: Vec<String> = event["timeline"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|e| e["text"].as_str().unwrap().to_string())
+                .collect();
+            (texts, event)
+        };
+        // A stored session is read in pages too: the newest first.
+        let (texts, newest) = page(Page::Newest, 2);
+        assert_eq!(texts, ["fala 3", "fala 4"]);
+        assert_eq!(newest["session"], json!(stored.id));
+        assert_eq!(
+            (&newest["before"], &newest["after"], &newest["around"]),
+            (&Value::Null, &Value::Null, &Value::Null)
+        );
+        assert_eq!(
+            (&newest["more_before"], &newest["more_after"]),
+            (&json!(true), &json!(false))
+        );
+        // Older ones before the oldest held, the time asked said back.
+        let (texts, older) = page(Page::Before(103.0), 2);
+        assert_eq!(texts, ["fala 1", "fala 2"]);
+        assert_eq!(older["before"], json!(103.0));
+        assert_eq!(
+            (&older["more_before"], &older["more_after"]),
+            (&json!(true), &json!(true))
+        );
+        let (texts, oldest) = page(Page::Before(101.0), 2);
+        assert_eq!(texts, ["fala 0"]);
+        assert_eq!(oldest["more_before"], json!(false));
+        // Newer ones after the newest held, and a jump around a time.
+        let (texts, newer) = page(Page::After(101.0), 2);
+        assert_eq!(texts, ["fala 2", "fala 3"]);
+        assert_eq!(
+            (&newer["after"], &newer["more_after"]),
+            (&json!(101.0), &json!(true))
+        );
+        let (texts, around) = page(Page::Around(102.0), 3);
+        assert_eq!(texts, ["fala 1", "fala 2", "fala 3"]);
+        assert_eq!(around["around"], json!(102.0));
+        assert_eq!(
+            (&around["more_before"], &around["more_after"]),
+            (&json!(true), &json!(true))
+        );
+        let (texts, all) = page(Page::Newest, 300);
+        assert_eq!(texts.len(), 5);
+        assert_eq!(
+            (&all["more_before"], &all["more_after"]),
+            (&json!(false), &json!(false))
+        );
+
+        // A live one's page holds what was heard up to now.
+        let live = assistant.start("Call", "meeting", "pt", None);
+        assistant.hear(&heard(), &utterance("Eles", "Oi."));
+        assistant.hear(&heard(), &utterance("Eles", "Tudo bem?"));
+        assistant.timeline(&live, Page::Newest, 1);
+        let event = last_of(&events, "session_timeline");
+        assert_eq!(event["timeline"][0]["text"], "Tudo bem?");
+        assert_eq!(
+            (&event["more_before"], &event["more_after"]),
+            (&json!(true), &json!(false))
+        );
+    }
+
+    #[tokio::test]
     async fn a_stored_session_is_read_translated_resumed_and_deleted() {
         let directory = tempfile::tempdir().unwrap();
         let (assistant, events, log) = stored_with(directory.path(), people_in(directory.path()));
@@ -6541,7 +6661,7 @@ mod tests {
         );
         assistant.hear(&heard(), &utterance("Eles", "Oi."));
         assistant.note(None, "Ligar amanhã.");
-        assistant.timeline(&id);
+        assistant.timeline(&id, Page::Newest, 300);
         let timeline = last_of(&events, "session_timeline")["timeline"].clone();
         assert_eq!(timeline[1]["text"], "Ligar amanhã.");
         let lines = assistant.transcript(&id).unwrap();
