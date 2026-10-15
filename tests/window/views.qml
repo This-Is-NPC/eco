@@ -87,6 +87,7 @@ Item {
     draft: ({ kinds: ["meeting"], actions: [], models: [{ name: "w", type: "transcription", kinds: [] }],
       stt: { model: "w" }, llm: { model: "" }, translation: { model: "" } })
   }
+  SkillsSection { id: skillsTable; settings: root }
 
   // An item of the settings with nothing related, and one with a link.
   ItemPage {
@@ -144,6 +145,8 @@ Item {
       root.check("a kind keeps its assistant and translation picks with no chat model", picks.every(pick => pick !== null && pick.visible))
       root.check("only the picks that need a chat model are off, saying why",
         picks[0].reason === "" && picks[1].reason === I18n.t("settings.needs_chat") && picks[2].reason === I18n.t("settings.needs_chat"))
+      root.check("a skill's model reads that there is no chat model",
+        skillsTable.rows(Object.assign({}, kindModels.draft, { actions: [{ name: "probe", prompt: "p" }] }))[0].cells[1] === I18n.t("settings.no_chat"))
       // Once a model answers and translates there, they are on again.
       Eco.kindModels = { meeting: { transcription: "w", chat: "m", translation: "m", actions: ["probe"] } }
       root.check("the translation picker is on with a model to translate", picker.reason === "" && !root.shows(translation, I18n.t("settings.open_models")))

@@ -2,9 +2,9 @@ import QtQuick
 import Eco.Core
 
 // SkillsSection is the skills, in the order the composer offers them, the
-// order they were added: each row its name, the model it answers with and its
-// hook; a row opens SkillView. Deleting one says that shortcuts calling it
-// stop and the ones after it move up.
+// order they were added: each row its name, the model it answers with (or that
+// none does) and its hook; a row opens SkillView. Deleting one says that
+// shortcuts calling it stop and the ones after it move up.
 SettingsSection {
   name: I18n.t("settings.skills")
   columns: [{ title: I18n.t("settings.column_name"), weight: 0.3 }, { title: I18n.t("settings.action_model"), weight: 0.4 },
@@ -24,11 +24,11 @@ SettingsSection {
     }
   }
 
-  // The model the skill `action` answers with in `config`: its own, or the
-  // default it inherits.
+  // The model the skill `action` answers with in `config`: its own, the
+  // default it inherits, or that there is none.
   function modelName(config, action) {
     const answer = Draft.answering(config, "chat", "", action)
-    return answer.own ? answer.name : I18n.t("settings.default_model", { name: answer.name })
+    return !answer.name ? I18n.t("settings.no_chat") : answer.own ? answer.name : I18n.t("settings.default_model", { name: answer.name })
   }
   // Whether the skill has a hook, and whether it sends on its own.
   function hookState(action) {
