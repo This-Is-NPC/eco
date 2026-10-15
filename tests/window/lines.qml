@@ -64,8 +64,12 @@ Window {
       root.keys = Qt.createQmlObject("import QtTest; TestCase { when: false }", root.contentItem, "keys")
       Eco.shown = "s1"
       Eco.handle({ type: "session", live: [{ id: "s1", title: "Call", kind: "meeting", source: "live", state: "recording", running_since: null }] })
-      for (const [who, text, at] of [["Eles", "Bom dia.", 100], ["Eu", "Tudo bem?", 101], ["Eles", "Vamos começar agora", 102], ["Eles", "Oi 😀 tudo bem", 103]])
-        Eco.handle({ type: "transcript", session: "s1", who: who, name: who, text: text, at: at })
+    },
+    () => {
+      // The newest page the window asked for, as the daemon answers it.
+      const said = [["Eles", "Bom dia.", 100], ["Eu", "Tudo bem?", 101], ["Eles", "Vamos começar agora", 102], ["Eles", "Oi 😀 tudo bem", 103]]
+      Eco.handle({ type: "session_timeline", session: "s1", before: null, after: null, around: null, more_before: false, more_after: false,
+                   timeline: said.map(([who, text, at]) => ({ type: "transcript", who: who, name: who, text: text, at: at })) })
     },
     () => {
       root.check("the window reached the daemon's socket", Eco.connected)

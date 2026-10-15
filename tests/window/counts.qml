@@ -101,6 +101,8 @@ Item {
       Eco.handle({ type: "translated", session: "s1", language: "pt", text: "none", at: 1.0 })
       root.check("a translation of a line not held changes nothing", Eco.timeline.count === 6050)
 
+      // Read from above the newest, so no entry leaves past the live cap.
+      Eco.timelineFollowing = false
       // Added: the line comes and the counts are the ones it carries.
       const late = root.start + 6000 * 1.8
       Eco.handle({ type: "transcript", session: "s1", who: "Speaker 1", name: "N1", text: "late", at: late, counts: root.counts(6001, 50, 0) })
