@@ -18,7 +18,7 @@ use tokio::task::{JoinHandle, JoinSet};
 use crate::adapters::audio_file::WavFileSource;
 use crate::adapters::control_socket::{Address, Clients, ControlSocket, Greeting};
 use crate::adapters::credentials::{self, CredentialError};
-use crate::adapters::diarizer_process;
+use crate::adapters::diarizer_process::{self, Diarized, Regions};
 use crate::adapters::hook_shell::ShellHooks;
 use crate::adapters::http::Endpoint;
 use crate::adapters::llm_openai::{OpenAIChat, Unavailable, list_models};
@@ -39,11 +39,12 @@ use crate::domain::channel::{
     Captured, CapturedStream, Listeners, Reopen, Transcriber, Trouble, Utterance, capture_channel,
     monitor_channel, transcribe,
 };
-use crate::domain::diarization::Diarization;
+use crate::domain::diarization::{HeardLine, Known, Labels, Live};
 use crate::domain::events::{Outages, error};
 use crate::domain::hub::{Capture, Hub};
 use crate::domain::notifications::{Notifications, Texts};
-use crate::domain::segmenter::{Segment, SegmenterConfig};
+use crate::domain::segmenter::SegmenterConfig;
+use crate::domain::session::Page;
 use crate::domain::transcribers::{Listening, Transcribers};
 use crate::import;
 use crate::installer;
@@ -164,6 +165,9 @@ fn shortcut_refused(keys: &str, config_path: &Path) -> Value {
 
 /// The longest the assistant's model may send nothing before the request fails.
 const LLM_SILENCE: Duration = Duration::from_secs(120);
+
+/// The timeline entries a `session.timeline` page holds when it names no limit.
+const PAGE: usize = 300;
 
 /// One audio stream being captured, the participant it is heard as, and its colour.
 pub struct Input {
@@ -471,7 +475,7 @@ fn transcriber(
     from: Listening,
     assistant: Assistant,
     (emit, outages): (Emit, Outages),
-    lines: Option<Arc<Mutex<Vec<HeardLine>>>>,
+    heard: Option<Arc<Mutex<InputVoices>>>,
 ) -> BoxFuture<'static, ()> {
     Box::pin(async move {
         let _stopped = outages.until_stopped(&who);
@@ -489,14 +493,16 @@ fn transcriber(
             let start = utterance.phrases.first().map_or(0.0, |p| p.start);
             let end = utterance.end();
             for (session, at) in assistant.hear(&from, &utterance) {
-                if let Some(lines) = &lines {
+                if let Some(heard) = &heard {
                     let line = HeardLine {
                         session,
                         at,
                         start,
                         end,
                     };
-                    lines.lock().expect("not poisoned").push(line);
+                    let mut heard = heard.lock().expect("not poisoned");
+                    let known = heard.live.line(line);
+                    heard.tell(&assistant, &who, known);
                 }
             }
         };
@@ -578,13 +584,13 @@ impl Work for Channels {
                         .flatten()
                 })
                 .collect();
-            type Heard = (String, Option<Arc<Mutex<Vec<HeardLine>>>>);
-            let heard: HashMap<String, Heard> = inputs
+            type Told = (String, Option<Arc<Mutex<InputVoices>>>);
+            let heard: HashMap<String, Told> = inputs
                 .iter()
                 .zip(&voices)
                 .map(|(input, voices)| {
-                    let lines = voices.as_ref().map(|voices| Arc::clone(&voices.lines));
-                    (input.id.clone(), (input.participant.clone(), lines))
+                    let heard = voices.as_ref().map(|voices| Arc::clone(&voices.heard));
+                    (input.id.clone(), (input.participant.clone(), heard))
                 })
                 .collect();
             let channels = inputs.iter_mut().zip(captures).zip(&voices).map(
@@ -627,7 +633,7 @@ impl Work for Channels {
                         if let (Some(regions), Captured::Segment(segment, _)) =
                             (&regions, &captured)
                         {
-                            let _ = regions.send(segment.clone());
+                            regions.offer(segment.clone());
                         }
                         capture.send(captured);
                     };
@@ -644,7 +650,7 @@ impl Work for Channels {
             loop {
                 let wanted = listening.borrow_and_update().clone();
                 transcribers.follow(&wanted, &mut |input, listen| {
-                    let (who, lines) = heard[input].clone();
+                    let (who, voices) = heard[input].clone();
                     let reader = hub.read(input).expect("the hub has every input");
                     let model = (Arc::clone(models), built.cell(listen));
                     let assistant = assistant.clone();
@@ -655,7 +661,7 @@ impl Work for Channels {
                         listen.clone(),
                         assistant,
                         (Arc::clone(emit), outages.clone()),
-                        lines,
+                        voices,
                     )
                 });
                 tokio::select! {
@@ -673,57 +679,73 @@ impl Work for Channels {
     }
 }
 
-/// A line a live input became: its session, its time, and where its speech
-/// starts and ends in the input, in seconds.
-struct HeardLine {
-    session: String,
-    at: f64,
-    start: f64,
-    end: f64,
-}
-
 /// The voices of one live input, told apart by a child diarizer while it records:
-/// its speech goes to the child, never to disk, and each line it became is kept.
+/// its speech goes to the child, never to disk, and each line it became gets its
+/// speaker as soon as the child has heard it.
 struct Voices {
-    regions: std::sync::mpsc::Sender<Segment>,
-    lines: Arc<Mutex<Vec<HeardLine>>>,
+    regions: Regions,
+    heard: Arc<Mutex<InputVoices>>,
 }
 
-/// What the diarizer found, once the sender of its speech is dropped.
-type Found = Box<dyn FnOnce(Result<Diarization, String>) + Send>;
+/// What diarization knows of one live input, and the label each of its
+/// speakers carries in each session.
+#[derive(Default)]
+struct InputVoices {
+    live: Live,
+    labels: HashMap<String, Labels>,
+}
 
-/// Starts a diarizer that tells the voices of one input apart: the sender its
-/// speech goes to, or `None` when the speaker model is not set up.
-type Diarizer = Arc<dyn Fn(Found) -> Option<std::sync::mpsc::Sender<Segment>> + Send + Sync>;
-
-/// Start telling the voices heard as `who` apart, when `diarizer` can; once the
-/// input stops recording, the session's lines get their voices.
-fn voices(assistant: &Assistant, emit: &Emit, who: &str, diarizer: &Diarizer) -> Option<Voices> {
-    let lines: Arc<Mutex<Vec<HeardLine>>> = Arc::default();
-    let (assistant, emit, who) = (assistant.clone(), Arc::clone(emit), who.to_string());
-    let heard = Arc::clone(&lines);
-    let regions = diarizer(Box::new(move |found| match found {
-        Ok(diarization) => {
-            let lines = std::mem::take(&mut *heard.lock().expect("not poisoned"));
-            let mut sessions: Vec<&str> = lines.iter().map(|line| line.session.as_str()).collect();
-            sessions.sort_unstable();
-            sessions.dedup();
-            for session in sessions {
-                let spans: Vec<(f64, f64, f64)> = lines
-                    .iter()
-                    .filter(|line| line.session == session)
-                    .map(|line| (line.at, line.start, line.end))
-                    .collect();
-                assistant.voices_heard(session, &who, &spans, &diarization);
-            }
+impl InputVoices {
+    /// Tell the sessions what became known of the voices heard as `who`: the
+    /// sessions of its lines, and for joined speakers and new voices, every
+    /// session a speaker of this input already speaks in.
+    fn tell(&mut self, assistant: &Assistant, who: &str, known: Known) {
+        let mut sessions: BTreeSet<String> = known
+            .lines
+            .iter()
+            .map(|(line, _)| line.session.clone())
+            .collect();
+        if !known.merged.is_empty() || !known.voices.is_empty() {
+            sessions.extend(self.labels.keys().cloned());
         }
-        Err(detail) => emit(error(
-            "diarization.failed",
-            format!("diarization: {detail}"),
-            json!({"detail": detail}),
-        )),
+        for session in sessions {
+            let labels = self.labels.entry(session.clone()).or_default();
+            assistant.voices_heard(&session, who, &known.of(&session), labels);
+        }
+    }
+}
+
+/// What a child diarizer tells of the speech it was sent.
+type Found = Box<dyn FnMut(Diarized) + Send>;
+
+/// Starts a diarizer that tells the voices of one input apart: where its
+/// speech goes, or `None` when the speaker model is not set up.
+type Diarizer = Arc<dyn Fn(Found) -> Option<Regions> + Send + Sync>;
+
+/// Start telling the voices heard as `who` apart, when `diarizer` can: each
+/// line gets its speaker as the child tells them, and once the input stops
+/// recording, the lines left get the speakers the child found.
+fn voices(assistant: &Assistant, emit: &Emit, who: &str, diarizer: &Diarizer) -> Option<Voices> {
+    let heard: Arc<Mutex<InputVoices>> = Arc::default();
+    let (assistant, emit, who) = (assistant.clone(), Arc::clone(emit), who.to_string());
+    let told = Arc::clone(&heard);
+    let regions = diarizer(Box::new(move |diarized| {
+        let mut heard = told.lock().expect("not poisoned");
+        let known = match diarized {
+            Diarized::Update(update) => heard.live.update(update),
+            Diarized::Done => heard.live.finish(),
+            Diarized::Failed(detail) => {
+                emit(error(
+                    "diarization.failed",
+                    format!("diarization: {detail}"),
+                    json!({"detail": detail}),
+                ));
+                heard.live.finish()
+            }
+        };
+        heard.tell(&assistant, &who, known);
     }))?;
-    Some(Voices { regions, lines })
+    Some(Voices { regions, heard })
 }
 
 /// Run `work` capturing for what the recording sessions listen with, or only
@@ -1674,15 +1696,66 @@ impl Session {
             .and_then(|request| request.get("at").and_then(Value::as_f64));
         match at {
             Some(at) => Some((id, who, at)),
-            None => {
-                (self.emit)(error(
-                    "session.invalid",
-                    String::from("session: missing at"),
-                    json!({"detail": "missing at"}),
-                ));
-                None
-            }
+            None => self.invalid("missing at"),
         }
+    }
+
+    // Timeline pages (docs/design.md §10).
+    /// The page a `session.timeline` asks for: `{"id"}`, at most one of
+    /// `"before"`, `"after"` and `"around"`, a time or null (none is the newest
+    /// page), and `"limit"`, `PAGE` entries when it is left out.
+    fn page(&self, payload: &str) -> Option<(String, Page, usize)> {
+        let [id] = self.fields(payload, ["id"])?;
+        let request: Value = serde_json::from_str(payload).ok()?;
+        let at = |key: &str| request.get(key).and_then(Value::as_f64);
+        let page = match (at("before"), at("after"), at("around")) {
+            (None, None, None) => Ok(Page::Newest),
+            (Some(at), None, None) => Ok(Page::Before(at)),
+            (None, Some(at), None) => Ok(Page::After(at)),
+            (None, None, Some(at)) => Ok(Page::Around(at)),
+            _ => Err("only one of before, after and around"),
+        };
+        let limit = match request.get("limit") {
+            None | Some(Value::Null) => Ok(PAGE),
+            Some(limit) => limit
+                .as_u64()
+                .and_then(|limit| usize::try_from(limit).ok())
+                .filter(|limit| *limit > 0)
+                .ok_or("limit must be a whole number above 0"),
+        };
+        match (page, limit) {
+            (Ok(page), Ok(limit)) => Some((id, page, limit)),
+            (Err(detail), _) | (_, Err(detail)) => self.invalid(detail),
+        }
+    }
+    // End of timeline pages.
+
+    /// The line a request names under `key`, as `{"who", "at"}`.
+    fn line_in(&self, payload: &str, key: &str) -> Option<(String, f64)> {
+        let request = serde_json::from_str::<Value>(payload).unwrap_or_default();
+        let line = &request[key];
+        match (line["who"].as_str(), line["at"].as_f64()) {
+            (Some(who), Some(at)) => Some((who.into(), at)),
+            _ => self.invalid(&format!("missing {key}")),
+        }
+    }
+
+    /// The character offset a request names, where a line splits.
+    fn offset(&self, payload: &str) -> Option<usize> {
+        let request = serde_json::from_str::<Value>(payload).unwrap_or_default();
+        let offset = request["offset"]
+            .as_u64()
+            .and_then(|n| usize::try_from(n).ok());
+        offset.or_else(|| self.invalid("missing offset"))
+    }
+
+    fn invalid<T>(&self, detail: &str) -> Option<T> {
+        (self.emit)(error(
+            "session.invalid",
+            format!("session: {detail}"),
+            json!({"detail": detail}),
+        ));
+        None
     }
 
     fn fields<const N: usize>(&self, payload: &str, keys: [&str; N]) -> Option<[String; N]> {
@@ -1698,15 +1771,10 @@ impl Session {
             }
             Ok(values)
         });
-        found
-            .map_err(|failure| {
-                (self.emit)(error(
-                    "session.invalid",
-                    format!("session: {failure}"),
-                    json!({"detail": failure}),
-                ));
-            })
-            .ok()
+        match found {
+            Ok(values) => Some(values),
+            Err(failure) => self.invalid(&failure),
+        }
     }
 
     /// Import a file into a new session: `{"path"}`, and optionally `"title"` (the
@@ -1911,7 +1979,11 @@ impl Session {
             ("session.show", Some(id)) => self.assistant.show(id.trim()),
             ("session.delete", Some(id)) => self.assistant.delete_session(id.trim()),
             ("session.reopen", Some(id)) => self.assistant.reopen(id.trim()),
-            ("session.timeline", Some(id)) => self.assistant.timeline(id.trim()),
+            ("session.timeline", Some(payload)) => {
+                if let Some((id, page, limit)) = self.page(payload) {
+                    self.assistant.timeline(&id, page, limit);
+                }
+            }
             ("session.end", id) => self.assistant.end(id.map(str::trim)),
             ("session.import", Some(payload)) => self.import(payload),
             ("session.export", Some(id)) => {
@@ -1983,6 +2055,22 @@ impl Session {
             ("session.line.remove", Some(payload)) => {
                 if let Some((id, who, at)) = self.line(payload) {
                     self.assistant.remove_line(&id, &who, at);
+                }
+            }
+            ("session.line.merge", Some(payload)) => {
+                if let Some([id]) = self.fields(payload, ["id"])
+                    && let Some((into, into_at)) = self.line_in(payload, "into")
+                    && let Some((from, from_at)) = self.line_in(payload, "from")
+                {
+                    self.assistant
+                        .merge_lines(&id, (&into, into_at), (&from, from_at));
+                }
+            }
+            ("session.line.split", Some(payload)) => {
+                if let Some((id, who, at)) = self.line(payload)
+                    && let Some(offset) = self.offset(payload)
+                {
+                    self.assistant.split_line(&id, &who, at, offset);
                 }
             }
             ("people", None) => self.assistant.people(),
@@ -2613,6 +2701,7 @@ mod tests {
     use crate::adapters::session_files::SessionFiles;
     use crate::adapters::window_host::HostWindows;
     use crate::domain::notifications::testing::Shown;
+    use crate::domain::segmenter::Segment;
     use crate::ports::{EchoCancelling, FRAME_SAMPLES, Frame, Heard, TranscriptionError};
 
     fn raw() -> Value {
@@ -3686,10 +3775,52 @@ mod tests {
                 json!(id),
             ),
             (
-                format!("session.timeline {id}"),
+                format!(r#"session.timeline {{"id": "{id}", "before": null, "limit": 300}}"#),
                 vec!["session_timeline"],
                 "/0/timeline/0/text",
                 json!("remember this"),
+            ),
+            (
+                format!(r#"session.timeline {{"id": "{id}"}}"#),
+                vec!["session_timeline"],
+                "/0/more_before",
+                json!(false),
+            ),
+            (
+                format!(r#"session.timeline {{"id": "{id}", "around": 1.0, "limit": 5}}"#),
+                vec!["session_timeline"],
+                "/0/around",
+                json!(1.0),
+            ),
+            (
+                format!(r#"session.timeline {{"id": "{id}", "before": 1.0}}"#),
+                vec!["session_timeline"],
+                "/0/before",
+                json!(1.0),
+            ),
+            (
+                format!(r#"session.timeline {{"id": "{id}", "after": 1.0}}"#),
+                vec!["session_timeline"],
+                "/0/after",
+                json!(1.0),
+            ),
+            (
+                format!(r#"session.timeline {{"id": "{id}", "before": 1.0, "after": 2.0}}"#),
+                vec!["session.invalid"],
+                "/0/params/detail",
+                json!("only one of before, after and around"),
+            ),
+            (
+                format!(r#"session.timeline {{"id": "{id}", "limit": 0}}"#),
+                vec!["session.invalid"],
+                "/0/params/detail",
+                json!("limit must be a whole number above 0"),
+            ),
+            (
+                r#"session.timeline {"before": 1.0}"#.into(),
+                vec!["session.invalid"],
+                "/0/params/detail",
+                json!("missing id"),
             ),
             (
                 format!(r#"session.rename {{"id": "{id}", "title": "Retro Q3", "kind": "idea"}}"#),
@@ -3753,6 +3884,22 @@ mod tests {
                 vec!["line.not_found"],
                 "/0/params/at",
                 json!(2.5),
+            ),
+            (
+                format!(
+                    r#"session.line.merge {{"id": "{id}", "into": {{"who": "Eu", "at": 3.5}}, "from": {{"who": "Eu", "at": 4.5}}}}"#
+                ),
+                vec!["line.not_found"],
+                "/0/params/at",
+                json!(3.5),
+            ),
+            (
+                format!(
+                    r#"session.line.split {{"id": "{id}", "who": "Eu", "at": 5.5, "offset": 2}}"#
+                ),
+                vec!["line.not_found"],
+                "/0/params/at",
+                json!(5.5),
             ),
             ("people".into(), vec!["people"], "/0/people", json!([])),
             (
@@ -3948,6 +4095,18 @@ mod tests {
             (
                 r#"session.line.remove {"id": "x", "who": "Eu"}"#,
                 "missing at",
+            ),
+            (
+                r#"session.line.merge {"id": "x", "into": {"who": "Eu", "at": 1}}"#,
+                "missing from",
+            ),
+            (
+                r#"session.line.merge {"id": "x", "into": {"who": "Eu"}, "from": {"who": "Eu", "at": 2}}"#,
+                "missing into",
+            ),
+            (
+                r#"session.line.split {"id": "x", "who": "Eu", "at": 1, "offset": -1}"#,
+                "missing offset",
             ),
             (
                 r#"person.assign_line {"id": "x", "who": "Eu", "at": 1}"#,
@@ -5122,19 +5281,27 @@ mod tests {
         );
     }
 
-    /// A diarizer that counts the regions it is sent, then finds `found`.
-    fn diarizer(regions: Arc<Mutex<usize>>, found: Result<Diarization, String>) -> Diarizer {
-        let found = Mutex::new(Some(found));
-        Arc::new(move |tell: Found| {
-            let (sender, received) = std::sync::mpsc::channel::<Segment>();
-            let regions = Arc::clone(&regions);
-            let found = found.lock().unwrap().take().expect("one diarizer");
+    /// A diarizer that tells `at_once` as soon as it starts, counts the regions
+    /// it is sent until they end, says how many on the receiver, then tells
+    /// `at_end`.
+    fn diarizer(
+        at_once: Vec<Diarized>,
+        at_end: Vec<Diarized>,
+    ) -> (Diarizer, std::sync::mpsc::Receiver<usize>) {
+        let (count, counted) = std::sync::mpsc::channel();
+        let told = Mutex::new(Some((at_once, at_end)));
+        let diarizer: Diarizer = Arc::new(move |mut tell: Found| {
+            let (regions, received) = diarizer_process::channel(64);
+            let (at_once, at_end) = told.lock().unwrap().take().expect("one diarizer");
+            let count = count.clone();
             std::thread::spawn(move || {
-                *regions.lock().unwrap() = received.iter().count();
-                tell(found);
+                at_once.into_iter().for_each(&mut tell);
+                count.send(received.iter().count()).unwrap();
+                at_end.into_iter().for_each(&mut tell);
             });
-            Some(sender)
-        })
+            Some(regions)
+        });
+        (diarizer, counted)
     }
 
     #[tokio::test]
@@ -5146,16 +5313,16 @@ mod tests {
             speech: true,
             ..FakeAudio::default()
         });
-        let regions = Arc::new(Mutex::new(0));
-        let found = Err("the diarizer exited".to_string());
+        let failed = Diarized::Failed("the diarizer exited".into());
+        let (diarizer, counted) = diarizer(Vec::new(), vec![failed]);
         let audio_seen = Arc::clone(&audio);
-        let mut d = daemon_on(raw, audio, diarizer(Arc::clone(&regions), found));
+        let mut d = daemon_on(raw, audio, diarizer);
         // Recording from the start, so the clips are heard by the capture.
         d.start("Retro").await;
         d.configured().await;
         let failed = d.until(|event| event["code"] == "diarization.failed").await;
         assert_eq!(failed["params"]["detail"], "the diarizer exited");
-        assert!(*regions.lock().unwrap() > 0);
+        assert!(counted.try_recv().unwrap() > 0);
         assert_eq!(
             *audio_seen.captured.lock().unwrap(),
             [
@@ -5332,21 +5499,22 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_lines_a_live_input_became_get_the_voices_found() {
+    async fn the_lines_a_live_input_became_get_their_voices_while_it_records() {
         let mut d = daemon(raw());
         d.configured().await;
         let id = d.start("Retro").await;
         let (assistant, emit) = (d.session.assistant.clone(), Arc::clone(&d.session.emit));
-        let regions = Arc::new(Mutex::new(0));
-        let found = Diarization {
+        let heard = Diarized::Update(crate::domain::diarization::Update {
+            end: 60.0,
             turns: vec![crate::domain::diarization::Turn {
                 start: 0.0,
                 end: 60.0,
                 speaker: 0,
             }],
-            voices: vec![vec![1.0; 4]],
-        };
-        let diarizer = diarizer(Arc::clone(&regions), Ok(found));
+            voices: vec![(0, vec![1.0; 4])],
+            merged: Vec::new(),
+        });
+        let (diarizer, counted) = diarizer(vec![heard], vec![Diarized::Done]);
         let voices = voices(&assistant, &emit, "Eles", &diarizer).unwrap();
         let mut hub = Hub::default();
         let capture = hub.input("mic");
@@ -5357,33 +5525,34 @@ mod tests {
             model: "w".into(),
             language: "pt".into(),
         };
-        let heard = tokio::spawn(transcriber(
+        let transcribed = tokio::spawn(transcriber(
             "Eles".into(),
             hub.read("mic").unwrap(),
             (Arc::default(), cell),
             listening,
             assistant,
             (emit, Outages::default()),
-            Some(Arc::clone(&voices.lines)),
+            Some(Arc::clone(&voices.heard)),
         ));
-        voices
-            .regions
-            .send(Segment {
-                pcm: vec![0; 16_000],
-                start: 0,
-            })
-            .unwrap();
+        voices.regions.offer(Segment {
+            pcm: vec![0; 16_000],
+            start: 0,
+        });
         capture.send(segment());
-        drop(capture);
-        heard.await.unwrap();
-        assert_eq!(voices.lines.lock().unwrap().len(), 1);
-        drop(voices);
-        let diarized = d.until(|event| event["type"] == "diarized").await;
+        // The speaker is known, and their voice kept, before the input stops.
+        let speakers = d
+            .until(|event| {
+                event["type"] == "session_speakers" && event["speakers"][0]["voice"] == true
+            })
+            .await;
         assert_eq!(
-            (&diarized["session"], &diarized["who"]),
-            (&json!(id), &json!(["Eles"]))
+            (&speakers["session"], &speakers["speakers"][0]["label"]),
+            (&json!(id), &json!("Eles"))
         );
-        assert_eq!(*regions.lock().unwrap(), 1);
+        drop(capture);
+        transcribed.await.unwrap();
+        drop(voices);
+        assert_eq!(counted.recv().unwrap(), 1);
     }
 
     #[tokio::test]

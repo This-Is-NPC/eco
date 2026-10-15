@@ -6,11 +6,16 @@ import Eco.Kit
 
 // ComposerSurface asks, runs a skill or keeps a note: the skills as numbered
 // chips, and a box where `/` lists them as you type. Where nothing answers a
-// question, what is typed is kept as a note.
+// question, what is typed is kept as a note, and SEND and the skills nothing
+// answers stay, off, saying why.
 ColumnLayout {
   id: surface
 
   property var actions: []
+  // The actions that run here; the others show off, with `reason`.
+  property var ready: actions
+  // Why a question or a skill not ready cannot run here.
+  property string reason
   property string selectedAction: ""
   property string placeholder
   property bool compact: false
@@ -117,6 +122,7 @@ ColumnLayout {
         // Numbered as Alt and the number run it.
         text: (index < 9 ? (index + 1) + "  " : "") + modelData.toUpperCase()
         tip: index < 9 ? "Alt+" + (index + 1) : ""
+        reason: surface.ready.includes(modelData) ? "" : surface.reason
         checked: surface.selectedAction === modelData
         onClicked: surface.actionChosen(modelData)
       }
@@ -179,7 +185,6 @@ ColumnLayout {
       }
       TraceButton {
         id: sendButton
-        visible: surface.asks
         dense: true
         role: "progress"
         implicitWidth: surface.compact ? 32 : 86
@@ -188,6 +193,7 @@ ColumnLayout {
         icon: "enter"
         text: surface.compact ? "" : I18n.t("composer.send")
         tip: I18n.t("composer.send")
+        reason: surface.asks ? "" : surface.reason
         onClicked: surface.submit()
       }
     }
@@ -209,7 +215,7 @@ ColumnLayout {
         required property int index
         Shortcut {
           sequence: "Alt+" + (key.index + 1)
-          enabled: surface.visible && surface.enabled
+          enabled: surface.visible && surface.enabled && surface.ready.includes(surface.actions[key.index])
           onActivated: surface.actionChosen(surface.actions[key.index])
         }
       }

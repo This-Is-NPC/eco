@@ -63,9 +63,10 @@ type `Them`. That is what the laptop plays — the call, whatever app it is in.
 An output device is captured as what it plays, not as a microphone.
 
 **One output is usually enough.** Every voice on the call arrives through it as
-one stream. When the capture stops — you pause or end the session — eco tells
-the voices in that stream apart and splits its lines into `Speaker 1`,
-`Speaker 2`…, which you then name.
+one stream. While the session records, eco tells the voices in that stream
+apart: the first keeps the source's name, and the lines of the others move to
+`Speaker 1`, `Speaker 2`… a few seconds after they are said; you then name
+them.
 [How to name the speakers](how-to-name-the-speakers.md) is that part.
 
 **More than one device in a source.** Choose the same source in HEARD AS on

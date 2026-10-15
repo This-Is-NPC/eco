@@ -3,6 +3,7 @@
 //! client first receives the greeting, so it can render the current state. On
 //! Windows a client is admitted first, by the daemon's token (docs/design.md §10).
 
+use std::collections::HashSet;
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -32,16 +33,41 @@ pub const SYNC: &str = "sync";
 /// The answer to `SYNC`.
 const SYNCED: &str = "{\"type\":\"synced\"}\n";
 
+/// The command a client sends to stop receiving some types of event:
+/// `events {"except": ["signal", …]}`, taken by its connection alone; each
+/// replaces the one before, and anything but a list of types receives them
+/// all again (docs/design.md §10).
+const EVENTS: &str = "events";
+
+/// The event types a client asked not to receive.
+type Except = Arc<Mutex<HashSet<String>>>;
+
+/// The types `payload`, an `events` command's JSON, asks to leave out.
+fn excepted(payload: &str) -> HashSet<String> {
+    let request: serde_json::Value = serde_json::from_str(payload).unwrap_or_default();
+    request["except"]
+        .as_array()
+        .map(|types| {
+            types
+                .iter()
+                .filter_map(serde_json::Value::as_str)
+                .map(String::from)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// Whether a client whose queue is full may miss `event` and stay connected:
 /// only the live input meter, whose next reading replaces it.
 fn transient(event: &Event) -> bool {
     event["type"] == "signal"
 }
 
-/// A connected client: the queue of lines still to write to it, and a guard
-/// whose drop ends its connection.
+/// A connected client: the queue of lines still to write to it, the event
+/// types it does not receive, and a guard whose drop ends its connection.
 struct Client {
     lines: mpsc::Sender<String>,
+    except: Except,
     _kept: oneshot::Sender<()>,
 }
 
@@ -50,12 +76,17 @@ struct Client {
 pub struct Clients(Arc<Mutex<Vec<Client>>>);
 
 impl Clients {
-    /// Send an event to every client. A client that left is dropped; so is one
-    /// whose queue is full, unless the event is transient and it skips it.
+    /// Send an event to every client but those that asked not to receive its
+    /// type. A client that left is dropped; so is one whose queue is full,
+    /// unless the event is transient and it skips it.
     pub fn emit(&self, event: &Event) {
         let line = format!("{event}\n");
         let transient = transient(event);
+        let kind = event["type"].as_str().unwrap_or_default();
         self.0.lock().expect("not poisoned").retain(|client| {
+            if client.except.lock().expect("not poisoned").contains(kind) {
+                return !client.lines.is_closed();
+            }
             match client.lines.try_send(line.clone()) {
                 Ok(()) => true,
                 Err(mpsc::error::TrySendError::Full(_)) => transient,
@@ -292,8 +323,10 @@ async fn serve(
     }
     let (kept, dropped) = oneshot::channel();
     let answer = outgoing.clone();
+    let except = Except::default();
     clients.add(Client {
         lines: outgoing,
+        except: Arc::clone(&except),
         _kept: kept,
     });
     let write = async move {
@@ -321,10 +354,13 @@ async fn serve(
             };
             let command = line.trim();
             // Lines are read in order, so every line before `SYNC` was taken.
+            let (verb, payload) = command.split_once(' ').unwrap_or((command, ""));
             if command == SYNC {
                 if answer.try_send(SYNCED.into()).is_err() {
                     break;
                 }
+            } else if verb == EVENTS {
+                *except.lock().expect("not poisoned") = excepted(payload);
             } else if !command.is_empty() && commands.send(command.to_string()).is_err() {
                 break;
             }
@@ -411,6 +447,65 @@ mod tests {
             other.next_line().await.unwrap().unwrap(),
             r#"{"type":"note"}"#
         );
+    }
+
+    #[tokio::test]
+    async fn a_client_receives_no_event_of_the_types_it_left_out_until_it_asks_again() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = Address::scratch(directory.path());
+        let (_socket, clients, mut commands) = bound(&path, Vec::new()).await;
+        let other = connect(&path).await;
+        let (reader, mut writer) = local_socket::split(connect(&path).await);
+        let mut lines = BufReader::new(reader).lines();
+        writer
+            .write_all(b"events {\"except\": [\"signal\", \"transcript_partial\"]}\nsync\n")
+            .await
+            .unwrap();
+        assert_eq!(
+            lines.next_line().await.unwrap().unwrap(),
+            r#"{"type":"synced"}"#
+        );
+        assert!(
+            commands.try_recv().is_err(),
+            "`events` is the connection's own"
+        );
+        while clients.0.lock().unwrap().len() < 2 {
+            tokio::task::yield_now().await;
+        }
+        clients.emit(&json!({"type": "signal", "level": 0.5}));
+        clients.emit(&json!({"type": "transcript_partial", "text": "o"}));
+        clients.emit(&json!({"type": "session", "live": []}));
+        assert_eq!(
+            lines.next_line().await.unwrap().unwrap(),
+            r#"{"type":"session","live":[]}"#
+        );
+        let mut other = BufReader::new(other).lines();
+        assert_eq!(
+            other.next_line().await.unwrap().unwrap(),
+            r#"{"type":"signal","level":0.5}"#,
+            "another client receives every type"
+        );
+        // Anything but a list of types receives them all again.
+        writer.write_all(b"events {}\nsync\n").await.unwrap();
+        assert_eq!(
+            lines.next_line().await.unwrap().unwrap(),
+            r#"{"type":"synced"}"#
+        );
+        clients.emit(&json!({"type": "signal", "level": 0.25}));
+        assert_eq!(
+            lines.next_line().await.unwrap().unwrap(),
+            r#"{"type":"signal","level":0.25}"#
+        );
+    }
+
+    #[test]
+    fn events_takes_the_types_listed_and_nothing_else() {
+        assert_eq!(
+            excepted(r#"{"except": ["signal", 3, "note"]}"#),
+            HashSet::from(["signal".to_string(), "note".to_string()])
+        );
+        assert!(excepted("").is_empty());
+        assert!(excepted(r#"{"except": "signal"}"#).is_empty());
     }
 
     #[tokio::test]

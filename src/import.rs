@@ -3,7 +3,7 @@
 //! configured STT, as fast as they go, while its speakers are told apart.
 
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::{Arc, Mutex};
 use std::time::UNIX_EPOCH;
 
 use serde_json::json;
@@ -11,14 +11,14 @@ use tokio::io::AsyncReadExt;
 use tokio::sync::oneshot;
 
 use crate::adapters::audio_ffmpeg::{FfmpegSource, Probe, Unprobed, probe};
-use crate::adapters::diarizer_process;
+use crate::adapters::diarizer_process::{self, Diarized, Regions};
 use crate::adapters::vad_silero::{SileroModel, SileroVad};
 use crate::adapters::webvtt;
 use crate::domain::assistant::Emit;
 use crate::domain::channel::{
     Listeners, SpeechProbability, Transcriber, Trouble, Utterance, transcribe_channel,
 };
-use crate::domain::diarization::{Diarization, label_lines};
+use crate::domain::diarization::{Diarization, Recording, label_lines};
 use crate::domain::events::{Event, Outages, error};
 use crate::domain::segmenter::{Segment, SegmenterConfig};
 use crate::domain::session::{ENDED, HeardBy, IMPORT, Session, now, recorded_at};
@@ -252,7 +252,7 @@ async fn transcript(request: Request, started_at: f64, log: &dyn SessionLog, emi
 /// The speakers of a file, told apart beside its transcription by a child
 /// process that holds the embedding model only while the import runs.
 struct Diarizing {
-    regions: mpsc::Sender<Segment>,
+    regions: Regions,
     found: oneshot::Receiver<Result<Diarization, String>>,
 }
 
@@ -264,10 +264,27 @@ fn speakers(model: &Path) -> Option<Diarizing> {
 
 fn diarizing(model: &Path) -> Diarizing {
     let (send, found) = oneshot::channel();
-    let regions = diarizer_process::spawn(model, move |result| {
-        let _ = send.send(result);
-    });
+    let regions = diarizer_process::spawn(model, gathered(send));
     Diarizing { regions, found }
+}
+
+/// What a child diarizer tells, gathered into the whole file's speakers and
+/// sent once it ends.
+fn gathered(
+    send: oneshot::Sender<Result<Diarization, String>>,
+) -> impl FnMut(Diarized) + Send + 'static {
+    let mut send = Some(send);
+    let mut recording = Recording::default();
+    move |diarized| {
+        let ended = match diarized {
+            Diarized::Update(update) => return recording.apply(update),
+            Diarized::Done => Ok(std::mem::take(&mut recording).finish()),
+            Diarized::Failed(detail) => Err(detail),
+        };
+        if let Some(send) = send.take() {
+            let _ = send.send(ended);
+        }
+    }
 }
 
 /// Audio or video recorded at `started_at` and `total` seconds long: transcribed
@@ -311,7 +328,7 @@ async fn media(
     };
     let segment = |region: &Segment| {
         if let Some(diarization) = &diarization {
-            let _ = diarization.regions.send(region.clone());
+            diarization.regions.send(region.clone());
         }
     };
     let listeners = Listeners {
@@ -615,7 +632,7 @@ mod tests {
         answer: impl FnOnce(Vec<Segment>) -> Option<Result<Diarization, String>> + Send + 'static,
     ) -> impl FnOnce() -> Option<Diarizing> {
         move || {
-            let (regions, received) = mpsc::channel();
+            let (regions, received) = diarizer_process::channel(64);
             let (send, found) = oneshot::channel();
             std::thread::spawn(move || {
                 if let Some(answer) = answer(received.iter().collect()) {
@@ -641,6 +658,45 @@ mod tests {
                 voices: (0..voices).map(|v| vec![v as f32, 1.0]).collect(),
             }))
         }
+    }
+
+    /// A child's updates are gathered into the file's speakers, told once it
+    /// ends; a child that fails tells why.
+    #[test]
+    fn a_childs_updates_are_gathered_until_it_ends() {
+        use crate::domain::diarization::{Turn, Update};
+        let (send, found) = oneshot::channel();
+        let mut heard = gathered(send);
+        let turn = |start, end, speaker| Turn {
+            start,
+            end,
+            speaker,
+        };
+        heard(Diarized::Update(Update {
+            end: 2.0,
+            turns: vec![turn(0.0, 2.0, 4)],
+            voices: vec![(4, vec![1.0, 0.0])],
+            merged: Vec::new(),
+        }));
+        heard(Diarized::Update(Update {
+            end: 5.0,
+            turns: vec![turn(3.0, 5.0, 6)],
+            voices: vec![(6, vec![0.0, 1.0])],
+            merged: Vec::new(),
+        }));
+        heard(Diarized::Done);
+        heard(Diarized::Failed("told once".into()));
+        assert_eq!(
+            found.blocking_recv().unwrap(),
+            Ok(Diarization {
+                turns: vec![turn(0.0, 2.0, 0), turn(3.0, 5.0, 1)],
+                voices: vec![vec![1.0, 0.0], vec![0.0, 1.0]],
+            })
+        );
+
+        let (send, found) = oneshot::channel();
+        gathered(send)(Diarized::Failed("out of memory".into()));
+        assert_eq!(found.blocking_recv().unwrap(), Err("out of memory".into()));
     }
 
     /// Audio is transcribed phrase by phrase, its progress told as it goes,

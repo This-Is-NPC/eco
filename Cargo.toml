@@ -21,7 +21,7 @@ rustfft = "6.4.1"
 rustls = { version = "0.23.45", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-platform-verifier = "0.7.1"
 serde = { version = "1.0.229", features = ["derive"] }
-serde_json = { version = "1.0.151", features = ["preserve_order"] }
+serde_json = { version = "1.0.151", features = ["float_roundtrip", "preserve_order"] }
 sha2 = "0.11.0"
 sys-locale = "0.3.2"
 thiserror = "2.0.21"

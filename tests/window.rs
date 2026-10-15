@@ -4,13 +4,17 @@
 //! a watched file and raising a window, run offscreen against `tests/window/bridge.qml`;
 //! on Windows, a copied text that outlives the window, on the real platform;
 //! the overlay's views driven as the daemon drives them, in
-//! `tests/window/views.qml`; the settings window's section keys, in
+//! `tests/window/views.qml`; a long timeline read back and its counts, in
+//! `tests/window/counts.qml`; a long timeline read in pages, in
+//! `tests/window/timeline.qml`; a line's menu, merge and split, in
+//! `tests/window/lines.qml`; the settings window's section keys, in
 //! `tests/window/settings_keys.qml`; the toast stack, in
 //! `tests/window/toasts.qml`; the bars and tables of the views, pressed
 //! as a keyboard and a pointer press them, in `tests/window/bars.qml`; and the
 //! eco window closed with the settings open,
 //! saying so to the daemon before it exits,
-//! in `tests/window/close.qml`; and the tray icon's states and menu, in
+//! in `tests/window/close.qml`; its views and settings made only while
+//! wanted, in `tests/window/lazy.qml`; and the tray icon's states and menu, in
 //! `tests/window/tray.qml`. Needs `mise run window:build`.
 
 use std::path::{Path, PathBuf};
@@ -190,6 +194,69 @@ async fn the_overlay_views_pass_their_checks() {
     );
 }
 
+/// A 6000-line session read back loads and takes its translations within a
+/// time limit, and its counts are the daemon's after a line is added, edited or
+/// removed and after another session is shown.
+#[tokio::test]
+async fn a_long_timeline_loads_in_time_and_counts_what_the_daemon_says() {
+    let dir = tempfile::tempdir().unwrap();
+    let run = offscreen("counts", dir.path())
+        .env("ECO_SOCKET", dir.path().join("no-daemon"))
+        .kill_on_drop(true)
+        .output();
+    let output = tokio::time::timeout(Duration::from_secs(60), run)
+        .await
+        .expect("the counts did not finish")
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+/// A long session's timeline in pages: an older page goes in above and the
+/// entry read stays put, the live timeline keeps its cap while it follows the
+/// newest, a found session opens around the time found, and a page not asked
+/// for is not put in.
+#[tokio::test]
+async fn the_timeline_reads_a_long_session_in_pages() {
+    let dir = tempfile::tempdir().unwrap();
+    let run = offscreen("timeline", dir.path())
+        .env("ECO_SOCKET", dir.path().join("no-daemon"))
+        .kill_on_drop(true)
+        .output();
+    let output = tokio::time::timeout(Duration::from_secs(30), run)
+        .await
+        .expect("the timeline did not finish")
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+/// The eco window's views and its settings are made only while wanted: a view
+/// when first shown, the settings each time they open, let go when they close.
+#[tokio::test]
+async fn views_and_settings_are_made_when_shown() {
+    let dir = tempfile::tempdir().unwrap();
+    let run = offscreen("lazy", dir.path())
+        .env("ECO_SOCKET", dir.path().join("no-daemon"))
+        .kill_on_drop(true)
+        .output();
+    let output = tokio::time::timeout(Duration::from_secs(30), run)
+        .await
+        .expect("the views did not finish")
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
 /// The settings window's section keys, pressed as a keyboard presses them:
 /// a section's number, bare or with Ctrl, a field keeping its digits, and the
 /// rail unfolding under the keyboard.
@@ -262,6 +329,57 @@ async fn the_bars_and_tables_answer_their_keys() {
     assert!(status.success(), "{said}");
 }
 
+/// A line's menu, opened by a click, by its "more" button and by the Menu
+/// key; a merge picked in it, given up or done on the next line clicked; and a
+/// split at the cursor, counted in characters: the window's own checks pass,
+/// and it sends the merge and the two splits, and no other change to a line.
+#[tokio::test]
+async fn a_lines_menu_merges_and_splits_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut listener = Listener::bind(dir.path());
+    let mut window = offscreen("lines", dir.path())
+        .env("ECO_SOCKET", listener.name())
+        .env("ECO_TOKEN", "secret")
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .unwrap();
+    let mut daemon = accept(&mut listener, &mut window).await;
+    let mut stderr = window.stderr.take().unwrap();
+    let mut said = String::new();
+    let mut sent = Vec::new();
+    let status = tokio::time::timeout(Duration::from_secs(30), async {
+        let lines = async {
+            let mut line = String::new();
+            while daemon.read_line(&mut line).await.unwrap_or(0) > 0 {
+                sent.push(line.trim_end().to_string());
+                line.clear();
+            }
+        };
+        let errors = tokio::io::AsyncReadExt::read_to_string(&mut stderr, &mut said);
+        let (_, read) = tokio::join!(lines, errors);
+        read.unwrap();
+        window.wait().await.unwrap()
+    })
+    .await
+    .expect("the lines did not finish");
+    assert!(status.success(), "{said}");
+    let changes: Vec<&str> = sent
+        .iter()
+        .map(String::as_str)
+        .filter(|line| line.starts_with("session.line."))
+        .collect();
+    assert_eq!(
+        changes,
+        [
+            r#"session.line.merge {"id":"s1","into":{"who":"Eles","at":100},"from":{"who":"Eu","at":101}}"#,
+            r#"session.line.split {"id":"s1","who":"Eles","at":102,"offset":6}"#,
+            r#"session.line.split {"id":"s1","who":"Eles","at":103,"offset":4}"#,
+        ]
+    );
+}
+
 /// The eco window says whether it is active once the daemon greets it; closing
 /// it tells the daemon and ends its process, even with
 /// the settings open and unsaved: Qt's quit asks every window to close, and
@@ -316,9 +434,10 @@ async fn closing_the_window_tells_the_daemon_and_ends_the_process() {
     assert!(status.success(), "eco-window exited with {status}");
 }
 
-/// The tray icon follows the sessions, and its click and menu send what `eco
-/// window` and `eco stop` send: a context click nothing, a click and Open
-/// `focus`, then New session, Settings and Stop eco.
+/// The tray icon leaves out the events it draws nothing from, follows the
+/// sessions, and its click and menu send what `eco window` and `eco stop`
+/// send: a context click nothing, a click and Open `focus`, then New session,
+/// Settings and Stop eco.
 #[tokio::test]
 async fn the_tray_shows_the_state_and_its_menu_sends_the_cli_lines() {
     let dir = tempfile::tempdir().unwrap();
@@ -332,6 +451,21 @@ async fn the_tray_shows_the_state_and_its_menu_sends_the_cli_lines() {
         .spawn()
         .unwrap();
     let mut daemon = accept(&mut listener, &mut tray).await;
+    // First it leaves out what it draws nothing from, keeping the sessions and errors.
+    let events = read(&mut daemon).await;
+    let except: Value = serde_json::from_str(events.strip_prefix("events ").unwrap()).unwrap();
+    let except: Vec<&str> = except["except"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|kind| kind.as_str().unwrap())
+        .collect();
+    for left in ["signal", "transcript_partial", "suggestion_delta"] {
+        assert!(except.contains(&left), "{left} still sent");
+    }
+    for kept in ["session", "error", "snapshot"] {
+        assert!(!except.contains(&kept), "{kept} left out");
+    }
     let mut lines = Vec::new();
     for _ in 0..5 {
         lines.push(read(&mut daemon).await);

@@ -16,7 +16,7 @@ QtObject {
   // The field of a row naming the title it is listed under, or "" for none: a
   // title opens each run of rows sharing it. A row with `dim` true steps back.
   property string group: ""
-  // It needs a chat model: until one is registered it says so instead.
+  // It needs a chat model: until one is registered it says so above its table.
   property bool chats: false
   // The text of its ADD command, or "" when nothing is added here.
   property string add: ""

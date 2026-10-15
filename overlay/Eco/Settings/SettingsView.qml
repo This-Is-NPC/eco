@@ -33,7 +33,8 @@ Item {
   SkillsSection { id: skills; settings: view }
   GeneralSection { id: general; settings: view }
 
-  // A chat model is registered: until then answers and skills have nothing to run on.
+  // A chat model is registered: until then answers and skills have nothing to
+  // run on, and the sections that need one say so above their tables.
   readonly property bool chats: Eco.config !== null && Draft.chats(Eco.config)
 
   // Section index -> the id of the row picked, of the item open ("+" for a
@@ -68,8 +69,6 @@ Item {
   // until a row is picked.
   function tableCommands(index) {
     const section = sections[index]
-    if (section.chats && !chats)
-      return [{ text: I18n.t("settings.no_chat_register"), icon: "plus", role: "primary", run: () => view.create(at.models) }]
     const config = Eco.config
     const rows = config === null ? [] : section.rows(config)
     const row = rows.find(entry => entry.id === (picked[index] || "")) || null
@@ -95,7 +94,7 @@ Item {
   // The row picked in section `index`, or null.
   function pickedRow(index) {
     const section = sections[index]
-    if (Eco.config === null || section.chats && !chats)
+    if (Eco.config === null)
       return null
     return section.rows(Eco.config).find(entry => entry.id === (picked[index] || "")) || null
   }
@@ -293,10 +292,11 @@ Item {
         id: stage
         required property int index
         readonly property var section: view.sections[index]
-        readonly property bool waiting: section.chats && !view.chats
-        readonly property var rows: Eco.config === null || waiting ? [] : section.rows(Eco.config)
+        // It needs a chat model and none is registered: it says so, and how to fix it.
+        readonly property bool lacking: section.chats && !view.chats
+        readonly property var rows: Eco.config === null ? [] : section.rows(Eco.config)
         // The id of the item open.
-        readonly property string open: waiting ? "" : view.shown[index] || ""
+        readonly property string open: view.shown[index] || ""
         readonly property Item screenItem: screen.item
         readonly property bool dirty: screen.item !== null && screen.item.draft !== null && screen.item.draft.dirty
         readonly property bool conflict: dirty && screen.item.draft.conflict
@@ -320,7 +320,7 @@ Item {
         anchors.fill: parent
         shown: view.page === index
 
-        // The table of the section's items, or what it waits for.
+        // The table of the section's items, under what it lacks.
         ColumnLayout {
           anchors.fill: parent
           visible: stage.open === ""
@@ -331,15 +331,31 @@ Item {
             font.pixelSize: 16
             font.letterSpacing: 4
           }
-          Kicker {
+          ColumnLayout {
             Layout.fillWidth: true
-            visible: stage.waiting
-            text: I18n.t("settings.no_chat")
+            visible: stage.lacking
+            spacing: 8
+            Kicker {
+              Layout.fillWidth: true
+              text: I18n.t("settings.no_chat")
+            }
+            Label {
+              Layout.fillWidth: true
+              text: I18n.t("settings.no_chat_note")
+              color: Theme.dim
+              font.pixelSize: 11
+              wrapMode: Text.Wrap
+            }
+            Chip {
+              icon: "plus"
+              text: I18n.t("settings.no_chat_register")
+              onClicked: view.create(view.at.models)
+            }
           }
           Label {
             Layout.fillWidth: true
             visible: text !== ""
-            text: stage.waiting ? I18n.t("settings.no_chat_note") : stage.section.note
+            text: stage.section.note
             color: Theme.dim
             font.pixelSize: 11
             wrapMode: Text.Wrap
@@ -348,7 +364,7 @@ Item {
             id: table
             Layout.fillWidth: true
             Layout.fillHeight: true
-            visible: !stage.waiting && stage.section.body === null
+            visible: stage.section.body === null
             picks: true
             active: stage.shown && stage.open === ""
             columns: stage.section.columns
@@ -378,7 +394,7 @@ Item {
             property Item item: null
             Layout.fillWidth: true
             Layout.fillHeight: true
-            visible: !stage.waiting && item !== null
+            visible: item !== null
             // It fills the room the table would.
             Component.onCompleted: {
               if (stage.section.body === null)
@@ -388,7 +404,6 @@ Item {
               item.height = Qt.binding(() => body.height)
             }
           }
-          Item { Layout.fillHeight: true; visible: stage.waiting }
         }
 
         // The item open, on the screen of its kind.

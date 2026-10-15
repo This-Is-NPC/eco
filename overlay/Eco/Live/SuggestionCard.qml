@@ -12,8 +12,8 @@ import Eco.Kit
 // of what comes next. A reply that failed shows why, in red. With the reviewer's
 // verbose mode, the draft it rewrote shows dimmed above the reply. When its
 // action has a hook, a complete reply can be sent to it, and says how that went.
-// A complete reply can be translated while a model translates its session; its
-// translation shows below it, dimmer.
+// A complete reply can be translated while a model translates its session, and
+// says why not while none does; its translation shows below it, dimmer.
 // Hovering its heading tells how long it took and its cache share.
 SurfaceFrame {
   id: card
@@ -36,8 +36,9 @@ SurfaceFrame {
   property string hookState: ""
   // The reply in the session's translation language, once it arrives.
   property string translation: ""
-  // A model translates its session.
+  // A model translates its session, of this kind.
   property bool translatable: true
+  property string kind: ""
   // How the finished answer went, as JSON {ttft, total} in ms and {cache} in %
   // (-1 unknown); empty when not measured.
   property string timing: ""
@@ -103,10 +104,11 @@ SurfaceFrame {
     }
 
     IconButton {
-      visible: card.translatable && !card.streaming && card.text.length > 0 && !card.failure && card.translation === ""
+      visible: !card.streaming && card.text.length > 0 && !card.failure && card.translation === ""
       name: "translate"
       size: 13
       tip: I18n.t("card.translate_tip")
+      reason: card.translatable ? "" : I18n.t("error.translation.none", { kind: Eco.kindName(card.kind) })
       activeFocusOnTab: card.reachable
       onClicked: Eco.translateEntry(card.suggestionId)
     }

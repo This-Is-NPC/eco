@@ -183,9 +183,11 @@ followed by more words, or a path such as `/etc/hosts`, is asked as written.
 {"ok":false,"code":"action.unknown","message":"unknown action \"minutes\""}
 ```
 
-**No chat model answers this session.** Without one for its kind, the composer
-has no SEND: Enter keeps the text as a note, and only the skills that name a
-model of their own show. From the command line:
+**No chat model answers this session.** Without one for its kind, Enter in the
+composer keeps the text as a note; SEND and the skills that name no model of
+their own stay, dimmed, and their hint says `No chat model answers <kind>
+sessions — register one under Settings › Models`, `<kind>` a placeholder for
+the session's kind. From the command line:
 
 ```
 {"ok":false,"code":"chat.none","message":"no chat model answers sessions of this kind"}

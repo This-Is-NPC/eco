@@ -14,9 +14,11 @@ next time.
 
 - **The daemon is running.** `eco status` says
   `eco: daemon running (pid …, version …)`.
-- **There is a session with speakers in it.** An import, or a live session whose
-  capture has stopped. [How to import a recording](how-to-import-a-recording.md)
-  makes one in a minute.
+- **There is a session with speakers in it.** An import, or a live session:
+  its others' speakers are told apart while it records, a line moving to its
+  speaker a few seconds after it is said.
+  [How to import a recording](how-to-import-a-recording.md) makes one in a
+  minute.
 - **For guesses by voice, `eco setup` has run.** It downloads the speaker model
   (WeSpeaker CAM++) that tells voices apart. Without it the lines keep the name
   of their audio source and there are no voices to compare.
@@ -52,6 +54,11 @@ The part that matters is `speakers`:
 session came from a WebVTT transcript, and a transcript has no audio. An audio
 import, or the others' input of a live session, has `voice: true`, and then
 `suggestions` lists the people whose voice is close, with a score.
+
+In a live session the speakers, their voices and the guesses come while it
+records, and change as eco hears more. When eco finds that two speakers are one
+voice, the lines of one move to the other; a speaker you named keeps their
+label, and two speakers you named as different people stay apart.
 
 ## 2. Name a speaker
 
@@ -111,6 +118,14 @@ eco assign 90a8bbae6b73 line "Speaker 2" 1791499984.8514547 --person 9bb9e6f8bd1
 
 Only that line changes. It gets a label of its own (`Speaker 2#8cb25e72`), so
 the rest of `Speaker 2` stays who it was.
+
+In the window, click the line, or the `⋯` beside its top, and pick **SPEAKER
+OF THIS LINE** in its menu.
+When one line holds two speakers, pick **SPLIT IN TWO** first, put the cursor
+where the second one starts, and press **SPLIT HERE**; then fix the new line.
+Two lines that are one sentence go back together with **MERGE WITH ANOTHER
+LINE** and a click on the other line (`eco line <id> <who> <at> --merge
+"<who>@<at>"` from the CLI, `--split <offset>` for a split).
 
 When one person said everything — a recording of yourself, say — there is the
 opposite command, and it is only in the CLI:
@@ -173,13 +188,14 @@ the name it goes by:
 
 ![The details panel of "Acme onboarding kickoff", its first line with the edit and close buttons: under SPEAKERS, Speaker 1 → Ana Ribeiro with CLEAR and CHANGE, Me (you) → No one yet, Speaker 2 → Marcus Lee, and Speaker 3 → No one yet; under PEOPLE, Ana Ribeiro, Marcus Lee, Priya Shah.](img/20-session-details.png)
 
-**CHANGE**, or clicking a speaker's name in the timeline, asks who they are:
+**CHANGE**, clicking a speaker's name in the timeline, or **SPEAKER OF ALL
+THEIR LINES** in a line's menu, asks who they are:
 
 ![The ASSIGN PERSON dialog over the details: APPLY TO with THIS SPEAKER chosen and "2 lines will change" in amber, WHO THIS IS holding "Tom Becker", a SPEAKER COLOR swatch, and KNOWN PEOPLE as chips — Ana Ribeiro, Chen Wei, Jonas Weber, M. Lee, Marcus Lee, Priya Shah, Sofia Alvarez — then CANCEL and SAVE.](img/27-session-speaker.png)
 
 The people the voice suggests come first, with their score, then everyone
-known; or type a name. Opened from a line, **APPLY TO** also offers **THIS
-LINE**. The dialog says how many lines will change, as a warning when it is
+known; or type a name. Opened from a line's menu, **APPLY TO** also offers
+**THIS LINE**. The dialog says how many lines will change, as a warning when it is
 more than one. Assigning every line of a session at once is left to the CLI.
 The color picker changes a known person's color in every session, or keeps a
 color for this speaker alone in the session's log.

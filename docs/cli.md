@@ -178,9 +178,9 @@ Speaker embedding model (ONNX); the one `eco setup` downloads by default
 
 #### `--threshold… <THRESHOLD>`
 
-Clustering thresholds to compare, e.g. 0.5,0.6,0.7
+New-speaker thresholds to compare, e.g. 0.4,0.5,0.6
 
-**Default:** `0.65`
+**Default:** `0.7`
 
 #### `--min-share <MIN_SHARE>`
 
@@ -462,7 +462,7 @@ Turn this context slot off (repeatable)
 
 ## `eco line`
 
-- **Usage**: `eco line [--remove] [--text <TEXT>] <ARGS>…`
+- **Usage**: `eco line [FLAGS] <ARGS>…`
 
 Change one line of a session, named by who said it and its `at` (see `eco show`)
 
@@ -483,6 +483,14 @@ Remove it: it leaves the session, its context and its export
 #### `--text <TEXT>`
 
 Its corrected text
+
+#### `--merge <WHO@AT>`
+
+Merge it with the line `who` said at `at` (see `eco show`): one line, their texts in time order, at the time and speaker of the earlier
+
+#### `--split <OFFSET>`
+
+Split it before this character: the rest becomes a new line of the same speaker right below
 
 ## `eco tag`
 

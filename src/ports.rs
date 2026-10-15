@@ -220,8 +220,15 @@ pub struct SessionStorage {
 pub trait SessionLog: Send + Sync {
     /// A sink for a new session's records; the first is the session itself.
     fn writer(&self) -> RecordSink;
-    /// Every stored session's records, newest session first.
-    fn all(&self) -> Vec<Vec<Record>>;
+    /// Every stored session's entry in the session index, newest session first
+    /// (docs/design.md §8): the one kept for its log while the log is unchanged
+    /// and `fresh` holds of it, else the one `entry` makes from the log's
+    /// records now, which is kept from then on.
+    fn index(
+        &self,
+        entry: &dyn Fn(&[Record]) -> Value,
+        fresh: &dyn Fn(&Value) -> bool,
+    ) -> Vec<Value>;
     /// One session's records, or `None` when there is no such session.
     fn read(&self, session_id: &str) -> Option<Vec<Record>>;
     /// A sink that continues an existing session's records.

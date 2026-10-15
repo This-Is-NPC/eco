@@ -7,26 +7,37 @@ Rectangle {
   property string name
   property real size: 12
   property string tip
+  // Why it cannot be pressed now: it reads disabled and does nothing, but
+  // says why on hover; empty while it can.
+  property string reason
   property color tone: Theme.primary
   property bool highlighted: false
   // A count waiting behind the button, on a badge at its corner; none hides it.
   property int count: 0
-  readonly property bool hovered: pointer.containsMouse
+  // No frame and a fainter glyph until hovered or highlighted, for a button
+  // repeated on every row of a list.
+  property bool quiet: false
+  readonly property bool off: !enabled || reason !== ""
+  readonly property bool hovered: pointer.containsMouse && reason === ""
 
   signal clicked()
 
   implicitWidth: 28
   implicitHeight: 28
   activeFocusOnTab: true
+  Accessible.role: Accessible.Button
+  Accessible.name: tip
+  Accessible.onPressAction: press()
   color: hovered || highlighted ? Qt.alpha(tone, 0.1) : "transparent"
-  border.color: hovered || highlighted ? tone : Theme.line
-  scale: pointer.pressed ? 0.9 : 1
+  border.color: hovered || highlighted ? tone : quiet ? "transparent" : Theme.line
+  opacity: off ? 0.35 : 1
+  scale: pointer.pressed && !off ? 0.9 : 1
 
   Behavior on color { ColorAnimation { duration: 150 } }
   Behavior on border.color { ColorAnimation { duration: 150 } }
   Behavior on scale { NumberAnimation { duration: 100; easing.type: Easing.OutCubic } }
 
-  function press() { if (enabled) { tap.restart(); clicked() } }
+  function press() { if (!off) { tap.restart(); clicked() } }
   Keys.onReturnPressed: press()
   Keys.onSpacePressed: press()
 
@@ -35,7 +46,7 @@ Rectangle {
     anchors.centerIn: parent
     name: button.name
     size: button.size
-    color: button.hovered || button.highlighted ? button.tone : Theme.dim
+    color: button.hovered || button.highlighted ? button.tone : button.quiet ? Qt.alpha(Theme.dim, 0.6) : Theme.dim
     Behavior on color { ColorAnimation { duration: 150 } }
   }
 
@@ -73,9 +84,9 @@ Rectangle {
     id: pointer
     anchors.fill: parent
     hoverEnabled: true
-    cursorShape: Qt.PointingHandCursor
+    cursorShape: button.off ? Qt.ArrowCursor : Qt.PointingHandCursor
     onClicked: button.press()
   }
   FocusRing {}
-  Hint { visible: (pointer.containsMouse || button.activeFocus) && button.tip.length > 0; text: button.tip }
+  Hint { visible: (pointer.containsMouse || button.activeFocus) && text.length > 0; text: button.reason || button.tip }
 }

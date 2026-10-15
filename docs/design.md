@@ -140,7 +140,7 @@ files import modules by name (`import Eco.Kit`), never by relative path:
 | `Eco.Sessions` | history, a session's details (attendees, speakers, context, translation), people, cost, the import strip | `Eco.Core`, `Eco.Kit` |
 | `Eco.Dialogs` | start, import, rename, speaker assignment | `Eco.Core`, `Eco.Kit` |
 | `Eco.Settings` | the settings window: its sections, the screen of each kind of item, and the draft an item is edited in | `Eco.Core`, `Eco.Kit` |
-| `Eco.Window` | the composing root: `OverlayPanel`, the eco window, and `SessionView`, which joins the live session to its details | every module above |
+| `Eco.Window` | the composing root: `OverlayPanel`, the eco window; `SessionView`, which joins the live session to its details; and `ViewStage`, a `Stage` whose view is made the first time it is shown — the sessions list then kept, for its filters, the people and the cost let go once they leave | every module above |
 | `Eco.Lab` | the control lab | any |
 
 Live, Sessions, Dialogs and Settings never import each other: a piece two of
@@ -246,12 +246,32 @@ eco/
   traces (§12.4). Nothing is transcribed or stored.
 - **Live voices:** while a session records, each input that is not the
   user's sends its speech to a child `eco diarize` (when `eco setup` installed
-  the speaker model), which keeps only embeddings in memory; nothing reaches
-  disk. When the capture stops (pause or end), each of that input's lines goes
-  to the voice that said most of it: a voice close (≥ 0.70) to one the session
-  already keeps takes that speaker's label, a single voice keeps the
-  audio source's, and others become `Speaker N` — a `diarized` record. The
-  voices are kept like an import's, so their speakers get guesses.
+  the speaker model); nothing reaches disk. The child tells the speakers apart
+  as it hears them, one speech region at a time: each 1.5 s window (every
+  0.75 s) joins the speaker whose running voice (the mean of their windows) is
+  nearest, or starts a new speaker when every voice is at a cosine distance of
+  0.7 or more. After each region, two speakers closer than 0.3 become one, and
+  a speaker heard for less than 2% of the windows, once 120 more windows came
+  after their first, joins the nearest larger one. It keeps the running
+  voices (at most 32 speakers) and nothing else, so a region costs the same
+  at the third hour as at the first minute, and pausing or stopping only ends
+  it. The 0.7 was measured on the AMI dev meetings
+  ([benchmarks](benchmarks.md#online-clustering-2026-10-14)). For each region
+  it prints the turns, the voices that changed and the speakers joined.
+  The daemon keeps the last 5 minutes of turns and up to 256 lines that wait
+  for the child to hear past their end; each line then goes to the voice that
+  said most of it. The first time a voice says a line it gets a label: that of
+  a voice the session keeps close to it (≥ 0.70), else the audio source's for
+  the input's first voice, else `Speaker N`. Its lines move to that label as
+  they are known — a `voiced` record, and `transcript_reassigned` to clients.
+  Two speakers joined share a label: the lines of the one without a person
+  move to the other's, and two the user named as different people stay
+  apart. A voice is kept (§7.3) when it first comes and again whenever it
+  moved (cosine below 0.98 to the one kept), and the session's speakers are
+  told again, so guesses come during the meeting. At most 32 regions wait for
+  the child; past that, regions go without diarization and the daemon's log
+  says so. The child's stderr is read as it comes, and its last 4 kB are the
+  error when it fails.
 - **Echoes:** without headphones, or with headphones loud, the user's
   microphone hears the call and duplicates "their" speech as "me". Headphones
   are recommended; two answers are built in. With `[audio] drop_echoes` (on by default; Settings › General ›
@@ -550,7 +570,15 @@ any other label shows as written.
 - **Edits:** its title and kind can be edited, open or stored (a `meta` record,
   which does not count toward the duration). The user can remove any line
   (`unheard`, as a dropped echo) or correct it in place: an `edited` record, so
-  the context, the export and the CLI read the correction.
+  the context, the export and the CLI read the correction. Two lines merge into
+  the earlier one, their texts in time order, its time and speaker: a `merged`
+  record, `{"into":{"who","at"},"from":{"who","at"},"text"}`. A line splits at a
+  character: a `split` record, `{"of":{"who","at"},"text","new":{"who","at","text"}}`,
+  the left part kept and the right part a new line of the same speaker whose
+  `at` is the line's plus 1 ms, or half the way to the next entry when that is
+  closer, so it lands right below. Restoring a log replays both; the lines they
+  rewrite lose their translations, translated again when the session
+  translates, and later answers carry the corrected lines.
 - **Delete:** an interrupted or ended session can be deleted; deletion removes
   its log and associated voice links. A live session, recording or paused,
   cannot be deleted: the daemon refuses with `session.live`. A log the disk
@@ -563,7 +591,11 @@ any other label shows as written.
 `sessions.search <text>` answers `sessions_found` with the ids, newest first: the
 sessions whose title, tags, lines, notes, questions or answers hold the text, in
 any case or accents, as they read now (removed and corrected lines count as
-they are).
+they are). Titles and tags come from the session index (§8); only the logs
+they do not match are read for the rest. `found_at` gives, by id, when the
+first line, note, question or answer that holds it was said; a session its
+title or tags name has none, and opens at its newest. A window opens a found session there, with
+a timeline page around that time (§10.1).
 
 ### 7.2 Speakers
 
@@ -576,7 +608,8 @@ the speakers of the session's summary.
 ### 7.3 Voices
 
 A diarized speaker's voice (the mean of its embeddings) is kept in
-`~/.local/share/eco/people/voices/<session>.json`, apart from the session.
+`~/.local/share/eco/people/voices/<session>.json`, apart from the session; a
+live speaker's is kept as it is heard and kept again when it moves (§4).
 eco never names a speaker on its own: a speaker whose voice scores ≥ 0.70
 against someone (cosine to the mean of their voiceprints; on AMI the closest
 wrong person scored 0.52) carries a **guess**. The user confirms it (the speaker
@@ -646,7 +679,8 @@ its length, and the VAD and the configured STT transcribe it as fast as they
 go, one line per phrase the STT times, each at its time in the recording.
 The lines start as the audio source chosen at import; meanwhile a child
 `eco diarize` (WeSpeaker CAM++ from `eco setup`, loaded only for the import)
-embeds the same speech, and when the file ends each line goes to the speaker
+hears the same speech as a live input's does (§4), the import waiting for it
+when it falls behind, and when the file ends each line goes to the speaker
 who talks most over it — `Speaker 1`, `Speaker 2`… in the order they first
 speak, a `diarized` record, renamed like any speaker. One voice found leaves
 the audio source. Measurements in [benchmarks.md](benchmarks.md). The session
@@ -748,6 +782,7 @@ below is built in `src/paths.rs` (§15).
 |---|---|---|
 | `~/.config/eco/config.toml` | the configuration (§9) | the daemon, from the config window's draft; hand edits work too, but comments are not kept |
 | `~/.local/share/eco/sessions/<start>-<title or kind>.jsonl` | one session, append-only JSON Lines; a second session with the same start second and title gets `-2`, then `-3`, before `.jsonl` | the daemon |
+| `~/.local/share/eco/sessions/index.json` | the session index: what eco knows of each log without reading it again (below); deleting it costs one slower listing | the daemon |
 | `~/.local/share/eco/people/<id>.json` | a person: name, color, voiceprints (§7.4) | the daemon |
 | `~/.local/share/eco/people/voices/<session>.json` | the voices of a session's diarized speakers (§7.3) | the daemon |
 | `~/.local/share/eco/models/` | the Silero VAD and WeSpeaker CAM++ models | `eco setup` |
@@ -777,8 +812,8 @@ and administrators (§15).
 | the icon `eco` the package installs, which names `notify-send`'s notifications | the registry key `HKCU\Software\Classes\AppUserModelId\This-Is-NPC.eco`, written by `eco setup` and by the daemon before a notification: `DisplayName` `eco`, `IconUri` the installed `share\eco\eco.ico` |
 
 A session log holds `session`, `state`, `speech`, `suggestion`, `removed`,
-`meta`, `speaker`, `diarized`, `person`, `attendee`, `unheard`, `edited`,
-`line_person`, `transcriber`, `listening`, `billed`, `spent`, `tags` records, and also
+`meta`, `speaker`, `diarized`, `voiced`, `person`, `attendee`, `unheard`, `edited`,
+`merged`, `split`, `line_person`, `transcriber`, `listening`, `billed`, `spent`, `tags` records, and also
 `language`, `translation`, `translated`, `context` and `guess_dismissed` (§5–§7).
 `--no-save` keeps it in memory. A removed suggestion is a `removed` record, and
 it leaves the context of later actions as well as the screen.
@@ -786,6 +821,28 @@ it leaves the context of later actions as well as the screen.
 A daemon that stops mid-session leaves it open; the next start marks it
 `paused` and opens with no session. A stored session left open that no daemon
 holds is listed and shown as `interrupted`, never reopened by itself.
+
+**The session index.** `sessions/index.json`, beside the logs it describes,
+holds one object per log file, by file name: the session's `id`, the log's
+size in bytes and modification time in nanoseconds when it was read, and its
+`entry` — the session's summary as the `sessions` list sends it (id, title,
+kind, source, language, state, start, duration, how much was said, speakers, people,
+attendees, tags, cost), the price each transcription model had when that cost
+was summed, the transcription requests it was billed for, whether it listened
+to one never billed, and the models of those billed but not yet priced
+(`Indexed` in `src/domain/index.rs`). `sessions`, `sessions.search`, `people`,
+`tags`, the sessions a person is in, adopting speakers and pricing unpaid
+requests read it instead of every log: an entry is used while its log has
+the size and modification time it records and its prices are the setup's;
+otherwise that log alone is read again and its entry rewritten. A log no
+longer there leaves the index; a missing or unreadable index is rebuilt from
+the logs. Search reads only the logs whose title and tags do not hold the
+text; pricing, only the sessions with a request to close or price. A new
+session's log is named in the index at its first record, and a deleted one
+leaves it at once, so finding a session's log by its id reads one first line,
+not every log. The daemon holds the index in memory and writes it whole, to
+`index.json.partial` then renamed over it (`src/adapters/session_files.rs`).
+The index holds no line of what was said; it is as private as the logs.
 
 ---
 
@@ -1090,13 +1147,21 @@ connection (`SYNC` in `src/adapters/control_socket.rs`). `eco window` uses it
 daemon reads its line, which then may never run. It is one mechanism on both
 platforms, for a named pipe cannot close its writing half alone.
 
+A client that draws only some events says which types it does not want:
+`events {"except": ["signal", "transcript_partial", …]}`. Its connection takes
+the line, runs no command, and from then on sends that client no event of those
+types; the next `events` replaces the list, and anything but a list of strings
+under `except` receives every type again (`EVENTS` in
+`src/adapters/control_socket.rs`). The greeting is sent before any line is
+read, so it always arrives. The tray (§12.7) sends it on every connection.
+
 ### 10.1 Events
 
 A new client first receives `snapshot`; a window asks for the timeline of the
 session it shows:
 
 ```json
-{"type":"snapshot","session":{"id":"…","title":"Entrevista","kind":"meeting","source":"live","language":"pt","state":"recording","started_at":1791083833.3,"active_s":312.4,"running_since":1791084400.0},"kinds":["meeting","conversation","other","idea"],"kind_models":{"meeting":{"transcription":"deepgram","chat":"gemini","translation":"gemini","actions":["ask","probe"]},"idea":{"transcription":"whisper-lan","chat":"qwen-lan","translation":"gemini","actions":["ask","probe"]}},"default_models":{"transcription":"deepgram","chat":"gemini","translation":"gemini","actions":["ask","probe"]},"hooks":["probe"],"participants":[{"name":"Eu","user":true},{"name":"Eles","user":false}],"inputs":[{"id":"@default-input","label":"Default microphone","participant":"Eu","color":"#ffb000"}]}
+{"type":"snapshot","session":{"id":"…","title":"Entrevista","kind":"meeting","source":"live","language":"pt","state":"recording","started_at":1791083833.3,"active_s":312.4,"running_since":1791084400.0,"counts":{"lines":40,"answers":2,"notes":1}},"kinds":["meeting","conversation","other","idea"],"kind_models":{"meeting":{"transcription":"deepgram","chat":"gemini","translation":"gemini","actions":["ask","probe"]},"idea":{"transcription":"whisper-lan","chat":"qwen-lan","translation":"gemini","actions":["ask","probe"]}},"default_models":{"transcription":"deepgram","chat":"gemini","translation":"gemini","actions":["ask","probe"]},"actions":["ask","probe"],"hooks":["probe"],"participants":[{"name":"Eu","user":true},{"name":"Eles","user":false}],"inputs":[{"id":"@default-input","label":"Default microphone","participant":"Eu","color":"#ffb000"}]}
 {"type":"signal","input":"@default-input","level":0.42,"speech":true}
 {"type":"session","session":{…} or null,"live":[{…} for each live session],"transcribers":[{"model":"deepgram","language":"pt","sessions":2}]}
 {"type":"session_opened","id":"…","window":2}
@@ -1104,35 +1169,37 @@ session it shows:
 {"type":"window_focus","pid":10872}
 {"type":"window_share","pids":[10872,11240],"hidden":true}
 {"type":"synced"}
-{"type":"session_timeline","session":"…","timeline":[{"type":"transcript",…},{"type":"note",…},{"type":"suggestion",…}]}
-{"type":"transcript","session":"…","who":"Eles","name":"Ana","text":"...","at":1791083840.1,"latency_ms":990}
+{"type":"session_timeline","session":"…","before":1791083840.1,"after":null,"around":null,"timeline":[{"type":"transcript",…},{"type":"note",…},{"type":"suggestion",…}],"more_before":true,"more_after":true}
+{"type":"transcript","session":"…","who":"Eles","name":"Ana","text":"...","at":1791083840.1,"latency_ms":990,"counts":{"lines":41,"answers":2,"notes":1}}
 {"type":"transcript_partial","session":"…","who":"Eles","name":"Ana","text":"so the next…"}
 {"type":"transcription","who":"Eles","state":"down","code":"stt.down","detail":"stalled: nothing heard for 15s"}
 {"type":"transcription","who":"Eu","state":"down","code":"capture.down","detail":"Default microphone: not connected"}
 {"type":"transcription","who":"Eles","state":"back","down_s":318.4,"dropped_s":18.2}
-{"type":"suggestion_start","id":"54401f25","session":"…","action":"chat","model":"google/gemini-3.5-flash-lite","prompt":"Ele citou Kafka?","at":1791083860.0}
+{"type":"suggestion_start","id":"54401f25","session":"…","action":"chat","model":"google/gemini-3.5-flash-lite","prompt":"Ele citou Kafka?","at":1791083860.0,"counts":{"lines":41,"answers":3,"notes":1}}
 {"type":"suggestion_thinking","id":"54401f25","text":"..."}
 {"type":"suggestion_draft","id":"54401f25","text":"..."}
 {"type":"suggestion_delta","id":"54401f25","text":"..."}
 {"type":"suggestion_end","id":"54401f25","ttft_ms":350,"total_ms":3400,"prompt_tokens":1919,"cached_tokens":1791,"cost_usd":null}
-{"type":"suggestion_removed","id":"2f45de79"}
+{"type":"suggestion_removed","session":"…","id":"2f45de79","counts":{"lines":41,"answers":2,"notes":1}}
 {"type":"session_cost","session":"…","cost":{"llm_usd":0.0031,"llm_unknown":false,"transcription_usd":0.0924,"transcription_unknown":false,"total_usd":0.0955,"transcribed_s":{"deepgram":720.0},"parts":[{"for":"answer","usd":0.0031,"unknown":false},{"for":"transcription","usd":0.0924,"unknown":false}],"items":[{"for":"transcription","at":1791084120.2,"model":"deepgram","usd":0.0924,"unknown":null,"estimate":false,"seconds":720.0,"prompt":null,"count":null},{"for":"answer","at":1791083863.4,"model":"google/gemini-3.5-flash-lite","usd":0.0031,"unknown":null,"estimate":false,"seconds":null,"prompt":"Ele citou Kafka?","count":null}]}}
 {"type":"hook_started","session":"…","id":"54401f25"}
 {"type":"hook_sent","session":"…","id":"54401f25"}
 {"type":"session_translation","session":"…","translating":"en"}
 {"type":"translated","session":"…","at":1791083840.1,"language":"en","text":"…","ms":640}
-{"type":"note","id":"9c1d2e3f","session":"…","text":"Migrei um app WPF para MVVM.","at":1791083870.4}
-{"type":"note_removed","id":"9c1d2e3f"}
-{"type":"sessions","sessions":[{"id":"…","title":"…","kind":"idea","source":"live","language":"pt","state":"paused","started_at":…,"duration_s":312,"speech":40,"suggestions":3,"speakers":["Eu","Ana"],"cost":{…as in session_cost, without parts and items…}}]}
-{"type":"sessions_found","query":"prazo","ids":["…"]}
-{"type":"session_detail","session":{…summary…},"timeline":[…transcript, note and suggestion events…],"speakers":[{"label":"Speaker 1","name":"Ana","person":"…","voice":true,"suggestions":[],"guess":null},{"label":"Speaker 2","name":"Speaker 2","person":null,"voice":true,"suggestions":[{"person":"…","name":"Bruno","score":0.82}],"guess":{"person":"…","name":"Bruno","score":0.82}}]}
+{"type":"note","id":"9c1d2e3f","session":"…","text":"Migrei um app WPF para MVVM.","at":1791083870.4,"counts":{"lines":41,"answers":2,"notes":2}}
+{"type":"note_removed","session":"…","id":"9c1d2e3f","counts":{"lines":41,"answers":2,"notes":1}}
+{"type":"sessions","sessions":[{"id":"…","title":"…","kind":"idea","source":"live","language":"pt","state":"paused","started_at":…,"duration_s":312,"counts":{"lines":40,"answers":2,"notes":1},"speakers":["Eu","Ana"],"cost":{…as in session_cost, without parts and items…}}]}
+{"type":"sessions_found","query":"prazo","ids":["…"],"found_at":{"…":1791083840.1}}
+{"type":"session_detail","session":{…summary…},"speakers":[{"label":"Speaker 1","name":"Ana","person":"…","voice":true,"suggestions":[],"guess":null,"lines":25},{"label":"Speaker 2","name":"Speaker 2","person":null,"voice":true,"suggestions":[{"person":"…","name":"Bruno","score":0.82}],"guess":{"person":"…","name":"Bruno","score":0.82},"lines":15}]}
 {"type":"session_deleted","id":"…"}
 {"type":"transcript_reassigned","session":"…","who":"Speaker 1","at":1791083841.2,"label":"Speaker 1#abc12345","name":"Ana"}
 {"type":"person_assigned_all","session":"…","speakers":2}
 {"type":"people","people":[{"id":"…","name":"Ana","voices":3,"sessions":["…"]}]}
 {"type":"session_renamed","id":"…","title":"…","kind":"idea"}
 {"type":"speaker_renamed","session":"…","label":"Eles","name":"Ana"}
-{"type":"transcript_removed","session":"…","who":"Eu","at":1791083841.2}
+{"type":"transcript_removed","session":"…","who":"Eu","at":1791083841.2,"counts":{"lines":40,"answers":2,"notes":1}}
+{"type":"line_merged","session":"…","into":{"who":"Eles","at":1791083840.1},"from":{"who":"Eu","at":1791083841.2},"text":"…","counts":{"lines":40,"answers":2,"notes":1}}
+{"type":"line_split","session":"…","of":{"who":"Eles","at":1791083840.1},"text":"…","new":{"who":"Eles","name":"Ana","at":1791083840.101,"text":"…"},"counts":{"lines":41,"answers":2,"notes":1}}
 {"type":"diarized","session":"…","who":["Speaker 1","Speaker 2",…],"names":["Ana","Speaker 2",…]}
 {"type":"import_date","path":"/home/me/retro.mp4","at":1790759700.0}
 {"type":"import_started","session":{…},"total_s":1834.2}
@@ -1147,6 +1214,15 @@ session it shows:
 {"type":"update_progress","stage":"installing","version":"0.5.0","detail":""}
 {"type":"error","code":"session.none","params":{},"message":"start a session first"}
 ```
+
+`counts` is what the whole session holds: its lines, answers and notes. Every
+session the daemon describes carries it — the one shown, each live one, each
+summary — and so does every event that adds an entry to a session or takes one
+away (`transcript`, `transcript_removed`, `line_merged`, `line_split`,
+`note`, `note_removed`, `suggestion_start`, `suggestion_removed`), with the
+counts after it. A window
+shows these counts and never counts its own timeline, which may hold only part
+of the session. A speaker's `lines` is how many lines carry its label.
 
 `update` is what the daemon knows of releases (§13): the version it runs
 (`current`), the latest release's version (`latest`, `null` before any check
@@ -1177,6 +1253,29 @@ that source's `down` event, until it is back or no transcriber reads it any
 more. An import streamed to its model is a source too, named by its
 participant, kept until it is back or the import stops.
 
+**Timeline pages.** A window holds part of a long session's timeline and asks
+for the rest as it scrolls. `session.timeline <json>` takes `{"id"}` and at
+most one of `"before"`, `"after"` and `"around"`, a time or `null`, with
+`"limit"` (300 when left out; above 0). None of the three is the newest page;
+`before` is the time of the oldest entry the window holds and answers the
+entries said before it, `after` the newest one's and answers those after it,
+and `around` answers the page centred on the first entry said at or after that
+time, for a session opened from a search (§7.1). The answer,
+`session_timeline`, says back the `before`, `after` and `around` asked, so a
+window takes only the page it waits for, and holds the entries oldest first
+with `more_before` and `more_after`: whether the session has entries beyond
+them. A live session and a stored one are asked alike; `session.show` carries
+no timeline. The window puts an older page above and keeps the entry read where
+it was, and keeps at most 1000 entries: while it follows the newest, the oldest
+leave and come back as it scrolls up; a page read above lets the newest go,
+which come back as it scrolls down. A new line, note or answer goes in only
+while the window holds the session's newest entries, and the events that
+change an entry (`transcript_edited`, `transcript_removed`, `translated`, …)
+change it only where the window holds it, and `diarized` has a timeline held
+in part asked for again; the counts come from the daemon, not
+from what the window holds. `eco session show` reads the whole timeline in
+pages of 1000.
+
 ### 10.2 Commands
 
 `action <name>`, `ask <question>`,
@@ -1205,8 +1304,8 @@ ever kept or sent),
 `session.start <json>` (`{"title","kind","language","tags"}`; the kind defaults
 to the first, the tags are added as by `session.tag`;
 it records beside the live ones and is shown; with `"window"`, `session_opened`
-tells that window to show it), `session.timeline <id>` (`session_timeline` of a
-live session),
+tells that window to show it), `session.timeline <json>` (a page of a live or
+stored session's timeline, as §10.1 says),
 `window.show <json>` (`{"window","session"}`: the session a window shows now, or
 `""`), `window.closed <json>` (`{"window"}`: the window is closing and its
 process exiting; it is no longer open, so `overlay.open` opens a new one, and a
@@ -1224,7 +1323,8 @@ that takes one; the newest window open gets `window_call` with its number,
 `session.pause [<id>]`, `session.resume [<id>]`, `session.end [<id>]` (the live
 session named, or the one shown; ending it shows the one shown before),
 `session.toggle` (the one shown),
-`sessions` (list), `sessions.search <text>`, `session.show <id>` (read back),
+`sessions` (list), `sessions.search <text>`, `session.show <id>` (read back:
+`session_detail` with the summary and speakers; the timeline comes in pages),
 `session.delete <id>`, `session.reopen <id>` (resume
 an interrupted or ended one beside the live ones, or show a live one),
 `session.rename <json>` (`{"id","title","kind"}`; a configured kind or the one
@@ -1246,6 +1346,13 @@ and `session_tags` with `{"session","tags"}`, then `tags`), `tag.rename <json>`
 empty text removes the line), `session.line.remove <json>`
 (`{"id","who","at"}`: removes a line of speech, an
 `unheard` record and `transcript_removed`; `line.not_found` when it is gone),
+`session.line.merge <json>` (`{"id","into":{"who","at"},"from":{"who","at"}}`:
+the two lines become the earlier one, a `merged` record and `line_merged`,
+whose `into` is the line kept and `from` the line gone), `session.line.split
+<json>` (`{"id","who","at","offset"}`, the offset in characters of the text: a
+`split` record and `line_split`, whose `new` is the line added right below;
+`line.not_found` when a line is gone, `line.invalid` for a line merged with
+itself or a split that leaves a side empty),
 `people`, `person.assign <json>` (`{"session","label","person","name"}`: a known
 person's id, or `""` and a name — the person called that, or a new one),
 `person.assign_line <json>` (`{"id","who","at","person","name"}`),
@@ -1291,7 +1398,9 @@ it is refused with `daemon.recording`, and the window asks before it sends
 `{detail}`; a second `update.install` while one runs or waits is
 `update.busy`),
 `sync` (no command: the connection answers `synced` to this client alone once
-it has read every line before it, §10) and `stop`.
+it has read every line before it, §10), `events <json>` (no command either:
+`{"except": [types]}`, the event types this connection no longer receives,
+§10) and `stop`.
 
 ---
 
@@ -1485,7 +1594,8 @@ reconnects to the socket on its own.
   newest entry, but an answer streaming taller than the view keeps its top in
   view until the next entry comes, and once the user scrolls up a "↓ N new" pill
   above the composer counts the lines, answers and finished answers that
-  arrived below — a click or End goes back to the end and follows again —; and
+  arrived below — a click or End goes back to the end and follows again —; a
+  long session's entries come in pages as it scrolls (§10.1); and
   at the bottom the composer: the skills as chips numbered for Alt+1…9, which
   run them whether the chips show or not (a window under 560 px tall hides
   them), and a line to ask anything or, with the note button or Shift+Enter, to
@@ -1499,9 +1609,15 @@ reconnects to the socket on its own.
   answer's latency and cache share show on hovering its card's heading, in the
   window showing its session only; errors about a session show only there too.
 - **Lines:** every line shows its speaker and time; clicking a speaker's name
-  names it in that session. × beside a line on hover removes it, or
-  `eco line … --remove`; ✎ beside it corrects it in place (Enter saves, Esc
-  cancels).
+  names it in that session. Clicking a line, its `⋯` (a quiet `IconButton`
+  beside its top), or Enter or the Menu key on it, opens its menu (the kit's
+  `MenuPopup`): correct, the speaker of this line or
+  of all their lines, copy, merge, split, remove. CORRECT opens it in place
+  (Enter saves, Esc cancels). MERGE outlines the line and a strip asks for the
+  line to merge with: the next line clicked, or chosen with Enter, merges, and
+  Esc, CANCEL or the same line again gives up. SPLIT opens the line with its
+  cursor, read-only; SPLIT HERE, or Enter, splits it there. The CLI does the
+  same with `eco line … --remove`, `--text`, `--merge WHO@AT` and `--split`.
 - **Conversation:** a chat — the user's lines on the right, everyone else on
   the left, the speaker's name, time, and color on every line.
 - **Notices:** what the window has to say — a save, a refusal, an error of the
@@ -1542,7 +1658,8 @@ reconnects to the socket on its own.
   says which models a kind runs on once it is picked (`kind_models` in the
   snapshot: `{kind: {"transcription", "chat", "translation", "actions"}}`, each
   model by name or `""` for none, and the actions a model answers there;
-  `default_models` the same for a kind no longer configured), scrolls in a short window with
+  `default_models` the same for a kind no longer configured; `actions` lists
+  every skill, those no model answers too), scrolls in a short window with
   its buttons kept below, and without an input it cannot start: it says so and
   offers the Audio settings.
 - **Several windows:** opening the app again opens another window on a live
@@ -1662,8 +1779,9 @@ reconnects to the socket on its own.
   none carries an index, and its top edge stays where it opened as it grows.
   Tables are one Tab stop: ↑/↓ choose, Enter opens, Delete asks to remove, and
   only the selected row's tools are Tab stops. The timeline is one Tab stop too,
-  entering on the newest entry: ↑/↓/PgUp/PgDn/Home/End move, the entry shows its
-  tools to Tab into, and N names a line's speaker. A view that appears puts the
+  entering on the newest entry: ↑/↓/PgUp/PgDn/Home/End move, a note or an
+  answer shows its tools to Tab into, Enter or Menu opens a line's menu, and N
+  names a line's speaker. A view that appears puts the
   keyboard where it is used (the composer in a session), and scrolling views
   follow the focus. `?` or F1 lists every key.
 - **Motion only where it means something** — a state, new content, or the
@@ -1734,7 +1852,11 @@ A QtQuick `Window` ("eco · settings", fixed and untranslated, as `packaging/hyp
 from the overlay or with `window.call {"call":"config"}` (§10.2).
 It is created the first time it opens and then only shown and hidden: Qt writes
 its pipeline cache to disk when a window is destroyed, and the interface would
-wait for that, often for seconds. Each opening asks the daemon for the config.
+wait for that, often for seconds. What it shows — the rail, the sections and
+their items — is made each time it opens and let go when it closes (a `Loader`
+in `ConfigWindow`), so closed settings hold no memory but the bare window.
+Closing still asks first when an item has changes not saved. Each opening asks
+the daemon for the config.
 It asks for 1040×760, or its screen less a 96 px margin when that is smaller;
 the rule in `packaging/hypr/eco.lua` gives it no size, so it keeps that one, and
 centres it on the screen (without `center`, Hyprland would centre it on the
@@ -1803,9 +1925,13 @@ A part of the config that is not a list item — Context's Global row — has
 DELETE dimmed, `Always kept`; Prompts, whose two rows are both such parts, has
 no ADD or DELETE at all; an item that may not go yet, as the chat default, has
 it dimmed, with why in its tip. Until a chat model is registered, Prompts,
-Context and Skills hold only NO CHAT
-MODEL, what it means, and REGISTER A CHAT MODEL, which opens a new model in
-Models; a kind offers no assistant or translation model then.
+Context and Skills say NO CHAT MODEL above their tables, what it means, and
+REGISTER A CHAT MODEL, which opens a new model in Models; their tables work as
+ever. A kind's assistant and translation pickers, a skill's model picker and
+the reviewer's switch, while off, stay dimmed then, saying `Needs a chat
+model`. What cannot run for want of a model is never hidden: it stays on
+screen, off, its hint saying why (the Kit's `reason`, on `Chip`,
+`TraceButton`, `IconButton`, `Dropdown`, `PickRow` and `ContextChips`).
 
 **An item's screen.** An item opens read (`ItemPage`): its kind, its name, ABOUT — its facts — and RELATED, what it uses and what uses it, side
 by side from 640 px wide; with nothing related, RELATED is left out and ABOUT
@@ -1976,8 +2102,8 @@ table, then closes the window. Keys show only in the shortcuts dialog
   model is set on Models.
 - **Session kinds** (`KindsSection`): the kinds, the default first (suggested
   by the start and import dialogs), each row the kind, DEFAULT on the first and
-  the models its sessions transcribe and, once a chat model is registered,
-  answer with. Read: whether it is the default and its transcription,
+  the models its sessions transcribe and answer with, `No chat model` where
+  none answers. Read: whether it is the default and its transcription,
   assistant and translation models, each its own or the default named with the
   model it inherits; its models and the context slots on from the start in it
   as links; MAKE DEFAULT. Edited: its name, never empty or another kind's, and
@@ -1989,8 +2115,8 @@ table, then closes the window. Keys show only in the shortcuts dialog
 - **Prompts** (`PromptsSection`), what instructions the models get: two rows,
   nothing added or deleted — RULES FOR EVERY ANSWER, `rules`, and REVIEWER
   PROMPT, `[reviewer] prompt`. Read, a prompt shows its text as written
-  (`ItemText`); EDIT holds only that text, in a `SettingsTextArea`. It holds NO
-  CHAT MODEL until a chat model is registered.
+  (`ItemText`); EDIT holds only that text, in a `SettingsTextArea`. It says NO
+  CHAT MODEL above its table until a chat model is registered.
 - **Context** (`ContextSection`): the files sent with answers, each row its
   name, when it is sent and how many files: Global, sent with every answer,
   whose files, in the order they were added, are its child table FILES (ADD
@@ -2043,6 +2169,10 @@ session records; its tooltip is `eco · idle` or `eco · recording · <title>`.
 A click sends `window.call {"call":"focus"}` and the menu's **Open** the same,
 **New session** `new_session`, **Settings** `config` — each the line `eco
 window` sends (§10.2) — and **Stop eco** `stop`, the line `eco stop` sends.
+It draws only the live sessions, from `session`, and takes the errors: on every
+connection it first sends `events` (§10) with every other type the daemon
+sends, the input meters (`signal`, about 31 a second per input) and the words
+being said first among them.
 `tests/window.rs` runs it offscreen and checks the lines and the states.
 
 The tray is part of the windows' lifecycle in `src/adapters/overlay.rs`, but
@@ -2229,7 +2359,14 @@ leaves sessions, config, models and the agent skill.
 
 - **User service:** `packaging/eco.service` runs `eco daemon --headless`
   (`Restart=on-failure`). `eco start` starts it through `systemctl --user`
-  (`src/adapters/service_systemd.rs`) when nothing answers on the socket.
+  (`src/adapters/service_systemd.rs`) when nothing answers on the socket. It
+  sets glibc's allocator for a long-running daemon: `MALLOC_ARENA_MAX=2`, so
+  threads share two arenas instead of one each, and
+  `MALLOC_TRIM_THRESHOLD_=131072`, so memory freed after a peak (a long
+  session read back, speakers clustered) goes back to the system instead of
+  staying resident. Environment, not `malloc_trim` called from the daemon,
+  which would take `unsafe` code. A daemon run some other way, and the daemon
+  on Windows, keep their allocator's defaults.
 - **Hyprland:** `packaging/hypr/eco.lua`, loaded from
   `~/.config/hypr/bindings.lua` by one line `eco setup` adds
   (`src/adapters/desktop_hyprland.rs`):

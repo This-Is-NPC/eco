@@ -10,6 +10,8 @@ Singleton {
   id: root
 
   readonly property bool connected: link.connected
+  // Every skill, by name, those no model answers too: kindModels says which run where.
+  property var actions: []
   // The actions with a hook: their answers can be sent to it.
   property var hooks: []
   property var participants: []
@@ -69,7 +71,72 @@ Singleton {
   function closeCost() { costOf = "" }
   // The timeline of the session on screen: speech turns, notes and suggestion
   // cards, oldest first.
-  property ListModel timeline: ListModel {}
+  property ListModel timeline: ListModel {
+    // Rows appended enter the index; any other change leaves it to be rebuilt.
+    onRowsInserted: (parent, first, last) => {
+      if (root.rows !== null && last === root.timeline.count - 1)
+        for (let i = first; i <= last; i++)
+          root.rows[root.rowKey(root.timeline.get(i))] = i + root.rowShift
+      else
+        root.rows = null
+    }
+    // The oldest rows leaving, as the live cap lets them go, keep the index:
+    // the rows after them move up by as many.
+    onRowsAboutToBeRemoved: (parent, first, last) => {
+      if (root.rows !== null && first === 0 && last < root.timeline.count - 1) {
+        for (let i = first; i <= last; i++)
+          delete root.rows[root.rowKey(root.timeline.get(i))]
+        root.rowShift += last + 1
+      } else {
+        root.rows = null
+      }
+    }
+    onRowsRemoved: if (root.timeline.count === 0) root.rows = ({})
+    onRowsMoved: root.rows = null
+  }
+  // The timeline's row of each entry by rowKey, plus rowShift, or null when it
+  // must be rebuilt.
+  property var rows: ({})
+  onRowsChanged: rowShift = 0
+  // How many rows left the top since the index was built.
+  property int rowShift: 0
+  // rowKey names a row: an answer or a note by its id, a line by when it was heard.
+  function rowKey(row) { return row.key || "@" + row.at }
+  // rowOf gives the timeline's row named `key`, or -1.
+  function rowOf(key) {
+    if (rows === null) {
+      const known = {}
+      for (let i = 0; i < timeline.count; i++)
+        known[rowKey(timeline.get(i))] = i
+      rows = known
+    }
+    const index = rows[key]
+    return index === undefined ? -1 : index - rowShift
+  }
+  // lineRow gives the row of the line `who` said at `at` in the session's
+  // timeline on screen, or -1.
+  function lineRow(sessionId, who, at) {
+    const index = timelineOf(sessionId) ? rowOf("@" + at) : -1
+    return index >= 0 && timeline.get(index).who === who ? index : -1
+  }
+  // Timeline pages (docs/design.md §10): the timeline holds part of a long
+  // session, asked for in pages as the view scrolls.
+  // The entries a page holds, and the most the timeline keeps while the view
+  // follows the newest.
+  readonly property int pageSize: 300
+  readonly property int timelineCap: 1000
+  // Whether the session has entries before or after those the timeline holds.
+  property bool moreBefore: false
+  property bool moreAfter: false
+  // The page asked for and not come yet ({id, before, after, around, limit}), or null.
+  property var timelineAsked: null
+  // Whether the timeline view follows the newest entry, as the view says.
+  property bool timelineFollowing: true
+  // The page the live session shown next asks for first: {} its newest, or {around}.
+  property var nextPage: ({})
+  // A page around a time came: the view shows the entry at `index`.
+  signal timelineJumped(int index)
+  // End of timeline pages.
   // What the window shows without a session on screen: "start", "history" or "people".
   property string view: "start"
   // The views the user came through to `view`; back returns to the last.
@@ -106,8 +173,11 @@ Singleton {
       const input = inputs.find(item => item.participant === who)
       return Object.assign({ who: who, color: input ? inputColor(input.id) : Theme.dim }, links[who])
     })
-  // Session id -> its speakers as the daemon last said: {label, name, person, voice, suggestions, guess}.
+  // Session id -> its speakers as the daemon last said: {label, name, person, voice, suggestions, guess, lines}.
   property var sessionSpeakers: ({})
+  // Session id -> what the whole session holds as the daemon last said:
+  // {lines, answers, notes}, whatever part of it the timeline holds.
+  property var sessionCounts: ({})
   // The people linked to sessions ({id, name, voices, sessions}), by name.
   property var people: []
   // Whether `people` holds what the daemon said: until then no one is unknown.
@@ -138,6 +208,10 @@ Singleton {
   // null while nothing is searched; until an answer comes, the last one stays.
   property string historySearch: ""
   property var historyFound: null
+  // Session id -> when the search answered first mentions it: a found session
+  // opens there.
+  property var historyFoundAt: ({})
+  function foundAt(id) { return historyFound !== null && id in historyFoundAt ? historyFoundAt[id] : null }
   // The search `historyFound` answers: another one is still being asked.
   property string historyAnswered: ""
   readonly property bool historySearching: historySearch !== "" && historyAnswered !== historySearch
@@ -429,16 +503,22 @@ Singleton {
   }
   function historyForPerson(id) { historyPerson = id; openHistory() }
   // showSession puts a session on screen: a live one as it goes on, a stored one
-  // read back.
-  function showSession(id) {
+  // read back; given `at`, around the entry said then, else at its newest.
+  function showSession(id, at) {
+    const page = at === undefined || at === null ? {} : { around: at }
     if (live.some(item => item.id === id)) {
+      if (session !== null && session.id === id && followed === id)
+        askTimeline(id, page)
+      else
+        nextPage = page
       shown = id
       return
     }
     stored = null
-    timeline.clear()
+    clearTimeline()
     shown = id
     send("session.show " + id)
+    askTimeline(id, page)
   }
   function deleteSession(id) { send("session.delete " + id) }
   // isLive tells a session some window records or holds paused now: it cannot be deleted.
@@ -486,19 +566,30 @@ Singleton {
   }
   function editLine(id, who, at, text) { send("session.line.edit " + JSON.stringify({ id: id, who: who, at: at, text: text })) }
   function removeLine(id, who, at) { send("session.line.remove " + JSON.stringify({ id: id, who: who, at: at })) }
+  // >>> line merge and split
+  // `into` and `from` are lines as {who, at}; the earlier keeps its time and speaker.
+  function mergeLines(id, into, from) { send("session.line.merge " + JSON.stringify({ id: id, into: into, from: from })) }
+  // `offset` counts the line's characters, not UTF-16 units.
+  function splitLine(id, who, at, offset) { send("session.line.split " + JSON.stringify({ id: id, who: who, at: at, offset: offset })) }
+  // <<< line merge and split
   function renameSpeaker(id, label, name) { send("session.speaker " + JSON.stringify({ id: id, label: label, name: name })) }
-  // countOf counts the entries of a kind ("speech", "suggestion", "note") in a
-  // session on screen, only `who`'s lines when given; a binding that calls it
-  // follows the timeline's length.
-  function countOf(sessionId, kind, who) {
-    const list = timelineOf(sessionId)
-    let count = 0
-    for (let i = 0; list && i < list.count; i++) {
-      const entry = list.get(i)
-      if (entry.kind === kind && (!who || entry.who === who))
-        count++
-    }
-    return count
+  // countOf gives how many entries of a kind ("lines", "answers", "notes") the
+  // whole session holds, as the daemon last said.
+  function countOf(sessionId, kind) {
+    const counts = sessionCounts[sessionId]
+    return counts ? counts[kind] : 0
+  }
+  // keepCounts keeps the counts the daemon sent for a session, if any.
+  function keepCounts(sessionId, counts) {
+    if (counts)
+      sessionCounts = Object.assign({}, sessionCounts, { [sessionId]: counts })
+  }
+  // keepLiveCounts keeps the counts of each live session.
+  function keepLiveCounts() {
+    const kept = Object.assign({}, sessionCounts)
+    for (const item of live)
+      kept[item.id] = item.counts
+    sessionCounts = kept
   }
   // speakerNames lists the names other speakers go by in a session on screen.
   function speakerNames(sessionId) {
@@ -524,7 +615,7 @@ Singleton {
   function leaveSession() {
     forgetLive()
     stored = null
-    timeline.clear()
+    clearTimeline()
     shown = ""
     openHistory()
   }
@@ -551,31 +642,110 @@ Singleton {
     partials = []
     if (now !== "") {
       stored = null
-      timeline.clear()
+      clearTimeline()
       go("start")
-      send("session.timeline " + now)
-    } else if (onScreen === null) {
-      timeline.clear()
+      askTimeline(now, nextPage)
+      nextPage = ({})
+    } else if (onScreen === null && shown === "") {
+      clearTimeline()
     }
     if (window)
       send("window.show " + JSON.stringify({ window: window, session: now }))
   }
-  // fill adds a timeline's lines, notes and answers to `list`; a live one's
-  // answers still streaming keep streaming.
-  function fill(list, entries, sessionId) {
-    for (const entry of entries) {
+  // Timeline pages (docs/design.md §10).
+  // clearTimeline empties the timeline: another session, or none, is on screen.
+  function clearTimeline() {
+    timeline.clear()
+    moreBefore = false
+    moreAfter = false
+    timelineAsked = null
+  }
+  // askTimeline asks for a page of session `id`'s timeline: {} its newest
+  // entries, {before} or {after} a time, or {around} it.
+  function askTimeline(id, page) {
+    timelineAsked = Object.assign({ id: id, before: null, after: null, around: null, limit: pageSize }, page)
+    send("session.timeline " + JSON.stringify(timelineAsked))
+  }
+  // pageBefore and pageAfter ask for the entries just beyond those held, one
+  // page at a time.
+  function pageBefore() {
+    if (onScreen !== null && timelineAsked === null && moreBefore && timeline.count > 0)
+      askTimeline(onScreen.id, { before: timeline.get(0).at })
+  }
+  function pageAfter() {
+    if (onScreen !== null && timelineAsked === null && moreAfter && timeline.count > 0)
+      askTimeline(onScreen.id, { after: timeline.get(timeline.count - 1).at })
+  }
+  // pageNewest brings back the session's newest entries after older ones were read.
+  function pageNewest() {
+    if (onScreen !== null)
+      askTimeline(onScreen.id, {})
+  }
+  // capTimeline lets the oldest entries go while the view follows the newest;
+  // they come back as it scrolls up.
+  function capTimeline() {
+    if (timelineFollowing && timeline.count > timelineCap) {
+      timeline.remove(0, timeline.count - timelineCap)
+      moreBefore = true
+    }
+  }
+  // endOf is where a new entry of session `sessionId` goes: its timeline when
+  // that holds the session's newest entries, else nowhere.
+  function endOf(sessionId) { return moreAfter ? null : timelineOf(sessionId) }
+  // rowsOf makes a page's lines, notes and answers into timeline rows; a live
+  // session's answers still streaming keep streaming.
+  function rowsOf(entries, sessionId) {
+    const streams = session !== null && session.id === sessionId
+    return entries.map(entry => {
       if (entry.type === "transcript")
-        addSpeech(entry.who, entry.name, entry.text, entry.at, list, entry.translation)
-      else if (entry.type === "note")
-        addNote(entry.id, entry.text, entry.at, list)
-      else {
-        const streaming = sessionId !== "" && !entry.done
-        addSuggestion(entry.id, entry.action, entry.model, entry.prompt, entry.text, streaming, entry.at, list, entry.draft, entry.translation)
-        if (streaming)
-          answerStarted(entry.id, sessionId, entry.action, entry.at)
+        return speechRow(entry.who, entry.name, entry.text, entry.at, entry.translation, false)
+      if (entry.type === "note")
+        return noteRow(entry.id, entry.text, entry.at, false)
+      const streaming = streams && !entry.done
+      if (streaming)
+        answerStarted(entry.id, sessionId, entry.action, entry.at)
+      return suggestionRow(entry.id, entry.action, entry.model, entry.prompt, entry.text, streaming, entry.at, entry.draft, entry.translation, false)
+    })
+  }
+  // paged puts a page that came where it goes: older ones above, newer ones
+  // below, the newest or one around a time in place of what was held. A page
+  // this window did not ask for, or no longer waits for, is not its own.
+  function paged(event) {
+    const asked = timelineAsked
+    if (asked === null || event.session !== asked.id || event.session !== shown
+        || event.before !== asked.before || event.after !== asked.after || event.around !== asked.around)
+      return
+    timelineAsked = null
+    const rows = rowsOf(event.timeline, event.session)
+    if (asked.before !== null) {
+      if (rows.length > 0)
+        timeline.insert(0, rows)
+      moreBefore = event.more_before
+      if (timeline.count > timelineCap) {
+        timeline.remove(timelineCap, timeline.count - timelineCap)
+        moreAfter = true
+      }
+    } else if (asked.after !== null) {
+      if (rows.length > 0)
+        timeline.append(rows)
+      moreAfter = event.more_after
+      if (timeline.count > timelineCap) {
+        timeline.remove(0, timeline.count - timelineCap)
+        moreBefore = true
+      }
+    } else {
+      timeline.clear()
+      if (rows.length > 0)
+        timeline.append(rows)
+      moreBefore = event.more_before
+      moreAfter = event.more_after
+      if (asked.around !== null && rows.length > 0) {
+        const index = rows.findIndex(row => row.at >= asked.around)
+        timelineJumped(index < 0 ? rows.length - 1 : index)
       }
     }
   }
+  // End of timeline pages.
   // setLanguage transcribes a session in `code` from now on.
   function setLanguage(sessionId, code) { send("session.language " + JSON.stringify({ id: sessionId, language: code })) }
   function requestConfig() { send("config") }
@@ -814,10 +984,8 @@ Singleton {
   }
 
   function locate(id) {
-    for (let i = timeline.count - 1; i >= 0; i--)
-      if (timeline.get(i).key === id)
-        return { list: timeline, index: i }
-    return null
+    const index = rowOf(id)
+    return index < 0 ? null : { list: timeline, index: index }
   }
 
   // speaking keeps what `who` is saying now; an empty text drops it.
@@ -839,37 +1007,43 @@ Singleton {
     return onScreen !== null && onScreen.id === sessionId ? timeline : null
   }
 
-  // addSpeech adds a line: `who` is the label its speaker carries, `name` what
-  // the speaker goes by in that session.
-  function addSpeech(who, name, text, at, target, translation) {
-    const list = target
-    list.append({
+  // speechRow is a line: `who` is the label its speaker carries, `name` what
+  // the speaker goes by in that session. `fresh` marks an entry that just
+  // happened, not one read back in a page.
+  function speechRow(who, name, text, at, translation, fresh) {
+    return {
       kind: "speech", key: "", who: who, name: name, text: text, mine: isUser(who), at: at,
       stamp: Qt.formatTime(new Date(at * 1000), "hh:mm:ss"),
       action: "", modelName: "", prompt: "", streaming: false, thinking: "", failure: "", draft: "", hook: "",
-      translation: translation || "", timing: ""
-    })
+      translation: translation || "", timing: "", fresh: fresh
+    }
   }
 
   // `draft` is the unreviewed answer a reviewer rewrote, kept only to inspect;
   // `hook` is how sending it to its action's hook went: "", "sending", "sent" or "failed";
   // `translation` is the answer in the session's translation language.
-  function addSuggestion(id, action, model, prompt, text, streaming, at, target, draft, translation) {
-    target.append({
+  function suggestionRow(id, action, model, prompt, text, streaming, at, draft, translation, fresh) {
+    return {
       kind: "suggestion", key: id, who: "", name: "", text: text, mine: false, at: at,
       stamp: Qt.formatTime(new Date(at * 1000), "hh:mm:ss"),
       action: action, modelName: model, prompt: prompt || "", streaming: streaming, thinking: "", failure: "", draft: draft || "", hook: "",
-      translation: translation || "", timing: ""
-    })
+      translation: translation || "", timing: "", fresh: fresh
+    }
   }
 
-  function addNote(id, text, at, target) {
-    target.append({
+  function noteRow(id, text, at, fresh) {
+    return {
       kind: "note", key: id, who: "", name: "", text: text, mine: true, at: at,
       stamp: Qt.formatTime(new Date(at * 1000), "hh:mm:ss"),
       action: "", modelName: "", prompt: "", streaming: false, thinking: "", failure: "", draft: "", hook: "",
-      translation: "", timing: ""
-    })
+      translation: "", timing: "", fresh: fresh
+    }
+  }
+
+  // arrive adds an entry that just happened at the end of `list`.
+  function arrive(list, row) {
+    list.append(row)
+    capTimeline()
   }
 
   // signalFor gives the InputSignal of an input, creating it on first use.
@@ -885,6 +1059,7 @@ Singleton {
   function handle(event) {
     switch (event.type) {
     case "snapshot":
+      actions = event.actions || []
       hooks = event.hooks || []
       participants = event.participants
       inputs = event.inputs
@@ -902,7 +1077,9 @@ Singleton {
       links = ({})
       // A daemon met again sends the timeline again.
       followed = ""
+      timelineAsked = null
       live = event.live || []
+      keepLiveCounts()
       follow()
       send("people")
       send("tags")
@@ -915,6 +1092,7 @@ Singleton {
       break
     case "session":
       live = event.live || []
+      keepLiveCounts()
       transcribers = event.transcribers || []
       // The rows follow the sessions started, paused, resumed or ended.
       if (view === "history")
@@ -945,10 +1123,7 @@ Singleton {
         Host.hideFromCapture(event.hidden)
       break
     case "session_timeline":
-      if (session !== null && event.session === session.id) {
-        timeline.clear()
-        fill(timeline, event.timeline, session.id)
-      }
+      paged(event)
       break
     case "sessions":
       sessions = event.sessions
@@ -956,6 +1131,7 @@ Singleton {
       break
     case "sessions_found":
       if (event.query === historySearch) {
+        historyFoundAt = event.found_at
         historyFound = event.ids
         historyAnswered = event.query
       }
@@ -1000,8 +1176,16 @@ Singleton {
       break
     }
     case "diarized": {
-      // The session's lines, in order, now carry the speakers told apart.
+      // The session's lines, in order, now carry the speakers told apart; a
+      // timeline holding part of them asks again for the newest it follows, or
+      // for what it holds.
       const list = timelineOf(event.session)
+      if (list && (moreBefore || moreAfter)) {
+        if (list.count > 0)
+          askTimeline(event.session, timelineFollowing ? {} : { around: list.get(Math.floor(list.count / 2)).at })
+        requestSpeakers(event.session)
+        break
+      }
       let index = 0
       for (let i = 0; list && i < list.count; i++) {
         if (list.get(i).kind !== "speech")
@@ -1056,11 +1240,10 @@ Singleton {
     }
     case "session_detail":
       keepSpeakers(event.session.id, event.speakers || [])
+      keepCounts(event.session.id, event.session.counts)
       if (event.session.id !== shown || session !== null)
         break
       stored = event.session
-      timeline.clear()
-      fill(timeline, event.timeline, "")
       break
     case "session_deleted":
       // Its tags count one session less.
@@ -1073,9 +1256,10 @@ Singleton {
       break
     case "transcript": {
       // Several sessions may record at once; a line goes to the one it was heard in.
-      const list = timelineOf(event.session)
+      keepCounts(event.session, event.counts)
+      const list = endOf(event.session)
       if (list)
-        addSpeech(event.who, event.name, event.text, event.at, list, event.translation)
+        arrive(list, speechRow(event.who, event.name, event.text, event.at, event.translation, true))
       if (session !== null && event.session === session.id)
         speaking(event.who, "", "")
       // A source back is settled once it is heard again.
@@ -1095,40 +1279,55 @@ Singleton {
         speaking(event.who, event.name, event.text)
       break
     case "transcript_edited": {
-      const list = timelineOf(event.session)
-      for (let i = 0; list && i < list.count; i++) {
-        const line = list.get(i)
-        if (line.kind === "speech" && line.who === event.who && Math.abs(line.at - event.at) < 1e-6) {
-          list.setProperty(i, "text", event.text)
-          break
-        }
-      }
+      const index = lineRow(event.session, event.who, event.at)
+      if (index >= 0)
+        timeline.setProperty(index, "text", event.text)
       break
     }
     case "transcript_reassigned": {
-      const list = timelineOf(event.session)
-      for (let i = 0; list && i < list.count; i++) {
-        const line = list.get(i)
-        if (line.kind === "speech" && line.who === event.who && Math.abs(line.at - event.at) < 1e-6) {
-          list.setProperty(i, "who", event.label)
-          list.setProperty(i, "name", event.name)
-          break
-        }
+      const index = lineRow(event.session, event.who, event.at)
+      if (index >= 0) {
+        timeline.setProperty(index, "who", event.label)
+        timeline.setProperty(index, "name", event.name)
       }
       break
     }
     case "transcript_removed": {
       // A line the user did not say: the others' audio, heard by the microphone.
-      const list = timelineOf(event.session)
-      for (let i = 0; list && i < list.count; i++) {
-        const line = list.get(i)
-        if (line.kind === "speech" && line.who === event.who && Math.abs(line.at - event.at) < 1e-6) {
-          list.remove(i)
-          break
-        }
+      keepCounts(event.session, event.counts)
+      const index = lineRow(event.session, event.who, event.at)
+      if (index >= 0)
+        timeline.remove(index)
+      break
+    }
+    // >>> line merge and split
+    // The merged line takes the text and loses its translation until the new
+    // one comes; the other line goes.
+    case "line_merged": {
+      keepCounts(event.session, event.counts)
+      const into = lineRow(event.session, event.into.who, event.into.at)
+      if (into >= 0) {
+        timeline.setProperty(into, "text", event.text)
+        timeline.setProperty(into, "translation", "")
+      }
+      const from = lineRow(event.session, event.from.who, event.from.at)
+      if (from >= 0)
+        timeline.remove(from)
+      break
+    }
+    // The split line keeps its left part; the right part is a new line right
+    // below, held only where the split line is.
+    case "line_split": {
+      keepCounts(event.session, event.counts)
+      const row = lineRow(event.session, event.of.who, event.of.at)
+      if (row >= 0) {
+        timeline.setProperty(row, "text", event.text)
+        timeline.setProperty(row, "translation", "")
+        timeline.insert(row + 1, speechRow(event.new.who, event.new.name, event.new.text, event.new.at, "", false))
       }
       break
     }
+    // <<< line merge and split
     case "session_speakers":
       keepSpeakers(event.session, event.speakers)
       break
@@ -1143,13 +1342,15 @@ Singleton {
       break
     }
     case "note": {
-      const list = timelineOf(event.session)
+      keepCounts(event.session, event.counts)
+      const list = endOf(event.session)
       if (list)
-        addNote(event.id, event.text, event.at, list)
+        arrive(list, noteRow(event.id, event.text, event.at, true))
       break
     }
     case "note_removed":
     case "suggestion_removed": {
+      keepCounts(event.session, event.counts)
       flushStream()
       // A failed answer stays on screen with its reason until the user closes it.
       const found = locate(event.id)
@@ -1168,9 +1369,10 @@ Singleton {
       signalFor(event.input).push(event.level, event.speech)
       break
     case "suggestion_start": {
-      const list = timelineOf(event.session)
+      keepCounts(event.session, event.counts)
+      const list = endOf(event.session)
       if (list)
-        addSuggestion(event.id, event.action, event.model, event.prompt, "", true, event.at, list)
+        arrive(list, suggestionRow(event.id, event.action, event.model, event.prompt, "", true, event.at, "", "", true))
       answerStarted(event.id, event.session, event.action, event.at)
       break
     }
@@ -1193,15 +1395,9 @@ Singleton {
     }
     case "translated": {
       // A line is found by when it was heard, an answer by its id.
-      const list = timelineOf(event.session)
-      for (let i = 0; list && i < list.count; i++) {
-        const row = list.get(i)
-        const match = event.id ? row.key === event.id : row.kind === "speech" && Math.abs(row.at - event.at) < 1e-6
-        if (match) {
-          list.setProperty(i, "translation", event.text)
-          break
-        }
-      }
+      const index = timelineOf(event.session) ? rowOf(event.id || "@" + event.at) : -1
+      if (index >= 0)
+        timeline.setProperty(index, "translation", event.text)
       break
     }
     case "session_translation": {

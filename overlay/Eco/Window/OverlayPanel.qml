@@ -264,22 +264,28 @@ Window {
           }
         }
 
-        Stage {
+        // Each made when first shown: the sessions list kept after, for its
+        // filters; the people and the cost let go once they leave.
+        ViewStage {
+          objectName: "history"
           anchors.fill: parent
           shown: panel.current === "history"
-          HistoryView { anchors.fill: parent; active: parent.shown }
+          kept: true
+          view: HistoryView {}
         }
 
-        Stage {
+        ViewStage {
+          objectName: "people"
           anchors.fill: parent
           shown: panel.current === "people"
-          PeopleView { anchors.fill: parent; active: parent.shown }
+          view: PeopleView {}
         }
 
-        Stage {
+        ViewStage {
+          objectName: "cost"
           anchors.fill: parent
           shown: panel.current === "cost"
-          CostView { anchors.fill: parent; active: parent.shown }
+          view: CostView {}
         }
 
         // The session on screen, live or stored. The keyboard starts in a live

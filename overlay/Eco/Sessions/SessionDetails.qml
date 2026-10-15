@@ -31,11 +31,15 @@ Rectangle {
   signal closeRequested()
 
   height: Math.min(head.implicitHeight + 13 + 12 + rows.implicitHeight + 26 + 2, maxHeight)
-  // Opened, it asks for the speakers as they are now.
-  onShownChanged: if (shown) {
+  // Opened, it asks for the speakers as they are now; laid out first, as it is
+  // made when it opens.
+  function opened() {
     Eco.requestSpeakers(sessionId)
+    rows.ensurePolished()
     page.scrollTo(speakers.guessing ? speakers.y : 0)
   }
+  onShownChanged: if (shown) opened()
+  Component.onCompleted: if (shown) opened()
   color: Theme.background
   border.color: Theme.line
 
@@ -59,9 +63,9 @@ Rectangle {
         Eco.stateName(details.session.state),
         I18n.when(details.session.started_at),
         I18n.elapsed(Eco.ranFor(details.sessionId) ?? details.session.duration_s),
-        I18n.t("history.speech", { n: Eco.countOf(details.sessionId, "speech") }),
-        I18n.t("details.answers", { n: Eco.countOf(details.sessionId, "suggestion") }),
-        I18n.t("details.notes", { n: Eco.countOf(details.sessionId, "note") })
+        I18n.t("history.speech", { n: Eco.countOf(details.sessionId, "lines") }),
+        I18n.t("details.answers", { n: Eco.countOf(details.sessionId, "answers") }),
+        I18n.t("details.notes", { n: Eco.countOf(details.sessionId, "notes") })
       ].join("  ·  ").toUpperCase() : ""
       color: Theme.dim
       font.pixelSize: 10

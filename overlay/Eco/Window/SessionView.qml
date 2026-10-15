@@ -106,7 +106,7 @@ ColumnLayout {
           Eco.kindName(Eco.stored.kind),
           I18n.when(Eco.stored.started_at),
           I18n.elapsed(Eco.stored.duration_s),
-          I18n.t("history.speech", { n: Eco.stored.speech }),
+          I18n.t("history.speech", { n: Eco.countOf(Eco.stored.id, "lines") }),
           Eco.stored.source === "import" ? I18n.t("session.imported") : "",
           Eco.stored.state === "interrupted" ? I18n.t("session.interrupted")
             : Eco.stored.state === "importing" ? I18n.t("import.progress") : ""
@@ -157,24 +157,28 @@ ColumnLayout {
         : Eco.recording ? I18n.t("timeline.listening") : I18n.t("timeline.paused")
     }
 
-    SessionDetails {
+    // The details exist only while open or fading out.
+    Loader {
       anchors { left: parent.left; right: parent.right; top: parent.top }
-      maxHeight: parent.height
-      session: Eco.onScreen
-      shown: view.detailsOpen
-      compact: view.compact
-      languageShown: view.joined && view.compact
-      costShown: !view.costInMast
       visible: opacity > 0
+      active: visible
       opacity: view.detailsOpen ? 1 : 0
       Behavior on opacity { NumberAnimation { duration: 140 } }
-      // The close leaves with the panel: the keyboard goes where Esc puts it.
-      onCloseRequested: {
-        view.detailsClosed()
-        if (view.live)
-          view.focusEntry()
-        else
-          view.forceActiveFocus()
+      sourceComponent: SessionDetails {
+        maxHeight: conversation.height
+        session: Eco.onScreen
+        shown: view.detailsOpen
+        compact: view.compact
+        languageShown: view.joined && view.compact
+        costShown: !view.costInMast
+        // The close leaves with the panel: the keyboard goes where Esc puts it.
+        onCloseRequested: {
+          view.detailsClosed()
+          if (view.live)
+            view.focusEntry()
+          else
+            view.forceActiveFocus()
+        }
       }
     }
   }

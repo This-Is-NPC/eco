@@ -13,6 +13,9 @@ use crate::adapters::control_socket::{self, Address};
 use crate::adapters::local_socket::{self, ConnectError, ReadHalf, Stream, WriteHalf};
 use crate::domain::session::same_tag;
 
+/// The timeline entries `eco session show` asks for at a time.
+const READ_PAGE: usize = 1000;
+
 /// What the CLI asks the daemon.
 pub enum Request {
     Sessions {
@@ -120,6 +123,10 @@ pub enum LineChange {
     Remove,
     /// Its text becomes this.
     Edit(String),
+    /// It and the line this speaker said at this time become one.
+    Merge(String, f64),
+    /// It splits before this character.
+    Split(usize),
 }
 
 /// Who a speaker is.
@@ -435,7 +442,7 @@ impl Client {
                 };
                 self.sessions(filter, search.as_deref()).await
             }
-            Request::Show { id } => self.show(&id).await,
+            Request::Show { id } => self.read(&id).await,
             Request::Delete { id } => self.delete(&id).await,
             Request::Rename { id, title, kind } => self.rename(&id, title, kind).await,
             Request::Ask { id, question } => {
@@ -650,20 +657,53 @@ impl Client {
         .await
     }
 
-    /// A session's summary, its timeline and its speakers.
+    /// A session's summary and its speakers.
     async fn show(&mut self, id: &str) -> Result<Value, Failure> {
         self.send(&format!("session.show {id}")).await?;
         self.until(|event| {
             if event["type"] == "session_detail" && event["session"]["id"] == id {
-                let detail = json!({
-                    "session": event["session"], "timeline": event["timeline"],
-                    "speakers": event["speakers"],
-                });
+                let detail = json!({"session": event["session"], "speakers": event["speakers"]});
                 return Some(Ok(detail));
             }
             failure_in(event, &["session.not_found"]).map(Err)
         })
         .await
+    }
+
+    /// A session's summary, its whole timeline, read in pages from the newest,
+    /// and its speakers.
+    async fn read(&mut self, id: &str) -> Result<Value, Failure> {
+        let detail = self.show(id).await?;
+        let mut pages: Vec<Vec<Value>> = Vec::new();
+        let mut before = Value::Null;
+        loop {
+            let page = json!({"id": id, "before": before, "limit": READ_PAGE});
+            self.send(&format!("session.timeline {page}")).await?;
+            let (entries, more) = self
+                .until(|event| {
+                    if event["type"] == "session_timeline"
+                        && event["session"] == id
+                        && event["before"] == before
+                        && event["after"].is_null()
+                        && event["around"].is_null()
+                    {
+                        let entries = event["timeline"].as_array().cloned().unwrap_or_default();
+                        return Some(Ok((entries, event["more_before"] == true)));
+                    }
+                    failure_in(event, &["session.not_found", "session.invalid"]).map(Err)
+                })
+                .await?;
+            let oldest = entries.first().map(|entry| entry["at"].clone());
+            pages.push(entries);
+            match oldest {
+                Some(at) if more => before = at,
+                _ => break,
+            }
+        }
+        let timeline: Vec<Value> = pages.into_iter().rev().flatten().collect();
+        Ok(
+            json!({"session": detail["session"], "timeline": timeline, "speakers": detail["speakers"]}),
+        )
     }
 
     async fn delete(&mut self, id: &str) -> Result<Value, Failure> {
@@ -856,7 +896,7 @@ impl Client {
         .await
     }
 
-    /// Remove or correct a line; returns what became of it.
+    /// Remove, correct, merge or split a line; returns what became of it.
     async fn line(
         &mut self,
         id: &str,
@@ -871,17 +911,35 @@ impl Client {
                 line["text"] = json!(text);
                 "session.line.edit"
             }
+            LineChange::Merge(other, other_at) => {
+                line = json!({"id": id, "into": {"who": who, "at": at},
+                              "from": {"who": other, "at": other_at}});
+                "session.line.merge"
+            }
+            LineChange::Split(offset) => {
+                line["offset"] = json!(offset);
+                "session.line.split"
+            }
         };
         self.send(&format!("{command} {line}")).await?;
+        // A merge or a split names its lines as `{"who", "at"}`.
+        let named = |line: &Value| line["who"] == who && line["at"].as_f64() == Some(at);
         self.until(|event| {
-            let ours =
-                event["session"] == id && event["who"] == who && event["at"].as_f64() == Some(at);
+            let session = event["session"] == id;
+            let ours = session && named(event);
             match event["type"].as_str() {
                 Some("transcript_removed") if ours => Some(Ok(
                     json!({"session": id, "who": who, "at": at, "removed": true}),
                 )),
                 Some("transcript_edited") if ours => Some(Ok(
                     json!({"session": id, "who": who, "at": at, "text": event["text"]}),
+                )),
+                Some("line_merged") if session && (named(&event["into"]) || named(&event["from"])) => {
+                    Some(Ok(json!({"session": id, "into": event["into"],
+                                   "from": event["from"], "text": event["text"]})))
+                }
+                Some("line_split") if session && named(&event["of"]) => Some(Ok(
+                    json!({"session": id, "of": event["of"], "text": event["text"], "new": event["new"]}),
                 )),
                 _ => failure_in(event, &["session.", "line."]).map(Err),
             }
@@ -1661,6 +1719,44 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn lines_are_merged_and_split_by_who_and_when() {
+        let other = json!({"type": "line_merged", "session": "n1", "into": {"who": "Eu", "at": 9.0},
+                           "from": {"who": "Eu", "at": 9.5}, "text": "x"});
+        let ours = json!({"type": "line_merged", "session": "n1", "into": {"who": "Eu", "at": 1.0},
+                          "from": {"who": "Eles", "at": 1.5}, "text": "Oi. Tudo bem?"});
+        let mut client = talking_to(
+            r#"session.line.merge {"id":"n1","into":{"who":"Eles","at":1.5},"from":{"who":"Eu","at":1.0}}"#,
+            vec![other, ours],
+        );
+        let merged = client
+            .line("n1", "Eles", 1.5, LineChange::Merge("Eu".into(), 1.0))
+            .await
+            .unwrap();
+        assert_eq!(merged["text"], "Oi. Tudo bem?");
+        assert_eq!(merged["into"], json!({"who": "Eu", "at": 1.0}));
+
+        let split = json!({"type": "line_split", "session": "n1", "of": {"who": "Eles", "at": 1.5},
+                           "text": "Oi.", "new": {"who": "Eles", "name": "Ana", "at": 1.501, "text": "Tudo bem?"}});
+        let mut client = talking_to(
+            r#"session.line.split {"id":"n1","who":"Eles","at":1.5,"offset":3}"#,
+            vec![split],
+        );
+        let split = client
+            .line("n1", "Eles", 1.5, LineChange::Split(3))
+            .await
+            .unwrap();
+        assert_eq!(split["new"]["text"], "Tudo bem?");
+
+        let invalid = json!({"type": "error", "code": "line.invalid", "message": "no room"});
+        let mut client = talking_to(
+            r#"session.line.split {"id":"n1","who":"Eles","at":1.5,"offset":0}"#,
+            vec![invalid],
+        );
+        let failed = client.line("n1", "Eles", 1.5, LineChange::Split(0)).await;
+        assert_eq!(failed.unwrap_err().code, "line.invalid");
+    }
+
+    #[tokio::test]
     async fn an_argument_with_a_line_break_is_never_sent() {
         for id in ["x\nconfig.set {}", "x\rstop"] {
             let (ours, mut theirs) = local_socket::pair();
@@ -2205,16 +2301,61 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_session_is_shown_with_its_timeline_and_speakers() {
-        let detail = json!({"type": "session_detail", "session": {"id": "n1"},
-            "timeline": [{"who": "Eles"}], "speakers": [], "extra": 1});
+    async fn a_session_is_shown_with_its_whole_timeline_read_in_pages_and_its_speakers() {
+        let detail =
+            json!({"type": "session_detail", "session": {"id": "n1"}, "speakers": [], "extra": 1});
         let other = json!({"type": "session_detail", "session": {"id": "other"}});
-        let mut client = talking_to("session.show n1", vec![other, detail]);
+        let page = |before: Value, ats: &[f64], more: bool| {
+            let entries: Vec<Value> = ats
+                .iter()
+                .map(|at| json!({"who": "Eles", "at": at}))
+                .collect();
+            json!({"type": "session_timeline", "session": "n1", "before": before, "after": null,
+                "around": null, "timeline": entries, "more_before": more, "more_after": false})
+        };
+        // Another window's page is not this one's.
+        let elsewhere = json!({"type": "session_timeline", "session": "n1", "before": 9.0,
+            "after": null, "around": null, "timeline": [{"at": 8.0}], "more_before": false});
+        let mut client = conversing(vec![
+            ("session.show n1", vec![other, detail]),
+            (
+                r#"session.timeline {"id":"n1","before":null,"limit":1000}"#,
+                vec![elsewhere, page(Value::Null, &[3.0, 4.0], true)],
+            ),
+            (
+                r#"session.timeline {"id":"n1","before":3.0,"limit":1000}"#,
+                vec![page(json!(3.0), &[1.0, 2.0], false)],
+            ),
+        ]);
         let request = Request::Show { id: "n1".into() };
+        let ats: Vec<f64> = [1.0, 2.0, 3.0, 4.0].into();
+        let timeline: Vec<Value> = ats
+            .iter()
+            .map(|at| json!({"who": "Eles", "at": at}))
+            .collect();
         assert_eq!(
             client.handle(request).await,
-            Ok(json!({"session": {"id": "n1"}, "timeline": [{"who": "Eles"}], "speakers": []}))
+            Ok(json!({"session": {"id": "n1"}, "timeline": timeline, "speakers": []}))
         );
+    }
+
+    #[tokio::test]
+    async fn a_session_without_entries_is_shown_with_an_empty_timeline() {
+        let detail = json!({"type": "session_detail", "session": {"id": "n1"}, "speakers": []});
+        let empty = json!({"type": "session_timeline", "session": "n1", "before": null, "after": null,
+            "around": null, "timeline": [], "more_before": false, "more_after": false});
+        let mut client = conversing(vec![
+            ("session.show n1", vec![detail]),
+            (
+                r#"session.timeline {"id":"n1","before":null,"limit":1000}"#,
+                vec![empty],
+            ),
+        ]);
+        let shown = client
+            .handle(Request::Show { id: "n1".into() })
+            .await
+            .unwrap();
+        assert_eq!(shown["timeline"], json!([]));
     }
 
     #[tokio::test]

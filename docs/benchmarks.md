@@ -74,6 +74,32 @@ neither is on.
 
 ## Diarization (2026-10-05)
 
+eco now clusters online, as it hears each region (design.md §4). Its
+numbers come first; the tables after them are from the average-linkage
+clustering eco ran when the recording ended, kept to compare.
+
+### Online clustering (2026-10-14)
+
+The same four dev meetings, collar 0, CAM++, merge distance 0.3, min share
+2% (`mise run bench:diarization`, release build). Missed speech 19.5% and
+false alarm 3.7% are the same for every threshold: only who is who changes.
+Speakers found are per meeting, against 4 in each.
+
+| New-speaker threshold | 0.3 | 0.4 | 0.5 | 0.6 | **0.7** | 0.8 |
+|---|---|---|---|---|---|---|
+| Confusion % | 6.0 | 5.3 | 6.7 | 5.9 | **5.7** | 11.2 |
+| DER % | 29.2 | 28.5 | 29.9 | 29.1 | **28.9** | 34.4 |
+| Speakers found (IS1008a, ES2011a, TS3004a, IB4001) | 27, 31, 31, 32 | 17, 29, 32, 26 | 13, 15, 22, 28 | 8, 8, 11, 12 | **4, 4, 8, 7** | 4, 3, 4, 4 |
+
+A merge distance of 0.4 gave the same table within 0.1 point; 0.5 joined two
+of ES2011a's speakers (confusion 34%). eco starts a speaker at 0.7: the
+fewest extra speakers short of joining real ones, at 2.4 points of DER and
+2.4 of confusion more than the clustering at the end (26.5 / 3.3 below).
+TS3004a still finds 8 speakers and IB4001 7. 51–58× real time; peak RSS
+319 MB is the harness, which holds the whole WAV.
+
+### Average linkage at the end (2026-10-05)
+
 `mise run bench:diarization <dir>`: eco's diarization over 16 kHz mono WAVs
 with a reference RTTM (and UEM). Silero VAD and the segmenter cut speech
 regions as in a session; WeSpeaker CAM++ (Apache-2.0, through tract) embeds
@@ -418,3 +444,45 @@ here, and its tests run on Windows.
 | `src/adapters/notify_linux.rs` | new | 84.48% (9 of 58) | `NotifySend::notify`, which runs the real `notify-send` on a thread of its own and would show a notification on the desktop of whoever runs the tests; the arguments it builds and what it says when the program fails or is missing (`command`, `run`) are tested. |
 | `src/session.rs` | 96.79% | 96.81% | as in the update section; `notifier()`, one composition line that builds the real `NotifySend`; in `emitter()`, the terminal's line, which needs a terminal (`emitter()` is tested without one, and the terminal's printing in `src/adapters/terminal.rs`). |
 | `src/adapters/overlay.rs`, `src/config.rs` | 96.25%, 99.80% | 96.36%, 99.80% | as before. |
+
+## Long meetings (2026-10-14)
+
+Release builds of this tree and of the commit before it, each against its own
+isolated home and socket, the window offscreen and driven over its test
+socket; anonymous memory is the window's or the daemon's `Pss_Anon` or
+`Anonymous` after a forced `gc()`. Synthetic data: lines of random words, an
+answer every 120 lines, a translation of each.
+
+| What | Before | After |
+|---|---|---|
+| Window, live session fed 6000 lines: anon growth per 1000 lines | 11.0 MB (12.5 overall) | 6.6 MB (8.7 overall); feeding events for a session not on screen grows the same harness by 6.0 MB per 1000, so the timeline's own share is about 0.6 MB |
+| Window, rows held after 6000 live lines | 6050 | 1000 (the live cap) |
+| Window, 6000 lines put in at once (one page in `tests/window/counts.qml`) | 57 s (an earlier run) | 43–47 ms; 6050 translations after it 13–14 ms |
+| Window, a stored 6000-line session opened | shown in 24.1–24.8 s, anon 131 → 210 MB, then 255 MB | shown in 0.06–0.37 s with its newest 300 entries, anon +0–4 MB |
+| Window, idle at start | 54 MB | 35 MB |
+| Window, settings opened then closed | made at start, so no step | +18 MB at the first opening, kept after it closes; opening it again adds 0–1 MB |
+| Daemon, 300 stored sessions of 300 lines: `sessions`, `people`, `tags`, `sessions.search` | idle 168 MB anon, 278 MB after the first calls; 0.12–0.18 s each | 29 MB anon idle, 32 MB after; 0.02 s each, search 0.10–0.12 s |
+| `signal` events while a session records, to a client that leaves out `signal` as the tray does | 31.2 per second (every client took every event) | 0; a plain client still gets 31.2 per second |
+| Diarizer child, 3 h of synthetic speech in 4 s regions | peak 374 MB RSS, climbing from 0 to 353 MB anon in the 20 s of clustering at the end | peak 124 MB RSS, 101–103 MB anon in the first and last quarter; stopping ends it with no step; it prints 2400 lines, 42 MB in all, one per region |
+
+The search still reads each log whose title and tags do not hold the words,
+for its lines.
+
+## Meeting performance coverage (2026-10-14)
+
+Measured with `mise run coverage` on the tree that added timeline counts and
+pages, line merge and split, the session index, event subscriptions and live
+diarization; line numbers read from `cargo llvm-cov report
+--show-missing-lines`. Before is master at the commit the change started from.
+The whole crate: 96.95% of lines before, 97.15% after. Files whose numbers
+did not move are not named.
+
+| File | Lines before | Lines after | Left without a test, and why |
+|---|---|---|---|
+| `src/domain/index.rs` | new | 98.51% (2 of 134) | no line is named as missed: the report lists none, and its per-line view shows none at zero. |
+| `src/domain/diarization.rs` | 100.00% (0 of 421) | 99.86% (1 of 702) | as for `index.rs`: the summary counts one line that no line view shows at zero. |
+| `src/adapters/session_files.rs` | 99.70% (1 of 338) | 99.67% (2 of 605) | as for `index.rs`, before and after. |
+| `src/domain/assistant.rs` | 99.62% | 99.72% | states no command sequence reaches (2700, 2703, 3158, 3165, 3238–3239), and in `voices_heard` two joined speakers that hold the same label (1128): a label goes to one speaker only, so no update builds it. |
+| `src/adapters/diarizer_process.rs` | 95.69% | 97.61% | `spawn()` and `serve()`, the one-line entry points into the real `eco diarize` and its stdin and stdout; a `panic!` that reports a failed test. |
+| `src/adapters/control_socket.rs` | 97.53% | 97.66% | as before, and a test's wait for its two clients to connect. |
+| `src/domain/session.rs`, `src/session.rs`, `src/import.rs`, `src/main.rs`, `src/cli.rs` | 98.21%, 96.81%, 97.15%, 88.90%, 99.90% | 98.24%, 96.91%, 97.59%, 89.32%, 99.91% | as before. |

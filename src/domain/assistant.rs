@@ -1,6 +1,7 @@
 //! Runs the session: its lifecycle, what it hears, and actions over its timeline.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
+use std::ops::Range;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
@@ -13,16 +14,18 @@ use tokio::time::Instant;
 use crate::domain::action::Action;
 use crate::domain::billing::{Joined, Requests, priced, shares};
 use crate::domain::channel::Utterance;
-use crate::domain::diarization::{Diarization, normalized, speaker_of};
+use crate::domain::diarization::{Labelled, Labels, Said, dot, normalized};
 use crate::domain::echo;
 use crate::domain::events::{Event, error};
+use crate::domain::index::Indexed;
 use crate::domain::people::{GUESSING, Match, Person, SUGGESTING, ranked};
 use crate::domain::prompts::{
     LANGUAGES, action_request, conversation, question_request, review, translation,
 };
 use crate::domain::session::{
-    ENDED, Entry, HeardBy, INTERRUPTED, LIVE, LogError, Note, PAUSED, RECORDING, Rate, Session,
-    Source, Speech, Suggestion, Unclosed, folded, now, same_tag, summarize, tag_counts, tag_name,
+    ENDED, Entry, HeardBy, INTERRUPTED, LIVE, LineError, LogError, Note, PAUSED, Page, RECORDING,
+    Rate, Session, Source, Speech, Suggestion, Unclosed, folded, now, same_tag, summarize,
+    tag_counts, tag_name,
 };
 use crate::domain::transcribers::Listening;
 use crate::ports::{
@@ -37,6 +40,10 @@ const TRANSLATIONS_AT_ONCE: usize = 3;
 /// How many stored sessions stay in memory once read or asked about; past it,
 /// the least recently used idle one leaves, its log still holding all of it.
 const LOADED_STORED: usize = 8;
+
+/// A live speaker's kept voice is replaced once their voice moved this far
+/// from it: a cosine below this.
+const MOVED: f32 = 0.98;
 
 /// Why an answer is not asked for while no chat model answers its session.
 const NO_CHAT: &str = "no chat model answers sessions of this kind";
@@ -233,6 +240,68 @@ fn guess(session: &Session, label: &str, ranking: &[Match]) -> Option<Match> {
         .cloned()
 }
 
+/// The voices a session keeps, read once.
+fn voices_of<'a>(
+    kept: &'a mut Option<BTreeMap<String, Vec<f32>>>,
+    people: &dyn PeopleStore,
+    session_id: &str,
+) -> &'a mut BTreeMap<String, Vec<f32>> {
+    kept.get_or_insert_with(|| people.voices(session_id))
+}
+
+/// The voice to keep for a live speaker who now sounds like `voice`, joined
+/// with the one their label had before them; `None` while it is close to the
+/// one last kept.
+fn moved(labelled: &Labelled, voice: &[f32]) -> Option<Vec<f32>> {
+    let current = match &labelled.base {
+        Some(base) => normalized(base.iter().zip(voice).map(|(a, b)| a + b).collect()),
+        None => voice.to_vec(),
+    };
+    let kept = labelled.kept.as_ref();
+    let still = kept.is_some_and(|kept| dot(kept, &current) >= MOVED);
+    (!still).then_some(current)
+}
+
+/// The label a live speaker of the input heard as `who` takes, with `voice`:
+/// that of a voice the session keeps close to theirs (≥ 0.70) and no other
+/// speaker of the input took, else `who` while no voice has it, else a new
+/// `Speaker N`.
+fn label_for(
+    session: &Session,
+    who: &str,
+    voice: Option<&[f32]>,
+    voices: &BTreeMap<String, Vec<f32>>,
+    labels: &Labels,
+) -> Labelled {
+    let taken: Vec<&str> = labels.values().map(|l| l.label.as_str()).collect();
+    let close = voice.and_then(|voice| {
+        voices
+            .iter()
+            .filter(|(label, _)| !taken.contains(&label.as_str()))
+            .map(|(label, kept)| (label, dot(kept, voice)))
+            .filter(|(_, score)| *score >= GUESSING)
+            .max_by(|a, b| a.1.total_cmp(&b.1))
+    });
+    if let Some((label, _)) = close {
+        return Labelled {
+            label: label.clone(),
+            base: voices.get(label).cloned(),
+            kept: None,
+        };
+    }
+    let label = if voices.contains_key(who) || taken.contains(&who) {
+        let given = labels.values().map(|l| &l.label);
+        let next = next_speaker(session.labels().iter().chain(voices.keys()).chain(given));
+        format!("Speaker {next}")
+    } else {
+        who.to_string()
+    };
+    Labelled {
+        label,
+        ..Labelled::default()
+    }
+}
+
 fn rounded(score: f32) -> f64 {
     (f64::from(score) * 100.0).round() / 100.0
 }
@@ -248,12 +317,22 @@ fn millis(duration: Duration) -> u64 {
 }
 
 /// What clients hear when the entry `id` leaves a session: a note or an answer.
-fn removed_event(entry: Option<&Entry>, id: &str) -> Event {
+fn removed_event(session: &Session, entry: Option<&Entry>, id: &str) -> Event {
     let kind = match entry {
         Some(Entry::Note(_)) => "note_removed",
         _ => "suggestion_removed",
     };
-    json!({"type": kind, "id": id})
+    counted(
+        json!({"type": kind, "session": session.id, "id": id}),
+        session,
+    )
+}
+
+/// `event`, about an entry added to or gone from `session`, with the session's
+/// counts after it.
+fn counted(mut event: Event, session: &Session) -> Event {
+    event["counts"] = session.counts();
+    event
 }
 
 fn note_event(note: &Note) -> Event {
@@ -267,13 +346,12 @@ fn suggestion_event(s: &Suggestion) -> Event {
     })
 }
 
-/// A session's timeline as events, each line and answer with its translation into
-/// the session's translation language when there is one.
-pub fn timeline_events(session: &Session) -> Vec<Event> {
+/// The entries of a session's timeline in `range` as events, each line and answer
+/// with its translation into the session's translation language when there is one.
+pub fn timeline_events(session: &Session, range: Range<usize>) -> Vec<Event> {
     let language = session.translation();
     let translated = |of: Source| language.and_then(|l| session.translation_of(&of, l));
-    session
-        .timeline
+    session.timeline[range]
         .iter()
         .map(|entry| {
             let (mut event, of) = match entry {
@@ -652,42 +730,82 @@ impl Assistant {
         self.announce(&mut state);
     }
 
-    /// Announce the timeline of the live session `session_id`, for a window that
-    /// shows it.
-    pub fn timeline(&self, session_id: &str) {
-        let state = self.state();
-        if !state.is_live(session_id) {
-            return self.not_found(session_id);
+    // Timeline pages (docs/design.md §10).
+    /// Announce a page of the timeline of session `session_id`, live or stored,
+    /// for a window that shows it: at most `limit` entries, oldest first, and
+    /// whether the session has more before and after them.
+    pub fn timeline(&self, session_id: &str, page: Page, limit: usize) {
+        let mut state = self.state();
+        if let Err(event) = self.load(&mut state, session_id) {
+            return self.emit(event);
         }
+        let session = &state.loaded[session_id];
+        let range = session.page(page, limit);
+        let asked = |at: Option<f64>| at.map_or(Value::Null, |at| json!(at));
+        let (before, after, around) = match page {
+            Page::Newest => (None, None, None),
+            Page::Before(at) => (Some(at), None, None),
+            Page::After(at) => (None, Some(at), None),
+            Page::Around(at) => (None, None, Some(at)),
+        };
         self.emit(json!({
             "type": "session_timeline", "session": session_id,
-            "timeline": timeline_events(&state.loaded[session_id]),
+            "before": asked(before), "after": asked(after), "around": asked(around),
+            "more_before": range.start > 0, "more_after": range.end < session.timeline.len(),
+            "timeline": timeline_events(session, range),
         }));
     }
+    // End of timeline pages.
 
     /// A stored session's summary, read now: one left open that no daemon holds
     /// is interrupted; its transcription costs what the setup's prices say.
     fn summary_of(&self, records: &[Record]) -> Result<Value, LogError> {
         let state = self.state();
         let setup = state.setup.as_deref();
-        let mut summary = summarize(records, |model| rate_in(setup, model))?;
-        let open = matches!(summary["state"].as_str(), Some(RECORDING | PAUSED));
-        if open && !summary["id"].as_str().is_some_and(|id| state.is_live(id)) {
-            summary["state"] = json!(INTERRUPTED);
-        }
-        Ok(summary)
+        let summary = summarize(records, |model| rate_in(setup, model))?;
+        Ok(settled(&state, summary))
     }
+
+    // The session index (docs/design.md §8).
+
+    /// Every stored session as the index keeps it, newest first, its cost
+    /// priced as `setup` prices it.
+    fn indexed(&self, setup: Option<&Setup>) -> Vec<Indexed> {
+        let rate = |model: &str| rate_in(setup, model);
+        let entry = |records: &[Record]| Indexed::of(records, rate).json();
+        let fresh = |kept: &Value| Indexed::read(kept).is_some_and(|kept| kept.priced_at(rate));
+        let entries = self.inner.log.index(&entry, &fresh);
+        entries.iter().filter_map(Indexed::read).collect()
+    }
+
+    /// The stored sessions `entries` name, read back from their logs.
+    fn restored<'a>(&self, entries: impl IntoIterator<Item = &'a Indexed>) -> Vec<Session> {
+        entries
+            .into_iter()
+            .filter_map(Indexed::id)
+            .filter_map(|id| self.inner.log.read(id))
+            .filter_map(|records| Session::restore(&records, Box::new(|_| {})).ok())
+            .collect()
+    }
+
+    // End of the session index.
 
     /// Announce every stored session, newest first; an unreadable log is skipped, not fatal.
     pub fn sessions(&self) {
+        let setup = self.state().setup.clone();
         let (found, unreadable): (Vec<_>, Vec<_>) = self
-            .inner
-            .log
-            .all()
-            .iter()
-            .map(|records| self.summary_of(records))
-            .partition(Result::is_ok);
-        let found: Vec<Value> = found.into_iter().map(Result::unwrap).collect();
+            .indexed(setup.as_deref())
+            .into_iter()
+            .map(|entry| entry.summary)
+            .partition(Option::is_some);
+        let found: Vec<Value> = {
+            let state = self.state();
+            found
+                .into_iter()
+                .flatten()
+                .map(|summary| settled(&state, summary))
+                .collect()
+        };
         self.emit(json!({"type": "sessions", "sessions": found}));
         if !unreadable.is_empty() {
             let count = unreadable.len();
@@ -704,20 +822,36 @@ impl Assistant {
     /// answers hold `query`, ignoring case and accents; newest first.
     pub fn search(&self, query: &str) {
         let needle = folded(query.trim());
-        let ids: Vec<String> = self
-            .inner
-            .log
-            .all()
+        let setup = self.state().setup.clone();
+        // A session its title or tags name is found without reading its log, and
+        // opens at its newest; any other is read for when it first mentions it.
+        let found: Vec<(String, Option<f64>)> = self
+            .indexed(setup.as_deref())
             .iter()
-            .filter_map(|records| Session::restore(records, Box::new(|_| {})).ok())
-            .filter(|session| session.mentions(&needle))
-            .map(|session| session.id)
+            .filter_map(|entry| {
+                let id = entry.id()?.to_string();
+                if entry.named(&needle) {
+                    return Some((id, None));
+                }
+                let session = self.restored([entry]).pop()?;
+                let at = session.first_mention(&needle);
+                (at.is_some() || session.named(&needle)).then_some((id, at))
+            })
             .collect();
-        self.emit(json!({"type": "sessions_found", "query": query, "ids": ids}));
+        // When each first mentions it, for a window to open it there.
+        let found_at: serde_json::Map<String, Value> = found
+            .iter()
+            .filter_map(|(id, at)| at.map(|at| (id.clone(), json!(at))))
+            .collect();
+        let ids: Vec<String> = found.into_iter().map(|(id, _)| id).collect();
+        self.emit(
+            json!({"type": "sessions_found", "query": query, "ids": ids, "found_at": found_at}),
+        );
     }
 
-    /// Announce one stored session with its timeline, to read it back. What is
-    /// still untranslated is translated now, when the session translates.
+    /// Announce one stored session and its speakers, to read it back; its timeline
+    /// comes in pages (`timeline`). What is still untranslated is translated now,
+    /// when the session translates.
     pub fn show(&self, session_id: &str) {
         let setup = self.state().setup.clone();
         let summary = self.inner.log.read(session_id).and_then(|records| {
@@ -727,17 +861,16 @@ impl Assistant {
             let storage = self.inner.log.storage(session_id)?;
             summary["path"] = json!(storage.path);
             summary["bytes"] = json!(storage.bytes);
-            let timeline = timeline_events(&session);
             let missing = session.translation().map(|language| {
                 let lines = session.untranslated(language);
                 (session.kind.clone(), language.to_string(), lines)
             });
-            Some((summary, timeline, speakers, missing))
+            Some((summary, speakers, missing))
         });
         match summary {
-            Some((summary, timeline, speakers, missing)) => {
+            Some((summary, speakers, missing)) => {
                 self.emit(json!({
-                    "type": "session_detail", "session": summary, "timeline": timeline, "speakers": speakers,
+                    "type": "session_detail", "session": summary, "speakers": speakers,
                 }));
                 if let (Some(setup), Some((kind, language, lines))) = (setup, missing) {
                     for (of, text) in lines {
@@ -895,6 +1028,7 @@ impl Assistant {
         let everyone = self.inner.people.people();
         let name_of = |id: &str| everyone.iter().find(|p| p.id == id).map(|p| p.name.clone());
         let described = |m: &Match| json!({"person": m.person, "name": name_of(&m.person), "score": rounded(m.score)});
+        let lines = session.lines_by_label();
         session
             .labels()
             .iter()
@@ -915,6 +1049,7 @@ impl Assistant {
                     "label": label, "name": session.name_of(label), "person": person,
                     "color": session.color_of(label), "voice": voices.contains_key(label),
                     "suggestions": suggestions, "guess": guess.as_ref().map(described),
+                    "lines": lines.get(label.as_str()).copied().unwrap_or_default(),
                 })
             })
             .collect()
@@ -950,103 +1085,137 @@ impl Assistant {
         }
     }
 
-    /// What diarization found in a live input heard as `who`: each line, by its
-    /// time and its span in the input, goes to the voice that said most of it. A
-    /// voice close to one the session already keeps takes that speaker's label,
-    /// a single voice keeps `who`, and any other becomes a new `Speaker N`. The
-    /// voices are kept, so the session's speakers can be guessed for the user to
-    /// confirm; a speaker already identified adds the voice to their person's.
-    pub fn voices_heard(
-        &self,
-        session_id: &str,
-        who: &str,
-        lines: &[(f64, f64, f64)],
-        diarization: &Diarization,
-    ) {
-        let said: Vec<(f64, usize)> = lines
+    /// What diarization made known of a live input heard as `who`, for one
+    /// session. A speaker gets a label the first time one of their lines is
+    /// known: the label of a voice the session keeps that theirs is close to,
+    /// else `who` for the input's first voice, else a new `Speaker N`; their
+    /// lines move to it as they become known. Speakers found to be one share a
+    /// label: the lines of the one without a person move to the other's. A
+    /// speaker's voice is kept when it first comes and again whenever it
+    /// moved, so the session's speakers are guessed as the meeting goes; a
+    /// speaker already identified adds the voice to their person's.
+    pub fn voices_heard(&self, session_id: &str, who: &str, said: &Said, labels: &mut Labels) {
+        let joins = said
+            .merged
             .iter()
-            .filter_map(|&(at, start, end)| {
-                speaker_of(&diarization.turns, start, end).map(|speaker| (at, speaker))
-            })
-            .collect();
-        let mut found: Vec<usize> = Vec::new();
-        for &(_, speaker) in &said {
-            if !found.contains(&speaker) {
-                found.push(speaker);
-            }
-        }
-        if found.is_empty() {
+            .any(|(gone, _)| labels.contains_key(gone));
+        let drifted = said.voices.iter().any(|(speaker, voice)| {
+            let labelled = labels.get(speaker);
+            labelled.is_some_and(|labelled| moved(labelled, voice).is_some())
+        });
+        if said.lines.is_empty() && !joins && !drifted {
             return;
         }
+        let people = &*self.inner.people;
+        let mut kept: Option<BTreeMap<String, Vec<f32>>> = None;
+        let (mut changed, mut fresh) = (false, false);
         let mut state = self.state();
-        let mut voices = self.inner.people.voices(session_id);
         let heard = self.edit_session(&mut state, session_id, |session| {
-            let mut next = next_speaker(session.labels().iter().chain(voices.keys()));
-            let mut labels: Vec<String> = Vec::new();
-            for &speaker in &found {
-                let voice = &diarization.voices[speaker];
-                let kept = voices
-                    .iter()
-                    .filter(|(label, _)| !labels.contains(label))
-                    .map(|(label, kept)| {
-                        (
-                            label,
-                            kept.iter().zip(voice).map(|(a, b)| a * b).sum::<f32>(),
-                        )
-                    })
-                    .filter(|(_, score)| *score >= GUESSING)
-                    .max_by(|a, b| a.1.total_cmp(&b.1))
-                    .map(|(label, _)| label.clone());
-                let label = kept.unwrap_or_else(|| {
-                    if found.len() == 1 && !voices.contains_key(who) {
-                        who.to_string()
-                    } else {
-                        next += 1;
-                        format!("Speaker {}", next - 1)
+            let mut moves: Vec<(String, f64, String)> = Vec::new();
+            for &(gone, into) in &said.merged {
+                let Some(from) = labels.remove(&gone) else {
+                    continue;
+                };
+                use std::collections::btree_map::Entry as Slot;
+                let to = match labels.entry(into) {
+                    Slot::Vacant(slot) => {
+                        slot.insert(from);
+                        continue;
                     }
-                });
-                labels.push(label);
+                    Slot::Occupied(slot) => slot.into_mut(),
+                };
+                if to.label == from.label {
+                    continue;
+                }
+                let persons = (session.person_of(&from.label), session.person_of(&to.label));
+                let (left, joined) = match persons {
+                    // The user told them apart: their lines stay.
+                    (Some(a), Some(b)) if a != b => continue,
+                    (Some(_), None) => {
+                        let left = std::mem::replace(to, from);
+                        (left.label, to.label.clone())
+                    }
+                    _ => (from.label, to.label.clone()),
+                };
+                let lines = session.lines_of(&left);
+                moves.extend(
+                    lines
+                        .into_iter()
+                        .map(|at| (left.clone(), at, joined.clone())),
+                );
+                changed |= voices_of(&mut kept, people, session_id)
+                    .remove(&left)
+                    .is_some();
             }
-            let pairs: Vec<(f64, String)> = said
-                .iter()
-                .map(|(at, speaker)| {
-                    let index = found.iter().position(|s| s == speaker).expect("found");
-                    (*at, labels[index].clone())
+            for &(at, speaker) in &said.lines {
+                let label = match labels.get(&speaker) {
+                    Some(labelled) => labelled.label.clone(),
+                    None => {
+                        let voices = voices_of(&mut kept, people, session_id);
+                        let labelled = label_for(
+                            session,
+                            who,
+                            said.voices.get(&speaker).map(Vec::as_slice),
+                            voices,
+                            labels,
+                        );
+                        let label = labelled.label.clone();
+                        labels.insert(speaker, labelled);
+                        fresh = true;
+                        label
+                    }
+                };
+                if label != who {
+                    moves.push((who.to_string(), at, label));
+                }
+            }
+            let mut enrolled: Vec<(String, String, Vec<f32>)> = Vec::new();
+            for (speaker, labelled) in labels.iter_mut() {
+                let Some(current) = said.voices.get(speaker).and_then(|v| moved(labelled, v))
+                else {
+                    continue;
+                };
+                labelled.kept = Some(current.clone());
+                let voices = voices_of(&mut kept, people, session_id);
+                voices.insert(labelled.label.clone(), current.clone());
+                changed = true;
+                if let Some(person) = session.person_of(&labelled.label) {
+                    enrolled.push((person.to_string(), labelled.label.clone(), current));
+                }
+            }
+            let told: Vec<Event> = session
+                .voice_lines(&moves)
+                .into_iter()
+                .map(|(was, at, label)| {
+                    json!({
+                        "type": "transcript_reassigned", "session": session_id,
+                        "who": was, "at": at, "name": session.name_of(&label), "label": label,
+                    })
                 })
                 .collect();
-            let relabelled = session.split_speaker(who, &pairs);
-            let names: Vec<String> = relabelled
-                .iter()
-                .map(|label| session.name_of(label).to_string())
-                .collect();
-            let people: Vec<Option<String>> = labels
-                .iter()
-                .map(|label| session.person_of(label).map(String::from))
-                .collect();
-            (labels, people, relabelled, names)
+            (told, enrolled)
         });
-        let Some((labels, people, relabelled, names)) = heard else {
+        let Some((told, enrolled)) = heard else {
             return;
         };
-        for ((label, person), &speaker) in labels.iter().zip(&people).zip(&found) {
-            let voice = &diarization.voices[speaker];
-            let merged = match voices.get(label) {
-                Some(kept) => normalized(kept.iter().zip(voice).map(|(a, b)| a + b).collect()),
-                None => voice.clone(),
-            };
-            if let Some(mut person) = person.as_deref().and_then(|id| self.person(id)) {
-                person.enroll(session_id, label, merged.clone());
-                self.save_person(&person);
-            }
-            voices.insert(label.clone(), merged);
-        }
-        if let Err(failure) = self.inner.people.keep_voices(session_id, &voices) {
+        if let Some(voices) = kept.filter(|_| changed)
+            && let Err(failure) = people.keep_voices(session_id, &voices)
+        {
             self.store_failed(&failure);
         }
+        for (person_id, label, voice) in enrolled {
+            if let Some(mut person) = self.person(&person_id) {
+                person.enroll(session_id, &label, voice);
+                self.save_person(&person);
+            }
+        }
         drop(state);
-        self.emit(
-            json!({"type": "diarized", "session": session_id, "who": relabelled, "names": names}),
-        );
+        for event in told {
+            self.emit(event);
+        }
+        if changed || fresh {
+            self.announce_speakers(session_id);
+        }
     }
 
     /// Tell clients who a session's speakers are now.
@@ -1080,11 +1249,13 @@ impl Assistant {
 
     /// Every stored session linked to `person_id`, with any speaker labels.
     fn sessions_with(&self, person_id: &str) -> Vec<(String, Vec<String>)> {
-        self.inner
-            .log
-            .all()
+        let setup = self.state().setup.clone();
+        let indexed = self.indexed(setup.as_deref());
+        let linked = indexed
             .iter()
-            .filter_map(|records| Session::restore(records, Box::new(|_| {})).ok())
+            .filter(|entry| entry.listed("people").iter().any(|id| id == person_id));
+        self.restored(linked)
+            .iter()
             .filter(|session| session.person_ids().iter().any(|id| id == person_id))
             .map(|session| (session.id.clone(), session.labels_of(person_id)))
             .collect()
@@ -1092,11 +1263,12 @@ impl Assistant {
 
     /// Announce everyone known: name, how many voices, the sessions they are in.
     pub fn people(&self) {
+        let setup = self.state().setup.clone();
         let mut taking_part: Vec<(String, String)> = Vec::new();
-        for records in self.inner.log.all() {
-            if let Ok(session) = Session::restore(&records, Box::new(|_| {})) {
-                for person in session.person_ids() {
-                    taking_part.push((person, session.id.clone()));
+        for entry in self.indexed(setup.as_deref()) {
+            if let Some(id) = entry.id() {
+                for person in entry.listed("people") {
+                    taking_part.push((person, id.to_string()));
                 }
             }
         }
@@ -1119,12 +1291,17 @@ impl Assistant {
     }
 
     pub fn adopt_live_speakers(&self) {
+        let setup = self.state().setup.clone();
+        let indexed = self.indexed(setup.as_deref());
+        let live = indexed.iter().filter(|entry| {
+            entry
+                .summary
+                .as_ref()
+                .is_some_and(|summary| summary["source"] == LIVE)
+        });
         let pending: Vec<(String, String, String)> = self
-            .inner
-            .log
-            .all()
-            .iter()
-            .filter_map(|records| Session::restore(records, Box::new(|_| {})).ok())
+            .restored(live)
+            .into_iter()
             .filter(|session| session.source == LIVE)
             .flat_map(|session| {
                 session
@@ -1636,30 +1813,150 @@ impl Assistant {
                 let person = session.person_of(who).map(String::from);
                 let removed = session.unhear(who, at);
                 let retired = removed && !session.labels().iter().any(|label| label == who);
-                (removed, retired, person)
+                (removed, retired, person, session.counts())
             })
         };
         match removed {
-            Some((true, retired, person)) => {
+            Some((true, retired, person, counts)) => {
                 if retired {
-                    if let Some(mut person) = person.and_then(|id| self.person(&id)) {
-                        person.unenroll(session_id, who);
-                        self.save_person(&person);
-                    }
-                    let mut voices = self.inner.people.voices(session_id);
-                    if voices.remove(who).is_some()
-                        && let Err(failure) = self.inner.people.keep_voices(session_id, &voices)
-                    {
-                        self.store_failed(&failure);
-                    }
+                    self.retire(session_id, who, person);
                 }
-                self.emit(json!({"type": "transcript_removed", "session": session_id, "who": who, "at": at}));
+                self.emit(json!({"type": "transcript_removed", "session": session_id, "who": who, "at": at,
+                                 "counts": counts}));
                 self.announce_speakers(session_id);
                 self.announce_attendees(session_id);
                 self.sessions();
                 self.people();
             }
-            Some((false, _, _)) => self.line_not_found(session_id, who, at),
+            Some((false, ..)) => self.line_not_found(session_id, who, at),
+            None => self.not_found(session_id),
+        }
+    }
+
+    /// The speaker `who`, once `person`, has no line left in a session: the
+    /// person no longer speaks in it and the voice kept for the speaker goes.
+    fn retire(&self, session_id: &str, who: &str, person: Option<String>) {
+        if let Some(mut person) = person.and_then(|id| self.person(&id)) {
+            person.unenroll(session_id, who);
+            self.save_person(&person);
+        }
+        let mut voices = self.inner.people.voices(session_id);
+        if voices.remove(who).is_some()
+            && let Err(failure) = self.inner.people.keep_voices(session_id, &voices)
+        {
+            self.store_failed(&failure);
+        }
+    }
+
+    fn line_failed(&self, session_id: &str, failure: LineError, detail: &str) {
+        match failure {
+            LineError::NotFound(who, at) => self.line_not_found(session_id, &who, at),
+            LineError::Invalid => self.emit(error(
+                "line.invalid",
+                format!("session {session_id}: {detail}"),
+                json!({"id": session_id}),
+            )),
+        }
+    }
+
+    /// Translate again, when the session translates, the lines a merge or a
+    /// split rewrote.
+    fn retranslate(
+        &self,
+        session_id: &str,
+        again: Option<(Arc<Setup>, String, String)>,
+        lines: &[&Speech],
+    ) {
+        let Some((setup, kind, language)) = again else {
+            return;
+        };
+        for line in lines {
+            let of = Source::Line(line.at);
+            self.translate(&setup, session_id, &kind, &language, of, line.text.clone());
+        }
+    }
+
+    /// Merge two lines of a session — open, loaded or stored — into the earlier
+    /// one: their texts in time order, its time and speaker. Clients update it
+    /// and drop the other; the context and the export see one line.
+    pub fn merge_lines(&self, session_id: &str, into: (&str, f64), from: (&str, f64)) {
+        let merged = {
+            let mut state = self.state();
+            let setup = state.setup.clone();
+            self.edit_session(&mut state, session_id, |session| {
+                let people =
+                    [into.0, from.0].map(|who| (who, session.person_of(who).map(String::from)));
+                let (kept, gone) = session.merge_lines(into, from)?;
+                let retired = !session.labels().contains(&gone.who);
+                let person = people
+                    .into_iter()
+                    .find(|(who, _)| *who == gone.who)
+                    .and_then(|(_, p)| p);
+                let again = setup
+                    .zip(session.translation())
+                    .map(|(setup, language)| (setup, session.kind.clone(), language.to_string()));
+                let event = json!({
+                    "type": "line_merged", "session": session_id,
+                    "into": {"who": kept.who, "at": kept.at},
+                    "from": {"who": gone.who, "at": gone.at}, "text": kept.text,
+                });
+                let event = counted(event, session);
+                Ok::<_, LineError>((kept, gone, retired, person, again, event))
+            })
+        };
+        match merged {
+            Some(Ok((kept, gone, retired, person, again, event))) => {
+                if retired {
+                    self.retire(session_id, &gone.who, person);
+                }
+                self.emit(event);
+                self.retranslate(session_id, again, &[&kept]);
+                if retired {
+                    self.announce_speakers(session_id);
+                    self.announce_attendees(session_id);
+                    self.people();
+                }
+                self.sessions();
+            }
+            Some(Err(failure)) => {
+                self.line_failed(session_id, failure, "a line merges only into another line")
+            }
+            None => self.not_found(session_id),
+        }
+    }
+
+    /// Split the line `who` said at `at` in a session — open, loaded or stored —
+    /// before its character `offset`: it keeps the left part, and the right part
+    /// becomes a new line of theirs right below it.
+    pub fn split_line(&self, session_id: &str, who: &str, at: f64, offset: usize) {
+        let split = {
+            let mut state = self.state();
+            let setup = state.setup.clone();
+            self.edit_session(&mut state, session_id, |session| {
+                let (kept, new) = session.split_line(who, at, offset)?;
+                let name = session.name_of(&new.who);
+                let again = setup
+                    .zip(session.translation())
+                    .map(|(setup, language)| (setup, session.kind.clone(), language.to_string()));
+                let event = json!({
+                    "type": "line_split", "session": session_id,
+                    "of": {"who": kept.who, "at": kept.at}, "text": kept.text,
+                    "new": {"who": new.who, "name": name, "at": new.at, "text": new.text},
+                });
+                Ok::<_, LineError>((kept, new, again, counted(event, session)))
+            })
+        };
+        match split {
+            Some(Ok((kept, new, again, event))) => {
+                self.emit(event);
+                self.retranslate(session_id, again, &[&kept, &new]);
+                self.sessions();
+            }
+            Some(Err(failure)) => self.line_failed(
+                session_id,
+                failure,
+                "a line splits only inside its text, with room before the next entry",
+            ),
             None => self.not_found(session_id),
         }
     }
@@ -1721,19 +2018,23 @@ impl Assistant {
 
     /// Every session's id and tags, stored or only in memory, oldest first.
     fn tagged(&self) -> Vec<(String, Vec<String>)> {
-        let stored: Vec<Session> = self
-            .inner
-            .log
-            .all()
-            .iter()
-            .filter_map(|records| Session::restore(records, Box::new(|_| {})).ok())
-            .collect();
+        let setup = self.state().setup.clone();
+        let stored = self.indexed(setup.as_deref());
         let state = self.state();
         let mut sessions: Vec<(f64, String, Vec<String>)> = stored
             .iter()
-            .filter(|session| !state.loaded.contains_key(&session.id))
-            .chain(state.loaded.values())
-            .map(|s| (s.started_at, s.id.clone(), s.tags().to_vec()))
+            .filter_map(|entry| {
+                let id = entry.id()?;
+                let started_at = entry.summary.as_ref()?["started_at"].as_f64()?;
+                Some((started_at, id.to_string(), entry.listed("tags")))
+            })
+            .filter(|(_, id, _)| !state.loaded.contains_key(id))
+            .chain(
+                state
+                    .loaded
+                    .values()
+                    .map(|s| (s.started_at, s.id.clone(), s.tags().to_vec())),
+            )
             .collect();
         sessions.sort_by(|a, b| a.0.total_cmp(&b.0));
         sessions
@@ -2037,14 +2338,19 @@ impl Assistant {
         if setup.transcription_billing.is_empty() {
             return;
         }
-        let stored: Vec<Session> = self
-            .inner
-            .log
-            .all()
+        let indexed = self.indexed(Some(&*setup));
+        let billed: HashSet<&str> = indexed
             .iter()
-            .filter_map(|records| Session::restore(records, Box::new(|_| {})).ok())
+            .flat_map(|entry| entry.billed.iter().map(String::as_str))
             .collect();
-        let billed: HashSet<&str> = stored.iter().flat_map(Session::billed).collect();
+        // Only a session with a request never billed, or one a provider can still price, is read.
+        let stored = self.restored(indexed.iter().filter(|entry| {
+            entry.unclosed
+                || entry
+                    .unpaid
+                    .iter()
+                    .any(|model| setup.transcription_billing.contains_key(model))
+        }));
         // Requests left open, by id, with each session that listened to them.
         let mut unclosed: BTreeMap<String, Vec<(String, Unclosed)>> = BTreeMap::new();
         for session in &stored {
@@ -2177,7 +2483,10 @@ impl Assistant {
             }
         }
         let speech = session.hear_at(&utterance.who, &text, at);
-        self.emit(speech_event(session, &speech, utterance.latency));
+        self.emit(counted(
+            speech_event(session, &speech, utterance.latency),
+            session,
+        ));
         if let Some(language) = session.translation().map(String::from) {
             let of = Source::Line(speech.at);
             self.translate(
@@ -2205,7 +2514,7 @@ impl Assistant {
             session.unhear(&user, at);
             let removed =
                 json!({"type": "transcript_removed", "session": session.id, "who": user, "at": at});
-            self.emit(removed);
+            self.emit(counted(removed, session));
         }
         line
     }
@@ -2293,7 +2602,7 @@ impl Assistant {
         let note = session.note(text);
         let mut event = note_event(&note);
         event["session"] = json!(session.id);
-        self.emit(event);
+        self.emit(counted(event, session));
     }
 
     /// The id of the session `session_id` names — the open one when it is none —
@@ -2371,10 +2680,11 @@ impl Assistant {
     ) {
         let session = state.pick(target);
         let suggestion = session.suggest(action, model, prompt, request);
-        self.emit(json!({
+        let start = json!({
             "type": "suggestion_start", "id": suggestion.id, "session": session.id, "action": suggestion.action,
             "model": suggestion.model, "prompt": suggestion.prompt, "at": suggestion.at,
-        }));
+        });
+        self.emit(counted(start, session));
         let queue = state.answering.entry(target.to_string()).or_default();
         if queue.running.is_none() {
             return self.stream(state, &suggestion.id);
@@ -2886,8 +3196,12 @@ impl Assistant {
         if state.holder(id).is_some() {
             return self.remove_from(&mut state, id);
         }
-        match self.edit_session(&mut state, session_id, |session| session.remove(id)) {
-            Some(removed) => self.emit(removed_event(removed.as_ref(), id)),
+        let removed = self.edit_session(&mut state, session_id, |session| {
+            let removed = session.remove(id);
+            removed_event(session, removed.as_ref(), id)
+        });
+        match removed {
+            Some(event) => self.emit(event),
             None => self.not_found(session_id),
         }
     }
@@ -2908,11 +3222,11 @@ impl Assistant {
                 streaming = true;
             }
         }
-        if let Some(removed) = state
-            .holder(suggestion_id)
-            .and_then(|session| session.remove(suggestion_id))
-        {
-            self.emit(removed_event(Some(&removed), suggestion_id));
+        if let Some(event) = state.holder(suggestion_id).and_then(|session| {
+            let removed = session.remove(suggestion_id)?;
+            Some(removed_event(session, Some(&removed), suggestion_id))
+        }) {
+            self.emit(event);
         }
         if let Some(session) = session {
             if streaming {
@@ -2943,6 +3257,7 @@ impl Assistant {
         let setup = state.setup.as_deref();
         let session = json!({
             "type": "snapshot",
+            "actions": setup.map(|s| s.actions.iter().map(|a| a.name.clone()).collect::<Vec<_>>()).unwrap_or_default(),
             "hooks": setup
                 .map(|s| s.actions.iter().filter(|a| s.hook_of(&a.name).is_some()).map(|a| a.name.clone()).collect::<Vec<_>>())
                 .unwrap_or_default(),
@@ -2999,6 +3314,7 @@ fn session_json(m: &Session) -> Value {
         "contexts": m.contexts(),
         "tags": m.tags(),
         "translating": m.translation(),
+        "counts": m.counts(),
     })
 }
 
@@ -3075,6 +3391,16 @@ impl Drop for Bills {
 }
 
 /// What `setup` knows of the transcription model `model`'s price.
+/// A stored session's `summary` as it stands now: one left open that no
+/// daemon holds is interrupted.
+fn settled(state: &State, mut summary: Value) -> Value {
+    let open = matches!(summary["state"].as_str(), Some(RECORDING | PAUSED));
+    if open && !summary["id"].as_str().is_some_and(|id| state.is_live(id)) {
+        summary["state"] = json!(INTERRUPTED);
+    }
+    summary
+}
+
 fn rate_in(setup: Option<&Setup>, model: &str) -> Rate {
     setup.map_or_else(Rate::default, |setup| Rate {
         per_minute: setup.transcription_prices.get(model).copied(),
@@ -3337,7 +3663,8 @@ mod tests {
     /// The timeline of the session shown, as a window showing it gets it.
     fn shown_timeline(assistant: &Assistant) -> Vec<Value> {
         let state = assistant.state();
-        timeline_events(state.session().expect("a session is shown"))
+        let session = state.session().expect("a session is shown");
+        timeline_events(session, 0..session.timeline.len())
     }
 
     fn kinds(events: &Events) -> Vec<String> {
@@ -3465,7 +3792,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let log: Arc<dyn SessionLog> = Arc::new(SessionFiles::new(directory.path().into()));
         let mut said = Session::begin("Kickoff", "meeting", LIVE, "pt", log.writer());
-        said.hear_at("Eles", "A reunião de prazo fica para sexta.", now());
+        let heard = said.hear_at("Eles", "A reunião de prazo fica para sexta.", now());
         let mut removed = Session::begin("Daily", "meeting", LIVE, "pt", log.writer());
         let line = removed.hear_at("Eles", "O prazo mudou.", now());
         removed.unhear("Eles", line.at);
@@ -3489,6 +3816,14 @@ mod tests {
         assert_eq!(found("reuniao"), [said.id.clone()]);
         assert_eq!(found("ideias"), [noted.id.clone()]);
         assert!(found("mudou").is_empty(), "a removed line is not there");
+        // A window opens each where it is first mentioned; a title has no time.
+        assistant.search("reuniao");
+        assert_eq!(
+            last_of(&events, "sessions_found")["found_at"],
+            json!({said.id.clone(): heard.at})
+        );
+        assistant.search("ideias");
+        assert_eq!(last_of(&events, "sessions_found")["found_at"], json!({}));
     }
 
     #[test]
@@ -3675,8 +4010,14 @@ mod tests {
             .find(|e| e["type"] == "session_detail")
             .cloned()
             .unwrap();
-        assert_eq!(detail["timeline"][0]["translation"], "In English.");
+        assert!(
+            detail.get("timeline").is_none(),
+            "the timeline comes in pages"
+        );
         assert_eq!(detail["session"]["translating"], "en");
+        assistant.timeline(&id, Page::Newest, 300);
+        let page = last_of(&events, "session_timeline");
+        assert_eq!(page["timeline"][0]["translation"], "In English.");
 
         assistant.set_translation(&id, "ja");
         settle().await;
@@ -4602,6 +4943,8 @@ mod tests {
         settle().await;
         assert_eq!(last_of(&events, "suggestion_end")["type"], "suggestion_end");
         assert_eq!(cheap.calls.lock().unwrap()[0].0, "cheap/model");
+        // Every skill still reaches clients, those nothing answers too, to be shown off.
+        assert_eq!(assistant.snapshot()[0]["actions"], json!(["probe", "ask"]));
     }
 
     #[tokio::test]
@@ -5109,7 +5452,7 @@ mod tests {
         );
         // A window that shows the first asks for its timeline.
         events.lock().unwrap().clear();
-        assistant.timeline(&first);
+        assistant.timeline(&first, Page::Newest, 300);
         let timeline = events.lock().unwrap()[0].clone();
         assert_eq!(timeline["type"], "session_timeline");
         assert_eq!(timeline["session"], json!(first));
@@ -5274,7 +5617,7 @@ mod tests {
             .map(|e| e["id"].as_str().unwrap().to_string())
             .collect();
         assistant.remove(&closed, &answers[0]);
-        assistant.show(&closed);
+        assistant.timeline(&closed, Page::Newest, 300);
         let detail = events.lock().unwrap().last().unwrap().clone();
         let kept: Vec<&str> = detail["timeline"]
             .as_array()
@@ -5664,8 +6007,6 @@ mod tests {
 
     #[test]
     fn live_voices_are_guessed_until_the_user_decides() {
-        use crate::domain::diarization::Turn;
-
         let directory = tempfile::tempdir().unwrap();
         let log = Arc::new(SessionFiles::new(directory.path().join("sessions")));
         let store: Arc<dyn PeopleStore> =
@@ -5674,72 +6015,190 @@ mod tests {
         let sink = Arc::clone(&events);
         let emit: Emit = Arc::new(move |event| sink.lock().unwrap().push(event));
         let assistant = Assistant::new(emit, log.clone(), store.clone(), no_hooks());
-        let last = |kind: &str| {
-            let events = events.lock().unwrap();
-            let found = events.iter().rev().find(|e| e["type"] == kind);
-            found.cloned().unwrap()
-        };
+        let last = |kind: &str| last_of(&events, kind);
         let mut ana = Person::new("Ana");
         ana.enroll("earlier", "Speaker 1", vec![1.0, 0.0, 0.0]);
         store.save(&ana).unwrap();
-        let turn = |start, end, speaker| Turn {
-            start,
-            end,
-            speaker,
-        };
 
-        // Two voices among the others: the lines split, nobody is named.
+        // Two voices among the others: the input's first keeps its label, the
+        // other's lines move as they are known, and nobody is named.
         let mut call = Session::begin("Call", "meeting", LIVE, "pt", log.writer());
         call.hear_at("Eles", "Oi.", 10.0);
         call.hear_at("Eu", "Olá.", 11.0);
         call.hear_at("Eles", "Tudo bem?", 12.0);
         call.hear_at("Eles", "Vamos.", 14.0);
-        let diarization = Diarization {
-            turns: vec![turn(0.0, 3.0, 0), turn(3.0, 6.0, 1)],
-            voices: vec![normalized(vec![0.99, 0.1, 0.0]), vec![0.0, 0.0, 1.0]],
+        let mut labels = Labels::default();
+        let first = normalized(vec![0.99, 0.1, 0.0]);
+        let said = Said {
+            lines: vec![(10.0, 0), (12.0, 1), (14.0, 0)],
+            merged: Vec::new(),
+            voices: BTreeMap::from([(0, first.clone()), (1, vec![0.0, 0.0, 1.0])]),
         };
-        let lines = [(10.0, 0.5, 2.5), (12.0, 3.5, 5.0), (14.0, 1.0, 2.0)];
-        assistant.voices_heard(&call.id, "Eles", &lines, &diarization);
+        assistant.voices_heard(&call.id, "Eles", &said, &mut labels);
         assert_eq!(
-            last("diarized")["who"],
-            json!(["Speaker 1", "Eu", "Speaker 2", "Speaker 1"])
+            last("transcript_reassigned"),
+            json!({"type": "transcript_reassigned", "session": call.id, "who": "Eles", "at": 12.0, "label": "Speaker 1", "name": "Speaker 1"})
         );
+        assert_eq!(count(&events, "transcript_reassigned"), 1);
+        // The guess comes as soon as the voice does.
+        let speakers = last("session_speakers")["speakers"].clone();
+        assert_eq!(speakers[0]["label"], "Eles");
+        assert_eq!(speakers[0]["guess"]["name"], "Ana");
+        assert_eq!(speakers[2]["label"], "Speaker 1");
+        assert_eq!(speakers[2]["guess"], Value::Null);
+        let kept = store.voices(&call.id);
+        assert_eq!(kept.keys().collect::<Vec<_>>(), ["Eles", "Speaker 1"]);
+
+        // A voice that barely moved is not kept again; one that moved is.
+        let told = count(&events, "session_speakers");
+        let barely = Said {
+            voices: BTreeMap::from([(0, normalized(vec![0.98, 0.12, 0.0]))]),
+            ..Said::default()
+        };
+        assistant.voices_heard(&call.id, "Eles", &barely, &mut labels);
+        assert_eq!(count(&events, "session_speakers"), told);
+        assert_eq!(store.voices(&call.id)["Eles"], first);
+        let moved = Said {
+            voices: BTreeMap::from([(1, vec![0.0, 0.6, 0.8])]),
+            ..Said::default()
+        };
+        assistant.voices_heard(&call.id, "Eles", &moved, &mut labels);
+        assert_eq!(count(&events, "session_speakers"), told + 1);
+        assert_eq!(store.voices(&call.id)["Speaker 1"], [0.0, 0.6, 0.8]);
+
+        // Found to be one: the lines of the second move to the first.
+        let one = Said {
+            merged: vec![(1, 0)],
+            ..Said::default()
+        };
+        assistant.voices_heard(&call.id, "Eles", &one, &mut labels);
+        assert_eq!(last("transcript_reassigned")["who"], "Speaker 1");
+        assert_eq!(last("transcript_reassigned")["label"], "Eles");
+        assert!(!store.voices(&call.id).contains_key("Speaker 1"));
+        assert_eq!(labels.len(), 1);
         assistant.show(&call.id);
         let speakers = last("session_detail")["speakers"].clone();
-        assert_eq!(speakers[0]["person"], Value::Null);
-        assert_eq!(speakers[0]["guess"]["name"], "Ana");
-        assert_eq!(speakers[2]["guess"], Value::Null);
+        assert_eq!(speakers.as_array().unwrap().len(), 2);
 
         // Cleared, the guess stays gone; Ana is still offered by hand.
-        assistant.clear_guess(&call.id, "Speaker 1");
+        assistant.clear_guess(&call.id, "Eles");
         assistant.show(&call.id);
         let speakers = last("session_detail")["speakers"].clone();
         assert_eq!(speakers[0]["guess"], Value::Null);
         assert_eq!(speakers[0]["suggestions"][0]["name"], "Ana");
-        assistant.clear_guess(&call.id, "Speaker 1");
+        assistant.clear_guess(&call.id, "Eles");
         assert_eq!(last("error")["code"], "speaker.invalid");
 
-        // Confirmed, the speaker is Ana and her voice grows.
-        assistant.assign_person(&call.id, "Speaker 1", Some(&ana.id), "", None);
+        // Confirmed, the speaker is Ana and her voice grows, and follows the
+        // speaker's as it moves.
+        assistant.assign_person(&call.id, "Eles", Some(&ana.id), "", None);
         assistant.show(&call.id);
         assert_eq!(
             last("session_detail")["speakers"][0]["person"],
             json!(ana.id)
         );
         assert_eq!(store.people()[0].voiceprints.len(), 2);
+        let grown = Said {
+            voices: BTreeMap::from([(0, vec![0.8, 0.6, 0.0])]),
+            ..Said::default()
+        };
+        assistant.voices_heard(&call.id, "Eles", &grown, &mut labels);
+        let prints = store.people()[0].voiceprints.clone();
+        assert_eq!(prints.len(), 2);
+        assert_eq!(prints[1].label, "Eles");
+        assert_eq!(prints[1].voice, normalized(vec![0.8, 0.6, 0.0]));
 
         // One voice keeps the participant's label, and is guessed too.
         let mut chat = Session::begin("Chat", "meeting", LIVE, "pt", log.writer());
         chat.hear_at("Eles", "Bom dia.", 30.0);
-        let alone = Diarization {
-            turns: vec![turn(0.0, 2.0, 0)],
-            voices: vec![vec![1.0, 0.0, 0.0]],
-        };
-        assistant.voices_heard(&chat.id, "Eles", &[(30.0, 0.0, 2.0)], &alone);
+        let mut labels = Labels::default();
+        assistant.voices_heard(
+            &chat.id,
+            "Eles",
+            &alone(30.0, &[1.0, 0.0, 0.0]),
+            &mut labels,
+        );
         assistant.show(&chat.id);
         let speakers = last("session_detail")["speakers"].clone();
         assert_eq!(speakers[0]["label"], "Eles");
         assert_eq!(speakers[0]["guess"]["name"], "Ana");
+    }
+
+    #[test]
+    fn live_speakers_found_to_be_one_keep_the_person_named() {
+        let directory = tempfile::tempdir().unwrap();
+        let people = people_in(directory.path());
+        let (assistant, events, log) = stored_with(directory.path(), people.clone());
+        let mut call = Session::begin("Call", "meeting", LIVE, "pt", log.writer());
+        call.hear_at("Eles", "Oi.", 10.0);
+        call.hear_at("Eles", "Tudo bem?", 12.0);
+        call.hear_at("Eles", "Vamos.", 14.0);
+        let mut labels = Labels::default();
+        let said = Said {
+            lines: vec![(10.0, 0), (12.0, 1), (14.0, 2)],
+            merged: Vec::new(),
+            voices: BTreeMap::from([
+                (0, vec![1.0, 0.0, 0.0]),
+                (1, vec![0.0, 1.0, 0.0]),
+                (2, vec![0.0, 0.0, 1.0]),
+            ]),
+        };
+        assistant.voices_heard(&call.id, "Eles", &said, &mut labels);
+        assistant.assign_person(&call.id, "Speaker 2", None, "Bia", None);
+
+        // The one with a person keeps their label; the other's lines join it.
+        let one = Said {
+            merged: vec![(2, 1)],
+            ..Said::default()
+        };
+        assistant.voices_heard(&call.id, "Eles", &one, &mut labels);
+        let moved = last_of(&events, "transcript_reassigned");
+        assert_eq!(
+            (&moved["who"], &moved["at"], &moved["label"], &moved["name"]),
+            (
+                &json!("Speaker 1"),
+                &json!(12.0),
+                &json!("Speaker 2"),
+                &json!("Bia")
+            )
+        );
+        assert_eq!(labels[&1].label, "Speaker 2");
+
+        // Two people the user named stay apart.
+        assistant.assign_person(&call.id, "Eles", None, "Caio", None);
+        let before = count(&events, "transcript_reassigned");
+        let apart = Said {
+            merged: vec![(1, 0)],
+            ..Said::default()
+        };
+        assistant.voices_heard(&call.id, "Eles", &apart, &mut labels);
+        assert_eq!(count(&events, "transcript_reassigned"), before);
+        assistant.show(&call.id);
+        let speakers = last_of(&events, "session_detail")["speakers"].clone();
+        let named: Vec<&Value> = speakers
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| &s["name"])
+            .collect();
+        assert_eq!(named, [&json!("Caio"), &json!("Bia")]);
+
+        // A speaker joined into one not heard in this session yet lends them
+        // its label; a joined speaker never labelled changes nothing.
+        call.hear_at("Eles", "Até já.", 16.0);
+        let lent = Said {
+            lines: vec![(16.0, 5)],
+            merged: vec![(7, 8), (0, 5)],
+            voices: BTreeMap::from([(5, vec![0.0, 0.0, 1.0])]),
+        };
+        assistant.voices_heard(&call.id, "Eles", &lent, &mut labels);
+        assert_eq!(labels[&5].label, "Eles");
+        assert!(!labels.contains_key(&0));
+        assert_eq!(count(&events, "transcript_reassigned"), before);
+        let everyone = people.people();
+        let caio = everyone.iter().find(|p| p.name == "Caio").unwrap();
+        assert_eq!(caio.voiceprints.len(), 1);
+        assert_eq!(caio.voiceprints[0].voice, [0.0, 0.0, 1.0]);
     }
 
     #[test]
@@ -5912,6 +6371,96 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn each_entry_added_or_removed_tells_the_whole_sessions_counts() {
+        let (assistant, events) = make(&llm(&["Resposta."]), true);
+        let id = assistant.snapshot()[0]["session"]["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let counts = |lines: u64, answers: u64, notes: u64| json!({"lines": lines, "answers": answers, "notes": notes});
+        assert_eq!(
+            assistant.snapshot()[0]["live"][0]["counts"],
+            counts(0, 0, 0)
+        );
+        assistant.hear(&heard(), &utterance("Recrutador", "Bom dia."));
+        assert_eq!(last_of(&events, "transcript")["counts"], counts(1, 0, 0));
+        assistant.hear(&heard(), &utterance("Recrutador", "Vamos começar?"));
+        assert_eq!(last_of(&events, "transcript")["counts"], counts(2, 0, 0));
+        assistant.note(None, "Ligar amanhã.");
+        let note = last_of(&events, "note");
+        assert_eq!(note["counts"], counts(2, 0, 1));
+        assistant.trigger(None, "ask");
+        let start = last_of(&events, "suggestion_start");
+        assert_eq!(start["counts"], counts(2, 1, 1));
+        settle().await;
+        assert_eq!(
+            assistant.snapshot()[0]["session"]["counts"],
+            counts(2, 1, 1)
+        );
+        assert_eq!(
+            assistant.snapshot()[0]["live"][0]["counts"],
+            counts(2, 1, 1)
+        );
+
+        assistant.remove(&id, start["id"].as_str().unwrap());
+        let gone = last_of(&events, "suggestion_removed");
+        assert_eq!(
+            (gone["session"].as_str(), &gone["counts"]),
+            (Some(id.as_str()), &counts(2, 0, 1))
+        );
+        assistant.remove(&id, note["id"].as_str().unwrap());
+        let gone = last_of(&events, "note_removed");
+        assert_eq!(
+            (gone["session"].as_str(), &gone["counts"]),
+            (Some(id.as_str()), &counts(2, 0, 0))
+        );
+        // Told again of an entry already gone, the counts stay what they are.
+        assistant.remove(&id, note["id"].as_str().unwrap());
+        assert_eq!(
+            last_of(&events, "suggestion_removed")["counts"],
+            counts(2, 0, 0)
+        );
+
+        assistant.announce_speakers(&id);
+        let speakers = last_of(&events, "session_speakers")["speakers"].clone();
+        assert_eq!(speakers[0]["lines"], 2);
+        let at = last_of(&events, "transcript")["at"].as_f64().unwrap();
+        assistant.remove_line(&id, "Recrutador", at);
+        assert_eq!(
+            last_of(&events, "transcript_removed")["counts"],
+            counts(1, 0, 0)
+        );
+        assert_eq!(
+            last_of(&events, "session_speakers")["speakers"][0]["lines"],
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn a_stored_sessions_summary_counts_its_lines_answers_and_notes() {
+        let directory = tempfile::tempdir().unwrap();
+        let (assistant, events, _) = stored_with(directory.path(), people_in(directory.path()));
+        let id = assistant.start("Call", "meeting", "pt", None);
+        assistant.hear(&heard(), &utterance("Eles", "Oi."));
+        assistant.note(None, "Ligar amanhã.");
+        assistant.end(None);
+        let counts = json!({"lines": 1, "answers": 0, "notes": 1});
+        assistant.show(&id);
+        let detail = last_of(&events, "session_detail")["session"].clone();
+        assert_eq!(detail["counts"], counts);
+        assert_eq!(
+            detail.get("speech"),
+            None,
+            "the counts replace the old totals"
+        );
+        assistant.sessions();
+        assert_eq!(
+            last_of(&events, "sessions")["sessions"][0]["counts"],
+            counts
+        );
+    }
+
+    #[tokio::test]
     async fn any_line_can_be_removed() {
         let (assistant, events) = make(&llm(&[]), true);
         assistant.hear(&heard(), &utterance("Recrutador", "Bom dia."));
@@ -5932,7 +6481,8 @@ mod tests {
             .clone();
         assert_eq!(
             last,
-            json!({"type": "transcript_removed", "session": id, "who": "Recrutador", "at": at})
+            json!({"type": "transcript_removed", "session": id, "who": "Recrutador", "at": at,
+                   "counts": {"lines": 1, "answers": 0, "notes": 0}})
         );
         let left: Vec<Value> = shown_timeline(&assistant)
             .into_iter()
@@ -5945,6 +6495,152 @@ mod tests {
             events.lock().unwrap().last().unwrap()["code"],
             "line.not_found"
         );
+    }
+
+    /// The time of each line heard, in order.
+    fn heard_at(events: &Events) -> Vec<f64> {
+        let events = events.lock().unwrap();
+        let lines = events.iter().filter(|e| e["type"] == "transcript");
+        lines.map(|e| e["at"].as_f64().unwrap()).collect()
+    }
+
+    #[tokio::test]
+    async fn two_lines_merge_into_the_earlier_and_answers_see_one() {
+        let fake = llm(&["In English."]);
+        let (assistant, events) = make(&fake, true);
+        assistant.hear(&heard(), &utterance("Recrutador", "Bom dia."));
+        assistant.hear(&heard(), &utterance("Eu", "Tudo bem?"));
+        let id = assistant.state().session().unwrap().id.clone();
+        let at = heard_at(&events);
+        assistant.set_translation(&id, "en");
+        settle().await;
+        events.lock().unwrap().clear();
+        // The later line picked first still merges into the earlier one.
+        assistant.merge_lines(&id, ("Eu", at[1]), ("Recrutador", at[0]));
+        let merged = events
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|e| e["type"] == "line_merged")
+            .cloned()
+            .unwrap();
+        assert_eq!(
+            merged,
+            json!({"type": "line_merged", "session": id,
+                   "into": {"who": "Recrutador", "at": at[0]},
+                   "from": {"who": "Eu", "at": at[1]}, "text": "Bom dia. Tudo bem?",
+                   "counts": {"lines": 1, "answers": 0, "notes": 0}})
+        );
+        assert!(
+            kinds(&events).contains(&"session_speakers".to_string()),
+            "the speaker left with no line is announced gone"
+        );
+        let lines: Vec<Value> = shown_timeline(&assistant)
+            .into_iter()
+            .filter(|e| e["type"] == "transcript")
+            .collect();
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0]["text"], "Bom dia. Tudo bem?");
+        assert!(
+            lines[0]["translation"].is_null(),
+            "the old translation is dropped"
+        );
+        settle().await;
+        let again: Vec<Value> = events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|e| e["type"] == "translated")
+            .cloned()
+            .collect();
+        assert_eq!(again.len(), 1, "the merged line is translated again");
+        assert_eq!(again[0]["at"], json!(at[0]));
+        let calls = fake.calls.lock().unwrap().clone();
+        assert!(
+            calls
+                .iter()
+                .any(|(_, messages)| messages[1].content == "Bom dia. Tudo bem?"),
+            "the translator is asked for the merged text"
+        );
+
+        fake.calls.lock().unwrap().clear();
+        assistant.trigger(None, "ask");
+        settle().await;
+        let asked = fake.calls.lock().unwrap().clone();
+        let request = &asked
+            .iter()
+            .find(|(model, _)| model == "default/model")
+            .unwrap()
+            .1;
+        let said = &request.last().unwrap().content;
+        assert!(said.contains("Recrutador: Bom dia. Tudo bem?"), "{said}");
+        assert!(!said.contains("Eu: Tudo bem?"), "{said}");
+
+        assistant.merge_lines(&id, ("Recrutador", at[0]), ("Recrutador", at[0]));
+        assert_eq!(
+            events.lock().unwrap().last().unwrap()["code"],
+            "line.invalid"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_line_merged_in_a_session_not_translated_is_not_translated() {
+        let fake = llm(&["In English."]);
+        let (assistant, events) = make(&fake, true);
+        assistant.hear(&heard(), &utterance("Recrutador", "Bom dia."));
+        assistant.hear(&heard(), &utterance("Recrutador", "Tudo bem?"));
+        let id = assistant.state().session().unwrap().id.clone();
+        let at = heard_at(&events);
+        assistant.merge_lines(&id, ("Recrutador", at[0]), ("Recrutador", at[1]));
+        settle().await;
+        assert_eq!(count(&events, "line_merged"), 1);
+        assert_eq!(count(&events, "translated"), 0);
+    }
+
+    #[tokio::test]
+    async fn a_line_splits_at_the_cursor_into_a_line_right_below() {
+        let fake = llm(&["In English."]);
+        let (assistant, events) = make(&fake, true);
+        assistant.hear(&heard(), &utterance("Recrutador", "Bom dia. Tudo bem?"));
+        let id = assistant.state().session().unwrap().id.clone();
+        let at = heard_at(&events)[0];
+        assistant.set_translation(&id, "en");
+        settle().await;
+        events.lock().unwrap().clear();
+        assistant.split_line(&id, "Recrutador", at, 8);
+        let split = events.lock().unwrap()[0].clone();
+        assert_eq!(
+            split,
+            json!({"type": "line_split", "session": id,
+                   "of": {"who": "Recrutador", "at": at}, "text": "Bom dia.",
+                   "new": {"who": "Recrutador", "name": "Recrutador", "at": at + 0.001,
+                           "text": "Tudo bem?"},
+                   "counts": {"lines": 2, "answers": 0, "notes": 0}})
+        );
+        let lines: Vec<Value> = shown_timeline(&assistant)
+            .into_iter()
+            .filter(|e| e["type"] == "transcript")
+            .collect();
+        let texts: Vec<&Value> = lines.iter().map(|line| &line["text"]).collect();
+        assert_eq!(texts, [&json!("Bom dia."), &json!("Tudo bem?")]);
+        assert!(lines[0]["translation"].is_null());
+        settle().await;
+        let again = events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|e| e["type"] == "translated")
+            .count();
+        assert_eq!(again, 2, "both parts are translated");
+
+        for offset in [0, 99] {
+            assistant.split_line(&id, "Recrutador", at, offset);
+            assert_eq!(
+                events.lock().unwrap().last().unwrap()["code"],
+                "line.invalid",
+                "{offset}"
+            );
+        }
     }
 
     #[tokio::test]
@@ -5980,11 +6676,11 @@ mod tests {
             (
                 summary["title"].clone(),
                 summary["state"].clone(),
-                summary["suggestions"].clone()
+                summary["counts"]["answers"].clone()
             ),
             (json!("Entrevista"), json!("ended"), json!(1))
         );
-        assistant.show(&id);
+        assistant.timeline(&id, Page::Newest, 300);
         let detail = events.lock().unwrap().last().unwrap().clone();
         let timeline: Vec<&str> = detail["timeline"]
             .as_array()
@@ -6163,8 +6859,12 @@ mod tests {
             self.0.writer()
         }
 
-        fn all(&self) -> Vec<Vec<Record>> {
-            self.0.all()
+        fn index(
+            &self,
+            entry: &dyn Fn(&[Record]) -> Value,
+            fresh: &dyn Fn(&Value) -> bool,
+        ) -> Vec<Value> {
+            self.0.index(entry, fresh)
         }
 
         fn read(&self, session_id: &str) -> Option<Vec<Record>> {
@@ -6188,14 +6888,12 @@ mod tests {
         BTreeMap::from([("Eles".to_string(), of.to_vec())])
     }
 
-    fn alone(voice: &[f32]) -> Diarization {
-        Diarization {
-            turns: vec![crate::domain::diarization::Turn {
-                start: 0.0,
-                end: 2.0,
-                speaker: 0,
-            }],
-            voices: vec![voice.to_vec()],
+    /// One line at `at`, said by a live input's only speaker, with `voice`.
+    fn alone(at: f64, voice: &[f32]) -> Said {
+        Said {
+            lines: vec![(at, 0)],
+            merged: Vec::new(),
+            voices: BTreeMap::from([(0, voice.to_vec())]),
         }
     }
 
@@ -6380,7 +7078,8 @@ mod tests {
         fails("removing a speaker's last line");
         assistant.merge_people(&ana, &bruno);
         fails("merging");
-        assistant.voices_heard(&call.id, "Eu", &[(11.0, 0.0, 2.0)], &alone(&[0.0, 1.0]));
+        let mut labels = Labels::default();
+        assistant.voices_heard(&call.id, "Eu", &alone(11.0, &[0.0, 1.0]), &mut labels);
         fails("keeping voices heard");
         assistant.forget_person(&ana);
         fails("forgetting");
@@ -6396,27 +7095,39 @@ mod tests {
         let (assistant, events, log) = stored_with(directory.path(), people.clone());
         let mut call = Session::begin("Call", "meeting", LIVE, "pt", log.writer());
         call.hear_at("Eles", "Oi.", 10.0);
-        let line = [(10.0, 0.0, 2.0)];
-        assistant.voices_heard(&call.id, "Eles", &line, &alone(&[1.0, 0.0]));
+        let mut labels = Labels::default();
+        assistant.voices_heard(&call.id, "Eles", &alone(10.0, &[1.0, 0.0]), &mut labels);
         assistant.assign_person(&call.id, "Eles", None, "Ana", None);
-        assistant.voices_heard(&call.id, "Eles", &line, &alone(&[0.8, 0.6]));
+
+        // Recording again, a new diarizer: the voice close to the one kept
+        // takes its label, and the two voices are kept as one.
+        call.hear_at("Eles", "De volta.", 20.0);
+        let mut again = Labels::default();
+        assistant.voices_heard(&call.id, "Eles", &alone(20.0, &[0.8, 0.6]), &mut again);
         let merged = normalized(vec![1.8, 0.6]);
         assert_eq!(people.voices(&call.id)["Eles"], merged);
         let ana = people.people()[0].clone();
         assert_eq!(ana.voiceprints.len(), 1);
         assert_eq!(ana.voiceprints[0].voice, normalized(merged));
 
+        // A voice close to none while the input's label has one: a new speaker.
+        call.hear_at("Eles", "Quem fala?", 30.0);
+        let mut third = Labels::default();
+        assistant.voices_heard(&call.id, "Eles", &alone(30.0, &[0.0, 1.0]), &mut third);
+        let moved = last_of(&events, "transcript_reassigned");
+        assert_eq!(
+            (&moved["at"], &moved["label"]),
+            (&json!(30.0), &json!("Speaker 1"))
+        );
+
         let before = events.lock().unwrap().len();
-        let silent = Diarization {
-            turns: Vec::new(),
-            voices: Vec::new(),
-        };
-        assistant.voices_heard(&call.id, "Eles", &line, &silent);
-        assistant.voices_heard("nope", "Eles", &line, &alone(&[1.0, 0.0]));
+        assistant.voices_heard(&call.id, "Eles", &Said::default(), &mut third);
+        let mut nowhere = Labels::default();
+        assistant.voices_heard("nope", "Eles", &alone(10.0, &[1.0, 0.0]), &mut nowhere);
         assert_eq!(
             events.lock().unwrap().len(),
             before,
-            "no voice found, or no session, hears nothing"
+            "nothing known, or no session, hears nothing"
         );
     }
 
@@ -6475,10 +7186,12 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let (assistant, events, _) = stored_with(directory.path(), people_in(directory.path()));
         let id = assistant.start("Call", "meeting", "pt", None);
-        let missing: [(&str, &dyn Fn()); 13] = [
+        let missing: [(&str, &dyn Fn()); 15] = [
             ("contexts", &|| assistant.set_contexts("nope", &[])),
             ("focus", &|| assistant.focus("nope")),
-            ("timeline", &|| assistant.timeline("nope")),
+            ("timeline", &|| {
+                assistant.timeline("nope", Page::Newest, 300)
+            }),
             ("show", &|| assistant.show("nope")),
             ("guess", &|| assistant.clear_guess("nope", "Eles")),
             ("speakers", &|| assistant.announce_speakers("nope")),
@@ -6486,6 +7199,10 @@ mod tests {
             ("remove line", &|| {
                 assistant.remove_line("nope", "Eles", 1.0)
             }),
+            ("merge", &|| {
+                assistant.merge_lines("nope", ("Eles", 1.0), ("Eles", 2.0))
+            }),
+            ("split", &|| assistant.split_line("nope", "Eles", 1.0, 1)),
             ("send", &|| assistant.send("nope", "x")),
             ("remove", &|| assistant.remove("nope", "x")),
             ("translate", &|| assistant.set_translation("nope", "en")),
@@ -6505,6 +7222,10 @@ mod tests {
         assistant.delete_session("0123456789ab");
         assert_eq!(last_code(&events), "session.not_found");
         assistant.edit_line(&id, "Eles", 99.0, "x");
+        assert_eq!(last_code(&events), "line.not_found");
+        assistant.merge_lines(&id, ("Eles", 98.0), ("Eles", 99.0));
+        assert_eq!(last_code(&events), "line.not_found");
+        assistant.split_line(&id, "Eles", 99.0, 1);
         assert_eq!(last_code(&events), "line.not_found");
         assistant.rename(&id, "Call", "podcast");
         assert_eq!(last_code(&events), "session.invalid");
@@ -6530,6 +7251,83 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_timeline_comes_in_pages_that_say_what_is_left() {
+        let directory = tempfile::tempdir().unwrap();
+        let (assistant, events, log) = stored_with(directory.path(), people_in(directory.path()));
+        let mut stored = Session::begin("Long", "meeting", LIVE, "pt", log.writer());
+        for i in 0..5 {
+            stored.hear_at("Eles", &format!("fala {i}"), 100.0 + f64::from(i));
+        }
+        stored.set_state(ENDED);
+        let page = |page: Page, limit: usize| {
+            assistant.timeline(&stored.id, page, limit);
+            let event = last_of(&events, "session_timeline");
+            let texts: Vec<String> = event["timeline"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|e| e["text"].as_str().unwrap().to_string())
+                .collect();
+            (texts, event)
+        };
+        // A stored session is read in pages too: the newest first.
+        let (texts, newest) = page(Page::Newest, 2);
+        assert_eq!(texts, ["fala 3", "fala 4"]);
+        assert_eq!(newest["session"], json!(stored.id));
+        assert_eq!(
+            (&newest["before"], &newest["after"], &newest["around"]),
+            (&Value::Null, &Value::Null, &Value::Null)
+        );
+        assert_eq!(
+            (&newest["more_before"], &newest["more_after"]),
+            (&json!(true), &json!(false))
+        );
+        // Older ones before the oldest held, the time asked said back.
+        let (texts, older) = page(Page::Before(103.0), 2);
+        assert_eq!(texts, ["fala 1", "fala 2"]);
+        assert_eq!(older["before"], json!(103.0));
+        assert_eq!(
+            (&older["more_before"], &older["more_after"]),
+            (&json!(true), &json!(true))
+        );
+        let (texts, oldest) = page(Page::Before(101.0), 2);
+        assert_eq!(texts, ["fala 0"]);
+        assert_eq!(oldest["more_before"], json!(false));
+        // Newer ones after the newest held, and a jump around a time.
+        let (texts, newer) = page(Page::After(101.0), 2);
+        assert_eq!(texts, ["fala 2", "fala 3"]);
+        assert_eq!(
+            (&newer["after"], &newer["more_after"]),
+            (&json!(101.0), &json!(true))
+        );
+        let (texts, around) = page(Page::Around(102.0), 3);
+        assert_eq!(texts, ["fala 1", "fala 2", "fala 3"]);
+        assert_eq!(around["around"], json!(102.0));
+        assert_eq!(
+            (&around["more_before"], &around["more_after"]),
+            (&json!(true), &json!(true))
+        );
+        let (texts, all) = page(Page::Newest, 300);
+        assert_eq!(texts.len(), 5);
+        assert_eq!(
+            (&all["more_before"], &all["more_after"]),
+            (&json!(false), &json!(false))
+        );
+
+        // A live one's page holds what was heard up to now.
+        let live = assistant.start("Call", "meeting", "pt", None);
+        assistant.hear(&heard(), &utterance("Eles", "Oi."));
+        assistant.hear(&heard(), &utterance("Eles", "Tudo bem?"));
+        assistant.timeline(&live, Page::Newest, 1);
+        let event = last_of(&events, "session_timeline");
+        assert_eq!(event["timeline"][0]["text"], "Tudo bem?");
+        assert_eq!(
+            (&event["more_before"], &event["more_after"]),
+            (&json!(true), &json!(false))
+        );
+    }
+
+    #[tokio::test]
     async fn a_stored_session_is_read_translated_resumed_and_deleted() {
         let directory = tempfile::tempdir().unwrap();
         let (assistant, events, log) = stored_with(directory.path(), people_in(directory.path()));
@@ -6541,7 +7339,7 @@ mod tests {
         );
         assistant.hear(&heard(), &utterance("Eles", "Oi."));
         assistant.note(None, "Ligar amanhã.");
-        assistant.timeline(&id);
+        assistant.timeline(&id, Page::Newest, 300);
         let timeline = last_of(&events, "session_timeline")["timeline"].clone();
         assert_eq!(timeline[1]["text"], "Ligar amanhã.");
         let lines = assistant.transcript(&id).unwrap();
@@ -6810,5 +7608,69 @@ mod tests {
         settle().await;
         assert_eq!(fake.calls.lock().unwrap().len(), asked + 1);
         assert_eq!(count(&events, "translated"), 1);
+    }
+
+    /// Rewrite what the session index in `directory` keeps of the summary of
+    /// the session `id`, its log untouched.
+    fn tamper(directory: &std::path::Path, id: &str, field: &str, value: Value) {
+        let path = directory.join("sessions").join("index.json");
+        let mut index: Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        for log in index.as_object_mut().unwrap().values_mut() {
+            if log["id"] == id {
+                log["entry"]["summary"][field] = value.clone();
+            }
+        }
+        std::fs::write(&path, index.to_string()).unwrap();
+    }
+
+    #[test]
+    fn sessions_people_tags_and_search_read_the_index_until_the_log_changes() {
+        let directory = tempfile::tempdir().unwrap();
+        let people = people_in(directory.path());
+        let ana = Person::new("Ana");
+        people.save(&ana).unwrap();
+        let (assistant, _, log) = stored_with(directory.path(), people.clone());
+        let mut session = Session::begin("Kickoff", "meeting", LIVE, "pt", log.writer());
+        session.tag("Q3");
+        session.set_state(ENDED);
+        let id = session.id.clone();
+        drop(session);
+        assistant.sessions();
+        tamper(directory.path(), &id, "title", json!("Retro"));
+        tamper(directory.path(), &id, "tags", json!(["Q4"]));
+        tamper(directory.path(), &id, "people", json!([ana.id]));
+
+        // Another daemon over the same files answers from the index alone.
+        let (assistant, events, _) = stored_with(directory.path(), people);
+        assistant.sessions();
+        assert_eq!(
+            last_of(&events, "sessions")["sessions"][0]["title"],
+            "Retro"
+        );
+        assistant.tags();
+        assert_eq!(
+            last_of(&events, "tags")["tags"],
+            json!([{"tag": "Q4", "sessions": 1}])
+        );
+        assistant.people();
+        assert_eq!(
+            last_of(&events, "people")["people"][0]["sessions"],
+            json!([id])
+        );
+        assistant.search("retro");
+        assert_eq!(last_of(&events, "sessions_found")["ids"], json!([id]));
+        // What the index does not name is still read from the log.
+        assistant.search("kickoff");
+        assert_eq!(last_of(&events, "sessions_found")["ids"], json!([id]));
+
+        // An edit to its log makes the index read it again.
+        assistant.rename(&id, "Daily", "meeting");
+        assistant.sessions();
+        let listed = &last_of(&events, "sessions")["sessions"][0];
+        assert_eq!(
+            (&listed["title"], &listed["tags"]),
+            (&json!("Daily"), &json!(["Q3"]))
+        );
     }
 }
