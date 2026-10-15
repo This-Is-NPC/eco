@@ -744,6 +744,7 @@
   "keys.line_tools": "メモや回答のツールへ移動",
   "keys.line_edit": "開いた発言を保存・分割・取消",
   "keys.send": "質問を送る",
+  "keys.newline": "改行する",
   "keys.note": "テキストをメモとして保存",
   "keys.run_action": "入力中にスキルを一覧：↑ · ↓ で選択、Tab で補完、Enter で実行",
   "keys.run_numbered": "その番号のスキルを実行",

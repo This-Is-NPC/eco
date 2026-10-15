@@ -232,8 +232,9 @@ From the top:
   text after the cursor as a new line right below. Clicking a speaker's name
   asks who they are (section 7).
 - **The composer**: the skills as numbered chips, and a line to ask anything.
-  Typing `/` lists the skills above the line as the word grows. NOTE (or
-  `Shift+Enter`) keeps the text as a note instead of asking it. Where no chat
+  Typing `/` lists the skills above the line as the word grows. The line grows
+  with the text; `Shift+Enter` breaks it. NOTE (or `Ctrl+Enter`) keeps the
+  text as a note instead of asking it. Where no chat
   model answers the session's kind, the line reads `Write a note` and `Enter`
   keeps a note; SEND and the skills that name no model of their own stay,
   dimmed, and their hint says `No chat model answers <kind> sessions — register
@@ -306,7 +307,8 @@ provider went down to take it.
 | conversation | `Esc` | stop merging |
 | conversation | `Tab` | reach the tools of a note or an answer |
 | composer | `Enter` | send the question |
-| composer | `Shift+Enter` | keep the text as a note |
+| composer | `Shift+Enter` | break the line |
+| composer | `Ctrl+Enter` | keep the text as a note |
 | composer | `/` | list the skills: `↑` `↓` choose, `Tab` completes, `Enter` runs |
 | composer | `Alt+1…9` | run the skill with that number |
 | session | `E` | edit title and kind |

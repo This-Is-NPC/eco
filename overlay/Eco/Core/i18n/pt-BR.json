@@ -744,6 +744,7 @@
   "keys.line_tools": "Entra nas ferramentas de uma nota ou resposta",
   "keys.line_edit": "Salvar, dividir ou cancelar a fala aberta",
   "keys.send": "Envia a pergunta",
+  "keys.newline": "Quebra a linha",
   "keys.note": "Guarda o texto como nota",
   "keys.run_action": "Lista as skills enquanto você digita: ↑ · ↓ escolhem, Tab completa, Enter roda",
   "keys.run_numbered": "Roda a skill desse número",

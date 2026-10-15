@@ -1,11 +1,13 @@
 pragma ComponentBehavior: Bound
 import QtQuick
+import QtQuick.Controls.Basic as C
 import QtQuick.Layouts
 import Eco.Core
 import Eco.Kit
 
 // ComposerSurface asks, runs a skill or keeps a note: the skills as numbered
-// chips, and a box where `/` lists them as you type. Where nothing answers a
+// chips, and a box where `/` lists them as you type. The box grows with what
+// is typed, up to `maxEntryHeight`, and scrolls past it. Where nothing answers a
 // question, what is typed is kept as a note, and SEND and the skills nothing
 // answers stay, off, saying why.
 ColumnLayout {
@@ -26,6 +28,8 @@ ColumnLayout {
   property bool actionsShown: true
   // The `/name` sent that names no action; the box keeps it to be fixed.
   property string unknownAction: ""
+  // The tallest the box grows before what is typed scrolls in it.
+  property real maxEntryHeight: 180
 
   signal actionChosen(string action)
   signal submitted(string text)
@@ -44,6 +48,15 @@ ColumnLayout {
       entry.text = ""
     unknownAction = ""
     return value
+  }
+
+  // Whether the text changes from the code, not from typing.
+  property bool filling: false
+  function fill(value) {
+    filling = true
+    entry.text = value
+    entry.cursorPosition = value.length
+    filling = false
   }
 
   // Runs a skill from the box, which it empties.
@@ -132,49 +145,68 @@ ColumnLayout {
   Rectangle {
     id: box
     Layout.fillWidth: true
-    implicitHeight: 42
+    implicitHeight: Math.max(42, Math.min(entry.implicitHeight, surface.maxEntryHeight) + 4)
     color: Theme.highlight
     border.color: surface.unknownAction ? Theme.error : entry.activeFocus ? Theme.primary : Theme.line
     border.width: entry.activeFocus || surface.unknownAction ? 2 : 1
     Behavior on border.color { ColorAnimation { duration: 140 } }
 
+    // The prompt sits by the first line and the buttons by the last.
     RowLayout {
-      anchors { fill: parent; leftMargin: 14; rightMargin: 8 }
+      anchors { fill: parent; leftMargin: 14; rightMargin: 8; topMargin: 2; bottomMargin: 2 }
       spacing: 10
-      Icon { name: "chevron-right"; size: 14; color: entry.activeFocus ? Theme.primary : Theme.dim }
-      TextBox {
-        id: entry
+      Icon { Layout.alignment: Qt.AlignTop; Layout.topMargin: 12; name: "chevron-right"; size: 14; color: entry.activeFocus ? Theme.primary : Theme.dim }
+      Flickable {
+        id: scroller
         Layout.fillWidth: true
-        placeholderText: surface.placeholder
-        background: Item {}
-        onAccepted: surface.submit()
-        onTextEdited: {
-          surface.unknownAction = ""
-          surface.dismissed = false
-        }
-        // Back in the box, the list a `/word` names shows again.
-        onActiveFocusChanged: surface.suggest()
-        // The open list takes ↑/↓, Tab completes, Enter runs, Esc closes it;
-        // Shift+Enter keeps the text as a note.
-        Keys.onPressed: event => {
-          const enter = event.key === Qt.Key_Return || event.key === Qt.Key_Enter
-          if (completion.visible && (event.key === Qt.Key_Down || event.key === Qt.Key_Up))
-            completion.move(completion.current + (event.key === Qt.Key_Down ? 1 : -1))
-          else if (completion.visible && event.key === Qt.Key_Tab) {
-            surface.dismissed = true
-            entry.text = "/" + surface.matches[completion.current]
-          } else if (completion.visible && enter && !(event.modifiers & Qt.ShiftModifier))
-            completion.pick(completion.current)
-          else if (completion.visible && event.key === Qt.Key_Escape)
-            surface.dismissed = true
-          else if (enter && (event.modifiers & Qt.ShiftModifier))
-            surface.note()
-          else
-            return
-          event.accepted = true
+        Layout.fillHeight: true
+        clip: true
+        boundsBehavior: Flickable.StopAtBounds
+        C.TextArea.flickable: TextBlock {
+          id: entry
+          submits: false
+          tabTaken: completion.visible
+          placeholderText: surface.placeholder
+          font.pixelSize: 13
+          leftPadding: 0
+          rightPadding: 0
+          topPadding: 10
+          bottomPadding: 10
+          background: Item {}
+          onTextChanged: if (!surface.filling) {
+            surface.unknownAction = ""
+            surface.dismissed = false
+          }
+          // Back in the box, the list a `/word` names shows again.
+          onActiveFocusChanged: surface.suggest()
+          // The open list takes ↑/↓, Tab completes, Enter runs, Esc closes it.
+          // Enter sends, Shift+Enter breaks the line, Ctrl+Enter keeps the
+          // text as a note.
+          Keys.onPressed: event => {
+            const enter = event.key === Qt.Key_Return || event.key === Qt.Key_Enter
+            const shift = event.modifiers & Qt.ShiftModifier
+            if (completion.visible && (event.key === Qt.Key_Down || event.key === Qt.Key_Up))
+              completion.move(completion.current + (event.key === Qt.Key_Down ? 1 : -1))
+            else if (completion.visible && event.key === Qt.Key_Tab) {
+              surface.dismissed = true
+              surface.fill("/" + surface.matches[completion.current])
+            } else if (completion.visible && enter && !shift)
+              completion.pick(completion.current)
+            else if (completion.visible && event.key === Qt.Key_Escape)
+              surface.dismissed = true
+            else if (enter && (event.modifiers & Qt.ControlModifier))
+              surface.note()
+            else if (enter && !shift)
+              surface.submit()
+            else
+              return
+            event.accepted = true
+          }
         }
       }
       TraceButton {
+        Layout.alignment: Qt.AlignBottom
+        Layout.bottomMargin: 5
         dense: true
         role: "progress"
         implicitWidth: surface.compact ? 32 : 110
@@ -185,6 +217,8 @@ ColumnLayout {
       }
       TraceButton {
         id: sendButton
+        Layout.alignment: Qt.AlignBottom
+        Layout.bottomMargin: 5
         dense: true
         role: "progress"
         implicitWidth: surface.compact ? 32 : 86

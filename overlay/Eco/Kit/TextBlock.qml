@@ -4,11 +4,12 @@ import Eco.Core
 
 // TextBlock wraps text inside the same full outline. Enter accepts and
 // Shift+Enter breaks the line; without `submits`, Enter breaks the line too.
-// Tab and Shift+Tab leave it.
+// Tab and Shift+Tab leave it, unless `tabTaken` leaves Tab to its holder.
 C.TextArea {
   id: block
 
   property bool submits: true
+  property bool tabTaken: false
   signal accepted()
 
   font.family: Theme.fontFamily
@@ -29,7 +30,12 @@ C.TextArea {
       block.accepted()
   }
   // Tab moves on, as from a one-line field, instead of typing a tab.
-  Keys.onTabPressed: nextItemInFocusChain(true).forceActiveFocus(Qt.TabFocusReason)
+  Keys.onTabPressed: event => {
+    if (block.tabTaken)
+      event.accepted = false
+    else
+      nextItemInFocusChain(true).forceActiveFocus(Qt.TabFocusReason)
+  }
   Keys.onBacktabPressed: nextItemInFocusChain(false).forceActiveFocus(Qt.BacktabFocusReason)
   background: InputFrame {
     implicitHeight: 84

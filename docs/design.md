@@ -471,7 +471,7 @@ matters.
 - **Free questions:** the composer sends `ask <text>`; the question and its
   answer form one removable card (action `chat`), labelled ASK where a skill's
   card carries the skill's name.
-- **Notes:** the composer's note button, or Shift+Enter, sends `note <text>`
+- **Notes:** the composer's note button, or Ctrl+Enter, sends `note <text>`
   instead: a fact the user writes during the conversation, kept in the timeline
   as a removable note and carried, among the lines heard, by every later request
   as `Nota do usuário: …`. It asks nothing; the next action or question uses it.
@@ -1598,7 +1598,7 @@ reconnects to the socket on its own.
   long session's entries come in pages as it scrolls (§10.1); and
   at the bottom the composer: the skills as chips numbered for Alt+1…9, which
   run them whether the chips show or not (a window under 560 px tall hides
-  them), and a line to ask anything or, with the note button or Shift+Enter, to
+  them), and a line to ask anything or, with the note button or Ctrl+Enter, to
   keep what was typed as a note. Typing `/` lists the skills above the line,
   filtered as the word grows: ↑/↓ choose, Tab completes, Enter runs, Esc closes
   the list and leaves the keyboard in the line. `/skill` runs a skill; a lone

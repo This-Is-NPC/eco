@@ -209,6 +209,7 @@ ColumnLayout {
           session: Eco.onScreen
           compact: screen.compact
           actionsShown: !screen.short
+          maxEntryHeight: screen.short ? 96 : 180
         }
       }
     }

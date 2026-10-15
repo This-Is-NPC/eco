@@ -744,6 +744,7 @@
   "keys.line_tools": "Reach the tools of a note or an answer",
   "keys.line_edit": "Save, split or cancel the line open",
   "keys.send": "Send the question",
+  "keys.newline": "Break the line",
   "keys.note": "Save the text as a note",
   "keys.run_action": "List the skills as you type: ↑ · ↓ choose, Tab completes, Enter runs",
   "keys.run_numbered": "Run the skill with that number",
