@@ -250,15 +250,14 @@ eco/
   as it hears them, one speech region at a time: each 1.5 s window (every
   0.75 s) joins the speaker whose running voice (the mean of their windows) is
   nearest, or starts a new speaker when every voice is at a cosine distance of
-  0.5 or more. After each region, two speakers closer than 0.3 become one, and
+  0.7 or more. After each region, two speakers closer than 0.3 become one, and
   a speaker heard for less than 2% of the windows, once 120 more windows came
   after their first, joins the nearest larger one. It keeps the running
   voices (at most 32 speakers) and nothing else, so a region costs the same
   at the third hour as at the first minute, and pausing or stopping only ends
-  it. These thresholds were argued from the average-linkage ones measured
-  before ([benchmarks](benchmarks.md#diarization-2026-10-05)), not measured
-  themselves. For each region it prints the turns, the voices that changed and
-  the speakers joined.
+  it. The 0.7 was measured on the AMI dev meetings
+  ([benchmarks](benchmarks.md#online-clustering-2026-10-14)). For each region
+  it prints the turns, the voices that changed and the speakers joined.
   The daemon keeps the last 5 minutes of turns and up to 256 lines that wait
   for the child to hear past their end; each line then goes to the voice that
   said most of it. The first time a voice says a line it gets a label: that of

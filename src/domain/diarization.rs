@@ -56,7 +56,7 @@ pub struct Clustering {
 impl Default for Clustering {
     fn default() -> Self {
         Self {
-            threshold: 0.5,
+            threshold: 0.7,
             merge: 0.3,
             min_share: 0.02,
         }

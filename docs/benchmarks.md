@@ -74,10 +74,31 @@ neither is on.
 
 ## Diarization (2026-10-05)
 
-These numbers are from the average-linkage clustering eco ran when the
-recording ended. Since then eco clusters online, as it hears each region
-(design.md §4), with thresholds argued from these, not measured; the tables
-below are not yet measured again with it.
+eco now clusters online, as it hears each region (design.md §4). Its
+numbers come first; the tables after them are from the average-linkage
+clustering eco ran when the recording ended, kept to compare.
+
+### Online clustering (2026-10-14)
+
+The same four dev meetings, collar 0, CAM++, merge distance 0.3, min share
+2% (`mise run bench:diarization`, release build). Missed speech 19.5% and
+false alarm 3.7% are the same for every threshold: only who is who changes.
+Speakers found are per meeting, against 4 in each.
+
+| New-speaker threshold | 0.3 | 0.4 | 0.5 | 0.6 | **0.7** | 0.8 |
+|---|---|---|---|---|---|---|
+| Confusion % | 6.0 | 5.3 | 6.7 | 5.9 | **5.7** | 11.2 |
+| DER % | 29.2 | 28.5 | 29.9 | 29.1 | **28.9** | 34.4 |
+| Speakers found (IS1008a, ES2011a, TS3004a, IB4001) | 27, 31, 31, 32 | 17, 29, 32, 26 | 13, 15, 22, 28 | 8, 8, 11, 12 | **4, 4, 8, 7** | 4, 3, 4, 4 |
+
+A merge distance of 0.4 gave the same table within 0.1 point; 0.5 joined two
+of ES2011a's speakers (confusion 34%). eco starts a speaker at 0.7: the
+fewest extra speakers short of joining real ones, at 2.4 points of DER and
+2.4 of confusion more than the clustering at the end (26.5 / 3.3 below).
+TS3004a still finds 8 speakers and IB4001 7. 51–58× real time; peak RSS
+319 MB is the harness, which holds the whole WAV.
+
+### Average linkage at the end (2026-10-05)
 
 `mise run bench:diarization <dir>`: eco's diarization over 16 kHz mono WAVs
 with a reference RTTM (and UEM). Silero VAD and the segmenter cut speech

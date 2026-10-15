@@ -180,7 +180,7 @@ Speaker embedding model (ONNX); the one `eco setup` downloads by default
 
 New-speaker thresholds to compare, e.g. 0.4,0.5,0.6
 
-**Default:** `0.5`
+**Default:** `0.7`
 
 #### `--min-share <MIN_SHARE>`
 
@@ -462,7 +462,7 @@ Turn this context slot off (repeatable)
 
 ## `eco line`
 
-- **Usage**: `eco line [--remove] [--text <TEXT>] [--merge <WHO@AT>] [--split <OFFSET>] <ARGS>…`
+- **Usage**: `eco line [FLAGS] <ARGS>…`
 
 Change one line of a session, named by who said it and its `at` (see `eco show`)
 
