@@ -288,7 +288,7 @@ impl SessionLog for SessionFiles {
                 let log = match logs.remove(&name) {
                     Some(log)
                         if (log.bytes, log.modified) == (bytes, modified)
-                            && log.entry.as_ref().is_some_and(|kept| fresh(kept)) =>
+                            && log.entry.as_ref().is_some_and(fresh) =>
                     {
                         log
                     }

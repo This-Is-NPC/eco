@@ -43,7 +43,7 @@ use crate::domain::diarization::{HeardLine, Known, Labels, Live};
 use crate::domain::events::{Outages, error};
 use crate::domain::hub::{Capture, Hub};
 use crate::domain::notifications::{Notifications, Texts};
-use crate::domain::segmenter::{Segment, SegmenterConfig};
+use crate::domain::segmenter::SegmenterConfig;
 use crate::domain::session::Page;
 use crate::domain::transcribers::{Listening, Transcribers};
 use crate::import;
@@ -2701,6 +2701,7 @@ mod tests {
     use crate::adapters::session_files::SessionFiles;
     use crate::adapters::window_host::HostWindows;
     use crate::domain::notifications::testing::Shown;
+    use crate::domain::segmenter::Segment;
     use crate::ports::{EchoCancelling, FRAME_SAMPLES, Frame, Heard, TranscriptionError};
 
     fn raw() -> Value {
