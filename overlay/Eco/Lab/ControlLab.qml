@@ -17,6 +17,7 @@ Window {
   property string selectedOption: "first"
   property string pickedOption: "second"
   property string chosenColor: ""
+  property string customColor: "#39ff14"
   property string fieldValue: I18n.t("lab.sample_session")
   property int fieldNumber: 60000
   property string lastAction: ""
@@ -348,6 +349,11 @@ Window {
                   }
                 }
               }
+            }
+            ControlLabRow {
+              width: parent.width
+              title: I18n.t("appearance.choose_color")
+              ColorField { value: lab.customColor; onPicked: color => lab.customColor = color }
             }
             ControlLabRow {
               width: parent.width

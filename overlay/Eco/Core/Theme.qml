@@ -5,28 +5,53 @@ import EcoHost
 Singleton {
   id: root
 
-  readonly property string stateHome: Host.env("XDG_STATE_HOME") || Host.env("HOME") + "/.local/state"
-  readonly property string currentPath: stateHome + "/omarchy/current"
-  readonly property string themePath: currentPath + "/theme"
-  readonly property string colorsPath: themePath + "/colors.toml"
-  readonly property var fallback: ({
+  readonly property string currentPath: Host.systemThemeDirectory
+  readonly property string themePath: currentPath ? currentPath + "/theme" : ""
+  readonly property string colorsPath: themePath ? themePath + "/colors.toml" : ""
+  readonly property var dark: ({
     background: "#121212", foreground: "#e5e2e1", accent: "#39ff14",
     cyan: "#8fae9a", muted: "#494543", green: "#86d27a",
     yellow: "#ffb347", red: "#ff5544", magenta: "#c4a7e7"
   })
+  readonly property var light: ({
+    background: "#f6f5f2", foreground: "#202124", accent: "#176c36",
+    cyan: "#16677a", muted: "#b4b2ad", green: "#287337",
+    yellow: "#865200", red: "#b3261e", magenta: "#754495"
+  })
+  property var appearance: ({ preset: "system", colors: {} })
+  property var systemPalette: ({})
+  readonly property var resolved: resolve(appearance, systemPalette, Host.systemDark)
+  onResolvedChanged: apply(resolved)
+  Component.onCompleted: apply(resolved)
+
+  function configure(value) {
+    appearance = value || { preset: "system", colors: {} }
+  }
+
+  function resolve(choice, system, systemDark) {
+    const preset = choice.preset || "system"
+    if (preset === "system" && system.background && system.foreground)
+      return Object.assign({}, dark, system)
+    if (preset === "system" || preset === "light")
+      return Object.assign({ mode: preset === "light" || !systemDark ? "light" : "dark" }, preset === "light" || !systemDark ? light : dark)
+    const colors = Object.assign({}, dark, preset === "custom" ? choice.colors || {} : {})
+    colors.mode = luminance(rgb(colors.background)) > 0.179 ? "light" : "dark"
+    return colors
+  }
+
   property string mode: "dark"
   property var palette: ({})
-  property color background: fallback.background
-  property color foreground: fallback.foreground
-  property color primary: fallback.accent
-  property color secondary: fallback.cyan
-  property color border: fallback.muted
-  property color success: fallback.green
-  property color warning: fallback.yellow
-  property color error: fallback.red
-  property color magenta: fallback.magenta
+  property color background: dark.background
+  property color foreground: dark.foreground
+  property color primary: dark.accent
+  property color secondary: dark.cyan
+  property color border: dark.muted
+  property color success: dark.green
+  property color warning: dark.yellow
+  property color error: dark.red
+  property color magenta: dark.magenta
   readonly property color highlight: Qt.tint(background, Qt.alpha(foreground, mode === "light" ? 0.07 : 0.05))
-  readonly property color line: Qt.alpha(foreground, 0.12)
+  readonly property color line: Qt.alpha(border, 0.6)
   readonly property color dim: readable(palette.muted || foreground, background, foreground)
   // An example in an empty field: fainter than any value, so it never reads as typed.
   readonly property color placeholder: Qt.alpha(dim, 0.55)
@@ -80,7 +105,7 @@ Singleton {
     id: colorsFile
     path: root.colorsPath
     onChanged: root.scheduleReload()
-    onTextChanged: if (text) root.apply(text)
+    onTextChanged: root.readSystem(text)
   }
 
   TextFile {
@@ -143,7 +168,7 @@ Singleton {
     return ink
   }
 
-  function apply(toml) {
+  function readSystem(toml) {
     const colors = {}
     let themeMode = "dark"
     for (const line of toml.split("\n")) {
@@ -153,16 +178,24 @@ Singleton {
       else if (match && /^#[0-9a-fA-F]{6}$/.test(match[2]))
         colors[match[1]] = match[2]
     }
-    mode = themeMode === "light" ? "light" : "dark"
+    // A theme being replaced may be only partly written.
+    if (colors.background && colors.foreground)
+      systemPalette = Object.assign({ mode: themeMode === "light" ? "light" : "dark" }, colors)
+  }
+
+  function apply(colors) {
+    mode = colors.mode === "light" ? "light" : "dark"
     palette = colors
-    background = colors.background || fallback.background
-    foreground = colors.foreground || fallback.foreground
-    primary = readable(colors.accent || fallback.accent, background, foreground)
-    secondary = readable(colors.cyan || fallback.cyan, background, foreground)
-    border = colors.muted || fallback.muted
-    success = readable(colors.green || fallback.green, background, foreground)
-    warning = readable(colors.yellow || fallback.yellow, background, foreground)
-    error = readable(colors.red || fallback.red, background, foreground)
-    magenta = readable(colors.magenta || fallback.magenta, background, foreground)
+    background = colors.background || dark.background
+    const wanted = colors.foreground || dark.foreground
+    foreground = contrast(rgb(wanted), rgb(background)) >= 4.5 ? wanted
+      : luminance(rgb(background)) > 0.179 ? "#000000" : "#ffffff"
+    primary = readable(colors.accent || dark.accent, background, foreground)
+    secondary = readable(colors.cyan || dark.cyan, background, foreground)
+    border = colors.muted || dark.muted
+    success = readable(colors.green || dark.green, background, foreground)
+    warning = readable(colors.yellow || dark.yellow, background, foreground)
+    error = readable(colors.red || dark.red, background, foreground)
+    magenta = readable(colors.magenta || dark.magenta, background, foreground)
   }
 }

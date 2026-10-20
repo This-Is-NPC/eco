@@ -302,6 +302,23 @@ impl Default for AudioConfig {
     }
 }
 
+/// The interface preset and the custom palette kept when another preset is active.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct AppearanceConfig {
+    pub preset: String,
+    pub colors: BTreeMap<String, String>,
+}
+
+impl Default for AppearanceConfig {
+    fn default() -> Self {
+        Self {
+            preset: "system".into(),
+            colors: BTreeMap::new(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct UiTable {
@@ -313,6 +330,8 @@ struct UiTable {
     tray: bool,
     #[serde(default)]
     notifications: bool,
+    #[serde(default)]
+    appearance: AppearanceConfig,
 }
 
 impl UiTable {
@@ -328,6 +347,7 @@ impl Default for UiTable {
             hide_from_share: false,
             tray: false,
             notifications: false,
+            appearance: AppearanceConfig::default(),
         }
     }
 }
@@ -419,6 +439,7 @@ pub struct Config {
     /// The daemon tells the desktop's notifications what the windows would
     /// show while no eco window is active.
     pub notifications: bool,
+    pub appearance: AppearanceConfig,
     pub update: UpdateConfig,
     /// Keys -> the `eco window` command they run, registered on Windows;
     /// `None` keeps the defaults of `shortcuts::DEFAULT`.
@@ -512,6 +533,7 @@ impl Config {
             hide_from_share: raw.ui.hide_from_share,
             tray: raw.ui.tray,
             notifications: raw.ui.notifications,
+            appearance: raw.ui.appearance,
             update: raw.update,
             shortcuts: raw.shortcuts,
         };
@@ -541,6 +563,7 @@ impl Config {
                 hide_from_share: self.hide_from_share,
                 tray: self.tray,
                 notifications: self.notifications,
+                appearance: self.appearance.clone(),
             },
             update: self.update.clone(),
             shortcuts: self.shortcuts.clone(),
@@ -706,6 +729,26 @@ impl Config {
         }
         if !valid_ui_language(&self.ui_language) {
             return fail("ui language must be auto or a code like pt-BR");
+        }
+        if !["system", "dark", "light", "custom"].contains(&self.appearance.preset.as_str()) {
+            return fail("appearance preset must be system, dark, light or custom");
+        }
+        if !self.appearance.colors.iter().all(|(key, color)| {
+            [
+                "background",
+                "foreground",
+                "accent",
+                "cyan",
+                "muted",
+                "green",
+                "yellow",
+                "red",
+                "magenta",
+            ]
+            .contains(&key.as_str())
+                && valid_color(color)
+        }) {
+            return fail("appearance colors must name a theme color and use #rrggbb");
         }
         if !self.colors.values().all(|color| valid_color(color)) {
             return fail("colors must be #rrggbb");
@@ -1380,6 +1423,35 @@ mod tests {
     #[test]
     fn colors_must_be_hex() {
         assert!(error_of(with("colors", json!({"@default-input": "red"}))).contains("#rrggbb"));
+    }
+
+    #[test]
+    fn appearance_defaults_to_system_and_preserves_custom_colors_in_every_preset() {
+        assert_eq!(
+            Config::from_value(raw()).unwrap().appearance,
+            AppearanceConfig::default()
+        );
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        for preset in ["system", "dark", "light", "custom"] {
+            let appearance =
+                json!({"preset": preset, "colors": {"background": "#102030", "accent": "#AbCdEf"}});
+            let config = Config::from_value(with("ui", json!({"appearance": appearance}))).unwrap();
+            assert_eq!(config.to_value()["ui"]["appearance"], appearance);
+            save(&config, &path).unwrap();
+            assert_eq!(load(&path).unwrap(), config);
+        }
+        for appearance in [
+            json!({"preset": "sepia"}),
+            json!({"colors": {"accent": "red"}}),
+            json!({"colors": {"unknown": "#123456"}}),
+        ] {
+            assert!(error_of(with("ui", json!({"appearance": appearance}))).contains("appearance"));
+        }
+        assert!(
+            error_of(with("ui", json!({"appearance": {"unknown": true}})))
+                .contains("unknown field")
+        );
     }
 
     #[test]

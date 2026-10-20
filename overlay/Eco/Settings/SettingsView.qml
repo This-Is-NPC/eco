@@ -14,7 +14,7 @@ import Eco.Kit
 Item {
   id: view
 
-  // The section on screen, 0 to 7.
+  // The section on screen, 0 to 8.
   property int page: 0
   // A section asked for, as when a related item is followed.
   signal wanted(int page)
@@ -22,8 +22,8 @@ Item {
   signal closeRequested()
 
   // The sections' places, for links: settings.link(settings.at.prompts, "rules").
-  readonly property var at: ({ audio: 0, models: 1, languages: 2, kinds: 3, prompts: 4, context: 5, skills: 6, general: 7 })
-  readonly property var sections: [audio, models, languages, kinds, prompts, context, skills, general]
+  readonly property var at: ({ audio: 0, models: 1, languages: 2, kinds: 3, prompts: 4, context: 5, skills: 6, general: 7, appearance: 8 })
+  readonly property var sections: [audio, models, languages, kinds, prompts, context, skills, general, appearance]
   AudioSection { id: audio; settings: view }
   ModelsSection { id: models; settings: view }
   LanguagesSection { id: languages; settings: view }
@@ -32,6 +32,7 @@ Item {
   ContextSection { id: context; settings: view }
   SkillsSection { id: skills; settings: view }
   GeneralSection { id: general; settings: view }
+  AppearanceSection { id: appearance; settings: view }
 
   // A chat model is registered: until then answers and skills have nothing to
   // run on, and the sections that need one say so above their tables.

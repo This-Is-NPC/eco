@@ -5,7 +5,9 @@
 #include <QString>
 #include <QUrl>
 
+#include <QDir>
 #include <QGuiApplication>
+#include <QStyleHints>
 #include <QWindow>
 
 #ifdef Q_OS_WIN
@@ -30,10 +32,13 @@
 class Host : public QObject {
   Q_OBJECT
   Q_PROPERTY(qint64 pid READ pid CONSTANT)
+  Q_PROPERTY(bool systemDark READ systemDark NOTIFY systemThemeChanged)
+  Q_PROPERTY(QString systemThemeDirectory READ systemThemeDirectory CONSTANT)
   Q_PROPERTY(bool foreground READ foreground NOTIFY foregroundChanged)
 
 public:
   explicit Host(QObject *parent = nullptr) : QObject(parent) {
+    connect(QGuiApplication::styleHints(), &QStyleHints::colorSchemeChanged, this, &Host::systemThemeChanged);
 #ifdef Q_OS_WIN
     qApp->installEventFilter(this);
     instance = this;
@@ -52,6 +57,19 @@ public:
 #endif
 
   qint64 pid() const { return QCoreApplication::applicationPid(); }
+
+  bool systemDark() const { return QGuiApplication::styleHints()->colorScheme() != Qt::ColorScheme::Light; }
+
+  QString systemThemeDirectory() const {
+#ifdef Q_OS_WIN
+    return {};
+#else
+    QString state = qEnvironmentVariable("XDG_STATE_HOME");
+    if (state.isEmpty())
+      state = QDir::homePath() + QStringLiteral("/.local/state");
+    return state + QStringLiteral("/omarchy/current");
+#endif
+  }
 
   // Whether the window in front of the system is one of this process's. On
   // Windows Qt calls a window active that the system left behind another
@@ -162,4 +180,5 @@ private:
 
 Q_SIGNALS:
   void foregroundChanged();
+  void systemThemeChanged();
 };

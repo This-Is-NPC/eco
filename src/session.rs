@@ -1044,6 +1044,7 @@ async fn pipeline(config: Config, assistant: Assistant, emit: Emit, rig: Rig) {
         kinds: config.kinds.clone(),
         drop_echoes: config.audio.drop_echoes,
         ui_language: config.ui_language.clone(),
+        appearance: serde_json::to_value(&config.appearance).expect("appearance serializes"),
         transcription: kind_transcribers.clone(),
         default_transcription: config.stt.model.clone(),
         transcription_prices: config
@@ -4281,6 +4282,28 @@ mod tests {
         // The windows follow the config, and capture runs on it.
         assert_eq!(d.desk.lock().unwrap().hidden, Some(true));
         d.until(|event| event["type"] == "snapshot").await;
+    }
+
+    #[tokio::test]
+    async fn appearance_is_saved_and_sent_to_every_window_in_the_snapshot() {
+        let mut d = daemon(raw());
+        let initial = d.configured().await;
+        assert_eq!(
+            initial["appearance"],
+            json!({"preset": "system", "colors": {}})
+        );
+        let appearance = json!({"preset": "custom", "colors": {"accent": "#abcdef"}});
+        let mut saved = raw();
+        saved["ui"] = json!({"appearance": appearance});
+        saved["token"] = json!("appearance");
+        let events = d.line(&format!("config.set {saved}")).await;
+        assert_eq!(said(&events), ["config_saved"]);
+        let snapshot = d.until(|event| event["type"] == "snapshot").await;
+        assert_eq!(snapshot["appearance"], appearance);
+        assert_eq!(
+            config::load(&d.session.config_path).unwrap().to_value()["ui"]["appearance"],
+            appearance
+        );
     }
 
     #[tokio::test]

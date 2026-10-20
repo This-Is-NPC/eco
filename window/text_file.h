@@ -37,6 +37,8 @@ public:
 
   // Reads the file again, and watches it again when it was replaced.
   Q_INVOKABLE void reload() {
+    if (target.isEmpty())
+      return;
     QFile file(target);
     const QString next = file.open(QIODevice::ReadOnly) ? QString::fromUtf8(file.readAll()) : QString();
     if (!target.isEmpty() && QFile::exists(target) && !watcher.files().contains(target) &&
