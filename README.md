@@ -174,7 +174,7 @@ where they work:
   menu · `Esc` stop merging · `Tab` the tools of a note or an answer
 - question box: `Enter` send · `Shift+Enter` keep as a note · `/` list the
   skills · `Alt+1…9` run the skill with that number
-- settings: `1…8` section, outside a field being written, and `Ctrl+1…8`
+- settings: `1…9` section, outside a field being written, and `Ctrl+1…9`
   anywhere · `Ctrl+Tab` / `Ctrl+Shift+Tab` next or
   previous section · on the rail `↑` / `↓` / `Home` / `End` move and
   `Enter` / `Space` open the section · `↑` / `↓` pick a row · `Enter` /

@@ -165,7 +165,8 @@ fn offscreen(qml: &str, dir: &Path) -> Command {
         .env("QT_QPA_PLATFORM", "offscreen")
         .env("QT_QPA_PLATFORMTHEME", "")
         .env("XDG_RUNTIME_DIR", dir)
-        .env("XDG_CACHE_HOME", dir.join("cache"));
+        .env("XDG_CACHE_HOME", dir.join("cache"))
+        .env("XDG_STATE_HOME", dir.join("state"));
     // Offscreen Qt on Windows reads fonts from a directory, by default one
     // beside the program that windeployqt leaves empty: the system's instead.
     #[cfg(windows)]
@@ -250,6 +251,27 @@ async fn views_and_settings_are_made_when_shown() {
         .await
         .expect("the views did not finish")
         .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+/// Presets, live system changes, custom colors and the appearance controls.
+#[tokio::test]
+async fn appearance_presets_and_custom_colors_follow_the_saved_config() {
+    let dir = tempfile::tempdir().unwrap();
+    let output = tokio::time::timeout(
+        Duration::from_secs(30),
+        offscreen("appearance", dir.path())
+            .env("ECO_SOCKET", dir.path().join("no-daemon"))
+            .kill_on_drop(true)
+            .output(),
+    )
+    .await
+    .expect("the appearance checks did not finish")
+    .unwrap();
     assert!(
         output.status.success(),
         "{}",
@@ -525,6 +547,14 @@ async fn the_bridge_carries_lines_reconnects_reads_files_and_exits_cleanly() {
     // No offscreen window is in front of Windows, whatever Qt calls active;
     // elsewhere the bridge leaves it to Qt.
     assert_eq!(answer["foreground"], cfg!(unix));
+    assert!(answer["system_dark"].is_boolean());
+    #[cfg(unix)]
+    assert_eq!(
+        Path::new(answer["system_theme_directory"].as_str().unwrap()),
+        dir.path().join("state/omarchy/current")
+    );
+    #[cfg(windows)]
+    assert_eq!(answer["system_theme_directory"], "");
     assert_eq!(ask(&mut first, "raise").await["line"], "raise");
 
     std::fs::write(&file, "second").unwrap();

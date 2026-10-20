@@ -206,6 +206,8 @@ pub struct Setup {
     pub drop_echoes: bool,
     /// Interface language pack, or "auto" to follow the system.
     pub ui_language: String,
+    /// Interface preset and custom colors, sent to every window.
+    pub appearance: Value,
     /// The transcription model of each session kind, by name, and of any other.
     pub transcription: HashMap<String, String>,
     pub default_transcription: String,
@@ -3275,6 +3277,7 @@ impl Assistant {
                 .map(|s| s.slots.iter().map(|slot| json!({"name": slot.name, "kinds": slot.kinds})).collect::<Vec<_>>())
                 .unwrap_or_default(),
             "ui_language": setup.map_or("auto", |s| &s.ui_language),
+            "appearance": setup.map(|s| &s.appearance),
             "session": session_state(&state),
             "live": live_state(&state),
             "transcribers": transcribers_state(&state),
@@ -3610,6 +3613,7 @@ mod tests {
             kinds: vec!["meeting".into(), "idea".into()],
             drop_echoes: true,
             ui_language: "ja-JP".into(),
+            appearance: json!({"preset": "light", "colors": {}}),
             slots,
             transcription: HashMap::new(),
             default_transcription: "whisper".into(),
@@ -5340,6 +5344,10 @@ mod tests {
             (json!("pt"), json!(["auto", "pt", "ja"]))
         );
         assert_eq!(session["ui_language"], "ja-JP");
+        assert_eq!(
+            session["appearance"],
+            json!({"preset": "light", "colors": {}})
+        );
         assert_eq!(
             (
                 session["session"]["title"].clone(),

@@ -597,9 +597,9 @@ second window, `eco · settings` to Hyprland, 1040×760 or its screen less a
 every row). The window never writes the config itself: **each change is saved on
 its own**, and the daemon validates the whole config and writes it.
 
-Down the left are the eight sections, numbered from `01`, each named for the
+Down the left are the nine sections, numbered from `01`, each named for the
 question it answers: AUDIO, MODELS, LANGUAGES, SESSION KINDS, PROMPTS, CONTEXT,
-SKILLS and GENERAL. The rail is a carousel: the one on screen at its head, in
+SKILLS, GENERAL and APPEARANCE. The rail is a carousel: the one on screen at its head, in
 the accent, beside the bar, the others after it in order, the ones before it
 coming round after the last. Folded, it shows only their numbers; under the
 pointer, with the keyboard on it, or after a tap on its head, it unfolds over
@@ -658,8 +658,8 @@ nothing.
 
 | where | key | what it does |
 |---|---|---|
-| outside a field being written | `1` … `8` | show that section |
-| anywhere | `Ctrl+1` … `Ctrl+8` | show that section |
+| outside a field being written | `1` … `9` | show that section |
+| anywhere | `Ctrl+1` … `Ctrl+9` | show that section |
 | anywhere | `Ctrl+Tab`, `Ctrl+Shift+Tab` | the next, the previous section |
 | the rail | `↑` `↓` `Home` `End` | move along the sections |
 | the rail | `Enter`, `Space` | open the section the rail is on |
@@ -839,6 +839,14 @@ skill's MODEL picker is dimmed, reading `No chat model`, and under General the
 reviewer's switch is dimmed while off, each with the hint `Needs a chat model:
 register one under Settings › Models`. It is not pictured: the pictures run
 with chat models registered.
+
+**Appearance** — the ninth section (Ctrl+9) chooses System, Dark, Light or
+Custom. System follows Omarchy on Linux and the system light/dark app
+preference on Windows. Custom exposes nine color roles, each with a visual
+color dialog and hexadecimal input. Changes save immediately. Switching
+presets keeps the custom palette; RESET COLORS restores the dark defaults.
+A note reports low text contrast; displayed text is adjusted for readability.
+See [changing the appearance](how-to-change-appearance.md).
 
 **General** — how eco behaves, as one table of settings under five titles, each
 with its value beside it as the control that changes it. In the picture the

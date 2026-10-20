@@ -1070,6 +1070,7 @@ Singleton {
       defaultModels = event.default_models || defaultModels
       contexts = event.contexts || []
       uiLanguage = event.ui_language
+      Theme.configure(event.appearance)
       transcribers = event.transcribers || []
       answers = ({})
       // Each source down now follows as its own `transcription` event.
@@ -1421,6 +1422,7 @@ Singleton {
       // Presets first: the settings draft is made from the config.
       presets = event.presets
       config = event.config
+      Theme.configure((config.ui || {}).appearance)
       devices = event.devices
       omapassInstalled = event.omapass.installed
       omapassPage = event.omapass.page

@@ -116,7 +116,7 @@ QtObject {
       const view = root.window.view
       root.check("Esc while writing goes back to the table", view.openPage === null)
       root.check("the row stays picked", view.picked[view.at.kinds] === "meeting")
-      const names = ["audio", "models", "languages", "kinds", "prompts", "context", "skills", "general"]
+      const names = ["audio", "models", "languages", "kinds", "prompts", "context", "skills", "general", "appearance"]
       root.check("the sections come in their order", JSON.stringify(view.sections.map(section => section.name))
         === JSON.stringify(names.map(name => I18n.t("settings." + name))))
       root.check("each section has its place", names.every((name, index) => view.at[name] === index))
@@ -138,7 +138,11 @@ QtObject {
       root.check("Esc puts the number back", field.text === "8")
       root.check("Esc gives the keyboard back to the rows", root.window.activeFocusItem !== field)
     },
-    () => Qt.exit(root.failed)
+    () => {
+      root.keys.keyClick(Qt.Key_9, Qt.ControlModifier)
+      root.check("Ctrl+9 chooses Appearance", root.window.page === root.window.view.at.appearance)
+      Qt.exit(root.failed)
+    }
   ]
 
   property Timer step: Timer {

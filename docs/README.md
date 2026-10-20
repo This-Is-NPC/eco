@@ -46,6 +46,9 @@ Each of these is its own step, and needs 1 to 4 done first:
 13. [**How to use eco from an agent**](how-to-use-eco-from-an-agent.md) — the
     command line and the `eco` skill, which are the only way in.
 
+14. [**How to change the appearance**](how-to-change-appearance.md) — system,
+    dark, light and custom palettes.
+
 **The shortest useful path** is 1, 2, 3, 4 — install it, give it a model to
 transcribe and one to answer, tell it who it hears, and record — and then 5 in
 the middle of the next call. Outside a session eco only measures the audio, so

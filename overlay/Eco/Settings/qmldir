@@ -1,6 +1,7 @@
 module Eco.Settings
 AddFileScreen 1.0 AddFileScreen.qml
 AddLanguageView 1.0 AddLanguageView.qml
+AppearanceSection 1.0 AppearanceSection.qml
 AudioBody 1.0 AudioBody.qml
 AudioSection 1.0 AudioSection.qml
 ChildScreen 1.0 ChildScreen.qml

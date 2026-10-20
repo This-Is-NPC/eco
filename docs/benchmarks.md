@@ -486,3 +486,25 @@ did not move are not named.
 | `src/adapters/diarizer_process.rs` | 95.69% | 97.61% | `spawn()` and `serve()`, the one-line entry points into the real `eco diarize` and its stdin and stdout; a `panic!` that reports a failed test. |
 | `src/adapters/control_socket.rs` | 97.53% | 97.66% | as before, and a test's wait for its two clients to connect. |
 | `src/domain/session.rs`, `src/session.rs`, `src/import.rs`, `src/main.rs`, `src/cli.rs` | 98.21%, 96.81%, 97.15%, 88.90%, 99.90% | 98.24%, 96.91%, 97.59%, 89.32%, 99.91% | as before. |
+
+## Appearance coverage (2026-10-20)
+
+Measured on Linux with `mise run coverage -- --no-report --quiet`, followed
+by `cargo llvm-cov report --summary-only --show-missing-lines` and JSON
+export. The run passed 809 unit tests and 22 integration tests. The added
+executable Rust lines are covered; no new uncovered lines were introduced.
+The existing gaps and their reasons remain those in the daemon, update and
+notifications coverage sections above.
+
+| Changed file | Covered lines | Line coverage |
+|---|---|---|
+| `src/config.rs` | 1925 of 1929 | 99.79% |
+| `src/domain/assistant.rs` | 12676 of 12718 | 99.67% |
+| `src/session.rs` | 8972 of 9262 | 96.87% |
+
+The new window test checks all four presets, synthetic system light/dark
+preferences, live palette updates, partial theme files, custom color
+retention, hexadecimal validation, reset and text contrast. The settings
+keyboard test checks Ctrl+9. The bridge test reads the platform theme
+properties. Native Windows theme changes still require verification on
+Windows; this Linux run does not measure them.

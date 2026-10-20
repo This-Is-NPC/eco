@@ -5,6 +5,7 @@ Caption 1.0 Caption.qml
 Chip 1.0 Chip.qml
 ChipStrip 1.0 ChipStrip.qml
 ChoiceRow 1.0 ChoiceRow.qml
+ColorField 1.0 ColorField.qml
 ColorPicker 1.0 ColorPicker.qml
 CommandRow 1.0 CommandRow.qml
 ConfirmDialog 1.0 ConfirmDialog.qml
