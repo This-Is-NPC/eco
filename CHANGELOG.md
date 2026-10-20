@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.8.0](https://github.com/This-Is-NPC/eco/compare/v0.7.0...v0.8.0) (2026-10-20)
+
+
+### Features
+
+* **settings:** add appearance presets and colors ([e32ef20](https://github.com/This-Is-NPC/eco/commit/e32ef2055eddceb4a31340d40a5d0eb4df4cc030))
+* **settings:** add appearance presets and colors ([e3191e6](https://github.com/This-Is-NPC/eco/commit/e3191e6f9249ae882878d44305d1a4ac46c6f613))
+
 ## [0.7.0](https://github.com/This-Is-NPC/eco/compare/v0.6.0...v0.7.0) (2026-10-15)
 
 
