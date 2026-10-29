@@ -254,7 +254,10 @@ the MSI by hand and the old install is still there; remove it with
    ```
 
    It asks GitHub for the latest release, downloads its MSI and
-   `SHA256SUMS`, and refuses an MSI that does not match. Then it stops an eco
+   `SHA256SUMS`, and refuses an MSI that does not match. The MSI comes
+   through Windows' own `curl`, which draws a progress bar as it downloads,
+   tries a dropped connection again up to three times and gives up on one
+   that sends nothing for a minute. Then it stops an eco
    that is running, removes an older per-user install if there is one, and
    runs `msiexec /i` on the MSI: Windows Installer shows its progress and asks
    for administrator rights. A daemon that was running is started again. Every
@@ -262,8 +265,8 @@ the MSI by hand and the old install is still there; remove it with
    and how to take it off. `$env:VERSION = "0.3.0"` before it picks a release
    other than the latest; `$env:DRY_RUN = "1"` downloads and checks the MSI,
    names what it would remove, and stops there. Running it again is the
-   upgrade: the MSI replaces the installed eco and refuses to go back to an
-   older version.
+   upgrade: the MSI replaces the installed eco, also one of the same version,
+   and refuses to go back to an older version.
 
    The programs are not code-signed, so the first time one runs,
    SmartScreen may stop it with "Windows protected your PC": **More info ›

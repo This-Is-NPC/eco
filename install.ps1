@@ -119,12 +119,22 @@ function Remove-PerUserInstall {
     return $window
 }
 
-# The installed eco's registration with Windows Installer, found by its name
-# and publisher, or $null.
+# Every registration of eco with Windows Installer, found by its name and
+# publisher: more than one when an eco installed twice at the same version
+# by an older package left both.
 function Get-Product {
-    Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*' -ErrorAction SilentlyContinue |
-        Where-Object { $_.DisplayName -eq 'eco' -and $_.Publisher -eq 'This-Is-NPC' -and $_.WindowsInstaller -eq 1 } |
-        Select-Object -First 1
+    @(Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*' -ErrorAction SilentlyContinue |
+        Where-Object { $_.DisplayName -eq 'eco' -and $_.Publisher -eq 'This-Is-NPC' -and $_.WindowsInstaller -eq 1 })
+}
+
+# Downloads `url` to `path` with Windows' own curl, which draws its progress,
+# tries a dropped connection again and gives up on one that sends nothing for
+# a minute, so a slow download shows it moves and a dead one ends.
+function Get-Download([string] $url, [string] $path, [switch] $quiet) {
+    $show = if ($quiet) { '--silent', '--show-error' } else { '--progress-bar' }
+    & (Join-Path $env:SystemRoot 'System32\curl.exe') --fail --location --retry 3 `
+        --connect-timeout 30 --speed-limit 1 --speed-time 60 @show --output $path $url
+    if ($LASTEXITCODE -ne 0) { throw "eco: could not download $url (curl exited with status $LASTEXITCODE)." }
 }
 
 # Runs msiexec with `arguments` and waits. Windows Installer asks for
@@ -137,16 +147,16 @@ function Invoke-Msiexec([string[]] $arguments) {
 
 function Uninstall-Eco([bool] $everything) {
     $data = @((Join-Path $env:APPDATA 'eco'), (Join-Path $env:LOCALAPPDATA 'eco'))
-    $product = Get-Product
+    $products = Get-Product
     [void](Remove-PerUserInstall)
     if ($dryRun) {
-        if ($product) { Say "would remove $eco with Windows Installer" }
+        if ($products) { Say "would remove $eco with Windows Installer" }
         if ($everything) { foreach ($path in $data) { if (Test-Path -LiteralPath $path) { Say "would remove $path" } } }
         return
     }
-    if ($product) {
+    if ($products) {
         [void](Stop-Eco $eco)
-        Invoke-Msiexec @('/x', $product.PSChildName)
+        foreach ($product in $products) { Invoke-Msiexec @('/x', $product.PSChildName) }
         Say "removed $eco"
     }
     foreach ($path in $data) {
@@ -175,10 +185,8 @@ function Install-Eco {
     $tmp = Join-Path ([IO.Path]::GetTempPath()) ('eco-' + [Guid]::NewGuid())
     [void](New-Item -ItemType Directory -Path $tmp)
     try {
-        [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
-        $web = New-Object Net.WebClient
         $sums = Join-Path $tmp 'SHA256SUMS'
-        try { $web.DownloadFile("$base/SHA256SUMS", $sums) } catch { throw "eco: could not download $base/SHA256SUMS." }
+        Get-Download "$base/SHA256SUMS" $sums -quiet
         $line = Get-Content -LiteralPath $sums |
             Where-Object { $_ -match '^([0-9a-fA-F]{64}) +\*?(eco-[0-9][^ ]*-windows-x86_64\.msi)$' } |
             Select-Object -First 1
@@ -188,7 +196,7 @@ function Install-Eco {
         $msi = Join-Path $tmp $name
 
         Say "downloading $name"
-        try { $web.DownloadFile("$base/$name", $msi) } catch { throw "eco: could not download $base/$name." }
+        Get-Download "$base/$name" $msi
         if ((Get-FileHash -LiteralPath $msi -Algorithm SHA256).Hash -ne $expected) {
             throw "eco: $name does not match the release's SHA256SUMS; nothing was installed."
         }
