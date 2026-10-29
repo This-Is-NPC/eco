@@ -81,14 +81,14 @@ fn window_control(emit: &Emit) -> Arc<dyn WindowControl> {
 
 /// The desktop's notifications (docs/design.md §15): notify-send on Linux.
 #[cfg(unix)]
-fn notifier() -> Arc<dyn Notifier> {
+pub fn notifier() -> Arc<dyn Notifier> {
     Arc::new(crate::adapters::notify_linux::NotifySend)
 }
 
 /// The desktop's notifications (docs/design.md §15): toasts on Windows.
 #[cfg(windows)]
-fn notifier() -> Arc<dyn Notifier> {
-    Arc::new(crate::adapters::notify_windows::Toasts)
+pub fn notifier() -> Arc<dyn Notifier> {
+    Arc::new(crate::adapters::notify_windows::Toasts::default())
 }
 
 /// The texts notifications read: the interface's language pack, in the

@@ -301,8 +301,8 @@ the repository, installs that zip for your account.
 
    `ok` means the zip is the one the release built. The zip holds one
    folder, `eco`; keep it whole, the program finds its window and overlay
-   inside it. Only `eco.exe` is in `bin`; the window and its Qt stay in
-   `lib\eco`. `SetEnvironmentVariable` writes your `PATH` back with its
+   inside it. Only `eco.exe` is in `bin`; the window, its Qt and the
+   Start menu entry's `eco-launch.exe` stay in `lib\eco`. `SetEnvironmentVariable` writes your `PATH` back with its
    `%…%` entries expanded; the installer keeps them. Open a new terminal,
    then `eco --version` says `eco 0.3.0`, and run `eco setup` (step 2). To
    upgrade, `eco stop`, delete the `eco` folder and unzip the new one in its
@@ -560,14 +560,14 @@ menu, with eco's icon:
 eco: Start menu entry added in C:\Users\you\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\eco.lnk
 ```
 
-It runs `eco start` through `conhost.exe --headless`, a console host that
-shows no window, so no console stays open while `eco start` waits for the
-daemon and its window. Run again, it says `Start menu entry … is up to date`;
+It runs `eco-launch.exe`, which does what `eco start` does but is a program
+with no console, so no console window opens while it waits for the daemon and
+its window. A failure, such as running from an elevated session, shows as a
+notification. Run again, it says `Start menu entry … is up to date`;
 from an eco that has moved, `Start menu entry updated in …`. The shortcut is
 written through PowerShell; one it cannot write is a warning, and `eco setup`
-exits with status 1. Over ssh the shortcut's command was run and started and
-stopped the daemon; a click in the Start menu was not seen, as the machine
-eco was built on has no desktop at hand.
+exits with status 1. A click in the Start menu has not been tried since this
+change.
 
 **The notifications' name.** `eco setup` also registers eco's app id, the
 name and icon Windows shows on eco's notifications, in your account's

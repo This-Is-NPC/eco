@@ -9,7 +9,8 @@ against, is written by the release workflow over every package it attaches.
 On Windows: dist/eco-<version>-windows-x86_64.zip of the working tree, one
 folder eco/ laid out as the daemon looks for what it ships (docs/design.md
 §13), staged by scripts/lib/windows.py: bin/eco.exe, the window program and
-its Qt runtime in lib/eco (built by scripts/window-build, the icon inside it),
+its Qt runtime in lib/eco (built by scripts/window-build, the icon inside it)
+beside eco-launch.exe, the Start menu entry's program,
 the overlay in share/eco/overlay, the icon eco's notifications show in
 share/eco/eco.ico, the licence and README.txt. Beside it, dist/SHA256SUMS names the zip in the release's format, so install.ps1 installs
 it from dist as it does from a release (scripts/install-windows)."""

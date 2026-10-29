@@ -10,6 +10,7 @@ use std::process::{Command, Stdio};
 use crate::adapters::notify_windows::{self, APP_ID, Registered};
 use crate::adapters::overlay;
 use crate::adapters::service_windows::CREATE_NO_WINDOW;
+use crate::paths;
 use crate::ports::DesktopIntegration;
 
 /// Removes the login script an earlier eco wrote into `folder`, the Startup folder.
@@ -66,7 +67,7 @@ impl DesktopIntegration for StartMenu {
             format!("cannot find this eco, so it is not in the Start menu: {error}")
         })?;
         let link = self.folder.join(SHORTCUT);
-        let output = shortcut(&link, &exe, &overlay::program())
+        let output = shortcut(&link, &launcher(&exe), &overlay::program())
             .output()
             .map_err(|error| {
                 format!("cannot run powershell, so eco is not in the Start menu: {error}")
@@ -111,25 +112,27 @@ const SAVE: &str = "$ErrorActionPreference = 'Stop'; \
      $link.WindowStyle = 7; $link.Description = 'eco'; $link.Save(); \
      if ($found) { 'updated' } else { 'added' }";
 
-/// PowerShell saving at `link` a shortcut that runs `exe start` through
-/// `conhost --headless`, a console host that shows no window, with the icon
-/// of the window program `window`.
-fn shortcut(link: &Path, exe: &Path, window: &Path) -> Command {
-    let system =
-        std::env::var_os("SystemRoot").map_or_else(|| PathBuf::from(r"C:\Windows"), PathBuf::from);
+/// The program the shortcut runs, which opens eco with no console window:
+/// installed beside the window program (`<prefix>/lib/eco/eco-launch.exe`),
+/// or beside `exe` when eco runs from a checkout's build.
+fn launcher(exe: &Path) -> PathBuf {
+    let name = format!("eco-launch{}", std::env::consts::EXE_SUFFIX);
+    paths::shipped_program(&name).unwrap_or_else(|| exe.with_file_name(name))
+}
+
+/// PowerShell saving at `link` a shortcut that runs the program `launcher`,
+/// with the icon of the window program `window`.
+fn shortcut(link: &Path, launcher: &Path, window: &Path) -> Command {
     let mut icon = window.as_os_str().to_owned();
     icon.push(",0");
-    let mut arguments = std::ffi::OsString::from("--headless \"");
-    arguments.push(exe);
-    arguments.push("\" start");
     let mut command = Command::new("powershell");
     command
         .args(["-NoProfile", "-NonInteractive", "-Command", SAVE])
         .env("ECO_LINK", link)
-        .env("ECO_TARGET", system.join(r"System32\conhost.exe"))
-        .env("ECO_ARGUMENTS", arguments)
+        .env("ECO_TARGET", launcher)
+        .env("ECO_ARGUMENTS", "")
         .env("ECO_ICON", icon)
-        .env("ECO_DIRECTORY", exe.parent().unwrap_or(exe))
+        .env("ECO_DIRECTORY", launcher.parent().unwrap_or(launcher))
         .stdin(Stdio::null())
         .creation_flags(CREATE_NO_WINDOW);
     command
@@ -233,17 +236,15 @@ mod tests {
     }
 
     #[test]
-    fn the_shortcut_runs_eco_start_in_a_hidden_console() {
+    fn the_shortcut_runs_the_launcher_with_the_window_icon() {
         let built = shortcut(
             Path::new(r"C:\menu\eco.lnk"),
-            Path::new(r"C:\Program Files\eco\bin\eco.exe"),
+            Path::new(r"C:\Program Files\eco\lib\eco\eco-launch.exe"),
             Path::new(r"C:\Program Files\eco\lib\eco\eco-window.exe"),
         );
         assert_eq!(built.get_program(), "powershell");
         let args: Vec<_> = built.get_args().collect();
         assert_eq!(args, ["-NoProfile", "-NonInteractive", "-Command", SAVE]);
-        let system = PathBuf::from(std::env::var_os("SystemRoot").unwrap());
-        let conhost = system.join(r"System32\conhost.exe");
         let envs: Vec<_> = built.get_envs().collect();
         let value = |name: &str| {
             envs.iter()
@@ -253,58 +254,58 @@ mod tests {
                 .to_owned()
         };
         assert_eq!(value("ECO_LINK"), r"C:\menu\eco.lnk");
-        assert_eq!(value("ECO_TARGET"), conhost.as_os_str());
         assert_eq!(
-            value("ECO_ARGUMENTS"),
-            r#"--headless "C:\Program Files\eco\bin\eco.exe" start"#
+            value("ECO_TARGET"),
+            r"C:\Program Files\eco\lib\eco\eco-launch.exe"
         );
+        assert_eq!(value("ECO_ARGUMENTS"), "");
         assert_eq!(
             value("ECO_ICON"),
             r"C:\Program Files\eco\lib\eco\eco-window.exe,0"
         );
-        assert_eq!(value("ECO_DIRECTORY"), r"C:\Program Files\eco\bin");
+        assert_eq!(value("ECO_DIRECTORY"), r"C:\Program Files\eco\lib\eco");
+    }
+
+    #[test]
+    fn the_launcher_of_a_build_is_beside_eco() {
+        // Not installed, so no lib/eco beside the test binary.
+        assert_eq!(
+            launcher(Path::new(r"C:\build\eco.exe")),
+            Path::new(r"C:\build\eco-launch.exe")
+        );
     }
 
     #[test]
     fn adds_the_shortcut_and_a_rerun_changes_nothing() {
         let directory = tempfile::tempdir().unwrap();
         let link = directory.path().join("Programs").join("eco.lnk");
-        let exe = directory.path().join("eco.exe");
+        let launch = directory.path().join("eco-launch.exe");
         let window = directory.path().join("eco-window.exe");
-        let save = |exe: &Path| said(&link, &shortcut(&link, exe, &window).output().unwrap());
+        let save = |launch: &Path| said(&link, &shortcut(&link, launch, &window).output().unwrap());
         assert_eq!(
-            save(&exe),
+            save(&launch),
             Ok(format!("Start menu entry added in {}", link.display()))
         );
-        let system = PathBuf::from(std::env::var_os("SystemRoot").unwrap());
-        let conhost = system.join(r"System32\conhost.exe").display().to_string();
-        let mut fields = read_shortcut(&link);
-        // The shell gives the Windows folder back in its own case.
-        assert!(fields[0].eq_ignore_ascii_case(&conhost), "{fields:?}");
-        fields[0] = conhost;
         assert_eq!(
-            fields,
+            read_shortcut(&link),
             [
-                system.join(r"System32\conhost.exe").display().to_string(),
-                format!("--headless \"{}\" start", exe.display()),
+                launch.display().to_string(),
+                String::new(),
                 format!("{},0", window.display()),
                 directory.path().display().to_string(),
                 "7".into(),
             ]
         );
         assert_eq!(
-            save(&exe),
+            save(&launch),
             Ok(format!("Start menu entry {} is up to date", link.display()))
         );
-        let moved = directory.path().join("new").join("eco.exe");
+        let moved = directory.path().join("new").join("eco-launch.exe");
         assert_eq!(
             save(&moved),
             Ok(format!("Start menu entry updated in {}", link.display()))
         );
-        assert_eq!(
-            read_shortcut(&link)[1],
-            format!("--headless \"{}\" start", moved.display())
-        );
+        assert_eq!(read_shortcut(&link)[0], moved.display().to_string());
     }
 
     #[test]
