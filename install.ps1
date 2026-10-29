@@ -131,7 +131,7 @@ function Get-Product {
 # tries a dropped connection again and gives up on one that sends nothing for
 # a minute, so a slow download shows it moves and a dead one ends.
 function Get-Download([string] $url, [string] $path, [switch] $quiet) {
-    $show = if ($quiet) { '--silent', '--show-error' } else { '--progress-bar' }
+    [string[]] $show = if ($quiet) { '--silent', '--show-error' } else { '--progress-bar' }
     & (Join-Path $env:SystemRoot 'System32\curl.exe') --fail --location --retry 3 `
         --connect-timeout 30 --speed-limit 1 --speed-time 60 @show --output $path $url
     if ($LASTEXITCODE -ne 0) { throw "eco: could not download $url (curl exited with status $LASTEXITCODE)." }
