@@ -320,8 +320,6 @@ pub trait Releases: Send + Sync {
 }
 
 /// How far an install has come.
-// No installer reports a stage on macOS yet (docs/design.md §15).
-#[cfg_attr(target_os = "macos", allow(dead_code))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum InstallStage {

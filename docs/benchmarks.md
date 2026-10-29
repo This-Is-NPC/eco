@@ -624,3 +624,13 @@ macOS notifier: the daemon's unit tests, 782 passed, 1 ignored.
 | `src/adapters/notify_program.rs` | 75.00% (8 of 32) | `show` (9–15), the thread that runs the program and writes why it failed to the daemon's stderr, where a test cannot read; `run`, which decides what is written, is tested. Shared with Linux, where it replaces the same lines of `notify_linux.rs`. |
 | `src/adapters/unsupported.rs` | 98.18% (1 of 55) | the empty path `Installer::program` falls back to when the running executable cannot be found. |
 
+## macOS installer coverage (2026-10-29)
+
+Measured as above after the macOS installer replaced `Unsupported` for
+`eco update`: the daemon's unit tests, 785 passed, 1 ignored.
+
+| File | Lines | Left without a test, and why |
+|---|---|---|
+| `src/adapters/installer_macos.rs` | 88.02% (26 of 217) | `Folder::new` (30–36), which reads the user's real home; the old folder that cannot be moved aside (68); a home with no parent or an `~/Applications` that cannot be made (99–100); tar that cannot run or fails (120–128), which the system's `/usr/bin/tar` does not on a well-formed archive. A release that installs, an archive without eco and a folder that cannot move in are tested. |
+| `src/adapters/unsupported.rs` | 100.00% | now only `eco setup`'s desktop step, tested. |
+

@@ -2347,6 +2347,50 @@ then runs it with `ECO_UNINSTALL`. An eco 0.9 does not update itself to the
 MSI: its updater installs a zip, which this release does not ship, so the user
 runs `install.ps1` or the MSI once.
 
+**The macOS package.** On macOS, `mise run package` (after
+`mise run window:build`, which builds `eco-window` as the bundle
+`eco-window.app`) builds the release binary and writes
+`dist/eco-<version>-macos-aarch64.tar.gz`, one folder `eco` laid out as the
+Windows zip:
+
+```
+eco/bin/eco                    the only program on PATH
+eco/lib/eco/eco-window.app/    the window, with its Qt inside the bundle
+eco/share/eco/overlay/         the QML it runs
+eco/LICENSE  eco/README.txt
+```
+
+`macdeployqt`, from the Qt under `.qt`, copies Qt's frameworks, plugins and
+the QML modules the overlay imports into the bundle and points the program at
+them; it also copies `QtQuick/VectorImage`, which needs a `QtSvg` that is not
+installed and says so, and which the overlay never imports. It rewrites the
+programs, so `scripts/package` signs the bundle and `bin/eco` again, ad hoc
+(`codesign --sign -`): Apple Silicon runs no unsigned program, and an ad hoc
+signature names no developer, so Gatekeeper refuses an archive a browser
+downloaded until its quarantine is removed. The bundle's
+`window/Info.plist` holds the reason macOS shows when it asks for the
+microphone; `bin/eco` carries `packaging/macos/Info.plist` in its own
+`__info_plist` section (`build.rs`), with that reason and the one for the
+audio the Mac plays, since the daemon launchd runs is the process macOS asks
+about (read in Apple's documentation; the prompt for a launchd daemon is not
+seen yet). Measured on macOS 27.0.1: 62.6 MB, 2072 files; the bundle opens
+the overlay from the archive's layout and links nothing under `.qt`.
+
+**The macOS installer.** `install-macos.sh`, at the root of the repository,
+is to macOS what `install.ps1` is to Windows, run as `curl <raw URL> | bash`.
+It downloads the release's `SHA256SUMS` and the archive it names, checks it
+with `shasum -a 256`, stops the installed daemon, puts the archive's `eco`
+folder in `~/Applications/eco`, runs `eco setup` and starts again a daemon
+that was running. It changes no shell file: it says how to add
+`~/Applications/eco/bin` to the `PATH`, and a link to `bin/eco` from
+elsewhere would not do, since eco finds what it ships beside the path it was
+started by. `ECO_UNINSTALL=keep` or `everything` takes eco and its launchd
+agent off instead, `everything` also `~/Library/Application Support/eco`;
+`REPO`, `BASE_URL`, `VERSION` and `DRY_RUN` are those of `install.sh`.
+`mise run install:macos` builds the package and runs it with `BASE_URL` at
+`dist`'s `file:` URL; `mise run uninstall:macos` asks, then runs it with
+`ECO_UNINSTALL`.
+
 **Updates.** eco installs its own releases with the steps of `install.sh` and
 `install.ps1`, written in Rust behind two ports: the release source, GitHub,
 and the installer, one adapter per platform.
@@ -2368,8 +2412,9 @@ and the installer, one adapter per platform.
   the release's `SHA256SUMS` from
   `https://github.com/This-Is-NPC/eco/releases/download/<tag>/`, takes from it
   the line of this system's asset — the `eco-<version>-…pkg.tar.zst` Arch
-  package on Linux, `eco-<version>-windows-x86_64.zip` on Windows, the names
-  `install.sh` and `install.ps1` match — downloads the asset and checks its
+  package on Linux, `eco-<version>-windows-x86_64.zip` on Windows,
+  `eco-<version>-macos-aarch64.tar.gz` on macOS, the names `install.sh`,
+  `install.ps1` and `install-macos.sh` match — downloads the asset and checks its
   sha256. On a mismatch nothing is installed and the update fails.
 - *Installing.* On Linux, `pkexec pacman -U --noconfirm <file>`, which shows
   the desktop's password prompt; without `pkexec` and with a terminal
@@ -2406,6 +2451,12 @@ and the installer, one adapter per platform.
   The copy cannot delete itself while it runs: the next daemon start deletes
   the `eco-update-*` folders left in the temporary directory
   (`installer::tidy`).
+  On macOS, the archive is downloaded and unpacked (`/usr/bin/tar`) beside
+  `~/Applications/eco`, then the installed folder is renamed aside, the new
+  one renamed in, and the old one deleted: macOS lets a running program be
+  renamed, so the daemon and its windows go on from the folder moved aside
+  until the restart (`Installed::Done`). A rename that fails puts the old
+  folder back.
 - *Restarting.* Then the daemon restarts on the new binary, as `eco restart`
   does, and a window that was open reopens. The restart never cuts a
   recording: while a session is live it waits (`update_progress` stage
@@ -2469,6 +2520,9 @@ three jobs after release-please:
   `SHA256SUMS` over all of them with `sha256sum` (`<sha256>  <file>`, the
   format `install.sh` checks) and attaches it. It runs once the Linux package
   is attached even if the Windows one failed, so `install.sh` keeps working.
+- No job builds the macOS archive: it is built on a Mac with
+  `mise run package` and attached by hand (`gh release upload`), then the
+  `checksums` job runs again, so `SHA256SUMS` names it.
 
 Every action is pinned by commit sha. On Windows the tools mise installs are
 pinned, the compiler and Windows SDK are the image's. The Linux job's
@@ -2613,12 +2667,14 @@ mise run bench:diarization <dir>   # diarization error rate on WAV + RTTM
 mise run readme:gif         # the README icon, from packaging/eco.omapixel
 mise run icon               # packaging/windows/eco.ico, from packaging/eco.svg
 mise run install            # the release build, under ~/.local (PREFIX moves it)
-mise run package            # the Arch package of HEAD, into target/arch/pkg; on Windows the zip, into dist
+mise run package            # the Arch package of HEAD, into target/arch/pkg; on Windows the zip, on macOS the archive, into dist
 mise run hooks:install      # run the gate on every push, and post local-check
 mise run local-check        # gate HEAD and post local-check by hand
 mise run uninstall          # asks first, then takes that install back off
 mise run install:windows    # Windows only: the zip, installed by install.ps1 in %LOCALAPPDATA%\Programs\eco, on your PATH
 mise run uninstall:windows  # Windows only: takes it off; asks whether to delete your data too
+mise run install:macos      # macOS only: the archive, installed by install-macos.sh in ~/Applications/eco
+mise run uninstall:macos    # macOS only: takes it off; asks whether to delete your data too
 ```
 
 **A checkout is enough to try eco.** `mise run start` runs the daemon and its
@@ -2785,5 +2841,5 @@ is `src/adapters/unsupported.rs`, which says so whenever it is used.
 | Shortcuts | a global Hyprland bind that runs an `eco window` command, which sends one line to the socket and returns once the daemon has read it: `window.call` for those that open a view, the daemon giving that window the keyboard | the daemon registers `[shortcuts]` (§9) itself, `Win+Alt+A`, `Q`, `C`, `N`, `P`, `H` and `E` by default, the keys of `eco.lua` with the Windows key for SUPER, none of them one Microsoft documents for Windows (`Win+Alt` with a digit opens a taskbar jump list, and was refused on a desktop; the Game Bar holds `G`, `M`, `R` and `T`; Omarchy binds `SUPER+ALT+1` to `5` to a group's windows), through the `windows-hotkeys` crate: `RegisterHotKey` on a hidden message-only window of a thread of its own, which waits for `WM_HOTKEY` in the crate's loop. A pressed key hands the daemon's loop the very line `eco window` builds (`cli::Window::line`), so it is routed as the command would be. A key the system refuses, another program holding it, is written to the daemon's log and greets every client in a `shortcuts` event (§10.1) listing the keys left off, which is no error: the shortcuts are optional, the others still work, and `eco doctor` passes with the keys named; the settings window has no place for shortcuts, so others go in the config file, created if missing. Chosen over `global-hotkey`, which registers the same way but leaves the message loop to the application, and that loop is `unsafe` code eco forbids, and over `livesplit-hotkey`, which installs a low-level keyboard hook: it sees every key pressed in every program, passes the shortcut on to the program in front as well (Win+Alt+1 would also open the first taskbar program's jump list) and cannot tell a key another program holds (read in the crates' sources). The keys are read when the daemon starts. Over ssh the system refuses every key: that session has no interactive window station (`RegisterHotKey` fails with error 1459, `ERROR_REQUIRES_INTERACTIVE_WINDOWSTATION`, measured), so each is reported; on a desktop, `Win+Alt+C`, `N`, `H` and `E` registered and worked when pressed (seen in a desktop test). `eco window` works as on Linux, knowing the daemon has read its line from the `synced` answer to `sync` (§10) | none, a known limitation: macOS reaches a global key only through the main thread's event loop, which the daemon does not run, so it registers none and greets with every key in `shortcuts` `unavailable`; `eco doctor` fails the check and says to bind a key to an `eco window` command in the Shortcuts app, which reaches the running daemon as Hyprland's bindings do | `packaging/hypr/eco.lua`, `src/cli.rs`, `src/shortcuts.rs`, `src/adapters/shortcuts_windows.rs` |
 | The hook shell | `shell()` runs each hook with `sh -c` | `shell()` runs each hook with `cmd /S /C "<command>"`, the command handed over as written, for cmd does not read its line by the quoting rules other programs use; a hook reads `%ECO_SESSION%` and `%ECO_TITLE%`. cmd is on every Windows | as on Linux: `sh -c` | `src/adapters/hook_shell.rs` |
 | The omapass keyring | `api_key_omapass` reads a key through the omapass CLI | omapass does not exist: it is never installed, and a key from it fails | as on Linux, looked up on `PATH`; Omarchy does not exist there, so it is not installed | `src/adapters/omapass.rs` |
-| Installing a release | `pkexec pacman -U --noconfirm` on the Arch package, else `sudo pacman -U` from a terminal; Hyprland's binds are what `eco doctor` checks for shortcuts | the per-machine MSI in `%ProgramFiles%\eco`, installed by `msiexec` from a copy of eco once the daemon has stopped (`eco apply-update`); the registered keys are what `eco doctor` checks | none yet: adapter `Unsupported`: `eco update` installs nothing and says so; the restart after one would run `eco restart` as a process of its own | `src/ports.rs` (`Releases`, `Installer`), `src/installer.rs`, `src/adapters/releases_github.rs`, `src/adapters/installer_linux.rs`, `src/adapters/installer_windows.rs`, `src/apply.rs`, `src/session/update.rs`, `src/doctor.rs` (§13) |
+| Installing a release | `pkexec pacman -U --noconfirm` on the Arch package, else `sudo pacman -U` from a terminal; Hyprland's binds are what `eco doctor` checks for shortcuts | the per-machine MSI in `%ProgramFiles%\eco`, installed by `msiexec` from a copy of eco once the daemon has stopped (`eco apply-update`); the registered keys are what `eco doctor` checks | adapter `Folder`: `~/Applications/eco`, which `install-macos.sh` fills, replaced in place by a rename, the folder moved aside deleted at once (§13); the restart after an update runs `eco restart` as a process of its own. Tested against an archive served by a test server; `eco update` against the published 0.10.1, which carries no macOS archive, failed with `the SHA256SUMS of v0.10.1 names no package for this system` and left the install as it was (seen) | `src/ports.rs` (`Releases`, `Installer`), `src/installer.rs`, `src/adapters/releases_github.rs`, `src/adapters/installer_linux.rs`, `src/adapters/installer_windows.rs`, `src/apply.rs`, `src/session/update.rs`, `src/doctor.rs` (§13), `src/adapters/installer_macos.rs`, `install-macos.sh` |
 | The Windows Credential Manager | none: `api_key_credential` and `eco key set`/`remove` fail, naming omapass and the environment; the `keys` event's `credentials` is `null` | `api_key_credential` reads the generic credential `eco:<name>`; `eco key set`/`remove` write and delete it; the `keys` command lists them by name (§9.1) | as on Linux: none. The macOS Keychain is not used: it ties a key to the program's signature, and eco is not signed, so each new build would ask for every key again; keys come from the environment | `src/adapters/credentials.rs` |

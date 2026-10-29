@@ -28,6 +28,8 @@ pub mod hook_shell;
 pub mod http;
 #[cfg(target_os = "linux")]
 pub mod installer_linux;
+#[cfg(target_os = "macos")]
+pub mod installer_macos;
 #[cfg(windows)]
 pub mod installer_windows;
 pub mod llm_openai;

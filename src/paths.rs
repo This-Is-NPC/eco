@@ -157,6 +157,10 @@ impl<V: Fn(&str) -> Option<OsString>> Layout<V> {
     fn launch_agent(&self) -> PathBuf {
         self.home().join("Library/LaunchAgents/eco.plist")
     }
+
+    fn app_dir(&self) -> PathBuf {
+        self.home().join("Applications/eco")
+    }
 }
 
 /// Windows and macOS: the log of the daemon started in the background.
@@ -339,6 +343,12 @@ pub fn daemon_log() -> PathBuf {
 #[cfg(target_os = "macos")]
 pub fn launch_agent() -> PathBuf {
     layout().launch_agent()
+}
+
+/// Where a release of eco is installed for the user, and updated in place.
+#[cfg(target_os = "macos")]
+pub fn app_dir() -> PathBuf {
+    layout().app_dir()
 }
 
 /// The folder whose programs Windows runs at the user's login.
@@ -552,6 +562,7 @@ mod tests {
             layout.daemon_log(),
             layout.update_state(),
             layout.launch_agent(),
+            layout.app_dir(),
             layout.expand("~/cv.md"),
         ];
         let expected = [
@@ -565,6 +576,7 @@ mod tests {
             "/Users/you/Library/Application Support/eco/daemon.log",
             "/Users/you/Library/Application Support/eco/update.json",
             "/Users/you/Library/LaunchAgents/eco.plist",
+            "/Users/you/Applications/eco",
             "/Users/you/cv.md",
         ];
         assert_eq!(found, expected.map(PathBuf::from));

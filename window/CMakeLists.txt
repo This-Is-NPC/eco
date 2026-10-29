@@ -17,10 +17,12 @@ if(APPLE)
   enable_language(OBJCXX)
   target_sources(eco-window PRIVATE bridge_macos.h bridge_macos.mm)
   target_link_libraries(eco-window PRIVATE "-framework AppKit")
-  # The microphone permission: Qt's plugin asks the system, which needs the
-  # usage text in an Info.plist, embedded since eco-window is no bundle.
+  # The microphone permission: Qt's plugin asks the system, which reads the
+  # usage text in the bundle's Info.plist. A bundle, eco-window.app, also
+  # carries the Qt it runs with once packaged.
   target_link_libraries(eco-window PRIVATE Qt6::QDarwinMicrophonePermissionPlugin)
-  target_link_options(eco-window PRIVATE "LINKER:-sectcreate,__TEXT,__info_plist,${CMAKE_CURRENT_SOURCE_DIR}/Info.plist")
+  set_target_properties(eco-window PROPERTIES MACOSX_BUNDLE ON
+    MACOSX_BUNDLE_INFO_PLIST ${CMAKE_CURRENT_SOURCE_DIR}/Info.plist)
 endif()
 if(WIN32)
   target_sources(eco-window PRIVATE eco-window.rc)

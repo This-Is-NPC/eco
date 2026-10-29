@@ -74,13 +74,13 @@ struct Places {
 impl Places {
     /// This eco's own.
     fn here() -> Self {
-        let window = format!("eco-window{}", std::env::consts::EXE_SUFFIX);
+        let window = crate::adapters::overlay::PROGRAM;
         Self {
             exe: std::env::current_exe().unwrap_or_default(),
             shipped: vec![
                 (
                     format!("lib/eco/{window}"),
-                    paths::shipped_program(&window).is_some(),
+                    paths::shipped_program(window).is_some(),
                 ),
                 (
                     "share/eco/overlay/shell.qml".into(),

@@ -566,8 +566,50 @@ it, one command each:
 ## On macOS
 
 macOS (Apple Silicon, macOS 14.6 or later) has no release yet: eco is built
-from a checkout ([working on eco](design.md#working-on-eco)). The daemon runs
-in the background as the launchd agent `eco` of your login session. `eco start` writes it to
+from a checkout ([working on eco](design.md#working-on-eco)), which installs
+it for you alone:
+
+```bash
+mise run install:macos
+```
+
+```
+eco: downloading eco-0.9.1-macos-aarch64.tar.gz
+eco: installed eco in /Users/you/Applications/eco
+eco: /Users/you/Library/Application Support/eco/models/silero_vad.onnx is up to date
+eco: /Users/you/Library/Application Support/eco/models/wespeaker_campplus.onnx is up to date
+eco: starting eco from the desktop is not available on this system yet
+eco: add /Users/you/Applications/eco/bin to your PATH, e.g. in ~/.zprofile: export PATH="$HOME/Applications/eco/bin:$PATH"
+eco: installed. Next: eco start
+```
+
+It builds the archive a release would carry, checks it as a download is
+checked, puts it in `~/Applications/eco` and runs `eco setup`. Add
+`~/Applications/eco/bin` to your `PATH` as it says; a link to `eco` from
+another folder does not work, since eco finds its window beside the path it
+was started by. Its programs are signed ad hoc, not by a developer, so an
+archive downloaded in a browser needs its quarantine removed once:
+`xattr -dr com.apple.quarantine ~/Applications/eco`.
+
+`eco update` installs a newer release over it when that release carries a
+macOS archive; none does yet, and it says
+`the SHA256SUMS of v0.10.1 names no package for this system`.
+
+To take it off, keeping your sessions, config and models:
+
+```bash
+mise run uninstall:macos -- --keep-data
+```
+
+```
+eco: removed /Users/you/Applications/eco
+eco: kept /Users/you/Library/Application Support/eco
+```
+
+`--delete-everything` deletes those too; with neither, it asks.
+
+The daemon runs in the background as the launchd agent `eco` of your login
+session. `eco start` writes it to
 `~/Library/LaunchAgents/eco.plist`, loads it and starts it; it does not run
 at login, as on Linux and Windows. `eco stop`, `eco restart` and `eco status`
 work as on Linux. The daemon's output goes to
@@ -594,13 +636,7 @@ Script** running, say, `eco window new` (by its full path, as `which eco`
 prints it), and give it a key under **Shortcut Details › Add Keyboard
 Shortcut**. It reaches the running daemon as the Hyprland keys do.
 
-To take the agent off:
-
-```bash
-eco stop
-launchctl bootout gui/$(id -u)/eco
-rm ~/Library/LaunchAgents/eco.plist
-```
+`mise run uninstall:macos` takes the agent off too.
 
 ---
 

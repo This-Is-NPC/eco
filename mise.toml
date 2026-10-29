@@ -147,8 +147,22 @@ run = "scripts/local-check"
 description = "Install the versioned pre-push hook that runs the gate and posts local-check"
 run = "scripts/hooks-install"
 
+[tasks."install:macos"]
+description = "macOS only: build the release archive (package) and install it with install-macos.sh for your account in ~/Applications/eco, then eco setup"
+run = [{ task = "window:build" }, { task = "package" }, "scripts/install-macos"]
+
+[tasks."uninstall:macos"]
+description = "macOS only: stop eco and remove ~/Applications/eco and its launchd agent with install-macos.sh; asks whether to delete your sessions, config and models too"
+confirm = "Take eco off this Mac?"
+raw = true
+usage = '''
+flag "--keep-data" help="Keep the sessions, config and models without asking"
+flag "--delete-everything" help="Also delete the sessions, config and models without asking"
+'''
+run = "scripts/uninstall-macos"
+
 [tasks.package]
-description = "Build the release package: on Linux the Arch package of the committed HEAD into target/arch/pkg; on Windows the MSI dist/eco-<version>-windows-x86_64.msi"
+description = "Build the release package: on Linux the Arch package of the committed HEAD into target/arch/pkg; on Windows the MSI dist/eco-<version>-windows-x86_64.msi; on macOS dist/eco-<version>-macos-aarch64.tar.gz"
 run = "scripts/package"
 run_windows = [{ task = "window:build" }, "python scripts/package"]
 

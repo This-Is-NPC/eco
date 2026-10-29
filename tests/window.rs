@@ -140,12 +140,17 @@ fn url(path: &Path) -> String {
     }
 }
 
+/// Where `mise run window:build` puts eco-window: on macOS inside its bundle.
+#[cfg(target_os = "linux")]
+const PROGRAM: &str = "target/window/eco-window";
+#[cfg(windows)]
+const PROGRAM: &str = "target/window/eco-window.exe";
+#[cfg(target_os = "macos")]
+const PROGRAM: &str = "target/window/eco-window.app/Contents/MacOS/eco-window";
+
 /// The eco-window `mise run window:build` built.
 fn program() -> PathBuf {
-    let program = Path::new(ROOT).join(format!(
-        "target/window/eco-window{}",
-        std::env::consts::EXE_SUFFIX
-    ));
+    let program = Path::new(ROOT).join(PROGRAM);
     assert!(
         program.is_file(),
         "{} is missing; run `mise run window:build`",

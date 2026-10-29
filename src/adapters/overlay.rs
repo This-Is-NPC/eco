@@ -32,13 +32,21 @@ pub fn language_pack(code: &str) -> serde_json::Map<String, serde_json::Value> {
         .unwrap_or_default()
 }
 
+/// The window program, under `lib/eco` once installed and `target/window` in
+/// a checkout: on macOS the program inside its bundle.
+#[cfg(target_os = "linux")]
+pub const PROGRAM: &str = "eco-window";
+#[cfg(target_os = "macos")]
+pub const PROGRAM: &str = "eco-window.app/Contents/MacOS/eco-window";
+#[cfg(windows)]
+pub const PROGRAM: &str = "eco-window.exe";
+
 /// The program that runs it: installed beside the binary
-/// (`<prefix>/lib/eco/eco-window`, `eco-window.exe` on Windows), or this
-/// checkout's build (`mise run window:build`) when eco runs from it.
+/// (`<prefix>/lib/eco/eco-window`), or this checkout's build
+/// (`mise run window:build`) when eco runs from it.
 pub fn program() -> PathBuf {
-    let name = format!("eco-window{}", std::env::consts::EXE_SUFFIX);
-    paths::shipped_program(&name).unwrap_or_else(|| {
-        Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/target/window")).join(name)
+    paths::shipped_program(PROGRAM).unwrap_or_else(|| {
+        Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/target/window")).join(PROGRAM)
     })
 }
 

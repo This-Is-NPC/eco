@@ -53,6 +53,11 @@ this line, run once, removes it first and keeps your data.
 `$env:ECO_UNINSTALL = "keep"` before the same line takes eco off again
 ([on Windows](docs/how-to-install-and-remove.md#on-windows)).
 
+On a Mac with Apple Silicon, no release carries a macOS archive yet: from a
+checkout, `mise run install:macos` builds one and installs it in
+`~/Applications/eco`, and `mise run uninstall:macos` takes it off
+([on macOS](docs/how-to-install-and-remove.md#on-macos)).
+
 **Updating.** When a newer release is out, the window says so. **Settings ›
 General › UPDATES › UPDATE**, or `eco update`, installs it and restarts eco;
 a session that records is never cut, the restart waits for it to end
@@ -256,10 +261,13 @@ again on the page where you meet it.
   whole machine, so `pkexec` asks in its own window; without `pkexec`,
   `eco update` in a terminal asks through `sudo`
   ([Update](docs/how-to-install-and-remove.md#update)).
-- **No release for macOS yet.** A checkout builds on a Mac with Apple
-  Silicon, but several platform seams have no macOS adapter
-  ([platform seams](docs/design.md#15-platform-seams)), so eco is not
-  supported there yet. It registers no global shortcut: bind a key to an
+- **No release for macOS yet.** A checkout builds and installs on a Mac with
+  Apple Silicon, but no release carries a macOS archive, and `eco setup`
+  adds eco to no launcher there
+  ([platform seams](docs/design.md#15-platform-seams)). Its programs are
+  signed ad hoc, not by a developer: an archive downloaded in a browser needs
+  `xattr -dr com.apple.quarantine ~/Applications/eco` once. It registers no
+  global shortcut: bind a key to an
   `eco window` command in the Shortcuts app
   ([on macOS](docs/how-to-install-and-remove.md#on-macos)). macOS asks once
   for the microphone when a session starts; refused, the session hears
