@@ -2,7 +2,7 @@
 //! each way, on Windows `auth <token>` first on every connection, connected
 //! again after the daemon goes), the process id, the environment, a local path,
 //! a watched file and raising a window, run offscreen against `tests/window/bridge.qml`;
-//! on Windows, a copied text that outlives the window, on the real platform;
+//! on Windows and macOS, a copied text that outlives the window, on the real platform;
 //! the overlay's views driven as the daemon drives them, in
 //! `tests/window/views.qml`; a long timeline read back and its counts, in
 //! `tests/window/counts.qml`; a long timeline read in pages, in
@@ -629,16 +629,29 @@ async fn the_bridge_carries_lines_reconnects_reads_files_and_exits_cleanly() {
     assert_eq!(answer["text"], "first");
     assert_eq!(answer["pid"], window.id().unwrap());
     assert_eq!(Path::new(answer["path"].as_str().unwrap()), file);
-    // No offscreen window is in front of Windows, whatever Qt calls active;
-    // elsewhere the bridge leaves it to Qt.
+    // No offscreen window is in front of Windows, whatever Qt calls active; on
+    // macOS the application is in front once Qt has activated its window; on
+    // Linux the bridge leaves it to Qt.
+    #[cfg(not(target_os = "macos"))]
     assert_eq!(answer["foreground"], cfg!(unix));
+    #[cfg(target_os = "macos")]
+    {
+        let start = Instant::now();
+        while ask(&mut first, "active").await["foreground"] != true {
+            assert!(
+                start.elapsed() < Duration::from_secs(5),
+                "the application never became active"
+            );
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    }
     assert!(answer["system_dark"].is_boolean());
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     assert_eq!(
         Path::new(answer["system_theme_directory"].as_str().unwrap()),
         dir.path().join("state/omarchy/current")
     );
-    #[cfg(windows)]
+    #[cfg(not(target_os = "linux"))]
     assert_eq!(answer["system_theme_directory"], "");
     assert_eq!(ask(&mut first, "raise").await["line"], "raise");
 
@@ -665,26 +678,40 @@ async fn the_bridge_carries_lines_reconnects_reads_files_and_exits_cleanly() {
     assert!(status.success(), "eco-window exited with {status}");
 }
 
-/// A text copied on Windows stays on the clipboard once the window is killed,
-/// as `eco stop` kills it. Offscreen, Qt keeps a clipboard of its own.
+/// The real Qt platform, and the system's own reading of its clipboard.
 #[cfg(windows)]
+fn clipboard() -> (&'static str, std::process::Command) {
+    let mut read = std::process::Command::new("powershell");
+    read.args([
+        "-NoProfile",
+        "-Command",
+        "[Console]::OutputEncoding = [Text.Encoding]::UTF8; Get-Clipboard",
+    ]);
+    ("windows", read)
+}
+
+/// The real Qt platform, and the system's own reading of its clipboard.
+#[cfg(target_os = "macos")]
+fn clipboard() -> (&'static str, std::process::Command) {
+    let mut read = std::process::Command::new("pbpaste");
+    read.env("LANG", "en_US.UTF-8");
+    ("cocoa", read)
+}
+
+/// A text copied on Windows or macOS stays on the clipboard once the window is
+/// killed, as `eco stop` kills it. Offscreen, Qt keeps a clipboard of its own.
+#[cfg(any(windows, target_os = "macos"))]
 #[tokio::test]
 async fn a_copied_text_outlives_the_window() {
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("note.txt");
     std::fs::write(&file, "").unwrap();
     let mut listener = Listener::bind(dir.path());
-    let mut window = bridge("windows", dir.path(), &listener, &file);
+    let (platform, mut read) = clipboard();
+    let mut window = bridge(platform, dir.path(), &listener, &file);
     let mut link = accept(&mut listener, &mut window).await;
     assert_eq!(ask(&mut link, "copy").await["line"], "copy");
     window.kill().await.unwrap();
-    let read = std::process::Command::new("powershell")
-        .args([
-            "-NoProfile",
-            "-Command",
-            "[Console]::OutputEncoding = [Text.Encoding]::UTF8; Get-Clipboard",
-        ])
-        .output()
-        .unwrap();
+    let read = read.output().unwrap();
     assert_eq!(String::from_utf8_lossy(&read.stdout).trim(), "olá");
 }

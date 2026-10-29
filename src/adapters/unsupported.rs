@@ -5,9 +5,7 @@ use std::path::PathBuf;
 
 use futures::future::BoxFuture;
 
-use crate::ports::{
-    DesktopIntegration, InstallError, InstallProgress, Installer, WindowControl, WindowError,
-};
+use crate::ports::{DesktopIntegration, InstallError, InstallProgress, Installer};
 
 /// Why every use of this adapter fails: the platform has no adapter for the seam yet.
 fn unsupported(what: &str) -> String {
@@ -19,24 +17,6 @@ pub struct Unsupported;
 impl DesktopIntegration for Unsupported {
     fn integrate(&self) -> Result<Option<String>, String> {
         Ok(Some(unsupported("starting eco from the desktop")))
-    }
-}
-
-impl WindowControl for Unsupported {
-    fn focus(&self, _pid: u32) -> BoxFuture<'static, Result<(), WindowError>> {
-        Box::pin(async { Err(WindowError(unsupported("focusing eco's window"))) })
-    }
-
-    fn hide_from_share(
-        &self,
-        _pids: Vec<u32>,
-        _hidden: bool,
-    ) -> BoxFuture<'static, Result<(), WindowError>> {
-        Box::pin(async {
-            Err(WindowError(unsupported(
-                "hiding eco's windows from screen sharing",
-            )))
-        })
     }
 }
 
@@ -64,13 +44,6 @@ mod tests {
     fn setup_says_eco_is_not_tied_into_the_desktop() {
         let said = Unsupported.integrate().unwrap().unwrap();
         assert!(said.contains(SAID), "{said}");
-    }
-
-    #[tokio::test]
-    async fn windows_are_neither_focused_nor_hidden() {
-        assert!(Unsupported.focus(1).await.unwrap_err().0.contains(SAID));
-        let hidden = Unsupported.hide_from_share(vec![1], true).await;
-        assert!(hidden.unwrap_err().0.contains(SAID));
     }
 
     #[tokio::test]

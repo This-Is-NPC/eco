@@ -66,8 +66,9 @@ pub mod unsupported;
 pub mod vad_silero;
 pub mod websocket;
 pub mod webvtt;
-// Platform-neutral; only Windows controls its windows by it outside the tests.
-#[cfg(any(windows, test))]
+// Platform-neutral; only Windows and macOS control their windows by it outside
+// the tests.
+#[cfg(any(windows, target_os = "macos", test))]
 pub mod window_host;
 #[cfg(target_os = "linux")]
 pub mod window_hyprland;

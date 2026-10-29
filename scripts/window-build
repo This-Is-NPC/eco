@@ -3,7 +3,9 @@
 (release, warnings as errors). Incremental. Run from the root of the tree to
 build, as the PKGBUILD runs it in its own copy.
 
-On Linux it builds with Ninja, the system's compiler and the system's Qt. On
+On Linux it builds with Ninja, the system's compiler and the system's Qt; on
+macOS with Ninja, the system's compiler and the Qt scripts/qt-install put under
+.qt, which the program finds by the path CMake writes into it. On
 Windows it builds with MSVC, which CMake finds through its Visual Studio
 generator, and the Qt scripts/qt-install put under .qt, in target/window-msvc,
 then copies beside target/window/eco-window.exe the Qt libraries and QML
@@ -39,8 +41,14 @@ if sys.platform == "win32":
         str(BUILD / "eco-window.exe"),
     )
 else:
+    prefix = []
+    if sys.platform == "darwin":
+        found = sorted(Path(".qt").glob("*/macos"))
+        if len(found) != 1:
+            sys.exit("window-build: no Qt under .qt; run `mise run qt:install`")
+        prefix = [f"-DCMAKE_PREFIX_PATH={found[0].resolve()}"]
     subprocess.run(
-        ["cmake", "-S", "window", "-B", str(BUILD), "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release"],
+        ["cmake", "-S", "window", "-B", str(BUILD), "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release", *prefix],
         check=True, stdout=subprocess.DEVNULL,
     )
     run("cmake", "--build", str(BUILD))

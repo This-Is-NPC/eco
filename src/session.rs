@@ -70,15 +70,9 @@ fn window_control(_: &Emit) -> Arc<dyn WindowControl> {
     Arc::new(crate::adapters::window_hyprland::HyprlandWindows::default())
 }
 
-/// The platform's window control (docs/design.md §15): none yet on macOS.
-#[cfg(target_os = "macos")]
-fn window_control(_: &Emit) -> Arc<dyn WindowControl> {
-    Arc::new(crate::adapters::unsupported::Unsupported)
-}
-
-/// The platform's window control (docs/design.md §15): on Windows the windows'
-/// own, told through `emit`.
-#[cfg(windows)]
+/// The platform's window control (docs/design.md §15): on Windows and macOS
+/// the windows' own, told through `emit`.
+#[cfg(any(windows, target_os = "macos"))]
 fn window_control(emit: &Emit) -> Arc<dyn WindowControl> {
     Arc::new(crate::adapters::window_host::HostWindows::new(Arc::clone(
         emit,

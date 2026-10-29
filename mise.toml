@@ -11,10 +11,10 @@ ninja = "1.13.2"
 watchexec = "2.8.0"
 "cargo:cargo-llvm-cov" = "0.9.1"
 usage = "5.1.0"
-# Qt for eco-window on Windows (scripts/qt-install): aqt from the commit that
-# reads Qt 6.11's repository layout, which no release does yet, run by uv.
-uv = { version = "0.12.24", os = ["windows"] }
-"pipx:miurahr/aqtinstall" = { version = "076e1659807d0b362a3ed684d54c2e9c775eb9c7", os = ["windows"] }
+# Qt for eco-window on Windows and macOS (scripts/qt-install): aqt from the
+# commit that reads Qt 6.11's repository layout, which no release does yet, run by uv.
+uv = { version = "0.12.24", os = ["windows", "macos"] }
+"pipx:miurahr/aqtinstall" = { version = "076e1659807d0b362a3ed684d54c2e9c775eb9c7", os = ["windows", "macos"] }
 # The Windows installer (scripts/package): WiX 6, run by the .NET SDK. WiX 7
 # asks the person who builds to accept the OSMF EULA, so it is not used.
 dotnet = { version = "8.0.427", os = ["windows"] }
@@ -29,7 +29,7 @@ run = "scripts/setup"
 run_windows = "python scripts/setup"
 
 [tasks."qt:install"]
-description = "Install the Qt eco-window builds with on Windows into .qt (on Linux, nothing: the system's Qt)"
+description = "Install the Qt eco-window builds with on Windows and macOS into .qt (on Linux, nothing: the system's Qt)"
 run = "scripts/qt-install"
 run_windows = "python scripts/qt-install"
 
