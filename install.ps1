@@ -127,17 +127,78 @@ function Get-Product {
         Where-Object { $_.DisplayName -eq 'eco' -and $_.Publisher -eq 'This-Is-NPC' -and $_.WindowsInstaller -eq 1 })
 }
 
-# Downloads `url` to `path` with Windows' own curl, which draws its progress,
-# tries a dropped connection again and gives up on one that sends nothing for
-# a minute, so a slow download shows it moves and a dead one ends.
+# Draws, in place on one line, how much of `total` bytes (0 when the server
+# did not say) has come in `seconds`.
+function Show-Progress([long] $done, [long] $total, [double] $seconds) {
+    $rate = if ($seconds -gt 0) { $done / $seconds } else { 0 }
+    $size = { param($bytes) '{0:N1} MB' -f ($bytes / 1MB) }
+    if ($total -gt 0) {
+        $width = 30
+        $full = [int][Math]::Floor($width * $done / $total)
+        $bar = ([string][char]0x2588 * $full) + ([string][char]0x2591 * ($width - $full))
+        $line = 'eco: {0} {1,3:N0}%  {2} of {3}  {4}/s' -f $bar, (100 * $done / $total), (& $size $done), (& $size $total), (& $size $rate)
+    } else {
+        $line = 'eco: {0}  {1}/s' -f (& $size $done), (& $size $rate)
+    }
+    Write-Host -NoNewline ("`r" + $line.PadRight(72))
+}
+
+# Writes `uri` to `path` as it comes in, drawing the progress unless `quiet`.
+# A server's refusal is final (`InvalidOperationException`); a connection that
+# drops, or sends nothing for a minute, is an error worth another try.
+function Receive-File([Net.Http.HttpClient] $client, [Uri] $uri, [string] $path, [bool] $quiet) {
+    $reply = $client.GetAsync($uri, [Net.Http.HttpCompletionOption]::ResponseHeadersRead).GetAwaiter().GetResult()
+    try {
+        if (-not $reply.IsSuccessStatusCode) {
+            throw (New-Object InvalidOperationException "the server answered $([int] $reply.StatusCode)")
+        }
+        $total = [long] $reply.Content.Headers.ContentLength
+        $in = $reply.Content.ReadAsStreamAsync().GetAwaiter().GetResult()
+        $out = [IO.File]::Create($path)
+        try {
+            $buffer = New-Object byte[] 262144
+            $done = 0L
+            $clock = [Diagnostics.Stopwatch]::StartNew()
+            $drawn = -1000
+            while ($true) {
+                $read = $in.ReadAsync($buffer, 0, $buffer.Length)
+                if (-not $read.Wait(60000)) { throw 'nothing came for a minute' }
+                if ($read.Result -eq 0) { break }
+                $out.Write($buffer, 0, $read.Result)
+                $done += $read.Result
+                if (-not $quiet -and $clock.ElapsedMilliseconds - $drawn -ge 200) {
+                    Show-Progress $done $total $clock.Elapsed.TotalSeconds
+                    $drawn = $clock.ElapsedMilliseconds
+                }
+            }
+            if (-not $quiet) { Show-Progress $done $total $clock.Elapsed.TotalSeconds; Write-Host '' }
+        } finally { $out.Dispose(); $in.Dispose() }
+    } finally { $reply.Dispose() }
+}
+
+# Downloads `url` to `path`, one line of progress filling as it comes in, so
+# a slow download shows it moves; a dropped or silent connection is tried
+# again, three times in all. A file:// URL, a local build's, is copied.
 function Get-Download([string] $url, [string] $path, [switch] $quiet) {
-    # curl draws on stderr; when that is redirected, PowerShell would take each
-    # line for an error. Its exit status says how it went.
-    $ErrorActionPreference = 'Continue'
-    [string[]] $show = if ($quiet) { '--silent', '--show-error' } else { '--progress-bar' }
-    & (Join-Path $env:SystemRoot 'System32\curl.exe') --fail --location --retry 3 `
-        --connect-timeout 30 --speed-limit 1 --speed-time 60 @show --output $path $url
-    if ($LASTEXITCODE -ne 0) { throw "eco: could not download $url (curl exited with status $LASTEXITCODE)." }
+    $uri = [Uri] $url
+    if ($uri.IsFile) { Copy-Item -LiteralPath $uri.LocalPath -Destination $path; return }
+    [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+    Add-Type -AssemblyName System.Net.Http
+    $client = New-Object Net.Http.HttpClient
+    $client.Timeout = [Threading.Timeout]::InfiniteTimeSpan
+    try {
+        for ($try = 1; ; $try++) {
+            try { Receive-File $client $uri $path $quiet; return }
+            catch {
+                $why = $_.Exception.GetBaseException().Message
+                if (-not $quiet) { Write-Host '' }
+                if ($_.Exception.GetBaseException() -is [InvalidOperationException] -or $try -ge 3) {
+                    throw "eco: could not download ${url}: $why"
+                }
+                Say "the download stopped ($why); trying again"
+            }
+        }
+    } finally { $client.Dispose() }
 }
 
 # Runs msiexec with `arguments` and waits. Windows Installer asks for

@@ -254,10 +254,10 @@ the MSI by hand and the old install is still there; remove it with
    ```
 
    It asks GitHub for the latest release, downloads its MSI and
-   `SHA256SUMS`, and refuses an MSI that does not match. The MSI comes
-   through Windows' own `curl`, which draws a progress bar as it downloads,
-   tries a dropped connection again up to three times and gives up on one
-   that sends nothing for a minute. Then it stops an eco
+   `SHA256SUMS`, and refuses an MSI that does not match. While the MSI
+   downloads, one line shows a bar filling with the percentage, the
+   megabytes come and the speed; a connection that drops or sends nothing for
+   a minute is tried again, three times in all. Then it stops an eco
    that is running, removes an older per-user install if there is one, and
    runs `msiexec /i` on the MSI: Windows Installer shows its progress and asks
    for administrator rights. A daemon that was running is started again. Every
