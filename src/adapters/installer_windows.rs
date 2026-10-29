@@ -183,6 +183,10 @@ fn replace(staged: &Path, install: &Path) -> Result<(), InstallError> {
 }
 
 impl Installer for Folder {
+    fn program(&self) -> PathBuf {
+        self.install.join(r"bin\eco.exe")
+    }
+
     fn install(
         &self,
         tag: String,
@@ -355,6 +359,19 @@ mod tests {
         };
         folder.tidy();
         assert_eq!(files(&install), [program]);
+    }
+
+    #[test]
+    fn the_program_is_the_eco_in_the_install_bin() {
+        let folder = Folder {
+            downloads: String::new(),
+            install: PathBuf::from(r"C:\Users\a\AppData\Local\Programs\eco"),
+            tar: PathBuf::new(),
+        };
+        assert_eq!(
+            folder.program(),
+            PathBuf::from(r"C:\Users\a\AppData\Local\Programs\eco\bin\eco.exe")
+        );
     }
 
     #[tokio::test]

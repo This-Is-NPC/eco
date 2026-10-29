@@ -2517,6 +2517,7 @@ pub async fn run(
             releases: Arc::new(GitHub::new()?),
             installer: installer::installer(),
             restart: Arc::new(restart_detached),
+            running: running_exe,
             live: {
                 let assistant = assistant.clone();
                 Arc::new(move || !assistant.live().is_empty())
@@ -2587,8 +2588,8 @@ pub async fn run(
     Ok(())
 }
 
-/// The installed eco: the running executable's path.
-fn installed_exe() -> io::Result<PathBuf> {
+/// The executable the daemon runs from.
+fn running_exe() -> io::Result<PathBuf> {
     Ok(undeleted(std::env::current_exe()?))
 }
 
@@ -2604,10 +2605,10 @@ fn undeleted(exe: PathBuf) -> PathBuf {
     }
 }
 
-/// Restart the daemon as `eco restart` does, from the installed eco, in a
-/// process that outlives this one.
-fn restart_detached() -> io::Result<()> {
-    spawn_quiet(restart_command(&installed_exe()?))
+/// Restart the daemon as `eco restart` does, from `exe`, in a process that
+/// outlives this one.
+fn restart_detached(exe: &Path) -> io::Result<()> {
+    spawn_quiet(restart_command(exe))
 }
 
 /// Start `command` with nothing to read and its output dropped, without

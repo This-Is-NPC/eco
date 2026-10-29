@@ -336,6 +336,10 @@ pub(crate) mod testing {
     }
 
     impl Installer for FakeInstaller {
+        fn program(&self) -> PathBuf {
+            PathBuf::from("/usr/bin/eco")
+        }
+
         fn install(
             &self,
             tag: String,

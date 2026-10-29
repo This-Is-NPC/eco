@@ -1246,7 +1246,10 @@ answered). It is sent whenever one of these changes and to every client after
 `snapshot`. `update_progress` follows one install: `stage` is `downloading`,
 `verifying`, `installing`, `waiting` (installed, the restart waits for the
 last live session to end), `restarting`, `done` or `failed`, with `detail`
-saying why it failed.
+saying why it failed. The restart runs the eco the installer installed
+(`/usr/bin/eco`, `%LOCALAPPDATA%\Programs\eco\bin\eco.exe`), not the
+executable the daemon was started from; `daemon.restart` alone restarts the
+running executable.
 
 `shortcuts` names the global shortcut keys another program holds, as
 `unavailable`, a list of keys as the daemon registers them (`Win+Alt+A`). It

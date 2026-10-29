@@ -85,6 +85,10 @@ fn outcome(status: ExitStatus) -> Result<(), InstallError> {
 }
 
 impl Installer for Pacman {
+    fn program(&self) -> PathBuf {
+        PathBuf::from("/usr/bin/eco")
+    }
+
     fn install(
         &self,
         tag: String,
@@ -138,6 +142,14 @@ mod tests {
             sudo: PathBuf::from("/usr/bin/sudo"),
             terminal,
         }
+    }
+
+    #[test]
+    fn the_program_is_the_one_the_package_installs() {
+        assert_eq!(
+            pacman("", None, false).program(),
+            PathBuf::from("/usr/bin/eco")
+        );
     }
 
     fn recorded() -> (InstallProgress, Arc<Mutex<Vec<InstallStage>>>) {

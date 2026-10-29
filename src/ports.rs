@@ -1,6 +1,7 @@
 //! The ports the domain talks to; every external system is an adapter behind one.
 
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 
 use futures::future::BoxFuture;
 use futures::stream::BoxStream;
@@ -344,6 +345,9 @@ pub trait Installer: Send + Sync {
         tag: String,
         progress: InstallProgress,
     ) -> BoxFuture<'static, Result<(), InstallError>>;
+
+    /// The eco executable an install puts in place.
+    fn program(&self) -> PathBuf;
 }
 
 /// How much a notification asks of the user's attention.

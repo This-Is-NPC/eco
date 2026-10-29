@@ -62,8 +62,9 @@ fn read(path: &Path) -> Option<Checked> {
     serde_json::from_slice(&std::fs::read(path).ok()?).ok()
 }
 
-/// Restarts the daemon from the installed eco, in a process that outlives it.
-pub type Restart = Arc<dyn Fn() -> io::Result<()> + Send + Sync>;
+/// Restarts the daemon from the eco executable it is given, in a process that
+/// outlives it.
+pub type Restart = Arc<dyn Fn(&Path) -> io::Result<()> + Send + Sync>;
 
 /// Whether a session is live.
 pub type Live = Arc<dyn Fn() -> bool + Send + Sync>;
@@ -88,6 +89,8 @@ pub struct Parts {
     pub releases: Arc<dyn Releases>,
     pub installer: Arc<dyn Installer>,
     pub restart: Restart,
+    /// The executable the daemon runs from.
+    pub running: fn() -> io::Result<PathBuf>,
     pub live: Live,
     pub emit: Emit,
     /// Where the last check is kept.
@@ -256,7 +259,8 @@ impl Updates {
 
     fn restart_installed(&self, version: &str) {
         (self.parts.emit)(progress("restarting", version, ""));
-        match (self.parts.restart)() {
+        let program = self.parts.installer.program();
+        match (self.parts.restart)(&program) {
             Ok(()) => (self.parts.emit)(progress("done", version, "")),
             Err(failure) => self.failed(version, &failure.to_string()),
         }
@@ -272,7 +276,7 @@ impl Updates {
                 Value::Null,
             ));
         }
-        if let Err(failure) = (self.parts.restart)() {
+        if let Err(failure) = (self.parts.running)().and_then(|exe| (self.parts.restart)(&exe)) {
             let detail = failure.to_string();
             (self.parts.emit)(error(
                 "daemon.restart_failed",
@@ -354,6 +358,10 @@ pub(crate) mod testing {
     }
 
     impl Installer for FakeInstaller {
+        fn program(&self) -> PathBuf {
+            PathBuf::from(INSTALLED)
+        }
+
         fn install(
             &self,
             tag: String,
@@ -378,6 +386,8 @@ pub(crate) mod testing {
         pub releases: Arc<FakeReleases>,
         pub installer: Arc<FakeInstaller>,
         pub restarts: Arc<AtomicUsize>,
+        /// The executables each restart was given.
+        pub restarted: Arc<Mutex<Vec<PathBuf>>>,
     }
 
     impl Fakes {
@@ -385,6 +395,12 @@ pub(crate) mod testing {
             self.restarts.load(Ordering::SeqCst)
         }
     }
+
+    /// The executable the fake installer installs.
+    pub const INSTALLED: &str = "/installed/eco";
+
+    /// The executable the fake daemon runs from.
+    pub const RUNNING: &str = "/running/eco";
 
     /// The epoch second the tests start at.
     pub const START: i64 = 1_800_000_000;
@@ -405,14 +421,18 @@ pub(crate) mod testing {
         let installer = Arc::new(installer);
         let restarts = Arc::new(AtomicUsize::new(0));
         let counted = Arc::clone(&restarts);
+        let restarted = Arc::new(Mutex::new(Vec::new()));
+        let kept = Arc::clone(&restarted);
         let started = tokio::time::Instant::now();
         let parts = Parts {
             releases: releases.clone(),
             installer: installer.clone(),
-            restart: Arc::new(move || {
+            restart: Arc::new(move |exe| {
                 counted.fetch_add(1, Ordering::SeqCst);
+                kept.lock().unwrap().push(exe.to_path_buf());
                 Ok(())
             }),
+            running: || Ok(PathBuf::from(RUNNING)),
             live,
             emit,
             state,
@@ -422,6 +442,7 @@ pub(crate) mod testing {
             releases,
             installer,
             restarts,
+            restarted,
         };
         (Updates::new(parts, true), fakes)
     }
@@ -695,7 +716,7 @@ mod tests {
     async fn a_restart_that_cannot_start_fails_the_install() {
         let mut f = fixture(Some("v99.0.0"), FakeInstaller::default(), None);
         let parts = Arc::get_mut(&mut f.updates.parts).unwrap();
-        parts.restart = Arc::new(|| Err(io::Error::other("no systemd-run")));
+        parts.restart = Arc::new(|_| Err(io::Error::other("no systemd-run")));
         f.updates.install(None).unwrap().await;
         let events = f.events.lock().unwrap().clone();
         assert_eq!(events.last().unwrap()["stage"], "failed");
@@ -718,7 +739,7 @@ mod tests {
     async fn a_restart_that_cannot_start_is_said() {
         let mut f = fixture(None, FakeInstaller::default(), None);
         let parts = Arc::get_mut(&mut f.updates.parts).unwrap();
-        parts.restart = Arc::new(|| Err(io::Error::other("no systemd-run")));
+        parts.restart = Arc::new(|_| Err(io::Error::other("no systemd-run")));
         f.updates.restart(false);
         let events = f.events.lock().unwrap().clone();
         assert_eq!(events[0]["code"], "daemon.restart_failed");
@@ -737,5 +758,21 @@ mod tests {
         f.live.store(false, Ordering::SeqCst);
         f.updates.restart(false);
         assert_eq!(f.restarts(), 2);
+    }
+
+    #[tokio::test]
+    async fn an_install_restarts_into_the_installers_program() {
+        let f = fixture(Some("v99.0.0"), FakeInstaller::default(), None);
+        f.updates.install(None).unwrap().await;
+        let restarted = f.fakes.restarted.lock().unwrap();
+        assert_eq!(*restarted, [PathBuf::from(testing::INSTALLED)]);
+    }
+
+    #[tokio::test]
+    async fn a_plain_restart_runs_the_running_executable() {
+        let f = fixture(None, FakeInstaller::default(), None);
+        f.updates.restart(false);
+        let restarted = f.fakes.restarted.lock().unwrap();
+        assert_eq!(*restarted, [PathBuf::from(testing::RUNNING)]);
     }
 }
