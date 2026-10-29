@@ -1,14 +1,14 @@
 //! Every external system, behind a port.
 
-// Platform-neutral; only Windows' audio needs it outside the tests.
-#[cfg(any(windows, test))]
+#[cfg(any(windows, target_os = "macos"))]
+pub mod audio_cpal;
+// Platform-neutral; only the cpal audio needs it outside the tests.
+#[cfg(any(windows, target_os = "macos", test))]
 pub mod audio_convert;
 pub mod audio_ffmpeg;
 pub mod audio_file;
 #[cfg(target_os = "linux")]
 pub mod audio_pipewire;
-#[cfg(windows)]
-pub mod audio_wasapi;
 pub mod control_socket;
 pub mod credentials;
 #[cfg(target_os = "linux")]

@@ -589,3 +589,16 @@ compile them.
 |---|---|---|
 | `src/adapters/unsupported.rs` | 96.61% (4 of 118) | `Notifier::notify` (110–112), which only writes a line to the daemon's stderr. |
 | `src/paths.rs` | as in the daemon section | the public wrappers that read the real environment and home; the macOS layout behind them is tested with a fixed environment. |
+
+## macOS audio coverage (2026-10-29)
+
+Measured as in the section above, after the macOS audio moved onto the cpal
+adapter that Windows uses: the daemon's unit tests, 771 passed, 1 ignored (the
+by-hand capture test). The adapter's macOS lines are counted here; a Linux run
+does not compile it.
+
+| File | Lines | Left without a test, and why |
+|---|---|---|
+| `src/adapters/audio_cpal.rs` | 46.46% (159 of 297) | everything that opens a real device: `capture_cancelled` (42–44), the host's device list failing (58), the source's open and read loop (128–148), `open` past the device lookup (170–245: the output that is also a microphone, the stream config, the silent stream, the sample formats) and `build` with its callbacks; the test's panic arms (311, 323); and the ignored test that prints this machine's devices and a second of each (347–396), run by hand. The device mapping, the error mapping, a missing device and the listing's defaults are tested. |
+| `src/adapters/unsupported.rs` | 94.81% (4 of 77) | `Notifier::notify` (74–76), which only writes a line to the daemon's stderr; the audio it no longer serves left with its tests. |
+

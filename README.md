@@ -240,8 +240,8 @@ again on the page where you meet it.
 - **The Windows programs are not code-signed.** The first time one runs,
   SmartScreen may say "Windows protected your PC": **More info › Run anyway**
   ([on Windows](docs/how-to-install-and-remove.md#on-windows)).
-- **No echo cancellation on Windows.** Windows offers eco none: with ECHO
-  CANCELLATION on, a session says so and records the raw microphone
+- **No echo cancellation on Windows or macOS.** Neither offers eco one: with
+  ECHO CANCELLATION on, a session says so and records the raw microphone
   ([how to set up audio sources](docs/how-to-set-up-audio-sources.md)). DROP
   ECHOES and headphones still work.
 - **No omapass on Windows.** Its keyring does not exist there; keep keys in
@@ -257,7 +257,9 @@ again on the page where you meet it.
 - **No release for macOS yet.** A checkout builds on a Mac with Apple
   Silicon, but several platform seams have no macOS adapter
   ([platform seams](docs/design.md#15-platform-seams)), so eco is not
-  supported there yet.
+  supported there yet. A microphone macOS denies eco records silence, with no
+  error: allow it in **System Settings › Privacy & Security › Microphone**
+  ([how to set up audio sources](docs/how-to-set-up-audio-sources.md)).
 - **Sessions recorded before eco kept costs stay unknown.** Their logs hold no
   cost records, and nothing brings those costs back.
 
@@ -276,4 +278,4 @@ has the commands.
 - a key for each paid provider you use, or a model server of your own
 - on Windows instead: 64-bit Windows (tested on Windows 11) and the
   Microsoft Visual C++ Redistributable (x64); the MSI carries its own Qt
-- on macOS, in progress: a Mac with Apple Silicon on macOS 14.4 or later
+- on macOS, in progress: a Mac with Apple Silicon on macOS 14.6 or later

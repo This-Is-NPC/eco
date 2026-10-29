@@ -165,7 +165,12 @@ endpoint is a microphone (`MIC`), every active render endpoint an output
 (`OUT`), captured as what it plays. Any device other than the two defaults is
 its endpoint id, as Windows names it (`{0.0.1.00000000}.{…}` for a microphone,
 `{0.0.0.00000000}.{…}` for an output); the Audio table shows each with its name, such
-as `Microphone (USB Audio Device)` or `Speakers (High Definition Audio Device)`. A device's trace colour is
+as `Microphone (USB Audio Device)` or `Speakers (High Definition Audio Device)`.
+
+On macOS the devices are the Core Audio devices, each by its UID, such as
+`BuiltInSpeakerDevice`, with its name, such as `Alto-falantes (Mac mini)`. A
+device that is both a microphone and an output, such as some USB headsets, is
+listed once, as a microphone: what it plays cannot be captured. A device's trace colour is
 `[colors]`, by device: `"@default-input" = "#ffb000"`. The daemon reads the file
 when it starts, so a hand edit needs `eco restart`.
 
@@ -190,7 +195,12 @@ output, and `No audio source is you any more.` when it was you.
 **Echo cancellation would not start.** An error toast says
 `Echo cancellation is off: <why>`, and eco records from the raw microphone.
 
-**Echo cancellation on Windows.** Windows offers eco none: the ECHO
+**A microphone heard as silence on macOS.** macOS gives a microphone it has
+not allowed eco only silence, and says nothing. Allow eco, or the terminal it
+runs in, under **System Settings › Privacy & Security › Microphone**, then
+start the session again.
+
+**Echo cancellation on Windows and macOS.** Neither offers eco one: the ECHO
 CANCELLATION row is dimmed. With `echo_cancel = true` in a config written by
 hand, each recording says
 `Echo cancellation is not available on this system; the microphone is heard as it is`,

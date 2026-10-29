@@ -58,13 +58,11 @@ pub mod update;
 
 use update::{Parts, Updates};
 
-// The platform's audio: Linux's, none yet on macOS, or Windows' (docs/design.md §15).
+// The platform's audio: PipeWire on Linux, cpal on Windows and macOS (docs/design.md §15).
+#[cfg(any(windows, target_os = "macos"))]
+use crate::adapters::audio_cpal::Cpal as PlatformAudio;
 #[cfg(target_os = "linux")]
 use crate::adapters::audio_pipewire::PipeWire as PlatformAudio;
-#[cfg(windows)]
-use crate::adapters::audio_wasapi::Wasapi as PlatformAudio;
-#[cfg(target_os = "macos")]
-use crate::adapters::unsupported::Unsupported as PlatformAudio;
 
 /// The platform's window control (docs/design.md §15): Hyprland's on Linux.
 #[cfg(target_os = "linux")]

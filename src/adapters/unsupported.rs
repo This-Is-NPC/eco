@@ -4,13 +4,10 @@
 use std::path::PathBuf;
 
 use futures::future::BoxFuture;
-use futures::stream::{self, BoxStream};
 
-use crate::adapters::devices;
 use crate::ports::{
-    AudioDevices, AudioError, AudioSource, DesktopIntegration, Device, EchoCancelling, EchoError,
-    Frame, InstallError, InstallProgress, Installer, Notifier, ServiceManager, Urgency,
-    WindowControl, WindowError,
+    DesktopIntegration, InstallError, InstallProgress, Installer, Notifier, ServiceManager,
+    Urgency, WindowControl, WindowError,
 };
 
 /// Why every use of this adapter fails: the platform has no adapter for the seam yet.
@@ -19,39 +16,6 @@ fn unsupported(what: &str) -> String {
 }
 
 pub struct Unsupported;
-
-/// A source that fails at once, so the session reports its input down.
-struct NoCapture;
-
-impl AudioSource for NoCapture {
-    fn frames(&mut self) -> BoxStream<'_, Result<Frame, AudioError>> {
-        Box::pin(stream::once(async {
-            Err(AudioError(unsupported("audio capture")))
-        }))
-    }
-}
-
-impl AudioDevices for Unsupported {
-    fn list(&self) -> BoxFuture<'static, Vec<Device>> {
-        Box::pin(async { devices::listed(Vec::new()) })
-    }
-
-    fn capture(&self, _device: &Device) -> Box<dyn AudioSource> {
-        Box::new(NoCapture)
-    }
-
-    fn capture_cancelled(&self) -> Box<dyn AudioSource> {
-        Box::new(NoCapture)
-    }
-
-    fn cancels_echo(&self) -> bool {
-        false
-    }
-
-    fn cancel_echo(&self, _mic: &str) -> BoxFuture<'static, Result<EchoCancelling, EchoError>> {
-        Box::pin(async { Err(EchoError::Unavailable) })
-    }
-}
 
 impl ServiceManager for Unsupported {
     fn start(&self) -> BoxFuture<'_, anyhow::Result<()>> {
@@ -114,29 +78,9 @@ impl Notifier for Unsupported {
 
 #[cfg(test)]
 mod tests {
-    use futures::StreamExt;
-
     use super::*;
 
     const SAID: &str = "is not available on this system yet";
-
-    #[tokio::test]
-    async fn audio_lists_the_defaults_and_every_capture_fails() {
-        assert_eq!(Unsupported.list().await, devices::defaults());
-        let device = Device::new("@default-input", "Default microphone", "input");
-        for mut source in [
-            Unsupported.capture(&device),
-            Unsupported.capture_cancelled(),
-        ] {
-            let first = source.frames().next().await.unwrap();
-            assert!(first.unwrap_err().0.contains(SAID));
-        }
-        assert!(!Unsupported.cancels_echo());
-        assert!(matches!(
-            Unsupported.cancel_echo("mic").await,
-            Err(EchoError::Unavailable)
-        ));
-    }
 
     #[tokio::test]
     async fn the_service_refuses_to_start_and_says_what_to_run() {
