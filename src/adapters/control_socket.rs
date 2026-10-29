@@ -652,7 +652,8 @@ mod tests {
         assert_eq!(emit_until_alone(&clients).await, 0);
     }
 
-    #[cfg(unix)]
+    // macOS takes writes to a socket whose peer shut its read half, and drops them.
+    #[cfg(target_os = "linux")]
     #[tokio::test]
     async fn a_client_that_stops_reading_is_dropped() {
         let directory = tempfile::tempdir().unwrap();

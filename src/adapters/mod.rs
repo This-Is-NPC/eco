@@ -5,32 +5,32 @@
 pub mod audio_convert;
 pub mod audio_ffmpeg;
 pub mod audio_file;
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 pub mod audio_pipewire;
 #[cfg(windows)]
 pub mod audio_wasapi;
 pub mod control_socket;
 pub mod credentials;
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 pub mod desktop_hyprland;
 #[cfg(windows)]
 pub mod desktop_windows;
 pub mod devices;
 pub mod diarizer_process;
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 pub mod echo_cancel;
 #[cfg(all(test, unix))]
 pub mod fake_program;
 pub mod fbank;
 pub mod hook_shell;
 pub mod http;
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 pub mod installer_linux;
 #[cfg(windows)]
 pub mod installer_windows;
 pub mod llm_openai;
 pub mod local_socket;
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 pub mod notify_linux;
 #[cfg(windows)]
 pub mod notify_windows;
@@ -38,10 +38,10 @@ pub mod omapass;
 pub mod overlay;
 pub mod people_files;
 pub mod pipe;
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 pub mod pipewire_devices;
 pub mod releases_github;
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 pub mod service_systemd;
 #[cfg(windows)]
 pub mod service_windows;
@@ -53,11 +53,13 @@ pub mod stt_deepgram;
 pub mod stt_elevenlabs;
 pub mod stt_openai;
 pub mod terminal;
+#[cfg(target_os = "macos")]
+pub mod unsupported;
 pub mod vad_silero;
 pub mod websocket;
 pub mod webvtt;
 // Platform-neutral; only Windows controls its windows by it outside the tests.
 #[cfg(any(windows, test))]
 pub mod window_host;
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 pub mod window_hyprland;

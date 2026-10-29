@@ -67,7 +67,7 @@ struct Places {
     models: Vec<(&'static str, PathBuf)>,
     config: PathBuf,
     /// The Hyprland config that loads eco's rules.
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     bindings: PathBuf,
 }
 
@@ -92,7 +92,7 @@ impl Places {
                 ("WeSpeaker CAM++", paths::speaker_model()),
             ],
             config: paths::config_file(),
-            #[cfg(unix)]
+            #[cfg(target_os = "linux")]
             bindings: paths::hypr_bindings(),
         }
     }
@@ -284,13 +284,23 @@ fn daemon(greeting: &Result<Option<Vec<Value>>, Failure>) -> Check {
 }
 
 /// The global shortcuts: on Linux, eco's rules loaded by the Hyprland config.
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 fn shortcuts(_: &Result<Option<Vec<Value>>, Failure>, places: &Places) -> Check {
     hyprland(&places.bindings)
 }
 
+/// The global shortcuts: none yet on macOS.
+#[cfg(target_os = "macos")]
+fn shortcuts(_: &Result<Option<Vec<Value>>, Failure>, _: &Places) -> Check {
+    fail(
+        "shortcuts",
+        "global shortcuts are not available on this system yet",
+        "run eco window commands from a terminal",
+    )
+}
+
 /// Whether the Hyprland config at `bindings` loads eco's rules.
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 fn hyprland(bindings: &Path) -> Check {
     let shown = bindings.display();
     match std::fs::read_to_string(bindings) {
@@ -368,7 +378,7 @@ mod tests {
             shipped: vec![("share/eco/overlay/shell.qml".into(), true)],
             models: vec![("Silero VAD", dir.join("vad.onnx"))],
             config: dir.join("config.toml"),
-            #[cfg(unix)]
+            #[cfg(target_os = "linux")]
             bindings: dir.join("bindings.lua"),
         }
     }
@@ -576,7 +586,16 @@ api_key_env = "ECO_DOCTOR_NEVER_SET"
         );
     }
 
-    #[cfg(unix)]
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn on_macos_the_shortcuts_fail_and_say_what_to_run() {
+        let directory = tempfile::tempdir().unwrap();
+        let check = shortcuts(&Ok(None), &places(directory.path()));
+        assert!(!check.ok);
+        assert_eq!(check.fix, "run eco window commands from a terminal");
+    }
+
+    #[cfg(target_os = "linux")]
     #[test]
     fn on_linux_the_shortcuts_are_the_rules_hyprland_loads() {
         let directory = tempfile::tempdir().unwrap();

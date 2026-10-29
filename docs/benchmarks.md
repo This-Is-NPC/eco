@@ -575,3 +575,17 @@ no test are the ones named.
 | `src/session/update.rs` | 99.72% (2 of 703) | as in the update section. |
 | `src/session.rs` | 96.93% (145 of 4725) | `removal_notifier()`, one composition line beside `notifier()`, which builds the notifications of the removal step (on Windows, toasts that do not register eco's name); the rest as in the daemon section. Before this change, 96.98% (142 of 4698). |
 | `src/adapters/installer_linux.rs` | 98.28% (7 of 408) | `Pacman::new`, which reads the real `PATH` and terminal; the removal's arguments, the unit's arguments, the exit codes and the hand-off through a stand-in `systemd-run` are tested. |
+
+## macOS base seams coverage (2026-10-29)
+
+Measured on macOS 27.0.1 (Apple Silicon) with `cargo llvm-cov --summary-only
+--show-missing-lines --bin eco` on the tree that builds eco there: the
+daemon's unit tests, 767 passed. `tests/window.rs` and `tests/overlay.rs`
+need Qt, which no task installs on macOS yet, so they did not run. The
+macOS-only lines are counted here and nowhere else; a Linux run does not
+compile them.
+
+| File | Lines | Left without a test, and why |
+|---|---|---|
+| `src/adapters/unsupported.rs` | 96.61% (4 of 118) | `Notifier::notify` (110–112), which only writes a line to the daemon's stderr. |
+| `src/paths.rs` | as in the daemon section | the public wrappers that read the real environment and home; the macOS layout behind them is tested with a fixed environment. |

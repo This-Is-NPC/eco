@@ -1,7 +1,7 @@
 //! Start, stop and check the daemon over its socket; the caller names the
 //! daemon's address and the service manager that starts the daemon.
 
-#[cfg(windows)]
+#[cfg(not(target_os = "linux"))]
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
 
@@ -23,7 +23,7 @@ struct Daemon {
     pid: u32,
     version: String,
     /// The executable the daemon says it runs.
-    #[cfg(windows)]
+    #[cfg(not(target_os = "linux"))]
     exe: Option<PathBuf>,
 }
 
@@ -60,7 +60,7 @@ async fn connect(address: &Address) -> Result<Option<Daemon>> {
             .as_str()
             .context("daemon response has no version")?
             .into(),
-        #[cfg(windows)]
+        #[cfg(not(target_os = "linux"))]
         exe: status["exe"].as_str().map(PathBuf::from),
     }))
 }
@@ -334,7 +334,7 @@ pub async fn status(address: &Address, expect_current_exe: bool, window_open: bo
 
 /// Whether `daemon` runs this very executable file, by device and inode, so
 /// an executable replaced since the daemon started is another.
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 fn runs_this_executable(daemon: &Daemon) -> Result<bool> {
     use std::os::unix::fs::MetadataExt;
     let running = std::fs::metadata(format!("/proc/{}/exe", daemon.pid))?;
@@ -343,8 +343,9 @@ fn runs_this_executable(daemon: &Daemon) -> Result<bool> {
 }
 
 /// Whether `daemon` runs this very executable, by the path it says it runs:
-/// Windows lets no one overwrite or delete an executable while it runs.
-#[cfg(windows)]
+/// Windows lets no one overwrite or delete an executable while it runs; on
+/// macOS, which has no `/proc`, one replaced at the same path goes unseen.
+#[cfg(not(target_os = "linux"))]
 fn runs_this_executable(daemon: &Daemon) -> Result<bool> {
     Ok(daemon.exe.as_deref() == Some(std::env::current_exe()?.as_path()))
 }
@@ -1046,13 +1047,13 @@ mod tests {
     /// fake daemon greets with, ended when it is dropped.
     struct Elsewhere {
         pid: u32,
-        #[cfg(unix)]
+        #[cfg(target_os = "linux")]
         child: std::process::Child,
     }
 
     impl Drop for Elsewhere {
         fn drop(&mut self) {
-            #[cfg(unix)]
+            #[cfg(target_os = "linux")]
             {
                 let _ = self.child.kill();
                 let _ = self.child.wait();
@@ -1060,10 +1061,10 @@ mod tests {
         }
     }
 
-    /// On Windows a fake daemon greets with an executable path of its own
-    /// for any pid but this one; on Linux the executable is the pid's.
+    /// On Windows and macOS a fake daemon greets with an executable path of
+    /// its own for any pid but this one; on Linux the executable is the pid's.
     async fn elsewhere() -> Elsewhere {
-        #[cfg(unix)]
+        #[cfg(target_os = "linux")]
         {
             let child = std::process::Command::new("sleep")
                 .arg("30")
@@ -1079,7 +1080,7 @@ mod tests {
                 child,
             }
         }
-        #[cfg(windows)]
+        #[cfg(not(target_os = "linux"))]
         Elsewhere { pid: 1 }
     }
 
@@ -1099,7 +1100,7 @@ mod tests {
         );
     }
 
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     #[tokio::test]
     async fn start_keeps_a_daemon_whose_executable_it_cannot_see() {
         let directory = tempfile::tempdir().unwrap();
