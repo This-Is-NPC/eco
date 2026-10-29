@@ -881,9 +881,11 @@ and no commands: each value saves at once.
   earlier answers one request sends at most; ANSWERS AT THE SAME TIME is how many answers run at once,
   across every session. Each is a number written in the row.
 - **UPDATES.** CHECK FOR UPDATES, on by default, is an ON/OFF chip: on, the
-  daemon asks GitHub for the latest release's tag once a day; off, never on
-  its own. VERSION reads the running version and what is known of the latest:
-  `0.4.0 · up to date`, `0.4.0 · not checked` or `0.4.0 · could not check`
+  daemon asks GitHub for the latest release's tag once a day and when this
+  section opens after more than an hour; off, never on its own. VERSION reads
+  the running version and what is known of the latest:
+  `0.4.0 · up to date · checked 2 h ago`, `0.4.0 · not checked` or
+  `0.4.0 · could not check`
   (the reason in the note) with CHECK NOW, or `0.4.0 · 0.5.0 available` with a
   lit UPDATE (`0.5.0` is an example). UPDATE installs the release; the row and
   a toast say each step — `downloading eco 0.5.0`, `checking the

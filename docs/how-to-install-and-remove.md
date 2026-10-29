@@ -650,7 +650,8 @@ version` when no daemon runs.
 
 1. Open **Settings › General** (`Ctrl+8`). The **UPDATES** group has three rows:
    **CHECK FOR UPDATES**, an ON/OFF chip; **VERSION**, with **CHECK NOW** and
-   `0.4.0 · up to date` (or `0.4.0 · not checked`, `0.4.0 · could not check`),
+   `0.4.0 · up to date · checked 2 h ago` (or `0.4.0 · not checked`,
+   `0.4.0 · could not check`),
    or **UPDATE** and `0.4.0 · 0.5.0 available` when a newer one is out; and
    **DAEMON**, with **RESTART** and `running`.
 2. Press **UPDATE**. The row and a toast say each step: `downloading eco
