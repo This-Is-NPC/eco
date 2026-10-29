@@ -6,8 +6,8 @@ use std::path::PathBuf;
 use futures::future::BoxFuture;
 
 use crate::ports::{
-    DesktopIntegration, InstallError, InstallProgress, Installer, Notifier, ServiceManager,
-    Urgency, WindowControl, WindowError,
+    DesktopIntegration, InstallError, InstallProgress, Installer, Notifier, Urgency, WindowControl,
+    WindowError,
 };
 
 /// Why every use of this adapter fails: the platform has no adapter for the seam yet.
@@ -16,21 +16,6 @@ fn unsupported(what: &str) -> String {
 }
 
 pub struct Unsupported;
-
-impl ServiceManager for Unsupported {
-    fn start(&self) -> BoxFuture<'_, anyhow::Result<()>> {
-        Box::pin(async {
-            anyhow::bail!(
-                "{}; run `eco daemon` in a terminal instead",
-                unsupported("running eco in the background")
-            )
-        })
-    }
-
-    fn output(&self, _since: std::time::SystemTime) -> BoxFuture<'_, Option<String>> {
-        Box::pin(async { None })
-    }
-}
 
 impl DesktopIntegration for Unsupported {
     fn integrate(&self) -> Result<Option<String>, String> {
@@ -81,14 +66,6 @@ mod tests {
     use super::*;
 
     const SAID: &str = "is not available on this system yet";
-
-    #[tokio::test]
-    async fn the_service_refuses_to_start_and_says_what_to_run() {
-        let error = Unsupported.start().await.unwrap_err().to_string();
-        assert!(error.contains(SAID), "{error}");
-        assert!(error.contains("eco daemon"), "{error}");
-        assert_eq!(Unsupported.output(std::time::SystemTime::now()).await, None);
-    }
 
     #[test]
     fn setup_says_eco_is_not_tied_into_the_desktop() {

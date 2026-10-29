@@ -602,3 +602,14 @@ does not compile it.
 | `src/adapters/audio_cpal.rs` | 46.46% (159 of 297) | everything that opens a real device: `capture_cancelled` (42–44), the host's device list failing (58), the source's open and read loop (128–148), `open` past the device lookup (170–245: the output that is also a microphone, the stream config, the silent stream, the sample formats) and `build` with its callbacks; the test's panic arms (311, 323); and the ignored test that prints this machine's devices and a second of each (347–396), run by hand. The device mapping, the error mapping, a missing device and the listing's defaults are tested. |
 | `src/adapters/unsupported.rs` | 94.81% (4 of 77) | `Notifier::notify` (74–76), which only writes a line to the daemon's stderr; the audio it no longer serves left with its tests. |
 
+## macOS service coverage (2026-10-29)
+
+Measured as above after the launchd agent replaced `Unsupported` as the macOS
+service: the daemon's unit tests, 779 passed, 1 ignored.
+
+| File | Lines | Left without a test, and why |
+|---|---|---|
+| `src/adapters/service_launchd.rs` | 89.19% (24 of 222) | `impl ServiceManager for LaunchAgent` (24–45): the entry points that run the real `launchctl` on the user's real agent, log and executable; what they build and run is tested through `start` with a stand-in `launchctl`. The `create_dir_all` error (132), a `~/Library/LaunchAgents` that cannot be made. |
+| `src/adapters/daemon_log.rs` | 97.22% (1 of 36) | a log directory that cannot be made (15). |
+| `src/adapters/unsupported.rs` | 93.10% (4 of 58) | `Notifier::notify` (59–61), which only writes a line to the daemon's stderr; the service it no longer serves left with its test. |
+

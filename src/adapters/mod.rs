@@ -11,6 +11,8 @@ pub mod audio_file;
 pub mod audio_pipewire;
 pub mod control_socket;
 pub mod credentials;
+#[cfg(any(windows, target_os = "macos"))]
+pub mod daemon_log;
 #[cfg(target_os = "linux")]
 pub mod desktop_hyprland;
 #[cfg(windows)]
@@ -41,6 +43,8 @@ pub mod pipe;
 #[cfg(target_os = "linux")]
 pub mod pipewire_devices;
 pub mod releases_github;
+#[cfg(target_os = "macos")]
+pub mod service_launchd;
 #[cfg(target_os = "linux")]
 pub mod service_systemd;
 #[cfg(windows)]

@@ -563,6 +563,37 @@ it, one command each:
 
 ---
 
+## On macOS
+
+macOS (Apple Silicon, macOS 14.6 or later) has no release yet: eco is built
+from a checkout ([working on eco](design.md#working-on-eco)). The daemon runs
+in the background as the launchd agent `eco` of your login session. `eco start` writes it to
+`~/Library/LaunchAgents/eco.plist`, loads it and starts it; it does not run
+at login, as on Linux and Windows. `eco stop`, `eco restart` and `eco status`
+work as on Linux. The daemon's output goes to
+`~/Library/Application Support/eco/daemon.log`, emptied at each start, and
+`eco start` shows it when the daemon does not come up.
+
+The agent runs with the `PATH` of the terminal that ran `eco start`, so it
+finds Homebrew's `ffmpeg`. It does not see the other variables of that
+terminal: give a key to your login session, until you log out, then restart
+eco:
+
+```bash
+launchctl setenv OPENROUTER_API_KEY "…"
+eco restart
+```
+
+To take the agent off:
+
+```bash
+eco stop
+launchctl bootout gui/$(id -u)/eco
+rm ~/Library/LaunchAgents/eco.plist
+```
+
+---
+
 ## Update
 
 eco says when a newer release is out, and installs it when you ask, on Linux

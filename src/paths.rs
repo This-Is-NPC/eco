@@ -153,6 +153,18 @@ impl<V: Fn(&str) -> Option<OsString>> Layout<V> {
     fn update_state(&self) -> PathBuf {
         self.data_dir().join("update.json")
     }
+
+    fn launch_agent(&self) -> PathBuf {
+        self.home().join("Library/LaunchAgents/eco.plist")
+    }
+}
+
+/// Windows and macOS: the log of the daemon started in the background.
+#[cfg(any(windows, target_os = "macos"))]
+impl<V: Fn(&str) -> Option<OsString>> Layout<V> {
+    fn daemon_log(&self) -> PathBuf {
+        self.data_dir().join("daemon.log")
+    }
 }
 
 /// Windows: the user profile, the roaming and local application data, and a
@@ -188,10 +200,6 @@ impl<V: Fn(&str) -> Option<OsString>> Layout<V> {
 
     fn update_state(&self) -> PathBuf {
         self.data_dir().join("update.json")
-    }
-
-    fn daemon_log(&self) -> PathBuf {
-        self.data_dir().join("daemon.log")
     }
 
     fn start_menu_dir(&self) -> PathBuf {
@@ -322,9 +330,15 @@ pub fn token_path() -> PathBuf {
 }
 
 /// Where the daemon started in the background writes its output.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 pub fn daemon_log() -> PathBuf {
     layout().daemon_log()
+}
+
+/// The launchd agent that runs the daemon in the background.
+#[cfg(target_os = "macos")]
+pub fn launch_agent() -> PathBuf {
+    layout().launch_agent()
 }
 
 /// The folder whose programs Windows runs at the user's login.
@@ -535,7 +549,9 @@ mod tests {
             layout.sessions_dir(),
             layout.socket_path(),
             layout.token_path(),
+            layout.daemon_log(),
             layout.update_state(),
+            layout.launch_agent(),
             layout.expand("~/cv.md"),
         ];
         let expected = [
@@ -546,7 +562,9 @@ mod tests {
             "/Users/you/Library/Application Support/eco/sessions",
             "/var/folders/ab/T/eco.sock",
             "/var/folders/ab/T/eco.token",
+            "/Users/you/Library/Application Support/eco/daemon.log",
             "/Users/you/Library/Application Support/eco/update.json",
+            "/Users/you/Library/LaunchAgents/eco.plist",
             "/Users/you/cv.md",
         ];
         assert_eq!(found, expected.map(PathBuf::from));

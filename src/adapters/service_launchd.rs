@@ -1,0 +1,317 @@
+//! macOS: eco as the launchd agent `eco` in the user's GUI domain, defined by
+//! `~/Library/LaunchAgents/eco.plist` and run through `launchctl`, its output
+//! in a log under the data directory. The agent runs when started, never at
+//! login, as on Linux and Windows.
+
+use std::path::{Path, PathBuf};
+use std::time::SystemTime;
+
+use anyhow::{Context, Result, bail};
+use futures::future::BoxFuture;
+use tokio::process::Command;
+
+use crate::adapters::daemon_log;
+use crate::config::replace_file;
+use crate::paths;
+use crate::ports::ServiceManager;
+
+/// The agent's label in launchd.
+const LABEL: &str = "eco";
+
+pub struct LaunchAgent;
+
+impl ServiceManager for LaunchAgent {
+    fn start(&self) -> BoxFuture<'_, Result<()>> {
+        Box::pin(async {
+            let agent = Agent {
+                plist: paths::launch_agent(),
+                log: paths::daemon_log(),
+                domain: format!("gui/{}", rustix::process::getuid().as_raw()),
+            };
+            let exe = std::env::current_exe()?;
+            let path = std::env::var("PATH").unwrap_or_default();
+            start(
+                Path::new("launchctl"),
+                &agent,
+                &plist(&exe, &agent.log, &path),
+            )
+            .await
+        })
+    }
+
+    /// The daemon log, which each start empties: all of it is the last start's.
+    fn output(&self, _: SystemTime) -> BoxFuture<'_, Option<String>> {
+        Box::pin(async { daemon_log::read(&paths::daemon_log()) })
+    }
+}
+
+/// Where the agent is defined and writes, and the launchd domain it runs in.
+struct Agent {
+    plist: PathBuf,
+    log: PathBuf,
+    /// `gui/<uid>`: the user's login session.
+    domain: String,
+}
+
+impl Agent {
+    /// The agent as launchd names it: `gui/<uid>/eco`.
+    fn target(&self) -> String {
+        format!("{}/{LABEL}", self.domain)
+    }
+}
+
+/// The agent's definition: `exe daemon --headless`, its output in `log`, with
+/// the `PATH` of the shell that started it (launchd's own finds no Homebrew
+/// program, ffmpeg among them). It does not run at load, so not at login.
+fn plist(exe: &Path, log: &Path, path: &str) -> String {
+    let exe = escape(&exe.to_string_lossy());
+    let log = escape(&log.to_string_lossy());
+    let path = escape(path);
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>{LABEL}</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>{exe}</string>
+		<string>daemon</string>
+		<string>--headless</string>
+	</array>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>PATH</key>
+		<string>{path}</string>
+	</dict>
+	<key>StandardOutPath</key>
+	<string>{log}</string>
+	<key>StandardErrorPath</key>
+	<string>{log}</string>
+	<key>RunAtLoad</key>
+	<false/>
+	<key>ProcessType</key>
+	<string>Interactive</string>
+</dict>
+</plist>
+"#
+    )
+}
+
+/// `text` as XML character data.
+fn escape(text: &str) -> String {
+    text.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
+/// Empty the log, define the agent as `definition` and start it, through the
+/// program `launchctl`. An agent launchd holds with another definition is
+/// taken out first, so the new one is what runs.
+async fn start(launchctl: &Path, agent: &Agent, definition: &str) -> Result<()> {
+    daemon_log::emptied(&agent.log)?;
+    let target = agent.target();
+    let changed = std::fs::read_to_string(&agent.plist).ok().as_deref() != Some(definition);
+    let loaded = Command::new(launchctl)
+        .args(["print", &target])
+        .output()
+        .await
+        .is_ok_and(|output| output.status.success());
+    if changed {
+        if loaded {
+            run(
+                launchctl,
+                &["bootout", &target],
+                "cannot replace the eco agent",
+            )
+            .await?;
+        }
+        if let Some(directory) = agent.plist.parent() {
+            std::fs::create_dir_all(directory)?;
+        }
+        replace_file(&agent.plist, definition.as_bytes(), 0o644)
+            .with_context(|| format!("cannot write {}", agent.plist.display()))?;
+    }
+    if changed || !loaded {
+        let plist = agent.plist.to_string_lossy();
+        run(
+            launchctl,
+            &["bootstrap", &agent.domain, &plist],
+            "cannot load the eco agent",
+        )
+        .await?;
+    }
+    run(
+        launchctl,
+        &["kickstart", &target],
+        "cannot start the eco agent",
+    )
+    .await
+}
+
+/// Run `launchctl` with `args`; on failure, `failed` and what it said.
+async fn run(launchctl: &Path, args: &[&str], failed: &str) -> Result<()> {
+    let output = Command::new(launchctl)
+        .args(args)
+        .output()
+        .await
+        .with_context(|| format!("{failed}: cannot run {}", launchctl.display()))?;
+    if !output.status.success() {
+        bail!(
+            "{failed}: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use super::*;
+    use crate::adapters::fake_program::fake_program;
+
+    /// A launchctl that notes each call in `dir/calls`, answers `print` with
+    /// `printed` (0 when launchd holds the agent) and fails the call whose
+    /// first argument is `fails`.
+    fn launchctl(dir: &Path, printed: u8, fails: &str) -> PathBuf {
+        let calls = dir.join("calls");
+        fake_program(
+            dir,
+            "launchctl",
+            &format!(
+                r#"echo "$*" >> '{}'
+[ "$1" = "print" ] && exit {printed}
+[ "$1" = "{fails}" ] && echo "  Bootstrap failed: 5: Input/output error  " >&2 && exit 5
+exit 0"#,
+                calls.display()
+            ),
+        )
+    }
+
+    fn calls(dir: &Path) -> String {
+        fs::read_to_string(dir.join("calls")).unwrap_or_default()
+    }
+
+    fn agent(dir: &Path) -> Agent {
+        Agent {
+            plist: dir.join("LaunchAgents/eco.plist"),
+            log: dir.join("data/daemon.log"),
+            domain: "gui/501".into(),
+        }
+    }
+
+    #[test]
+    fn the_agent_runs_the_daemon_with_the_shells_path_and_not_at_login() {
+        let text = plist(
+            Path::new("/Apps/eco & co/eco"),
+            Path::new("/data/daemon.log"),
+            "/opt/homebrew/bin:/usr/bin",
+        );
+        let strings: Vec<&str> = text
+            .lines()
+            .filter_map(|line| {
+                line.trim()
+                    .strip_prefix("<string>")?
+                    .strip_suffix("</string>")
+            })
+            .collect();
+        assert_eq!(
+            strings,
+            [
+                "eco",
+                "/Apps/eco &amp; co/eco",
+                "daemon",
+                "--headless",
+                "/opt/homebrew/bin:/usr/bin",
+                "/data/daemon.log",
+                "/data/daemon.log",
+                "Interactive"
+            ]
+        );
+        assert!(text.contains("<key>RunAtLoad</key>\n\t<false/>"), "{text}");
+    }
+
+    #[tokio::test]
+    async fn a_new_agent_is_written_loaded_and_started_with_an_empty_log() {
+        let dir = tempfile::tempdir().unwrap();
+        let program = launchctl(dir.path(), 113, "none");
+        let agent = agent(dir.path());
+        fs::create_dir_all(agent.log.parent().unwrap()).unwrap();
+        fs::write(&agent.log, "an earlier start").unwrap();
+        start(&program, &agent, "<plist/>").await.unwrap();
+        assert_eq!(fs::read_to_string(&agent.plist).unwrap(), "<plist/>");
+        assert_eq!(fs::read_to_string(&agent.log).unwrap(), "");
+        assert_eq!(
+            calls(dir.path()),
+            format!(
+                "print gui/501/eco\nbootstrap gui/501 {}\nkickstart gui/501/eco\n",
+                agent.plist.display()
+            )
+        );
+    }
+
+    #[tokio::test]
+    async fn an_agent_launchd_holds_as_written_is_only_started() {
+        let dir = tempfile::tempdir().unwrap();
+        let program = launchctl(dir.path(), 0, "none");
+        let agent = agent(dir.path());
+        fs::create_dir_all(agent.plist.parent().unwrap()).unwrap();
+        fs::write(&agent.plist, "<plist/>").unwrap();
+        start(&program, &agent, "<plist/>").await.unwrap();
+        assert_eq!(
+            calls(dir.path()),
+            "print gui/501/eco\nkickstart gui/501/eco\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_agent_held_with_another_definition_is_replaced() {
+        let dir = tempfile::tempdir().unwrap();
+        let program = launchctl(dir.path(), 0, "none");
+        let agent = agent(dir.path());
+        fs::create_dir_all(agent.plist.parent().unwrap()).unwrap();
+        fs::write(&agent.plist, "<plist>old</plist>").unwrap();
+        start(&program, &agent, "<plist/>").await.unwrap();
+        assert_eq!(fs::read_to_string(&agent.plist).unwrap(), "<plist/>");
+        assert_eq!(
+            calls(dir.path()),
+            format!(
+                "print gui/501/eco\nbootout gui/501/eco\nbootstrap gui/501 {}\n\
+                 kickstart gui/501/eco\n",
+                agent.plist.display()
+            )
+        );
+    }
+
+    #[tokio::test]
+    async fn a_failure_says_what_launchctl_said() {
+        let dir = tempfile::tempdir().unwrap();
+        let program = launchctl(dir.path(), 113, "bootstrap");
+        let error = start(&program, &agent(dir.path()), "<plist/>")
+            .await
+            .unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "cannot load the eco agent: Bootstrap failed: 5: Input/output error"
+        );
+        assert!(!calls(dir.path()).contains("kickstart"));
+    }
+
+    #[tokio::test]
+    async fn a_missing_launchctl_is_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("launchctl");
+        let agent = agent(dir.path());
+        let error = start(&missing, &agent, "<plist/>").await.unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "cannot load the eco agent: cannot run {}",
+                missing.display()
+            )
+        );
+    }
+}

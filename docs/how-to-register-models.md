@@ -73,6 +73,9 @@ it starts, so a new variable is listed after `eco restart`:
   settings › Environment Variables › User variables** (or run
   `setx ECO_LAN_KEY "…"` in a terminal), then restart eco from a new terminal
   or the Start menu, so it starts with the new environment: `eco restart`.
+- **On macOS,** run `launchctl setenv ECO_LAN_KEY "…"`, which lasts until you
+  log out, then `eco restart`
+  ([on macOS](how-to-install-and-remove.md#on-macos)).
 
 `eco key list` prints the names the daemon can read, as JSON:
 

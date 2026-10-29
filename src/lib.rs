@@ -30,7 +30,7 @@ use crate::adapters::credentials;
 #[cfg(target_os = "linux")]
 use crate::adapters::service_systemd::SystemdUser as PlatformService;
 #[cfg(target_os = "macos")]
-use crate::adapters::unsupported::Unsupported as PlatformService;
+use crate::adapters::service_launchd::LaunchAgent as PlatformService;
 #[cfg(windows)]
 use crate::adapters::service_windows::BackgroundProcess as PlatformService;
 
