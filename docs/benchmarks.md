@@ -531,3 +531,25 @@ Linux run does not measure. Files whose numbers did not move are not named.
 | `src/installer.rs` | 94.94% (26 of 514) | 94.78% (26 of 498) | as in the update section. The share falls only because its copy of the fake installer, whose lines were covered, gave way to the one in `src/session/update.rs`; no line lost its test. |
 | `src/adapters/installer_linux.rs` | 97.06% (7 of 238) | 97.15% (7 of 246) | as before. |
 | `src/ports.rs` | 70.00% (3 of 10) | 78.57% (3 of 14) | as before. |
+
+## Windows installer coverage (2026-10-29)
+
+Measured on Linux with `mise run coverage` on the tree that packages eco for
+Windows as a per-machine MSI, ships the models in it, installs updates through
+it and starts eco from the Start menu without a console. Before is master at
+v0.9.1. The run passed 830 unit tests. The whole crate: 97.16% of lines
+before and after (956 and 968 lines without a test, of 33620 and 34087). The
+Windows-only code (`src/adapters/installer_windows.rs`,
+`src/adapters/service_windows.rs`, the Windows arms of `src/lib.rs` and
+`src/setup.rs`) is tested by `mise run check` on Windows, which this Linux run
+does not measure. Files whose numbers did not move are not named.
+
+| File | Lines before | Lines after | Left without a test, and why |
+|---|---|---|---|
+| `src/apply.rs` | new | 100.00% (0 of 147) | none. |
+| `src/installer.rs` | 94.94% (26 of 514) | 94.86% (27 of 525) | the same lines as before, as in the update section; the line view shows no new line at zero, the summary counts one more. |
+| `src/paths.rs` | 89.89% (27 of 267) | 89.83% (30 of 295) | as before, and `shipped_model`, one call that finds the models beside the running eco: its lookup order is tested through `model`. |
+| `src/setup.rs` | 88.55% (15 of 131) | 90.59% (16 of 170) | as before. |
+| `src/lifecycle.rs` | 98.75% (10 of 803) | 98.92% (10 of 925) | as before. |
+| `src/session/update.rs` | 99.61% (2 of 518) | 99.67% (2 of 600) | as before. |
+| `src/ports.rs` | 70.00% (3 of 10) | 78.57% (3 of 14) | as before. |
