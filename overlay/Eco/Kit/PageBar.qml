@@ -39,7 +39,6 @@ Rectangle {
 
   color: Qt.alpha(Theme.background, 0.9)
   border.color: Theme.line
-  clip: true
 
   onSectionChanged: arrive.restart()
 
@@ -61,65 +60,71 @@ Rectangle {
     font.letterSpacing: 3
   }
 
-  RowLayout {
-    anchors { fill: parent; leftMargin: 8; rightMargin: 8 }
-    spacing: 10
+  // The commands slide in inside the hairline, which is never its own clip's edge.
+  Item {
+    anchors { fill: parent; margins: bar.border.width }
+    clip: true
 
-    TraceButton {
-      Layout.alignment: Qt.AlignVCenter
-      Layout.preferredWidth: contextual.tight ? 32 : implicitWidth
-      visible: bar.back !== null && !contextual.folded
-      dense: true
-      role: "navigation"
-      icon: "chevron-left"
-      text: bar.back && !contextual.tight ? bar.back.text : ""
-      tip: bar.back ? bar.back.tip || bar.back.text.toLowerCase() : ""
-      tone: Theme.dim
-      onClicked: bar.back.run()
-    }
-    Rectangle {
-      visible: bar.back !== null && bar.actions.length > 0 && !contextual.folded
-      Layout.alignment: Qt.AlignVCenter
-      implicitWidth: 1
-      implicitHeight: 20
-      color: Theme.line
-    }
+    RowLayout {
+      anchors { fill: parent; leftMargin: 8; rightMargin: 8 }
+      spacing: 10
 
-    CommandRow {
-      id: contextual
-      Layout.alignment: Qt.AlignVCenter
-      Layout.fillWidth: true
-      spread: true
-      commands: bar.actions
-      // Named while the names leave BACK its name.
-      room: bar.room - (bar.back !== null ? backMeasure.implicitWidth - 32 : 0) - (bar.readoutShown ? bar.readoutRoom : 0)
-      fit: bar.room - (bar.readoutShown ? bar.readoutRoom : 0)
-      iconsWhenTight: true
-      folds: bar.back !== null ? [Object.assign({ icon: "chevron-left" }, bar.back)] : []
-      transform: Translate { id: shift }
-    }
+      TraceButton {
+        Layout.alignment: Qt.AlignVCenter
+        Layout.preferredWidth: contextual.tight ? 32 : implicitWidth
+        visible: bar.back !== null && !contextual.folded
+        dense: true
+        role: "navigation"
+        icon: "chevron-left"
+        text: bar.back && !contextual.tight ? bar.back.text : ""
+        tip: bar.back ? bar.back.tip || bar.back.text.toLowerCase() : ""
+        tone: Theme.dim
+        onClicked: bar.back.run()
+      }
+      Rectangle {
+        visible: bar.back !== null && bar.actions.length > 0 && !contextual.folded
+        Layout.alignment: Qt.AlignVCenter
+        implicitWidth: 1
+        implicitHeight: 20
+        color: Theme.line
+      }
 
-    Rectangle {
-      visible: bar.readoutShown
-      Layout.alignment: Qt.AlignVCenter
-      implicitWidth: 1
-      implicitHeight: 20
-      color: Theme.line
-    }
-    Label {
-      visible: bar.readoutShown
-      Layout.alignment: Qt.AlignVCenter
-      Layout.rightMargin: 4
-      text: bar.readout
-      color: Theme.dim
-      font.pixelSize: 10
-      font.letterSpacing: 3
-    }
+      CommandRow {
+        id: contextual
+        Layout.alignment: Qt.AlignVCenter
+        Layout.fillWidth: true
+        spread: true
+        commands: bar.actions
+        // Named while the names leave BACK its name.
+        room: bar.room - (bar.back !== null ? backMeasure.implicitWidth - 32 : 0) - (bar.readoutShown ? bar.readoutRoom : 0)
+        fit: bar.room - (bar.readoutShown ? bar.readoutRoom : 0)
+        iconsWhenTight: true
+        folds: bar.back !== null ? [Object.assign({ icon: "chevron-left" }, bar.back)] : []
+        transform: Translate { id: shift }
+      }
 
-    ParallelAnimation {
-      id: arrive
-      NumberAnimation { target: contextual; property: "opacity"; from: 0; to: 1; duration: 200; easing.type: Easing.OutCubic }
-      NumberAnimation { target: shift; property: "x"; from: 16; to: 0; duration: 260; easing.type: Easing.OutCubic }
+      Rectangle {
+        visible: bar.readoutShown
+        Layout.alignment: Qt.AlignVCenter
+        implicitWidth: 1
+        implicitHeight: 20
+        color: Theme.line
+      }
+      Label {
+        visible: bar.readoutShown
+        Layout.alignment: Qt.AlignVCenter
+        Layout.rightMargin: 4
+        text: bar.readout
+        color: Theme.dim
+        font.pixelSize: 10
+        font.letterSpacing: 3
+      }
+
+      ParallelAnimation {
+        id: arrive
+        NumberAnimation { target: contextual; property: "opacity"; from: 0; to: 1; duration: 200; easing.type: Easing.OutCubic }
+        NumberAnimation { target: shift; property: "x"; from: 16; to: 0; duration: 260; easing.type: Easing.OutCubic }
+      }
     }
   }
 }

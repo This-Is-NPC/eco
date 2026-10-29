@@ -11,7 +11,16 @@ pub use windows::{Listener, ReadHalf, Stream, WriteHalf, connect, release, split
 
 #[derive(Debug, thiserror::Error)]
 pub enum ConnectError {
-    #[error("access to the eco socket was denied; check this process's sandbox permissions")]
+    #[cfg_attr(
+        unix,
+        error("access to the eco socket was denied; check this process's sandbox permissions")
+    )]
+    #[cfg_attr(
+        windows,
+        error(
+            "access to the eco socket was denied; if the daemon runs as administrator, run `eco stop` from an elevated terminal, then start eco again"
+        )
+    )]
     AccessDenied,
     #[error("cannot connect to the eco socket: {0}")]
     Unavailable(#[source] std::io::Error),

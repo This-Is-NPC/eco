@@ -2,7 +2,8 @@
 """Fail when the overlay's QML modules break their own rules (docs/design.md
 §3): a module imports another it may not, a relative `import "…"` appears,
 a file is not declared in its folder's qmldir (or a qmldir entry names a
-file that does not exist), or a Kit component is never used, directly or
+file that does not exist), a Rectangle sets both a border and `clip: true`
+on itself (a fractional display scale scissors the border away), or a Kit component is never used, directly or
 through composition, under Eco/Lab. Takes the overlay root as an optional
 argument, the checkout's `overlay/` by default."""
 
@@ -30,6 +31,9 @@ ALLOWED_IMPORTS = {
 IMPORT_LINE = re.compile(r'^\s*import\s+(.+?)\s*(?://.*)?$')
 RELATIVE_IMPORT = re.compile(r'^\s*import\s+"')
 TYPE_USE = re.compile(r'\b([A-Z][A-Za-z0-9_]*)\s*\{')
+BORDER_PROPERTY = re.compile(r'^\s*border\.(color|width)\s*:')
+CLIP_PROPERTY = re.compile(r'^\s*clip\s*:\s*true\b')
+BLOCK_OPEN = re.compile(r'([A-Za-z_][A-Za-z0-9_.]*)\s*\{')
 LINE_COMMENT = re.compile(r'//.*')
 BLOCK_COMMENT = re.compile(r'/\*.*?\*/', re.S)
 
@@ -181,12 +185,38 @@ def check_lab_coverage(all_modules):
             )
 
 
+def check_bordered_clip(all_files):
+    """A Rectangle that draws a border and clips on itself loses edges of its
+    border at fractional device-pixel positions: an inner Item clips instead."""
+    for path in all_files:
+        if path.suffix != ".qml":
+            continue
+        text = BLOCK_COMMENT.sub(lambda m: "\n" * m.group(0).count("\n"), path.read_text(encoding="utf-8"))
+        stack = []
+        for number, line in enumerate(text.splitlines(), 1):
+            line = LINE_COMMENT.sub("", line)
+            if stack and stack[-1]["type"] == "Rectangle":
+                if BORDER_PROPERTY.match(line):
+                    stack[-1]["border"] = True
+                if CLIP_PROPERTY.match(line):
+                    stack[-1]["clip"] = number
+            for char_at, char in enumerate(line):
+                if char == "{":
+                    opened = BLOCK_OPEN.findall(line[: char_at + 1])
+                    stack.append({"type": opened[-1] if opened else "", "border": False, "clip": 0})
+                elif char == "}" and stack:
+                    block = stack.pop()
+                    if block["type"] == "Rectangle" and block["border"] and block["clip"]:
+                        fail(path, block["clip"], "a Rectangle with a border clips itself; clip an inner Item inset by the border width")
+
+
 def main():
     if not ECO.is_dir():
         sys.exit(f"overlay-check: no {ECO} (not an overlay root?)")
 
     all_files = [p for p in OVERLAY.rglob("*") if p.suffix in (".qml", ".js")]
     check_relative_imports(all_files)
+    check_bordered_clip(all_files)
 
     all_modules = modules()
     module_dirs = [ECO / name for name in all_modules]

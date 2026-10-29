@@ -497,12 +497,12 @@ and an empty one binds none ([the configuration](design.md#9-configuration)):
 ```
 
 The keys are read when the daemon starts: `eco restart` after a change. Keys
-another program holds are not taken from it; the window says so as it
-connects, and the daemon's log too, with the config's path in your profile in
-place of `<config>`:
+another program holds are not taken from it, and that is no error: the
+shortcuts are optional, and the others work. The daemon's log says it, and
+`eco doctor` passes the check naming the keys left off:
 
 ```
-eco: Win+Alt+A is taken by another program; choose other keys under [shortcuts] in <config> (create the file if it is missing), then run eco restart
+eco: Win+Alt+A is taken by another program
 ```
 
 A daemon started where there is no desktop, over ssh say, has every key
@@ -536,7 +536,13 @@ of the log stays in the file.
 
 **eco does not start at login** on Windows: it runs once you open it, from
 the Start menu entry below or with `eco start`, and keeps running when the
-terminal that ran `eco start` is closed. An earlier eco wrote a
+terminal that ran `eco start` is closed. It does not start from an
+Administrator terminal, so that the Start menu entry and the windows can
+reach the daemon: `eco start` and `eco restart` there fail with `eco runs
+without administrator rights, so every window can reach it; run this from a
+terminal that is not elevated`. If a daemon an earlier eco started elevated
+is running, run `eco stop` from the elevated terminal, then start eco again.
+An earlier eco wrote a
 login script, `eco.cmd`, into your Startup folder; `eco setup` (and so the installer) and the installer's removal remove it and
 say so:
 

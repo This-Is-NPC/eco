@@ -569,7 +569,6 @@
   "error.tag.invalid": "A tag needs a name",
   "error.tag.not_found": "No session has the tag {tag}",
   "error.action.unknown": "Unknown skill: {name}",
-  "error.shortcut.unavailable": "{keys} is taken by another program. Choose other keys under [shortcuts] in {path} (create the file if it is missing), then run eco restart.",
   "error.completion.failed": "{action}: the model failed — {detail}",
   "error.chat.none": "No chat model answers {kind} sessions — register one under Settings › Models",
   "error.input.disconnected": "{participant}: {device} is not connected",

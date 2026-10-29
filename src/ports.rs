@@ -1,6 +1,7 @@
 //! The ports the domain talks to; every external system is an adapter behind one.
 
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 
 use futures::future::BoxFuture;
 use futures::stream::BoxStream;
@@ -256,6 +257,11 @@ pub trait Hooks: Send + Sync {
 pub trait ServiceManager: Send + Sync {
     /// Start the service, with the graphical session it has to reach.
     fn start(&self) -> BoxFuture<'_, anyhow::Result<()>>;
+    /// Whether this process runs with administrator rights, which a daemon
+    /// to start must not have. Only Windows has such a thing.
+    fn elevated(&self) -> BoxFuture<'_, bool> {
+        Box::pin(async { false })
+    }
     /// What the daemons it started at or after `since` wrote, read when one
     /// did not come up; `None` when there is nothing to read.
     fn output(&self, since: std::time::SystemTime) -> BoxFuture<'_, Option<String>>;
@@ -339,6 +345,9 @@ pub trait Installer: Send + Sync {
         tag: String,
         progress: InstallProgress,
     ) -> BoxFuture<'static, Result<(), InstallError>>;
+
+    /// The eco executable an install puts in place.
+    fn program(&self) -> PathBuf;
 }
 
 /// How much a notification asks of the user's attention.

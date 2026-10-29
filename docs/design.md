@@ -441,7 +441,11 @@ matters.
   up fails answers with that reason until it is fixed or turned off.
   In the window, Models' DEFAULT FOR REVIEW picks `model`, General turns
   `enabled` and `verbose` on, and Prompts holds `prompt`.
-- **Default model:** `[llm] model` names the assistant's; an action's `model`
+- **Default model:** `[llm] model` names the assistant's, and `[stt] model` the
+  transcription model; saving a config whose default is empty, or names no
+  registered model of its type, sets it to the first registered model of that
+  type, in registration order (empty while there is none; a file read at
+  startup is not changed). An action's `model`
   names another (e.g. a slower, better model for a deep action). Only the models
   something uses are set up. Latency measurements: [benchmarks.md](benchmarks.md).
 - **Prompt, built for the provider's cache:** a request is a conversation that
@@ -810,6 +814,15 @@ and administrators (§15).
 | the line `eco setup` adds to `~/.config/hypr/bindings.lua` | nothing: eco does not start at login; `eco setup` removes the `Startup\eco.cmd` an earlier eco wrote |
 | the launcher `eco.desktop` the package installs | `%APPDATA%\Microsoft\Windows\Start Menu\Programs\eco.lnk`, written by `eco setup`: it runs `eco start` through `conhost.exe --headless`, with the icon of `eco-window.exe` |
 | the icon `eco` the package installs, which names `notify-send`'s notifications | the registry key `HKCU\Software\Classes\AppUserModelId\This-Is-NPC.eco`, written by `eco setup` and by the daemon before a notification: `DisplayName` `eco`, `IconUri` the installed `share\eco\eco.ico` |
+
+On Windows eco does not start from an elevated (Administrator) terminal: a
+process of a lower integrity cannot open the pipe of an elevated one, so a
+daemon started there would shut out the Start menu entry, the windows and the
+shortcuts. `eco start` that has to start a daemon, and `eco restart`, find
+the elevation with `whoami /groups` (the high mandatory level,
+`S-1-16-12288`) and fail before stopping or starting anything; `eco stop`
+still works elevated, which removes a daemon an older eco started elevated.
+An unelevated client denied the pipe says so.
 
 A session log holds `session`, `state`, `speech`, `suggestion`, `removed`,
 `meta`, `speaker`, `diarized`, `voiced`, `person`, `attendee`, `unheard`, `edited`,
@@ -1233,7 +1246,16 @@ answered). It is sent whenever one of these changes and to every client after
 `snapshot`. `update_progress` follows one install: `stage` is `downloading`,
 `verifying`, `installing`, `waiting` (installed, the restart waits for the
 last live session to end), `restarting`, `done` or `failed`, with `detail`
-saying why it failed.
+saying why it failed. The restart runs the eco the installer installed
+(`/usr/bin/eco`, `%LOCALAPPDATA%\Programs\eco\bin\eco.exe`), not the
+executable the daemon was started from; `daemon.restart` alone restarts the
+running executable.
+
+`shortcuts` names the global shortcut keys another program holds, as
+`unavailable`, a list of keys as the daemon registers them (`Win+Alt+A`). It
+is sent to every client after `snapshot`, only on Windows (§15) and only when
+the list is not empty; a taken shortcut is no error, as the shortcuts are
+optional.
 
 `window_focus` and `window_share` are window control on Windows (§15), sent
 only there: the window whose process is `pid` comes to the front with the
@@ -2026,8 +2048,10 @@ title until the item changes again; a refused DELETE or quick change shows as an
 error toast (§12.2). The default models are not required, as the daemon does not
 require them (§9): a config with no model registered saves, and a default it
 names must be a registered model of its type (`overlay/Eco/Core/draft.js`,
-`problems`). Naming a new model makes it the default of nothing; each default
-is set on the Models table.
+`problems`). The daemon makes the first registered model of a type the default
+of that type when a saved config leaves it empty or names no model of that
+type, so a new model is a default only when it is the first of its type; the
+others are set on the Models table.
 
 Closing the window with an item unsaved asks first: SAVE AND CLOSE saves
 each changed item in turn, the one on screen first, and closes once none is
@@ -2632,7 +2656,7 @@ adapter lives on each platform today.
 | The window host's bridge | `eco-window`'s `EcoHost` module, built with the system's compiler and Qt by Ninja: `Host` gives the QML its pid, its environment and local paths, and copies to the Wayland clipboard through `wl-copy`; `LineSocket` is a `QLocalSocket` to the daemon socket the daemon names in `ECO_SOCKET`; `TextFile` reads and watches files, such as the Omarchy theme under `XDG_STATE_HOME` that `overlay/Eco/Core/Theme.qml` follows | the same module, built with MSVC through CMake's Visual Studio generator against the Qt `scripts/qt-install` puts under `.qt`, with Qt's libraries copied beside `eco-window.exe` by `windeployqt`; `src/adapters/overlay.rs` runs `<prefix>\lib\eco\eco-window.exe` beside an installed `eco`, else the checkout's `target\window\eco-window.exe`. `Host.copy` puts the text on the clipboard through Qt and flushes it to Windows (`OleFlushClipboard`, from `ole32`), `Host.hideFromCapture` sets the windows' display affinity, and `LineSocket` connects to the named pipe and sends `auth <token>` first. `tests/window.rs` and `tests/overlay.rs` run there too, the second with the `qmltestrunner` under `.qt`. System follows Qt's light/dark system preference; Dark, Light and Custom use the selected palette | `window/main.cpp`, `window/host.h`, `window/line_socket.h`, `window/text_file.h`, `scripts/window-build`, `scripts/qt-install` |
 | The tray icon | `Qt.labs.platform`'s `SystemTrayIcon`, which Qt exports as a StatusNotifierItem with a D-Bus menu (qt6-base carries Qt D-Bus); the bar's tray shows it | the same type, a notification area icon whose menu is a Qt Widgets menu; `windeployqt` ships Qt Widgets and the `Qt.labs.platform` plugin with `eco-window.exe` | `overlay/tray.qml`, `src/adapters/overlay.rs` |
 | System notifications | the `Notifier` port, adapter `notify-send`: `notify-send` with the app name `eco`, the installed eco icon and the urgency (`normal`, or `critical` for an error); a missing `notify-send` is written to the daemon's log | adapter `Toasts`: a Windows toast notification through the WinRT `ToastNotificationManager` of the `windows` crate's safe projection, `long` for an error, under eco's app id `This-Is-NPC.eco`. eco is not a packaged app, so the app id is registered for the user in `HKCU\Software\Classes\AppUserModelId\This-Is-NPC.eco`, `DisplayName` `eco` and `IconUri` the shipped `share\eco\eco.ico`, through the `windows-registry` crate's safe interface: Windows then labels the toast "eco" with eco's icon, with no Start-menu shortcut. `eco setup` writes the key (adapter `ToastName`), and the notifier writes it again before each toast, writing nothing when it holds these values, so a daemon whose setup never ran or whose key was deleted still shows "eco"; a build that is not installed ships no icon and leaves a registered one alone. A key it cannot write sends the toast under Windows PowerShell's app id, which Windows always has, labelled "Windows PowerShell", and says why in the daemon's log. `install.ps1` deletes the key when it takes eco off. Both chosen with `#[cfg]` in `src/session.rs`. Only with `[ui] notifications` on and no eco window active (§12.2) | `src/ports.rs`, `src/domain/notifications.rs`, `src/session.rs`, `src/adapters/notify_linux.rs`, `src/adapters/notify_windows.rs` |
-| Shortcuts | a global Hyprland bind that runs an `eco window` command, which sends one line to the socket and returns once the daemon has read it: `window.call` for those that open a view, the daemon giving that window the keyboard | the daemon registers `[shortcuts]` (§9) itself, `Win+Alt+A`, `Q`, `C`, `N`, `P`, `H` and `E` by default, the keys of `eco.lua` with the Windows key for SUPER, none of them one Microsoft documents for Windows (`Win+Alt` with a digit opens a taskbar jump list, and was refused on a desktop; the Game Bar holds `G`, `M`, `R` and `T`; Omarchy binds `SUPER+ALT+1` to `5` to a group's windows), through the `windows-hotkeys` crate: `RegisterHotKey` on a hidden message-only window of a thread of its own, which waits for `WM_HOTKEY` in the crate's loop. A pressed key hands the daemon's loop the very line `eco window` builds (`cli::Window::line`), so it is routed as the command would be. A key the system refuses, another program holding it, is written to the daemon's log and greets every client as an `error` with the code `shortcut.unavailable`, which names the config's path, to be created if missing, as the settings window has no place for shortcuts; the others still work. Chosen over `global-hotkey`, which registers the same way but leaves the message loop to the application, and that loop is `unsafe` code eco forbids, and over `livesplit-hotkey`, which installs a low-level keyboard hook: it sees every key pressed in every program, passes the shortcut on to the program in front as well (Win+Alt+1 would also open the first taskbar program's jump list) and cannot tell a key another program holds (read in the crates' sources). The keys are read when the daemon starts. Over ssh the system refuses every key: that session has no interactive window station (`RegisterHotKey` fails with error 1459, `ERROR_REQUIRES_INTERACTIVE_WINDOWSTATION`, measured), so each is reported; on a desktop, `Win+Alt+C`, `N`, `H` and `E` registered and worked when pressed (seen in a desktop test). `eco window` works as on Linux, knowing the daemon has read its line from the `synced` answer to `sync` (§10) | `packaging/hypr/eco.lua`, `src/cli.rs`, `src/shortcuts.rs`, `src/adapters/shortcuts_windows.rs` |
+| Shortcuts | a global Hyprland bind that runs an `eco window` command, which sends one line to the socket and returns once the daemon has read it: `window.call` for those that open a view, the daemon giving that window the keyboard | the daemon registers `[shortcuts]` (§9) itself, `Win+Alt+A`, `Q`, `C`, `N`, `P`, `H` and `E` by default, the keys of `eco.lua` with the Windows key for SUPER, none of them one Microsoft documents for Windows (`Win+Alt` with a digit opens a taskbar jump list, and was refused on a desktop; the Game Bar holds `G`, `M`, `R` and `T`; Omarchy binds `SUPER+ALT+1` to `5` to a group's windows), through the `windows-hotkeys` crate: `RegisterHotKey` on a hidden message-only window of a thread of its own, which waits for `WM_HOTKEY` in the crate's loop. A pressed key hands the daemon's loop the very line `eco window` builds (`cli::Window::line`), so it is routed as the command would be. A key the system refuses, another program holding it, is written to the daemon's log and greets every client in a `shortcuts` event (§10.1) listing the keys left off, which is no error: the shortcuts are optional, the others still work, and `eco doctor` passes with the keys named; the settings window has no place for shortcuts, so others go in the config file, created if missing. Chosen over `global-hotkey`, which registers the same way but leaves the message loop to the application, and that loop is `unsafe` code eco forbids, and over `livesplit-hotkey`, which installs a low-level keyboard hook: it sees every key pressed in every program, passes the shortcut on to the program in front as well (Win+Alt+1 would also open the first taskbar program's jump list) and cannot tell a key another program holds (read in the crates' sources). The keys are read when the daemon starts. Over ssh the system refuses every key: that session has no interactive window station (`RegisterHotKey` fails with error 1459, `ERROR_REQUIRES_INTERACTIVE_WINDOWSTATION`, measured), so each is reported; on a desktop, `Win+Alt+C`, `N`, `H` and `E` registered and worked when pressed (seen in a desktop test). `eco window` works as on Linux, knowing the daemon has read its line from the `synced` answer to `sync` (§10) | `packaging/hypr/eco.lua`, `src/cli.rs`, `src/shortcuts.rs`, `src/adapters/shortcuts_windows.rs` |
 | The hook shell | `shell()` runs each hook with `sh -c` | `shell()` runs each hook with `cmd /S /C "<command>"`, the command handed over as written, for cmd does not read its line by the quoting rules other programs use; a hook reads `%ECO_SESSION%` and `%ECO_TITLE%`. cmd is on every Windows | `src/adapters/hook_shell.rs` |
 | The omapass keyring | `api_key_omapass` reads a key through the omapass CLI | omapass does not exist: it is never installed, and a key from it fails | `src/adapters/omapass.rs` |
 | Installing a release | `pkexec pacman -U --noconfirm` on the Arch package, else `sudo pacman -U` from a terminal; Hyprland's binds are what `eco doctor` checks for shortcuts | `%LOCALAPPDATA%\Programs\eco` replaced in place, the running `eco.exe` renamed aside and deleted at the next start; the registered keys are what `eco doctor` checks | `src/ports.rs` (`Releases`, `Installer`), `src/installer.rs`, `src/adapters/releases_github.rs`, `src/adapters/installer_linux.rs`, `src/adapters/installer_windows.rs`, `src/session/update.rs`, `src/doctor.rs` (§13) |
