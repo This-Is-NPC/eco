@@ -45,7 +45,7 @@ def msi(root, eco, version, out):
     """Build the per-machine installer `out` from the staged folder `eco`."""
     subprocess.run(
         [
-            "wix", "build", "-arch", "x64",
+            "wix", "build", "-arch", "x64", "-pdbtype", "none",
             "-d", f"Version={version}",
             "-d", f"Payload={eco}",
             "-o", out,
