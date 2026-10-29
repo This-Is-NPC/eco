@@ -566,8 +566,7 @@ its window. A failure, such as running from an elevated session, shows as a
 notification. Run again, it says `Start menu entry … is up to date`;
 from an eco that has moved, `Start menu entry updated in …`. The shortcut is
 written through PowerShell; one it cannot write is a warning, and `eco setup`
-exits with status 1. A click in the Start menu has not been tried since this
-change.
+exits with status 1.
 
 **The notifications' name.** `eco setup` also registers eco's app id, the
 name and icon Windows shows on eco's notifications, in your account's
