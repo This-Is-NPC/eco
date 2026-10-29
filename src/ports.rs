@@ -325,6 +325,13 @@ pub trait Releases: Send + Sync {
 pub enum InstallStage {
     Downloading,
     Verifying,
+    #[cfg_attr(
+        all(windows, not(test)),
+        expect(
+            dead_code,
+            reason = "the Windows installer installs after eco stops, past these stages"
+        )
+    )]
     Installing,
 }
 
@@ -339,6 +346,13 @@ pub type InstallProgress = Box<dyn Fn(InstallStage) + Send + Sync>;
 #[derive(Debug)]
 pub enum Installed {
     /// Installed: eco restarts into [`Installer::program`].
+    #[cfg_attr(
+        all(windows, not(test)),
+        expect(
+            dead_code,
+            reason = "the Windows installer always leaves its package pending"
+        )
+    )]
     Done,
     /// A verified package that cannot be installed while eco runs.
     #[cfg_attr(
