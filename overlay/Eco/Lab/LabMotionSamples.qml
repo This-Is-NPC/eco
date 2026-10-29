@@ -55,28 +55,32 @@ Column {
   Rectangle {
     width: parent.width
     height: 190
-    clip: true
     color: Qt.alpha(Theme.primary, 0.025)
     border.color: Theme.line
-    LabMotionScreen {
-      anchors { fill: parent; margins: 18 }
-      shown: motion.view === "first"
-      index: "01"
-      heading: I18n.t("lab.view_first")
-      firstItem: I18n.t("lab.view_first_item_one")
-      secondItem: I18n.t("lab.view_first_item_two")
-      nextLabel: I18n.t("lab.view_second")
-      onNavigate: motion.view = "second"
-    }
-    LabMotionScreen {
-      anchors { fill: parent; margins: 18 }
-      shown: motion.view === "second"
-      index: "02"
-      heading: I18n.t("lab.view_second")
-      firstItem: I18n.t("lab.view_second_item_one")
-      secondItem: I18n.t("lab.view_second_item_two")
-      nextLabel: I18n.t("lab.view_first")
-      onNavigate: motion.view = "first"
+    Item {
+      anchors { fill: parent; margins: 1 }
+      clip: true
+
+      LabMotionScreen {
+        anchors { fill: parent; margins: 18 }
+        shown: motion.view === "first"
+        index: "01"
+        heading: I18n.t("lab.view_first")
+        firstItem: I18n.t("lab.view_first_item_one")
+        secondItem: I18n.t("lab.view_first_item_two")
+        nextLabel: I18n.t("lab.view_second")
+        onNavigate: motion.view = "second"
+      }
+      LabMotionScreen {
+        anchors { fill: parent; margins: 18 }
+        shown: motion.view === "second"
+        index: "02"
+        heading: I18n.t("lab.view_second")
+        firstItem: I18n.t("lab.view_second_item_one")
+        secondItem: I18n.t("lab.view_second_item_two")
+        nextLabel: I18n.t("lab.view_first")
+        onNavigate: motion.view = "first"
+      }
     }
   }
 }

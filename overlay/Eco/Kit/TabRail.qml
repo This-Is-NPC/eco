@@ -98,43 +98,48 @@ Item {
       }
       FocusRing {}
 
-      clip: true
       // Unfolding, each name decodes.
       Connections {
         target: rail
         function onUnfoldedChanged() { if (rail.unfolded) title.replay() }
       }
 
-      Row {
-        anchors { left: parent.left; verticalCenter: parent.verticalCenter; leftMargin: rail.unfolded ? (tab.head ? 16 : 12) : (rail.foldedWidth - digit.implicitWidth) / 2 }
-        Behavior on anchors.leftMargin { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
-        spacing: 10
-        opacity: tab.fade
-        Behavior on opacity { NumberAnimation { duration: 300 } }
-        Label {
-          id: digit
-          anchors.verticalCenter: parent.verticalCenter
-          text: String(tab.index + 1).padStart(2, "0")
-          color: tab.head ? Theme.primary : rail.unfolded ? Theme.line : tab.tone
-          font.pixelSize: tab.head && !rail.unfolded ? 13 : 10
-          font.letterSpacing: 2
-        }
-        DecodeLabel {
-          id: title
-          anchors.verticalCenter: parent.verticalCenter
-          opacity: rail.unfolded ? 1 : 0
-          Behavior on opacity { NumberAnimation { duration: 200 } }
-          value: tab.modelData.name.toUpperCase()
-          color: tab.tone
-          font.pixelSize: tab.head ? 13 : 10
-          font.letterSpacing: tab.head ? 4 : 3
-        }
-      }
+      // The names fold inside the hairline, which is never its own clip's edge.
+      Item {
+        anchors { fill: parent; margins: tab.border.width }
+        clip: true
 
-      Dot {
-        visible: !!tab.modelData.marked
-        anchors { right: parent.right; top: parent.top; margins: 6 }
-        tone: Theme.warning
+        Row {
+          anchors { left: parent.left; verticalCenter: parent.verticalCenter; leftMargin: rail.unfolded ? (tab.head ? 16 : 12) : (rail.foldedWidth - digit.implicitWidth) / 2 }
+          Behavior on anchors.leftMargin { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
+          spacing: 10
+          opacity: tab.fade
+          Behavior on opacity { NumberAnimation { duration: 300 } }
+          Label {
+            id: digit
+            anchors.verticalCenter: parent.verticalCenter
+            text: String(tab.index + 1).padStart(2, "0")
+            color: tab.head ? Theme.primary : rail.unfolded ? Theme.line : tab.tone
+            font.pixelSize: tab.head && !rail.unfolded ? 13 : 10
+            font.letterSpacing: 2
+          }
+          DecodeLabel {
+            id: title
+            anchors.verticalCenter: parent.verticalCenter
+            opacity: rail.unfolded ? 1 : 0
+            Behavior on opacity { NumberAnimation { duration: 200 } }
+            value: tab.modelData.name.toUpperCase()
+            color: tab.tone
+            font.pixelSize: tab.head ? 13 : 10
+            font.letterSpacing: tab.head ? 4 : 3
+          }
+        }
+
+        Dot {
+          visible: !!tab.modelData.marked
+          anchors { right: parent.right; top: parent.top; margins: 6 }
+          tone: Theme.warning
+        }
       }
 
       MouseArea {

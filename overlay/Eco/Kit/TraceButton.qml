@@ -36,7 +36,6 @@ Rectangle {
   implicitWidth: Math.max(dense ? 72 : 150, iconRoom + caption.implicitWidth + 2 * side)
   implicitHeight: dense ? 28 : 44
   activeFocusOnTab: true
-  clip: true
   opacity: off ? 0.35 : 1
   color: armed || filled ? tone : (primary ? Qt.alpha(tone, 0.08) : "transparent")
   border.color: primary || filled ? tone : Theme.line
