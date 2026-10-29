@@ -1,10 +1,11 @@
-"""The Windows pieces of scripts/package (the release build and the eco folder
-the zip holds, docs/design.md §13) and of scripts/install-windows and
-scripts/uninstall-windows (install.ps1, run on that zip)."""
+"""The Windows pieces of scripts/package (the release build, the eco folder
+and the MSI built from it, docs/design.md §13) and of scripts/install-windows
+and scripts/uninstall-windows (install.ps1, run on that MSI)."""
 
 import os
 import shutil
 import subprocess
+from pathlib import Path
 
 
 def build(root):
@@ -24,8 +25,34 @@ def stage(root, eco):
     shutil.copy2(root / "target/release/eco-launch.exe", eco / "lib/eco/eco-launch.exe")
     shutil.copytree(root / "overlay", eco / "share/eco/overlay")
     shutil.copy2(root / "packaging/windows/eco.ico", eco / "share/eco/eco.ico")
+    models(root, eco / "share/eco/models")
     shutil.copy2(root / "LICENSE", eco / "LICENSE")
     shutil.copy2(root / "packaging/windows/README.txt", eco / "README.txt")
+    shutil.copy2(root / "packaging/windows/MODELS-LICENSES.txt", eco / "MODELS-LICENSES.txt")
+
+
+def models(root, target):
+    """Put the models eco ships in `target`: the ones `eco setup` of the build
+    downloads into the data directory, checked against their pinned checksums."""
+    subprocess.run([root / "target/release/eco.exe", "setup"], check=True)
+    downloaded = Path(os.environ["LOCALAPPDATA"]) / "eco/models"
+    target.mkdir(parents=True)
+    for name in ("silero_vad.onnx", "wespeaker_campplus.onnx"):
+        shutil.copy2(downloaded / name, target / name)
+
+
+def msi(root, eco, version, out):
+    """Build the per-machine installer `out` from the staged folder `eco`."""
+    subprocess.run(
+        [
+            "wix", "build", "-arch", "x64",
+            "-d", f"Version={version}",
+            "-d", f"Payload={eco}",
+            "-o", out,
+            root / "packaging/windows/eco.wxs",
+        ],
+        check=True,
+    )
 
 
 def installer(root, **env):

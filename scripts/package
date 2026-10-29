@@ -6,14 +6,16 @@ On Linux: the Arch package of the committed HEAD into target/arch/pkg. Needs
 makepkg; not as root. The release's SHA256SUMS, which install.sh checks it
 against, is written by the release workflow over every package it attaches.
 
-On Windows: dist/eco-<version>-windows-x86_64.zip of the working tree, one
-folder eco/ laid out as the daemon looks for what it ships (docs/design.md
-§13), staged by scripts/lib/windows.py: bin/eco.exe, the window program and
-its Qt runtime in lib/eco (built by scripts/window-build, the icon inside it)
-beside eco-launch.exe, the Start menu entry's program,
-the overlay in share/eco/overlay, the icon eco's notifications show in
-share/eco/eco.ico, the licence and README.txt. Beside it, dist/SHA256SUMS names the zip in the release's format, so install.ps1 installs
-it from dist as it does from a release (scripts/install-windows)."""
+On Windows: dist/eco-<version>-windows-x86_64.msi of the working tree, the
+per-machine installer of one folder eco/ laid out as the daemon looks for what
+it ships (docs/design.md §13), staged by scripts/lib/windows.py: bin/eco.exe,
+the window program and its Qt runtime in lib/eco (built by
+scripts/window-build, the icon inside it), the overlay in share/eco/overlay,
+the icon eco's notifications show in share/eco/eco.ico, the models in
+share/eco/models, the licences and README.txt. `wix build` (WiX, pinned by
+mise) packs it. Beside it, dist/SHA256SUMS names the MSI in the release's
+format, so install.ps1 installs it from dist as it does from a release
+(scripts/install-windows)."""
 
 import hashlib
 import os
@@ -21,7 +23,6 @@ import shutil
 import subprocess
 import sys
 import tomllib
-import zipfile
 from pathlib import Path
 
 root = Path(os.environ.get("MISE_PROJECT_ROOT") or Path.cwd())
@@ -36,16 +37,13 @@ if sys.platform == "win32":
     staging = root / "target/windows"
     eco = staging / "eco"
     windows.stage(root, eco)
-    archive = root / "dist" / f"eco-{version}-windows-x86_64.zip"
-    archive.parent.mkdir(exist_ok=True)
-    files = sorted(path for path in eco.rglob("*") if path.is_file())
-    with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED, strict_timestamps=False) as zip:
-        for path in files:
-            zip.write(path, path.relative_to(staging).as_posix())
-    digest = hashlib.sha256(archive.read_bytes()).hexdigest()
-    (archive.parent / "SHA256SUMS").write_text(f"{digest}  {archive.name}\n", newline="\n")
-    print(f"{digest}  {archive.name}")
-    print(f"{archive}: {len(files)} files, {archive.stat().st_size} bytes")
+    installer = root / "dist" / f"eco-{version}-windows-x86_64.msi"
+    installer.parent.mkdir(exist_ok=True)
+    windows.msi(root, eco, version, installer)
+    digest = hashlib.sha256(installer.read_bytes()).hexdigest()
+    (installer.parent / "SHA256SUMS").write_text(f"{digest}  {installer.name}\n", newline="\n")
+    print(f"{digest}  {installer.name}")
+    print(f"{installer}: {installer.stat().st_size} bytes")
 else:
     out = root / "target/arch"
     shutil.rmtree(out, ignore_errors=True)

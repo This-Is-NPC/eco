@@ -1,11 +1,13 @@
-# install.ps1 - install eco on Windows from a GitHub release, for your account.
+# install.ps1 - install eco on Windows from a GitHub release.
 #
 #   irm https://raw.githubusercontent.com/This-Is-NPC/eco/master/install.ps1 | iex
 #
-# It downloads the release's Windows zip, checks it against the release's
-# SHA256SUMS, stops a running eco, puts the zip's eco folder in
-# %LOCALAPPDATA%\Programs\eco, adds its bin to your PATH and runs `eco setup`.
-# A daemon that was running is started again. Sessions, config and models stay.
+# It downloads the release's Windows installer (an MSI), checks it against the
+# release's SHA256SUMS and runs it with Windows Installer, which asks for
+# administrator rights and puts eco in C:\Program Files\eco for every user.
+# An older per-user install in %LOCALAPPDATA%\Programs\eco (eco 0.9 and
+# earlier) is removed first, with its PATH entry and Start-menu shortcut. A
+# daemon that was running is started again. Sessions, config and models stay.
 #
 # Environment:
 #   VERSION        release to install, e.g. 0.3.0 or v0.3.0 (default: the latest)
@@ -22,9 +24,10 @@ function Say([string] $message) { Write-Host "eco: $message" }
 
 $repo = if ($env:REPO) { $env:REPO } else { 'This-Is-NPC/eco' }
 $dryRun = $env:DRY_RUN -eq '1'
-$eco = Join-Path $env:LOCALAPPDATA 'Programs\eco'
-$bin = Join-Path $eco 'bin'
-$exe = Join-Path $bin 'eco.exe'
+$eco = Join-Path $env:ProgramFiles 'eco'
+# The per-user install of eco 0.9 and earlier.
+$old = Join-Path $env:LOCALAPPDATA 'Programs\eco'
+$oldBin = Join-Path $old 'bin'
 
 # The user's PATH as stored, %...% entries unexpanded, and its registry type.
 function Get-UserPath {
@@ -51,8 +54,8 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint msg, UIntPtr wP
     [void][EcoInstall.Native]::SendMessageTimeout([IntPtr]0xFFFF, 0x1A, [UIntPtr]::Zero, 'Environment', 2, 5000, [ref]$result)
 }
 
-function Test-SameDirectory([string] $entry) {
-    [Environment]::ExpandEnvironmentVariables($entry).TrimEnd('\') -eq $bin.TrimEnd('\')
+function Test-OldBin([string] $entry) {
+    [Environment]::ExpandEnvironmentVariables($entry).TrimEnd('\') -eq $oldBin.TrimEnd('\')
 }
 
 # Deletes a folder, waiting up to 5 seconds for processes that have just
@@ -65,9 +68,10 @@ function Remove-Folder([string] $path) {
     Remove-Item -LiteralPath $path -Recurse -Force
 }
 
-# Stops the installed daemon and the windows run from the install. Returns
-# $null when no daemon ran, else whether its window was open.
-function Stop-Eco {
+# Stops the daemon of the eco installed in `folder` and the windows run from
+# it. Returns $null when no daemon ran, else whether its window was open.
+function Stop-Eco([string] $folder) {
+    $exe = Join-Path $folder 'bin\eco.exe'
     $window = $null
     if (Test-Path -LiteralPath $exe) {
         & $exe status | Out-Null
@@ -81,39 +85,73 @@ function Stop-Eco {
         }
     }
     Get-Process -Name eco-window -ErrorAction SilentlyContinue |
-        Where-Object { $_.Path -like "$eco\*" } | Stop-Process -Force
+        Where-Object { $_.Path -like "$folder\*" } | Stop-Process -Force
     return $window
+}
+
+# Removes the per-user install of eco 0.9 and earlier: its folder, PATH entry,
+# Start-menu shortcut, login script and the app id key. Returns whether its
+# daemon ran, as Stop-Eco does.
+function Remove-PerUserInstall {
+    $programs = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs'
+    $files = @((Join-Path $programs 'Startup\eco.cmd'), (Join-Path $programs 'eco.lnk'))
+    $appId = 'HKCU:\Software\Classes\AppUserModelId\This-Is-NPC.eco'
+    $value, $kind = Get-UserPath
+    $entries = @($value -split ';')
+    $kept = @($entries | Where-Object { -not ($_ -and (Test-OldBin $_)) })
+    if (-not (Test-Path -LiteralPath $old)) { return $null }
+    if ($dryRun) {
+        foreach ($path in @($old) + $files + $appId) { if (Test-Path -LiteralPath $path) { Say "would remove $path" } }
+        if ($kept.Count -ne $entries.Count) { Say "would remove $oldBin from your PATH" }
+        return $null
+    }
+    $window = Stop-Eco $old
+    Remove-Folder $old
+    Say "removed $old"
+    foreach ($path in $files) {
+        if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Force; Say "removed $path" }
+    }
+    if (Test-Path -LiteralPath $appId) { Remove-Item -LiteralPath $appId -Recurse -Force }
+    if ($kept.Count -ne $entries.Count) {
+        Set-UserPath ($kept -join ';') $kind
+        Say "removed $oldBin from your PATH"
+    }
+    return $window
+}
+
+# The installed eco's registration with Windows Installer, found by its name
+# and publisher, or $null.
+function Get-Product {
+    Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*' -ErrorAction SilentlyContinue |
+        Where-Object { $_.DisplayName -eq 'eco' -and $_.Publisher -eq 'This-Is-NPC' -and $_.WindowsInstaller -eq 1 } |
+        Select-Object -First 1
+}
+
+# Runs msiexec with `arguments` and waits. Windows Installer asks for
+# administrator rights itself; 3010 asks for a restart.
+function Invoke-Msiexec([string[]] $arguments) {
+    $code = (Start-Process msiexec -ArgumentList ($arguments + '/qb', '/norestart') -Wait -PassThru).ExitCode
+    if ($code -notin 0, 3010) { throw "eco: Windows Installer exited with status $code; see the log it wrote, or run the installer again." }
+    if ($code -eq 3010) { Say 'restart Windows to finish' }
 }
 
 function Uninstall-Eco([bool] $everything) {
     $data = @((Join-Path $env:APPDATA 'eco'), (Join-Path $env:LOCALAPPDATA 'eco'))
-    $programs = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs'
-    $folders = @($eco) + $(if ($everything) { $data } else { @() })
-    $files = @((Join-Path $programs 'Startup\eco.cmd'), (Join-Path $programs 'eco.lnk'))
-    # The app id key `eco setup` writes, which names eco's notifications.
-    $appId = 'HKCU:\Software\Classes\AppUserModelId\This-Is-NPC.eco'
-    $value, $kind = Get-UserPath
-    $entries = @($value -split ';')
-    $kept = @($entries | Where-Object { -not ($_ -and (Test-SameDirectory $_)) })
+    $product = Get-Product
+    [void](Remove-PerUserInstall)
     if ($dryRun) {
-        foreach ($path in $folders + $files + $appId) { if (Test-Path -LiteralPath $path) { Say "would remove $path" } }
-        if ($kept.Count -ne $entries.Count) { Say "would remove $bin from your PATH" }
+        if ($product) { Say "would remove $eco with Windows Installer" }
+        if ($everything) { foreach ($path in $data) { if (Test-Path -LiteralPath $path) { Say "would remove $path" } } }
         return
     }
-    [void](Stop-Eco)
-    foreach ($path in $folders) {
-        if (Test-Path -LiteralPath $path) { Remove-Folder $path; Say "removed $path" }
+    if ($product) {
+        [void](Stop-Eco $eco)
+        Invoke-Msiexec @('/x', $product.PSChildName)
+        Say "removed $eco"
     }
-    foreach ($path in $files) {
-        if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Force; Say "removed $path" }
-    }
-    if (Test-Path -LiteralPath $appId) { Remove-Item -LiteralPath $appId -Recurse -Force; Say "removed $appId" }
-    if ($kept.Count -ne $entries.Count) {
-        Set-UserPath ($kept -join ';') $kind
-        Say "removed $bin from your PATH"
-    }
-    if (-not $everything) {
-        foreach ($path in $data) { if (Test-Path -LiteralPath $path) { Say "kept $path" } }
+    foreach ($path in $data) {
+        if (-not (Test-Path -LiteralPath $path)) { continue }
+        if ($everything) { Remove-Folder $path; Say "removed $path" } else { Say "kept $path" }
     }
 }
 
@@ -142,50 +180,38 @@ function Install-Eco {
         $sums = Join-Path $tmp 'SHA256SUMS'
         try { $web.DownloadFile("$base/SHA256SUMS", $sums) } catch { throw "eco: could not download $base/SHA256SUMS." }
         $line = Get-Content -LiteralPath $sums |
-            Where-Object { $_ -match '^([0-9a-fA-F]{64}) +\*?(eco-[0-9][^ ]*-windows-x86_64\.zip)$' } |
+            Where-Object { $_ -match '^([0-9a-fA-F]{64}) +\*?(eco-[0-9][^ ]*-windows-x86_64\.msi)$' } |
             Select-Object -First 1
-        if (-not $line) { throw "eco: the release's SHA256SUMS names no Windows zip." }
+        if (-not $line) { throw "eco: the release's SHA256SUMS names no Windows installer." }
         [void]($line -match '^([0-9a-fA-F]{64}) +\*?(.+)$')
         $expected, $name = $Matches[1], $Matches[2]
-        $zip = Join-Path $tmp $name
+        $msi = Join-Path $tmp $name
 
         Say "downloading $name"
-        try { $web.DownloadFile("$base/$name", $zip) } catch { throw "eco: could not download $base/$name." }
-        if ((Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash -ne $expected) {
+        try { $web.DownloadFile("$base/$name", $msi) } catch { throw "eco: could not download $base/$name." }
+        if ((Get-FileHash -LiteralPath $msi -Algorithm SHA256).Hash -ne $expected) {
             throw "eco: $name does not match the release's SHA256SUMS; nothing was installed."
         }
         if ($dryRun) {
-            Say "$name matches SHA256SUMS; would install it in $eco, add $bin to your PATH and run eco setup"
+            Say "$name matches SHA256SUMS; would install it in $eco"
+            [void](Remove-PerUserInstall)
             return
         }
 
-        $window = Stop-Eco
-        Remove-Folder $eco
-        Add-Type -AssemblyName System.IO.Compression.FileSystem
-        [IO.Compression.ZipFile]::ExtractToDirectory($zip, (Split-Path $eco))
+        $window = Remove-PerUserInstall
+        if ($null -eq $window) { $window = Stop-Eco $eco }
+        Invoke-Msiexec @('/i', "`"$msi`"")
         Say "installed eco in $eco"
     } finally {
         Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
     }
 
-    $value, $kind = Get-UserPath
-    if (@($value -split ';' | Where-Object { $_ -and (Test-SameDirectory $_) }).Count -gt 0) {
-        Say "$bin is on your PATH already"
-    } else {
-        Set-UserPath $(if ($value.Trim(';')) { $value.TrimEnd(';') + ";$bin" } else { $bin }) $kind
-        Say "added $bin to your PATH; a new terminal finds eco"
-    }
-    if (-not (@($env:Path -split ';') | Where-Object { $_ -and (Test-SameDirectory $_) })) {
-        $env:Path = $env:Path.TrimEnd(';') + ";$bin"
-    }
-
-    & $exe setup | Out-Host
-    if ($LASTEXITCODE -ne 0) { throw 'eco: eco setup failed; run it again to see why.' }
+    $exe = Join-Path $eco 'bin\eco.exe'
     if ($null -ne $window) {
         & $exe start --headless | Out-Host
         if ($window) { & $exe start | Out-Host }
     }
-    Say 'installed. Next: open eco from the Start menu, or run eco start'
+    Say 'installed. Next: open eco from the Start menu, or run eco start in a new terminal'
     Say 'take it off again with: $env:ECO_UNINSTALL = "keep"; irm https://raw.githubusercontent.com/This-Is-NPC/eco/master/install.ps1 | iex'
 }
 

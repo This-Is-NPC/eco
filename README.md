@@ -44,10 +44,13 @@ On Windows, in PowerShell:
 irm https://raw.githubusercontent.com/This-Is-NPC/eco/master/install.ps1 | iex
 ```
 
-It downloads the release's Windows zip, checks it against the same
-`SHA256SUMS`, puts eco in `%LOCALAPPDATA%\Programs\eco` with its `bin` on
-your `PATH`, and runs `eco setup`. `$env:ECO_UNINSTALL = "keep"` before the
-same line takes it off again, keeping your data
+It downloads the release's Windows installer (an MSI), checks it against the
+same `SHA256SUMS` and runs it: eco goes in `C:\Program Files\eco` for every
+user, with its `bin` on the `PATH`, the models and a Start menu entry, and
+Windows asks for administrator rights. An install of eco 0.9 or earlier
+(a zip in `%LOCALAPPDATA%\Programs\eco`) does not update itself to the MSI:
+this line, run once, removes it first and keeps your data.
+`$env:ECO_UNINSTALL = "keep"` before the same line takes eco off again
 ([on Windows](docs/how-to-install-and-remove.md#on-windows)).
 
 **Updating.** When a newer release is out, the window says so. **Settings ›
@@ -201,7 +204,7 @@ the same keys and reads the same lines. None of them starts a second daemon. Eve
 
 **It is not a bot that joins the meeting.** It hears what the laptop plays and
 what its microphone hears, and nothing else. It is released for Linux —
-Omarchy, Hyprland, PipeWire — and as a zip for Windows; not for macOS.
+Omarchy, Hyprland, PipeWire — and as an MSI for Windows; not for macOS.
 
 **It does not answer on its own.** Every answer is asked for: a question, a
 skill, a key. An automatic trigger on a question heard is an open question in
@@ -267,4 +270,4 @@ has the commands.
 - `ffmpeg` and `ffprobe`, only to import audio or video
 - a key for each paid provider you use, or a model server of your own
 - on Windows instead: 64-bit Windows (tested on Windows 11) and the
-  Microsoft Visual C++ Redistributable (x64); the zip carries its own Qt
+  Microsoft Visual C++ Redistributable (x64); the MSI carries its own Qt
