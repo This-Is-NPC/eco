@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.10.1](https://github.com/This-Is-NPC/eco/compare/v0.10.0...v0.10.1) (2026-10-29)
+
+
+### Bug Fixes
+
+* **install:** draw the download's progress on one line ([106cd6c](https://github.com/This-Is-NPC/eco/commit/106cd6c25f08ebf05b29c67defd2eb6fdb6711ab))
+* **install:** end the progress line only when one is drawn ([0c740c6](https://github.com/This-Is-NPC/eco/commit/0c740c6dff39a234f2eac0fdb04ed894d357e408))
+* **install:** end with a clear summary and say what failed ([3ec1dd7](https://github.com/This-Is-NPC/eco/commit/3ec1dd741e818748ac813408ba52b70974f1730d))
+* **install:** judge a download by curl's status, not its stderr ([d16e698](https://github.com/This-Is-NPC/eco/commit/d16e698c7f25eaa8f4850350df2d85e0a50668b7))
+* **install:** pass curl its progress option as one argument ([5eed116](https://github.com/This-Is-NPC/eco/commit/5eed116acd5c5467d3d0773f8106321245c9619e))
+* **install:** show the download's progress and remove every eco ([a68b152](https://github.com/This-Is-NPC/eco/commit/a68b1520de1635feb252977ea9b7784d75ac001d))
+* **install:** show the download's progress and say how it ended ([f4ce52d](https://github.com/This-Is-NPC/eco/commit/f4ce52d77bf116fe29c4fa3e05dedc99625d9a49))
+
 ## [0.10.0](https://github.com/This-Is-NPC/eco/compare/v0.9.1...v0.10.0) (2026-10-29)
 
 
