@@ -197,7 +197,9 @@ where they work:
 
 The Hyprland keys run `eco window …` (listed in [the commands](docs/cli.md)),
 which hands one line to the running daemon; on Windows the daemon registers
-the same keys and reads the same lines. None of them starts a second daemon. Every screen the window draws is in
+the same keys and reads the same lines; on macOS no key is global, and the
+Shortcuts app can bind one to an `eco window` command. None of them starts a
+second daemon. Every screen the window draws is in
 [the walk through it](docs/screens.md), in the order somebody meets them.
 
 ## What it does not do
@@ -257,7 +259,10 @@ again on the page where you meet it.
 - **No release for macOS yet.** A checkout builds on a Mac with Apple
   Silicon, but several platform seams have no macOS adapter
   ([platform seams](docs/design.md#15-platform-seams)), so eco is not
-  supported there yet. A microphone macOS denies eco records silence, with no
+  supported there yet. It registers no global shortcut: bind a key to an
+  `eco window` command in the Shortcuts app
+  ([on macOS](docs/how-to-install-and-remove.md#on-macos)). A microphone macOS
+  denies eco records silence, with no
   error: allow it in **System Settings › Privacy & Security › Microphone**
   ([how to set up audio sources](docs/how-to-set-up-audio-sources.md)).
 - **Sessions recorded before eco kept costs stay unknown.** Their logs hold no

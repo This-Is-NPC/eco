@@ -289,13 +289,14 @@ fn shortcuts(_: &Result<Option<Vec<Value>>, Failure>, places: &Places) -> Check 
     hyprland(&places.bindings)
 }
 
-/// The global shortcuts: none yet on macOS.
+/// The global shortcuts: none on macOS, where the Shortcuts app can bind a key
+/// to an `eco window` command.
 #[cfg(target_os = "macos")]
 fn shortcuts(_: &Result<Option<Vec<Value>>, Failure>, _: &Places) -> Check {
     fail(
         "shortcuts",
         "global shortcuts are not available on this system yet",
-        "run eco window commands from a terminal",
+        "bind a key to an eco window command in the Shortcuts app",
     )
 }
 
@@ -592,7 +593,10 @@ api_key_env = "ECO_DOCTOR_NEVER_SET"
         let directory = tempfile::tempdir().unwrap();
         let check = shortcuts(&Ok(None), &places(directory.path()));
         assert!(!check.ok);
-        assert_eq!(check.fix, "run eco window commands from a terminal");
+        assert_eq!(
+            check.fix,
+            "bind a key to an eco window command in the Shortcuts app"
+        );
     }
 
     #[cfg(target_os = "linux")]

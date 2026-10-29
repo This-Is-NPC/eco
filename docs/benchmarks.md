@@ -613,3 +613,14 @@ service: the daemon's unit tests, 779 passed, 1 ignored.
 | `src/adapters/daemon_log.rs` | 97.22% (1 of 36) | a log directory that cannot be made (15). |
 | `src/adapters/unsupported.rs` | 93.10% (4 of 58) | `Notifier::notify` (59–61), which only writes a line to the daemon's stderr; the service it no longer serves left with its test. |
 
+## macOS notifications coverage (2026-10-29)
+
+Measured as above after the `osascript` notifier replaced `Unsupported` as the
+macOS notifier: the daemon's unit tests, 782 passed, 1 ignored.
+
+| File | Lines | Left without a test, and why |
+|---|---|---|
+| `src/adapters/notify_macos.rs` | 90.32% (3 of 31) | `Notifier::notify` (34–36), which runs the real `osascript` and shows a notification on the user's screen; the command it builds is tested. |
+| `src/adapters/notify_program.rs` | 75.00% (8 of 32) | `show` (9–15), the thread that runs the program and writes why it failed to the daemon's stderr, where a test cannot read; `run`, which decides what is written, is tested. Shared with Linux, where it replaces the same lines of `notify_linux.rs`. |
+| `src/adapters/unsupported.rs` | 98.18% (1 of 55) | the empty path `Installer::program` falls back to when the running executable cannot be found. |
+

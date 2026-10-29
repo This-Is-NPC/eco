@@ -584,6 +584,16 @@ launchctl setenv OPENROUTER_API_KEY "…"
 eco restart
 ```
 
+**Notifications** come from `osascript`, the system's AppleScript runner; if
+none shows, allow them in **System Settings › Notifications**. macOS has no
+urgent notification; an urgent one plays the alert sound.
+
+**Global shortcuts.** eco registers none on macOS, and `eco doctor` says so.
+To have one, make a shortcut in the Shortcuts app with the action **Run Shell
+Script** running, say, `eco window new` (by its full path, as `which eco`
+prints it), and give it a key under **Shortcut Details › Add Keyboard
+Shortcut**. It reaches the running daemon as the Hyprland keys do.
+
 To take the agent off:
 
 ```bash

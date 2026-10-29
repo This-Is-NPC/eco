@@ -1,7 +1,7 @@
 //! The Windows Credential Manager: a provider's key kept as the generic
 //! credential `eco:<name>`, read when the provider is built, stored and removed
-//! by `eco key`, and listed by name for the model form. Other systems have
-//! none; there keys come from omapass or the environment.
+//! by `eco key`, and listed by name for the model form. Linux and macOS have
+//! none; there keys come from the environment, or omapass on Omarchy.
 
 /// Whether this system has the Credential Manager, so the window offers it.
 pub const AVAILABLE: bool = cfg!(windows);
@@ -43,7 +43,7 @@ pub enum CredentialError {
         expect(dead_code, reason = "Windows has the Credential Manager")
     )]
     #[error(
-        "the Windows Credential Manager is only on Windows; on Linux keep the key in omapass (api_key_omapass) or an environment variable (api_key_env)"
+        "the Windows Credential Manager is only on Windows; keep the key in an environment variable (api_key_env), or on Omarchy in omapass (api_key_omapass)"
     )]
     Unavailable,
     #[cfg_attr(unix, expect(dead_code, reason = "only the Windows store names one"))]
@@ -399,12 +399,13 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn on_linux_there_is_no_credential_manager() {
+    fn on_linux_and_macos_there_is_no_credential_manager() {
         assert_eq!(names(), None);
         assert_eq!(read("deepgram"), Err(CredentialError::Unavailable));
         assert_eq!(set("deepgram"), Err(CredentialError::Unavailable));
         assert_eq!(remove("deepgram"), Err(CredentialError::Unavailable));
         let said = CredentialError::Unavailable.to_string();
+        assert!(said.contains("api_key_env"), "{said}");
         assert!(said.contains("omapass"), "{said}");
     }
 }

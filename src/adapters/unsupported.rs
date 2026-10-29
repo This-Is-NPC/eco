@@ -6,8 +6,7 @@ use std::path::PathBuf;
 use futures::future::BoxFuture;
 
 use crate::ports::{
-    DesktopIntegration, InstallError, InstallProgress, Installer, Notifier, Urgency, WindowControl,
-    WindowError,
+    DesktopIntegration, InstallError, InstallProgress, Installer, WindowControl, WindowError,
 };
 
 /// Why every use of this adapter fails: the platform has no adapter for the seam yet.
@@ -52,12 +51,6 @@ impl Installer for Unsupported {
 
     fn program(&self) -> PathBuf {
         std::env::current_exe().unwrap_or_default()
-    }
-}
-
-impl Notifier for Unsupported {
-    fn notify(&self, _title: &str, _body: &str, _urgency: Urgency) {
-        eprintln!("eco: {}", unsupported("a system notification"));
     }
 }
 

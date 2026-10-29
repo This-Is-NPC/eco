@@ -34,6 +34,10 @@ pub mod llm_openai;
 pub mod local_socket;
 #[cfg(target_os = "linux")]
 pub mod notify_linux;
+#[cfg(target_os = "macos")]
+pub mod notify_macos;
+#[cfg(unix)]
+pub mod notify_program;
 #[cfg(windows)]
 pub mod notify_windows;
 pub mod omapass;

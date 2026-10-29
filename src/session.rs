@@ -91,10 +91,10 @@ pub fn notifier() -> Arc<dyn Notifier> {
     Arc::new(crate::adapters::notify_linux::NotifySend)
 }
 
-/// The desktop's notifications (docs/design.md §15): none yet on macOS.
+/// The desktop's notifications (docs/design.md §15): osascript on macOS.
 #[cfg(target_os = "macos")]
 pub fn notifier() -> Arc<dyn Notifier> {
-    Arc::new(crate::adapters::unsupported::Unsupported)
+    Arc::new(crate::adapters::notify_macos::Osascript)
 }
 
 /// The desktop's notifications (docs/design.md §15): toasts on Windows.
