@@ -5,7 +5,7 @@
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <Package Name="eco" Manufacturer="This-Is-NPC" Version="$(Version)"
            UpgradeCode="EC6067BB-4AE9-4825-BC57-54E27873C957" Scope="perMachine">
-    <MajorUpgrade DowngradeErrorMessage="A newer eco is already installed." />
+    <MajorUpgrade AllowSameVersionUpgrades="yes" DowngradeErrorMessage="A newer eco is already installed." />
     <MediaTemplate EmbedCab="yes" />
 
     <Icon Id="EcoIcon.exe" SourceFile="$(Payload)\lib\eco\eco-window.exe" />

@@ -24,6 +24,10 @@ function Say([string] $message) { Write-Host "eco: $message" }
 
 $repo = if ($env:REPO) { $env:REPO } else { 'This-Is-NPC/eco' }
 $dryRun = $env:DRY_RUN -eq '1'
+# The line that runs this script again, said after a failure.
+$again = "irm https://raw.githubusercontent.com/$repo/master/install.ps1 | iex"
+# Where Windows Installer writes what it did, kept when it fails.
+$msiLog = Join-Path ([IO.Path]::GetTempPath()) 'eco-msiexec.log'
 $eco = Join-Path $env:ProgramFiles 'eco'
 # The per-user install of eco 0.9 and earlier.
 $old = Join-Path $env:LOCALAPPDATA 'Programs\eco'
@@ -119,40 +123,131 @@ function Remove-PerUserInstall {
     return $window
 }
 
-# The installed eco's registration with Windows Installer, found by its name
-# and publisher, or $null.
+# Every registration of eco with Windows Installer, found by its name and
+# publisher: more than one when an eco installed twice at the same version
+# by an older package left both.
 function Get-Product {
-    Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*' -ErrorAction SilentlyContinue |
-        Where-Object { $_.DisplayName -eq 'eco' -and $_.Publisher -eq 'This-Is-NPC' -and $_.WindowsInstaller -eq 1 } |
-        Select-Object -First 1
+    @(Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*' -ErrorAction SilentlyContinue |
+        Where-Object { $_.DisplayName -eq 'eco' -and $_.Publisher -eq 'This-Is-NPC' -and $_.WindowsInstaller -eq 1 })
 }
 
-# Runs msiexec with `arguments` and waits. Windows Installer asks for
-# administrator rights itself; 3010 asks for a restart.
-function Invoke-Msiexec([string[]] $arguments) {
-    $code = (Start-Process msiexec -ArgumentList ($arguments + '/qb', '/norestart') -Wait -PassThru).ExitCode
-    if ($code -notin 0, 3010) { throw "eco: Windows Installer exited with status $code; see the log it wrote, or run the installer again." }
-    if ($code -eq 3010) { Say 'restart Windows to finish' }
+# Draws, in place on one line, how much of `total` bytes (0 when the server
+# did not say) has come in `seconds`.
+function Show-Progress([long] $done, [long] $total, [double] $seconds) {
+    $rate = if ($seconds -gt 0) { $done / $seconds } else { 0 }
+    $size = { param($bytes) '{0:N1} MB' -f ($bytes / 1MB) }
+    if ($total -gt 0) {
+        $width = 30
+        $full = [int][Math]::Floor($width * $done / $total)
+        $bar = ([string][char]0x2588 * $full) + ([string][char]0x2591 * ($width - $full))
+        $line = 'eco: {0} {1,3:N0}%  {2} of {3}  {4}/s' -f $bar, (100 * $done / $total), (& $size $done), (& $size $total), (& $size $rate)
+    } else {
+        $line = 'eco: {0}  {1}/s' -f (& $size $done), (& $size $rate)
+    }
+    Write-Host -NoNewline ("`r" + $line.PadRight(72))
+}
+
+# Writes `uri` to `path` as it comes in, drawing the progress unless `quiet`.
+# A server's refusal is final (`InvalidOperationException`); a connection that
+# drops, or sends nothing for a minute, is an error worth another try.
+function Receive-File([Net.Http.HttpClient] $client, [Uri] $uri, [string] $path, [bool] $quiet) {
+    $reply = $client.GetAsync($uri, [Net.Http.HttpCompletionOption]::ResponseHeadersRead).GetAwaiter().GetResult()
+    try {
+        if (-not $reply.IsSuccessStatusCode) {
+            throw (New-Object InvalidOperationException "the server answered $([int] $reply.StatusCode)")
+        }
+        $total = [long] $reply.Content.Headers.ContentLength
+        $in = $reply.Content.ReadAsStreamAsync().GetAwaiter().GetResult()
+        $out = [IO.File]::Create($path)
+        try {
+            $buffer = New-Object byte[] 262144
+            $done = 0L
+            $clock = [Diagnostics.Stopwatch]::StartNew()
+            $drawn = -1000
+            # Whether a line of progress is on screen without its newline.
+            $open = $false
+            while ($true) {
+                $read = $in.ReadAsync($buffer, 0, $buffer.Length)
+                if (-not $read.Wait(60000)) { throw 'nothing came for a minute' }
+                if ($read.Result -eq 0) { break }
+                $out.Write($buffer, 0, $read.Result)
+                $done += $read.Result
+                if (-not $quiet -and $clock.ElapsedMilliseconds - $drawn -ge 200) {
+                    Show-Progress $done $total $clock.Elapsed.TotalSeconds
+                    $drawn = $clock.ElapsedMilliseconds
+                    $open = $true
+                }
+            }
+            if (-not $quiet) { Show-Progress $done $total $clock.Elapsed.TotalSeconds; $open = $true }
+        } finally {
+            if ($open) { Write-Host '' }
+            $out.Dispose(); $in.Dispose()
+        }
+    } finally { $reply.Dispose() }
+}
+
+# Downloads `url` to `path`, one line of progress filling as it comes in, so
+# a slow download shows it moves; a dropped or silent connection is tried
+# again, three times in all. A file:// URL, a local build's, is copied.
+function Get-Download([string] $url, [string] $path, [switch] $quiet) {
+    $uri = [Uri] $url
+    if ($uri.IsFile) { Copy-Item -LiteralPath $uri.LocalPath -Destination $path; return }
+    [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+    Add-Type -AssemblyName System.Net.Http
+    $client = New-Object Net.Http.HttpClient
+    $client.Timeout = [Threading.Timeout]::InfiniteTimeSpan
+    try {
+        for ($try = 1; ; $try++) {
+            try { Receive-File $client $uri $path $quiet; return }
+            catch {
+                $why = $_.Exception.GetBaseException().Message
+                if ($_.Exception.GetBaseException() -is [InvalidOperationException] -or $try -ge 3) {
+                    throw "eco: could not download ${url}: $why"
+                }
+                Say "the download stopped ($why); trying again"
+            }
+        }
+    } finally { $client.Dispose() }
+}
+
+# Runs msiexec with `arguments` for `doing` ("the install", "the removal") and
+# waits. Windows Installer asks for administrator rights itself and writes its
+# log to `$msiLog`, kept when it fails; each way it can end is said plainly.
+function Invoke-Msiexec([string[]] $arguments, [string] $doing) {
+    Say "$doing needs administrator rights: answer Windows' prompt, which may wait behind this window as a flashing shield in the taskbar"
+    $code = (Start-Process msiexec -ArgumentList ($arguments + '/qb', '/norestart', '/l*v', "`"$msiLog`"") -Wait -PassThru).ExitCode
+    if ($code -in 0, 3010) {
+        Remove-Item -LiteralPath $msiLog -Force -ErrorAction SilentlyContinue
+        if ($code -eq 3010) { Say 'Windows asks for a restart to finish; eco works before it' }
+        return
+    }
+    $why = switch ($code) {
+        { $_ -in 1602, 1223 } { "$doing was cancelled: the administrator prompt was declined or the installer window was closed. Nothing changed." }
+        1618 { "another installation is running in Windows Installer; let it finish. Nothing changed." }
+        default { "$doing failed: Windows Installer ended with status $code. What it did is in its log, $msiLog." }
+    }
+    throw "eco: $why"
 }
 
 function Uninstall-Eco([bool] $everything) {
     $data = @((Join-Path $env:APPDATA 'eco'), (Join-Path $env:LOCALAPPDATA 'eco'))
-    $product = Get-Product
+    $products = Get-Product
     [void](Remove-PerUserInstall)
     if ($dryRun) {
-        if ($product) { Say "would remove $eco with Windows Installer" }
+        if ($products) { Say "would remove $eco with Windows Installer" }
         if ($everything) { foreach ($path in $data) { if (Test-Path -LiteralPath $path) { Say "would remove $path" } } }
         return
     }
-    if ($product) {
+    if ($products) {
         [void](Stop-Eco $eco)
-        Invoke-Msiexec @('/x', $product.PSChildName)
+        foreach ($product in $products) { Invoke-Msiexec @('/x', $product.PSChildName) 'the removal' }
         Say "removed $eco"
     }
     foreach ($path in $data) {
         if (-not (Test-Path -LiteralPath $path)) { continue }
         if ($everything) { Remove-Folder $path; Say "removed $path" } else { Say "kept $path" }
     }
+    if ($products) { Say 'eco is no longer installed' } else { Say "eco is not installed in $eco; nothing to remove there" }
 }
 
 function Install-Eco {
@@ -175,10 +270,8 @@ function Install-Eco {
     $tmp = Join-Path ([IO.Path]::GetTempPath()) ('eco-' + [Guid]::NewGuid())
     [void](New-Item -ItemType Directory -Path $tmp)
     try {
-        [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
-        $web = New-Object Net.WebClient
         $sums = Join-Path $tmp 'SHA256SUMS'
-        try { $web.DownloadFile("$base/SHA256SUMS", $sums) } catch { throw "eco: could not download $base/SHA256SUMS." }
+        Get-Download "$base/SHA256SUMS" $sums -quiet
         $line = Get-Content -LiteralPath $sums |
             Where-Object { $_ -match '^([0-9a-fA-F]{64}) +\*?(eco-[0-9][^ ]*-windows-x86_64\.msi)$' } |
             Select-Object -First 1
@@ -188,7 +281,7 @@ function Install-Eco {
         $msi = Join-Path $tmp $name
 
         Say "downloading $name"
-        try { $web.DownloadFile("$base/$name", $msi) } catch { throw "eco: could not download $base/$name." }
+        Get-Download "$base/$name" $msi
         if ((Get-FileHash -LiteralPath $msi -Algorithm SHA256).Hash -ne $expected) {
             throw "eco: $name does not match the release's SHA256SUMS; nothing was installed."
         }
@@ -200,19 +293,28 @@ function Install-Eco {
 
         $window = Remove-PerUserInstall
         if ($null -eq $window) { $window = Stop-Eco $eco }
-        Invoke-Msiexec @('/i', "`"$msi`"")
-        Say "installed eco in $eco"
+        Invoke-Msiexec @('/i', "`"$msi`"") 'the install'
     } finally {
         Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
     }
 
     $exe = Join-Path $eco 'bin\eco.exe'
+    if (-not (Test-Path -LiteralPath $exe)) {
+        throw "eco: Windows Installer ended without error, but $exe is not there. Its log is $msiLog."
+    }
     if ($null -ne $window) {
         & $exe start --headless | Out-Host
         if ($window) { & $exe start | Out-Host }
     }
-    Say 'installed. Next: open eco from the Start menu, or run eco start in a new terminal'
-    Say 'take it off again with: $env:ECO_UNINSTALL = "keep"; irm https://raw.githubusercontent.com/This-Is-NPC/eco/master/install.ps1 | iex'
+    $version = (& $exe --version) -replace '^eco ', ''
+    Write-Host ''
+    Write-Host "eco $version is installed." -ForegroundColor Green
+    Say "program   $eco"
+    Say "command   eco, in a new terminal ($(Join-Path $eco 'bin') is on the system PATH)"
+    Say "settings  $(Join-Path $env:APPDATA 'eco')"
+    Say "sessions  $(Join-Path $env:LOCALAPPDATA 'eco')"
+    Say 'open it   Start menu > eco, or eco start'
+    Say "remove it `$env:ECO_UNINSTALL = `"keep`"; $again"
 }
 
 try {
@@ -221,7 +323,11 @@ try {
     elseif ($env:ECO_UNINSTALL -eq 'everything') { Uninstall-Eco $true }
     else { throw "eco: ECO_UNINSTALL is keep or everything, not $($env:ECO_UNINSTALL)." }
 } catch {
-    Write-Host $_.Exception.Message -ForegroundColor Red
+    $why = $_.Exception.Message
+    if ($why -notlike 'eco: *') { $why = "eco: $why" }
+    Write-Host $why -ForegroundColor Red
+    $mode = if ($env:ECO_UNINSTALL) { "`$env:ECO_UNINSTALL = `"$($env:ECO_UNINSTALL)`"; " } else { '' }
+    Write-Host "eco: to try again, run: $mode$again" -ForegroundColor Yellow
     # Run as a file, fail with status 1; through iex, leave the session open.
     if ($PSCommandPath) { exit 1 }
 }
