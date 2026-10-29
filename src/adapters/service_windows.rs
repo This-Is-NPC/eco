@@ -14,7 +14,7 @@
 
 use std::fs::File;
 use std::os::windows::process::CommandExt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::SystemTime;
 
@@ -39,8 +39,8 @@ pub struct BackgroundProcess;
 impl ServiceManager for BackgroundProcess {
     fn start(&self) -> BoxFuture<'_, Result<()>> {
         Box::pin(async {
-            let exe = std::env::current_exe()?;
-            tokio::task::spawn_blocking(move || hidden(&exe, "detach")).await?
+            let eco = eco_program(&std::env::current_exe()?)?;
+            tokio::task::spawn_blocking(move || hidden(&eco, "detach")).await?
         })
     }
 
@@ -55,6 +55,32 @@ impl ServiceManager for BackgroundProcess {
     fn output(&self, _: SystemTime) -> BoxFuture<'_, Option<String>> {
         Box::pin(async { read_log(&paths::daemon_log()) })
     }
+}
+
+/// The `eco` program, run as `eco detach`, for the eco program `exe`: `exe`
+/// itself, or, for `eco-launch`, the `eco` of its install
+/// (`<prefix>\bin\eco.exe` for `<prefix>\lib\eco\eco-launch.exe`) or of its
+/// build, beside it. Never another program, which would not know `detach`.
+fn eco_program(exe: &Path) -> Result<PathBuf> {
+    let name = format!("eco{}", std::env::consts::EXE_SUFFIX);
+    if exe.file_name().is_some_and(|file| file == name.as_str()) {
+        return Ok(exe.to_path_buf());
+    }
+    let installed = exe
+        .parent()
+        .and_then(Path::parent)
+        .and_then(Path::parent)
+        .map(|prefix| prefix.join("bin").join(&name));
+    installed
+        .into_iter()
+        .chain([exe.with_file_name(&name)])
+        .find(|candidate| candidate.is_file())
+        .ok_or_else(|| {
+            anyhow!(
+                "cannot start the daemon: no {name} beside {}",
+                exe.display()
+            )
+        })
 }
 
 /// `whoami` listing the groups of this process's token.
@@ -130,6 +156,38 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use super::*;
+
+    #[test]
+    fn the_daemon_is_started_by_eco_itself_or_the_eco_of_the_launcher() {
+        let directory = tempfile::tempdir().unwrap();
+        let file = |path: &Path| {
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, "").unwrap();
+            path.to_path_buf()
+        };
+        let eco = file(&directory.path().join(r"bin\eco.exe"));
+        let launcher = file(&directory.path().join(r"lib\eco\eco-launch.exe"));
+        assert_eq!(eco_program(&eco).unwrap(), eco);
+        assert_eq!(eco_program(&launcher).unwrap(), eco);
+        let build = directory.path().join("release");
+        let built = file(&build.join("eco.exe"));
+        assert_eq!(
+            eco_program(&file(&build.join("eco-launch.exe"))).unwrap(),
+            built
+        );
+    }
+
+    #[test]
+    fn a_launcher_with_no_eco_beside_it_starts_nothing() {
+        let directory = tempfile::tempdir().unwrap();
+        let launcher = directory.path().join("eco-launch.exe");
+        std::fs::write(&launcher, "").unwrap();
+        let error = eco_program(&launcher).unwrap_err().to_string();
+        assert!(
+            error.starts_with("cannot start the daemon: no eco.exe beside"),
+            "{error}"
+        );
+    }
 
     #[test]
     fn whoami_lists_the_groups() {
