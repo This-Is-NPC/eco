@@ -195,6 +195,48 @@ async fn the_overlay_views_pass_their_checks() {
     );
 }
 
+/// Opening General refreshes a stale update but leaves a fresh one alone, and
+/// its version row gives the result's age.
+#[tokio::test]
+async fn general_refreshes_stale_updates_and_shows_their_age() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut listener = Listener::bind(dir.path());
+    let mut window = offscreen("updates", dir.path())
+        .env("ECO_SOCKET", listener.name())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .unwrap();
+    let mut daemon = accept(&mut listener, &mut window).await;
+    let mut stderr = window.stderr.take().unwrap();
+    let mut said = String::new();
+    let mut sent = Vec::new();
+    let status = tokio::time::timeout(Duration::from_secs(30), async {
+        let lines = async {
+            let mut line = String::new();
+            while daemon.read_line(&mut line).await.unwrap_or(0) > 0 {
+                sent.push(line.trim_end().to_string());
+                line.clear();
+            }
+        };
+        let errors = tokio::io::AsyncReadExt::read_to_string(&mut stderr, &mut said);
+        let (_, read) = tokio::join!(lines, errors);
+        read.unwrap();
+        window.wait().await.unwrap()
+    })
+    .await
+    .expect("the update checks did not finish");
+    assert!(status.success(), "{said}");
+    assert_eq!(
+        sent.iter()
+            .filter(|line| line.as_str() == "update.check")
+            .count(),
+        1,
+        "{sent:?}"
+    );
+}
+
 /// A 6000-line session read back loads and takes its translations within a
 /// time limit, and its counts are the daemon's after a line is added, edited or
 /// removed and after another session is shown.

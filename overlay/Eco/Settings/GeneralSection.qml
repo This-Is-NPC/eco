@@ -72,7 +72,14 @@ SettingsSection {
       return I18n.t("update.unknown")
     const key = Eco.updateChecking ? "update.checking" : state.error ? "update.check_failed"
       : state.newer ? "update.newer" : state.latest ? "update.up_to_date" : "update.unchecked"
-    return I18n.t(key, { current: state.current, latest: state.latest || "" })
+    const text = I18n.t(key, { current: state.current, latest: state.latest || "" })
+    if (state.error || !state.checked_at)
+      return text
+    const seconds = Math.max(0, Date.now() / 1000 - state.checked_at)
+    const checked = seconds < 60 ? I18n.t("update.checked_now")
+      : seconds < 3600 ? I18n.t("update.checked_minutes", { minutes: Math.floor(seconds / 60) })
+      : I18n.t("update.checked_hours", { hours: Math.floor(seconds / 3600) })
+    return text + " · " + checked
   }
 
   name: I18n.t("settings.general")

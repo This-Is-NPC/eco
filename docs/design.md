@@ -2310,9 +2310,11 @@ and the installer, one adapter per platform.
   `https://api.github.com/repos/This-Is-NPC/eco/releases/latest` for the tag
   and the release page only: one GET with `User-Agent: eco/<version>`, nothing
   of the user in it, and no telemetry. It asks when it starts if the last
-  check is older than 24 hours, then every 24 hours while it runs, and on
-  `update.check` (§10.2) or `eco update --check`. `[update] check = false`
-  (§9) stops the daily check. The answer is kept in `update.json` in the state
+  check is older than 24 hours, then every 24 hours while it runs. Opening
+  **Settings › General › UPDATES** also asks when the result is more than an
+  hour old and `[update] check` is on. `update.check` (§10.2) or `eco update
+  --check` asks at any time. `[update] check = false` (§9) stops the automatic
+  checks. The answer is kept in `update.json` in the state
   directory (§8), `checked_at` and `latest`, so a restart does not ask again,
   and told to the windows as `update` (§10.1), and, with `[ui] notifications`
   on and no window active, as one system notification per version (§12.2). A network that is down or an

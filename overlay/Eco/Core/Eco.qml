@@ -393,6 +393,8 @@ Singleton {
   // What the daemon last said of the releases ({current, latest, newer, notes,
   // checked_at, check, error}), or null until it says.
   property var updateState: null
+  // An update result older than this is refreshed when General becomes visible.
+  readonly property int updateStaleAfter: 60 * 60
   // A check asked for and not answered yet.
   property bool updateChecking: false
   // The install under way or last ended ({stage, version, detail}), or null.
@@ -408,9 +410,17 @@ Singleton {
   signal restartRefused()
   // checkUpdate asks the releases now; an install that ended is left behind.
   function checkUpdate() {
+    if (!connected)
+      return
     updateProgress = null
     updateChecking = true
     send("update.check")
+  }
+  // checkStaleUpdate refreshes a stale result only while automatic checks are on.
+  function checkStaleUpdate() {
+    if (updateState !== null && updateState.check && !updateChecking
+        && (updateState.checked_at === null || Date.now() / 1000 - updateState.checked_at > updateStaleAfter))
+      checkUpdate()
   }
   // installUpdate installs release `version`, or the latest for "".
   function installUpdate(version) {

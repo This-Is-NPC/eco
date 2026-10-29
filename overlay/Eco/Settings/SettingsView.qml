@@ -320,6 +320,8 @@ Item {
         }
         anchors.fill: parent
         shown: view.page === index
+        onShownChanged: if (shown && index === view.at.general) Eco.checkStaleUpdate()
+        Component.onCompleted: if (shown && index === view.at.general) Eco.checkStaleUpdate()
 
         // The table of the section's items, under what it lacks.
         ColumnLayout {
