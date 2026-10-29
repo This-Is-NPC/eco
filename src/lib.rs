@@ -2,6 +2,8 @@
 //! transcription, sessions and the LLM, served to the QML overlay over a Unix socket.
 
 mod adapters;
+#[cfg(any(windows, test))]
+mod apply;
 mod bench;
 mod cli;
 mod config;
@@ -101,6 +103,10 @@ enum Command {
     #[cfg(windows)]
     #[command(hide = true)]
     Detach,
+    /// Install the downloaded update package with the daemon stopped, then start eco again (run by `eco update` and the daemon).
+    #[cfg(windows)]
+    #[command(hide = true)]
+    ApplyUpdate { package: PathBuf },
     /// Tell the speakers of the regions on stdin apart (run by the daemon on import).
     #[command(hide = true)]
     Diarize { model: PathBuf },
@@ -427,6 +433,10 @@ enum Run {
     },
     #[cfg(windows)]
     Detach,
+    #[cfg(windows)]
+    ApplyUpdate {
+        package: PathBuf,
+    },
     Diarize {
         model: PathBuf,
     },
@@ -478,6 +488,8 @@ impl From<Command> for Run {
             }
             #[cfg(windows)]
             Command::Detach => return Run::Detach,
+            #[cfg(windows)]
+            Command::ApplyUpdate { package } => return Run::ApplyUpdate { package },
             Command::Diarize { model } => return Run::Diarize { model },
             Command::Usage => return Run::Usage,
             Command::Key {
@@ -690,6 +702,11 @@ pub async fn run() -> Result<()> {
         }
         #[cfg(windows)]
         Run::Detach => adapters::service_windows::detach(),
+        #[cfg(windows)]
+        Run::ApplyUpdate { package } => {
+            adapters::installer_windows::apply(&package).await;
+            Ok(())
+        }
         Run::Diarize { model } => adapters::diarizer_process::serve(&model),
         Run::Usage => {
             print!("{}", usage_spec());
@@ -1047,6 +1064,19 @@ mod tests {
     #[test]
     fn detach_starts_the_daemon_in_the_background() {
         assert!(matches!(run(&["detach"]), Run::Detach));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn apply_update_takes_the_package_to_install() {
+        assert!(matches!(
+            run(&["apply-update", r"C:\Temp\eco.msi"]),
+            Run::ApplyUpdate { package } if package == Path::new(r"C:\Temp\eco.msi")
+        ));
+        assert_eq!(
+            rejected(&["apply-update"]),
+            ErrorKind::MissingRequiredArgument
+        );
     }
 
     #[test]

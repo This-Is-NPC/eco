@@ -272,19 +272,32 @@ pub async fn stop(address: &Address) -> Result<()> {
     Ok(())
 }
 
+/// Whether the daemon at `address` has its window open: `None` when none
+/// answers. A daemon that cannot say is taken to have it open.
+async fn window_open(address: &Address) -> Result<Option<bool>> {
+    if socket(address).await?.is_none() {
+        return Ok(None);
+    }
+    let daemon = connect(address).await.ok().flatten();
+    Ok(Some(daemon.is_none_or(|daemon| daemon.overlay)))
+}
+
+/// Stop the daemon at `address` when one runs and wait until it is gone;
+/// whether its window was open, or `None` when no daemon ran.
+#[cfg(any(windows, test))]
+pub async fn shut(address: &Address) -> Result<Option<bool>> {
+    let open = window_open(address).await?;
+    if open.is_some() {
+        halt(address).await?;
+    }
+    Ok(open)
+}
+
 /// Stop the daemon at `address` and start it again through `service`, with its
 /// window open unless the running daemon had it closed.
 pub async fn restart(service: &dyn ServiceManager, address: &Address) -> Result<()> {
     ensure_unelevated(service).await?;
-    let show_window = if socket(address).await?.is_some() {
-        connect(address)
-            .await
-            .ok()
-            .flatten()
-            .is_none_or(|daemon| daemon.overlay)
-    } else {
-        true
-    };
+    let show_window = window_open(address).await?.unwrap_or(true);
     stop(address).await?;
     start(service, address, show_window).await
 }
@@ -972,6 +985,27 @@ mod tests {
         let service = fake_service(&directory);
         restart(&service, &service.socket).await.unwrap();
         assert_eq!(service.starts.into_inner(), 1);
+    }
+
+    #[tokio::test]
+    async fn shut_stops_the_daemon_and_says_whether_its_window_was_open() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = socket_in(&directory);
+        assert_eq!(shut(&path).await.unwrap(), None);
+        fake_daemon(&path, 1, VERSION, true, OnStop::Exit).await;
+        assert_eq!(shut(&path).await.unwrap(), Some(true));
+        assert_eq!(status(&path, false, false).await.unwrap(), 3);
+        fake_daemon(&path, 1, VERSION, false, OnStop::Exit).await;
+        assert_eq!(shut(&path).await.unwrap(), Some(false));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn shut_gives_up_on_a_daemon_that_ignores_stop() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = socket_in(&directory);
+        fake_daemon(&path, 1, VERSION, true, OnStop::Ignore).await;
+        let error = shut(&path).await.unwrap_err().to_string();
+        assert_eq!(error, "the daemon did not stop within 10 seconds");
     }
 
     #[tokio::test]

@@ -20,7 +20,8 @@ use crate::adapters::http::Endpoint;
 use crate::adapters::releases_github::GitHub;
 use crate::cli::{self, Failure};
 use crate::ports::{
-    InstallError, InstallProgress, InstallStage, Installer, Release, ReleaseError, Releases,
+    InstallError, InstallProgress, InstallStage, Installed, Installer, Release, ReleaseError,
+    Releases,
 };
 use crate::session::update;
 
@@ -37,37 +38,42 @@ const AGENT: &str = concat!("eco/", env!("CARGO_PKG_VERSION"));
 const SILENCE: Duration = Duration::from_secs(30);
 
 /// This platform's installer: the Arch package through pacman on Linux, the
-/// folder install.ps1 fills on Windows.
+/// Windows Installer package on Windows.
 #[cfg(unix)]
 pub fn installer() -> Arc<dyn Installer> {
     Arc::new(crate::adapters::installer_linux::Pacman::new(DOWNLOADS))
 }
 
 /// This platform's installer: the Arch package through pacman on Linux, the
-/// folder install.ps1 fills on Windows.
+/// Windows Installer package on Windows.
 #[cfg(windows)]
 pub fn installer() -> Arc<dyn Installer> {
-    Arc::new(crate::adapters::installer_windows::Folder::new(DOWNLOADS))
+    Arc::new(crate::adapters::installer_windows::Msi::new(DOWNLOADS))
 }
 
-/// Delete what an update moved aside because it was running: on Windows, the
-/// files of the replaced eco; pacman leaves nothing behind on Linux.
+/// Delete what an update left in the temporary directory because it was
+/// running: on Windows, the copy of eco that installed it; pacman leaves
+/// nothing behind on Linux.
 #[cfg(unix)]
 pub fn tidy() {}
 
-/// Delete what an update moved aside because it was running: on Windows, the
-/// files of the replaced eco; pacman leaves nothing behind on Linux.
+/// Delete what an update left in the temporary directory because it was
+/// running: on Windows, the copy of eco that installed it; pacman leaves
+/// nothing behind on Linux.
 #[cfg(windows)]
 pub fn tidy() {
-    crate::adapters::installer_windows::Folder::new(DOWNLOADS).tidy();
+    crate::adapters::installer_windows::tidy(&std::env::temp_dir());
 }
+
+/// What the name of a [`Scratch`] directory starts with.
+pub const SCRATCH: &str = "eco-update-";
 
 /// A directory of its own under `parent`, deleted with what it holds when dropped.
 pub struct Scratch(PathBuf);
 
 impl Scratch {
     pub fn new(parent: &Path) -> Result<Self, InstallError> {
-        let path = parent.join(format!("eco-update-{}", uuid::Uuid::new_v4().simple()));
+        let path = parent.join(format!("{SCRATCH}{}", uuid::Uuid::new_v4().simple()));
         std::fs::create_dir_all(&path)
             .map_err(|error| InstallError(format!("cannot create {}: {error}", path.display())))?;
         Ok(Self(path))
@@ -75,6 +81,12 @@ impl Scratch {
 
     pub fn path(&self) -> &Path {
         &self.0
+    }
+
+    /// The directory, which stays where it is.
+    #[cfg(windows)]
+    pub fn keep(self) -> PathBuf {
+        std::mem::ManuallyDrop::new(self).0.clone()
     }
 }
 
@@ -258,10 +270,17 @@ pub async fn update(
             let said_of = version.clone();
             let progress: InstallProgress =
                 Box::new(move |stage| eprintln!("{}", said(update::stage_name(stage), &said_of)));
-            installer
+            let failed = |error: String| Failure::new("update.failed", error);
+            let installed = installer
                 .install(release.tag.clone(), progress)
                 .await
-                .map_err(|error| Failure::new("update.failed", error.0))?;
+                .map_err(|error| failed(error.0))?;
+            if let Installed::Pending(pending) = installed {
+                eprintln!("{}", said("installing", &version));
+                pending
+                    .hand_off()
+                    .map_err(|error| failed(error.to_string()))?;
+            }
             "none"
         }
     };
@@ -601,6 +620,24 @@ mod tests {
         .unwrap();
         assert_eq!(said["version"], "0.0.1");
         assert_eq!(*installer.installed.lock().unwrap(), ["v0.0.1"]);
+    }
+
+    #[tokio::test]
+    async fn without_a_daemon_a_pending_install_is_handed_off_here() {
+        let directory = tempfile::tempdir().unwrap();
+        let handed_off = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let installer = FakeInstaller {
+            pending: Some(Arc::clone(&handed_off)),
+            ..FakeInstaller::default()
+        };
+        let newer = FakeReleases {
+            latest: Some("v999.0.0"),
+        };
+        let said = update(&nowhere(&directory), &newer, &installer, None, false)
+            .await
+            .unwrap();
+        assert_eq!(said["installed"], true);
+        assert_eq!(handed_off.load(std::sync::atomic::Ordering::SeqCst), 1);
     }
 
     #[tokio::test]

@@ -12,7 +12,7 @@ use futures::future::BoxFuture;
 use tokio::process::Command;
 
 use crate::installer::{self, Scratch};
-use crate::ports::{InstallError, InstallProgress, InstallStage, Installer};
+use crate::ports::{InstallError, InstallProgress, InstallStage, Installed, Installer};
 
 #[derive(Clone)]
 pub struct Pacman {
@@ -93,7 +93,7 @@ impl Installer for Pacman {
         &self,
         tag: String,
         progress: InstallProgress,
-    ) -> BoxFuture<'static, Result<(), InstallError>> {
+    ) -> BoxFuture<'static, Result<Installed, InstallError>> {
         let pacman = self.clone();
         Box::pin(async move {
             let elevator = pacman.elevator()?;
@@ -117,7 +117,7 @@ impl Installer for Pacman {
                 .map_err(|error| {
                     InstallError(format!("cannot run {}: {error}", elevator.display()))
                 })?;
-            outcome(status)
+            outcome(status).map(|()| Installed::Done)
         })
     }
 }

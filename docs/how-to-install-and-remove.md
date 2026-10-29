@@ -678,7 +678,7 @@ download, the checksum or the install failed; the message says which) and
 
 Every release carries a `SHA256SUMS`. eco downloads it, picks the asset for
 this system from it — the Arch package `eco-<version>-1-x86_64.pkg.tar.zst`,
-or the Windows zip `eco-<version>-windows-x86_64.zip` — downloads that into a
+or the Windows installer `eco-<version>-windows-x86_64.msi` — downloads that into a
 folder of its own under the temporary directory and checks its sha256. When it
 does not match, the file is deleted, nothing is installed, and the update
 fails with `eco-<version>-1-x86_64.pkg.tar.zst does not match the release's
@@ -694,18 +694,25 @@ keeps running the old version.
 
 ### On Windows
 
-There is no password prompt: eco replaces `%LOCALAPPDATA%\Programs\eco` for
-your account, as `install.ps1` does. Windows does not let a running `eco.exe`
-or a loaded library be overwritten, but lets it be renamed: each file of the
-folder is renamed aside, `<file>.<id>.eco-old`, the new ones are moved in, and
-each file aside is deleted at once when nothing holds it, else when the daemon
-next starts. A file another program has open for a moment, such as a window
-reading its language packs, is waited for up to 5 seconds; if it is still held,
-the update fails and puts back every file it moved. The Start menu entry and
-the `PATH` entry stay as they are. Run on Windows: with the daemon and its
-window running, `eco update --version 0.4.0` replaced `eco.exe` and the Qt
-libraries, restarted the daemon and reopened the window, and the next start
-deleted the 34 files left aside.
+eco installs the release's `eco-<version>-windows-x86_64.msi` per machine in
+`C:\Program Files\eco`. Windows Installer cannot replace an eco that runs, so
+the update downloads and checks the file while eco runs, and the rest happens
+once no session is live: eco copies itself to the temporary directory, stops
+the daemon and its windows, and runs `msiexec /i <file> /qb /norestart` from
+the copy. Windows Installer shows its progress and asks for the administrator
+rights itself (the UAC prompt); eco never runs elevated. When it ends, eco
+starts again from `C:\Program Files\eco\bin\eco.exe`, with its window if it
+was open.
+
+If the install does not finish (you closed the installer or refused the
+prompt, another installation was running, or the installer failed), the old
+eco starts again and a notification says `eco was not updated:` and why. The
+downloaded file is deleted either way.
+
+`eco update` with no daemon running downloads and checks the file, then starts
+the same installer in its own process and returns: its progress shows in
+Windows Installer's window, and a failure shows as a notification, not in the
+terminal. eco is not started afterwards, as no daemon ran.
 
 ### Which version, and is everything in place
 

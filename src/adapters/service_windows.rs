@@ -113,10 +113,10 @@ pub fn detach() -> Result<()> {
 
 /// Have the shell start `program` with `parameters` in a hidden window, as
 /// a process that shares no handle with this one, and return once it has.
-fn hidden(program: &Path, parameters: &str) -> Result<()> {
+pub(crate) fn hidden(program: &Path, parameters: &str) -> Result<()> {
     let file = program
         .to_str()
-        .ok_or_else(|| anyhow!("cannot start the daemon: {} is not text", program.display()))?;
+        .ok_or_else(|| anyhow!("cannot start {}: the path is not text", program.display()))?;
     ShellExecuteEx(&SHELLEXECUTEINFO {
         mask: co::SEE_MASK::FLAG_NO_UI | co::SEE_MASK::NOASYNC,
         file,
@@ -124,7 +124,7 @@ fn hidden(program: &Path, parameters: &str) -> Result<()> {
         show: co::SW::HIDE,
         ..Default::default()
     })
-    .map_err(|error| anyhow!("cannot start the daemon: {error}"))
+    .map_err(|error| anyhow!("cannot start {file}: {error}"))
 }
 
 /// The command that runs the daemon of `exe` in the background.
@@ -235,7 +235,8 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let error = hidden(&directory.path().join("none.exe"), "detach").unwrap_err();
         assert!(
-            error.to_string().starts_with("cannot start the daemon: "),
+            error.to_string().starts_with("cannot start ")
+                && error.to_string().contains("none.exe"),
             "{error}"
         );
     }

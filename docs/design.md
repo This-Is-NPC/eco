@@ -2358,17 +2358,33 @@ and the installer, one adapter per platform.
   sha256. On a mismatch nothing is installed and the update fails.
 - *Installing.* On Linux, `pkexec pacman -U --noconfirm <file>`, which shows
   the desktop's password prompt; without `pkexec` and with a terminal
-  attached, `sudo pacman -U`. On Windows, `%LOCALAPPDATA%\Programs\eco` is
-  replaced with the zip's `eco` folder, as `install.ps1` does; the running
-  `eco.exe` cannot be overwritten, so every file of the folder is renamed
-  aside first, `<file>.<id>.eco-old`, and deleted at once when nothing holds
-  it, else when the daemon next starts (`installer::tidy`). A file another
-  program has open for a moment (a window rereading a language pack it
-  watches, a virus scan) is tried again for up to 5 s; one still held then
-  fails the install, and what was moved aside is put back. The Start-menu
-  shortcut and the `PATH` entry are left as they are. The package is
-  downloaded into a folder of its own under the temporary directory, deleted
-  when the install ends.
+  attached, `sudo pacman -U`. The package is downloaded into a folder of its
+  own under the temporary directory, deleted when the install ends. On Windows
+  the package is `eco-<version>-windows-x86_64.msi`, per machine in
+  `%ProgramFiles%\eco`, and Windows Installer cannot replace the files of an
+  eco that runs (`msiexec` ends with 3010 and leaves them), so `install`
+  leaves the checked package `Pending` (`Installed::Pending`, `ports.rs`) in
+  its folder, which stays. Once no session is live, `Pending::hand_off` copies
+  the running `eco.exe` beside the package and has the shell start the copy,
+  `eco apply-update <msi>` (hidden), through `ShellExecuteEx`, which shares no
+  handle with the caller: a process `CreateProcess` starts with inherited
+  handles would hold a terminal that captured eco's output until it exits. The
+  copy (`src/apply.rs`) stops the daemon and its windows as `eco stop` does,
+  waiting up to 10 s (`lifecycle::shut`), runs `msiexec /i <msi> /qb
+  /norestart` unelevated, which shows Windows Installer's progress and asks
+  for the elevation itself, waits for its exit code, deletes the package and,
+  if a daemon ran, starts `%ProgramFiles%\eco\bin\eco.exe` with `start` (with
+  `--headless` when the window was closed). Exit 0 and 3010 are an install;
+  1602 and 1223 (the window closed, the elevation refused) are "the
+  installation was cancelled", 1618 another installation running, any other
+  code a failure. On any failure the same installed eco starts again, which is
+  the old one, and a toast says `eco was not updated: <why>` (the daemon that
+  would write it is gone, and the user is looking at the desktop, not a log);
+  a daemon that does not stop installs nothing. With no daemon, `eco update`
+  hands off the same way and the install runs on its own, starting nothing.
+  The copy cannot delete itself while it runs: the next daemon start deletes
+  the `eco-update-*` folders left in the temporary directory
+  (`installer::tidy`).
 - *Restarting.* Then the daemon restarts on the new binary, as `eco restart`
   does, and a window that was open reopens. The restart never cuts a
   recording: while a session is live it waits (`update_progress` stage
@@ -2376,7 +2392,9 @@ and the installer, one adapter per platform.
   session, recording or paused, ends; the daemon looks after every command it
   reads. On Linux the restart runs in a transient unit, `systemd-run --user
   --collect --quiet <eco> restart`, where `<eco>` is the running executable's
-  path without the ` (deleted)` Linux adds once pacman replaced it.
+  path without the ` (deleted)` Linux adds once pacman replaced it. On Windows
+  the daemon says `restarting` when it has handed off, and the apply step
+  does the stop and the start.
 
 **Releases.** Commits follow Conventional Commits, and release-please reads
 them (`release-please-config.json`, `.release-please-manifest.json`). Every
@@ -2691,5 +2709,5 @@ adapter lives on each platform today.
 | Shortcuts | a global Hyprland bind that runs an `eco window` command, which sends one line to the socket and returns once the daemon has read it: `window.call` for those that open a view, the daemon giving that window the keyboard | the daemon registers `[shortcuts]` (§9) itself, `Win+Alt+A`, `Q`, `C`, `N`, `P`, `H` and `E` by default, the keys of `eco.lua` with the Windows key for SUPER, none of them one Microsoft documents for Windows (`Win+Alt` with a digit opens a taskbar jump list, and was refused on a desktop; the Game Bar holds `G`, `M`, `R` and `T`; Omarchy binds `SUPER+ALT+1` to `5` to a group's windows), through the `windows-hotkeys` crate: `RegisterHotKey` on a hidden message-only window of a thread of its own, which waits for `WM_HOTKEY` in the crate's loop. A pressed key hands the daemon's loop the very line `eco window` builds (`cli::Window::line`), so it is routed as the command would be. A key the system refuses, another program holding it, is written to the daemon's log and greets every client in a `shortcuts` event (§10.1) listing the keys left off, which is no error: the shortcuts are optional, the others still work, and `eco doctor` passes with the keys named; the settings window has no place for shortcuts, so others go in the config file, created if missing. Chosen over `global-hotkey`, which registers the same way but leaves the message loop to the application, and that loop is `unsafe` code eco forbids, and over `livesplit-hotkey`, which installs a low-level keyboard hook: it sees every key pressed in every program, passes the shortcut on to the program in front as well (Win+Alt+1 would also open the first taskbar program's jump list) and cannot tell a key another program holds (read in the crates' sources). The keys are read when the daemon starts. Over ssh the system refuses every key: that session has no interactive window station (`RegisterHotKey` fails with error 1459, `ERROR_REQUIRES_INTERACTIVE_WINDOWSTATION`, measured), so each is reported; on a desktop, `Win+Alt+C`, `N`, `H` and `E` registered and worked when pressed (seen in a desktop test). `eco window` works as on Linux, knowing the daemon has read its line from the `synced` answer to `sync` (§10) | `packaging/hypr/eco.lua`, `src/cli.rs`, `src/shortcuts.rs`, `src/adapters/shortcuts_windows.rs` |
 | The hook shell | `shell()` runs each hook with `sh -c` | `shell()` runs each hook with `cmd /S /C "<command>"`, the command handed over as written, for cmd does not read its line by the quoting rules other programs use; a hook reads `%ECO_SESSION%` and `%ECO_TITLE%`. cmd is on every Windows | `src/adapters/hook_shell.rs` |
 | The omapass keyring | `api_key_omapass` reads a key through the omapass CLI | omapass does not exist: it is never installed, and a key from it fails | `src/adapters/omapass.rs` |
-| Installing a release | `pkexec pacman -U --noconfirm` on the Arch package, else `sudo pacman -U` from a terminal; Hyprland's binds are what `eco doctor` checks for shortcuts | `%LOCALAPPDATA%\Programs\eco` replaced in place, the running `eco.exe` renamed aside and deleted at the next start; the registered keys are what `eco doctor` checks | `src/ports.rs` (`Releases`, `Installer`), `src/installer.rs`, `src/adapters/releases_github.rs`, `src/adapters/installer_linux.rs`, `src/adapters/installer_windows.rs`, `src/session/update.rs`, `src/doctor.rs` (§13) |
+| Installing a release | `pkexec pacman -U --noconfirm` on the Arch package, else `sudo pacman -U` from a terminal; Hyprland's binds are what `eco doctor` checks for shortcuts | the per-machine MSI in `%ProgramFiles%\eco`, installed by `msiexec` from a copy of eco once the daemon has stopped (`eco apply-update`); the registered keys are what `eco doctor` checks | `src/ports.rs` (`Releases`, `Installer`), `src/installer.rs`, `src/adapters/releases_github.rs`, `src/adapters/installer_linux.rs`, `src/adapters/installer_windows.rs`, `src/apply.rs`, `src/session/update.rs`, `src/doctor.rs` (§13) |
 | The Windows Credential Manager | none: `api_key_credential` and `eco key set`/`remove` fail, naming omapass and the environment; the `keys` event's `credentials` is `null` | `api_key_credential` reads the generic credential `eco:<name>`; `eco key set`/`remove` write and delete it; the `keys` command lists them by name (§9.1) | `src/adapters/credentials.rs` |
