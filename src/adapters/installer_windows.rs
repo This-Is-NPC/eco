@@ -6,14 +6,22 @@
 //! (Windows Installer asks for the elevation itself), and starts eco again.
 //! The shell starts that copy (`ShellExecuteEx`), so it shares no handle with
 //! the caller, whose output a terminal would otherwise wait on.
+//!
+//! The package waits in a folder of the user's, which any program of theirs
+//! may write, and Windows Installer runs it elevated. So the apply step is
+//! handed its SHA-256 too, opens the package so that no one may write, move or
+//! delete it while it is open, checks it again, and holds it until `msiexec`
+//! has ended.
 
 use std::ffi::OsString;
-use std::fs;
+use std::fs::{self, File};
 use std::io;
+use std::os::windows::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
 use futures::future::BoxFuture;
+use sha2::{Digest, Sha256};
 use tokio::process::Command;
 
 use crate::adapters::control_socket::Address;
@@ -38,6 +46,10 @@ const CANCELLED: [i32; 2] = [1602, 1223];
 /// What `msiexec` exits with while another installation runs
 /// (`ERROR_INSTALL_ALREADY_RUNNING`).
 const BUSY: i32 = 1618;
+
+/// The sharing a held package allows others: reading, as `msiexec` does, and
+/// no writing, renaming or deleting (`FILE_SHARE_READ`).
+const SHARE_READ: u32 = 0x1;
 
 /// The name of the copy of eco that applies an update, beside the package.
 const COPY: &str = "eco.exe";
@@ -94,9 +106,49 @@ fn outcome(code: Option<i32>) -> Result<(), InstallError> {
     }
 }
 
-/// The parameters that run `eco apply-update` on `msi`.
-fn parameters(msi: &Path) -> String {
-    format!("apply-update \"{}\"", msi.display())
+/// The parameters that run `eco apply-update` on `msi`, whose SHA-256 is
+/// `sha256`.
+fn parameters(msi: &Path, sha256: &[u8; 32]) -> String {
+    format!("apply-update \"{}\" {}", msi.display(), hex(sha256))
+}
+
+/// The 64 lower-case hex digits of `digest`, as SHA256SUMS writes them.
+fn hex(digest: &[u8; 32]) -> String {
+    digest.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+/// The SHA-256 of what `reader` holds, read to its end.
+fn sha256_of(mut reader: impl std::io::Read) -> std::io::Result<[u8; 32]> {
+    let mut hash = Sha256::new();
+    let mut buffer = [0u8; 64 * 1024];
+    loop {
+        match reader.read(&mut buffer)? {
+            0 => break,
+            read => hash.update(&buffer[..read]),
+        }
+    }
+    let mut digest = [0u8; 32];
+    digest.copy_from_slice(&hash.finalize());
+    Ok(digest)
+}
+
+/// `package`, opened so that it stays as it is while it is held, once it is
+/// checked to have the SHA-256 `sha256`.
+fn hold(package: &Path, sha256: &[u8; 32]) -> Result<File, InstallError> {
+    let name = package.display();
+    let file = fs::OpenOptions::new()
+        .read(true)
+        .share_mode(SHARE_READ)
+        .open(package)
+        .map_err(|error| InstallError(format!("cannot open {name}: {error}")))?;
+    let found =
+        sha256_of(&file).map_err(|error| InstallError(format!("cannot read {name}: {error}")))?;
+    if found != *sha256 {
+        return Err(InstallError(format!(
+            "{name} changed after it was checked; nothing was installed"
+        )));
+    }
+    Ok(file)
 }
 
 /// Delete the folders of earlier updates under `temp`: the copy of eco that
@@ -116,13 +168,14 @@ pub fn tidy(temp: &Path) {
 #[derive(Debug)]
 struct Package {
     msi: PathBuf,
+    sha256: [u8; 32],
 }
 
 impl Pending for Package {
     fn hand_off(&self) -> io::Result<()> {
         let copy = self.msi.with_file_name(COPY);
         fs::copy(std::env::current_exe()?, &copy)?;
-        hidden(&copy, &parameters(&self.msi)).map_err(io::Error::other)
+        hidden(&copy, &parameters(&self.msi, &self.sha256)).map_err(io::Error::other)
     }
 }
 
@@ -140,10 +193,13 @@ impl Installer for Msi {
         let parent = self.scratch.clone();
         Box::pin(async move {
             let scratch = Scratch::new(&parent)?;
-            let msi =
+            let fetched =
                 installer::fetch(&downloads, &tag, is_package, scratch.path(), &progress).await?;
             scratch.keep();
-            Ok(Installed::Pending(Box::new(Package { msi })))
+            Ok(Installed::Pending(Box::new(Package {
+                msi: fetched.path,
+                sha256: fetched.sha256,
+            })))
         })
     }
 }
@@ -152,16 +208,19 @@ impl Installer for Msi {
 /// Windows Installer, and toasts for what goes wrong.
 struct Applying {
     address: Address,
+    /// The SHA-256 the package was checked to have.
+    sha256: [u8; 32],
     program: PathBuf,
     msiexec: PathBuf,
     toasts: Toasts,
 }
 
 impl Applying {
-    fn new() -> Self {
+    fn new(sha256: [u8; 32]) -> Self {
         let system = std::env::var_os("SystemRoot").unwrap_or_else(|| r"C:\Windows".into());
         Self {
             address: Address::user(),
+            sha256,
             program: installed_program(),
             msiexec: PathBuf::from(system).join(r"System32\msiexec.exe"),
             toasts: Toasts::default(),
@@ -181,6 +240,8 @@ impl Steps for Applying {
     fn install(&self, package: &Path) -> BoxFuture<'_, Result<(), InstallError>> {
         let package = package.to_path_buf();
         Box::pin(async move {
+            // Held until msiexec has ended: what it installs is what was checked.
+            let _held = hold(&package, &self.sha256)?;
             let status = Command::new(&self.msiexec)
                 .args(arguments(&package))
                 .stdin(Stdio::null())
@@ -214,9 +275,10 @@ impl Steps for Applying {
     }
 }
 
-/// `eco apply-update`: install `package` with the daemon stopped.
-pub async fn apply(package: &Path) {
-    apply::run(&Applying::new(), package).await;
+/// `eco apply-update`: install `package`, which has the SHA-256 `sha256`, with
+/// the daemon stopped.
+pub async fn apply(package: &Path, sha256: [u8; 32]) {
+    apply::run(&Applying::new(sha256), package).await;
 }
 
 #[cfg(test)]
@@ -275,10 +337,47 @@ mod tests {
     }
 
     #[test]
-    fn the_copy_is_told_the_quoted_package() {
+    fn the_copy_is_told_the_quoted_package_and_its_checksum() {
+        let sha256 = installer::checksum(ABC).unwrap();
         assert_eq!(
-            parameters(Path::new(r"C:\Users\Zoe Lima\eco.msi")),
-            r#"apply-update "C:\Users\Zoe Lima\eco.msi""#
+            parameters(Path::new(r"C:\Users\Zoe Lima\eco.msi"), &sha256),
+            format!(r#"apply-update "C:\Users\Zoe Lima\eco.msi" {ABC}"#)
+        );
+    }
+
+    #[test]
+    fn a_digest_reads_back_as_its_hex_and_a_file_hashes_to_it() {
+        let digest = sha256_of(&b"abc"[..]).unwrap();
+        assert_eq!(hex(&digest), ABC);
+        assert_eq!(installer::checksum(&hex(&digest)), Some(digest));
+    }
+
+    #[test]
+    fn a_held_package_cannot_be_written_moved_or_deleted() {
+        let directory = tempfile::tempdir().unwrap();
+        let msi = directory.path().join(MSI);
+        fs::write(&msi, "abc").unwrap();
+        let held = hold(&msi, &installer::checksum(ABC).unwrap()).unwrap();
+        assert!(fs::write(&msi, "evil").is_err());
+        assert!(fs::rename(&msi, directory.path().join("moved.msi")).is_err());
+        assert!(fs::remove_file(&msi).is_err());
+        // What msiexec does: read it beside the hold.
+        assert_eq!(fs::read(&msi).unwrap(), b"abc");
+        drop(held);
+        fs::write(&msi, "free").unwrap();
+    }
+
+    #[test]
+    fn a_package_changed_after_its_check_is_refused() {
+        let directory = tempfile::tempdir().unwrap();
+        let msi = directory.path().join(MSI);
+        fs::write(&msi, "abd").unwrap();
+        let error = hold(&msi, &installer::checksum(ABC).unwrap()).unwrap_err();
+        assert!(
+            error
+                .0
+                .ends_with("changed after it was checked; nothing was installed"),
+            "{error}"
         );
     }
 

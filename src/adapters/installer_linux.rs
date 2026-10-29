@@ -105,7 +105,8 @@ impl Installer for Pacman {
                 scratch.path(),
                 &progress,
             )
-            .await?;
+            .await?
+            .path;
             progress(InstallStage::Installing);
             // pacman's output goes to stderr: stdout is the command's JSON.
             let status = Command::new(&elevator)

@@ -2366,11 +2366,17 @@ and the installer, one adapter per platform.
   leaves the checked package `Pending` (`Installed::Pending`, `ports.rs`) in
   its folder, which stays. Once no session is live, `Pending::hand_off` copies
   the running `eco.exe` beside the package and has the shell start the copy,
-  `eco apply-update <msi>` (hidden), through `ShellExecuteEx`, which shares no
-  handle with the caller: a process `CreateProcess` starts with inherited
-  handles would hold a terminal that captured eco's output until it exits. The
-  copy (`src/apply.rs`) stops the daemon and its windows as `eco stop` does,
-  waiting up to 10 s (`lifecycle::shut`), runs `msiexec /i <msi> /qb
+  `eco apply-update <msi> <sha256>` (hidden), through `ShellExecuteEx`, which
+  shares no handle with the caller: a process `CreateProcess` starts with
+  inherited handles would hold a terminal that captured eco's output until it
+  exits. The copy (`src/apply.rs`) stops the daemon and its windows as `eco
+  stop` does, waiting up to 10 s (`lifecycle::shut`). The package's folder is
+  the user's, which any program of theirs may write, and Windows Installer
+  runs the package elevated, so the copy then opens the package sharing only
+  reading (no one may write, move or delete it while it is open), checks its
+  SHA-256 again against the one SHA256SUMS named, refuses a package that
+  changed (`<msi> changed after it was checked; nothing was installed`), and
+  holds it open until `msiexec` ends. It runs `msiexec /i <msi> /qb
   /norestart` unelevated, which shows Windows Installer's progress and asks
   for the elevation itself, waits for its exit code, deletes the package and,
   if a daemon ran, starts `%ProgramFiles%\eco\bin\eco.exe` with `start` (with

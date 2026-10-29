@@ -106,7 +106,12 @@ enum Command {
     /// Install the downloaded update package with the daemon stopped, then start eco again (run by `eco update` and the daemon).
     #[cfg(windows)]
     #[command(hide = true)]
-    ApplyUpdate { package: PathBuf },
+    ApplyUpdate {
+        package: PathBuf,
+        /// Its SHA-256, the 64 hex digits the release's SHA256SUMS names it by.
+        #[arg(value_parser = sha256)]
+        sha256: [u8; 32],
+    },
     /// Tell the speakers of the regions on stdin apart (run by the daemon on import).
     #[command(hide = true)]
     Diarize { model: PathBuf },
@@ -436,6 +441,7 @@ enum Run {
     #[cfg(windows)]
     ApplyUpdate {
         package: PathBuf,
+        sha256: [u8; 32],
     },
     Diarize {
         model: PathBuf,
@@ -489,7 +495,9 @@ impl From<Command> for Run {
             #[cfg(windows)]
             Command::Detach => return Run::Detach,
             #[cfg(windows)]
-            Command::ApplyUpdate { package } => return Run::ApplyUpdate { package },
+            Command::ApplyUpdate { package, sha256 } => {
+                return Run::ApplyUpdate { package, sha256 };
+            }
             Command::Diarize { model } => return Run::Diarize { model },
             Command::Usage => return Run::Usage,
             Command::Key {
@@ -703,8 +711,8 @@ pub async fn run() -> Result<()> {
         #[cfg(windows)]
         Run::Detach => adapters::service_windows::detach(),
         #[cfg(windows)]
-        Run::ApplyUpdate { package } => {
-            adapters::installer_windows::apply(&package).await;
+        Run::ApplyUpdate { package, sha256 } => {
+            adapters::installer_windows::apply(&package, sha256).await;
             Ok(())
         }
         Run::Diarize { model } => adapters::diarizer_process::serve(&model),
@@ -756,6 +764,12 @@ fn line_named(value: &str) -> std::result::Result<(String, f64), String> {
         .ok_or_else(|| format!("{value:?} is not WHO@AT"))?;
     let at = at.parse::<f64>().map_err(|e| format!("{at:?}: {e}"))?;
     Ok((who.into(), at))
+}
+
+/// A SHA-256 written as its 64 hex digits.
+#[cfg(windows)]
+fn sha256(value: &str) -> std::result::Result<[u8; 32], String> {
+    installer::checksum(value).ok_or_else(|| format!("{value:?} is not 64 hex digits"))
 }
 
 /// What `eco window <words>` asks, as a global shortcut's command runs it.
@@ -1068,14 +1082,21 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
-    fn apply_update_takes_the_package_to_install() {
+    fn apply_update_takes_the_package_and_its_checksum() {
+        let digest = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
         assert!(matches!(
-            run(&["apply-update", r"C:\Temp\eco.msi"]),
-            Run::ApplyUpdate { package } if package == Path::new(r"C:\Temp\eco.msi")
+            run(&["apply-update", r"C:\Temp\eco.msi", digest]),
+            Run::ApplyUpdate { package, sha256 }
+                if package == Path::new(r"C:\Temp\eco.msi")
+                    && Some(sha256) == crate::installer::checksum(digest)
         ));
         assert_eq!(
-            rejected(&["apply-update"]),
+            rejected(&["apply-update", r"C:\Temp\eco.msi"]),
             ErrorKind::MissingRequiredArgument
+        );
+        assert_eq!(
+            rejected(&["apply-update", r"C:\Temp\eco.msi", "abc"]),
+            ErrorKind::ValueValidation
         );
     }
 

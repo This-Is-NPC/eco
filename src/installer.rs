@@ -112,7 +112,7 @@ fn package_line(sums: &str, is_package: fn(&str) -> bool) -> Option<([u8; 32], S
 }
 
 /// The 32 bytes the 64 hex digits `digest` write.
-fn checksum(digest: &str) -> Option<[u8; 32]> {
+pub fn checksum(digest: &str) -> Option<[u8; 32]> {
     if digest.len() != 64 || !digest.is_ascii() {
         return None;
     }
@@ -138,17 +138,32 @@ async fn get(endpoint: &Endpoint, path: &str) -> Result<reqwest::Response, Insta
     Ok(reply)
 }
 
+/// A package downloaded and checked against the release's SHA256SUMS.
+#[derive(Debug)]
+pub struct Fetched {
+    pub path: PathBuf,
+    /// Its SHA-256, which SHA256SUMS names.
+    #[cfg_attr(
+        all(unix, not(test)),
+        expect(
+            dead_code,
+            reason = "only the Windows installer checks the package again before it installs"
+        )
+    )]
+    pub sha256: [u8; 32],
+}
+
 /// Download release `tag`'s package — the file of the release's SHA256SUMS
 /// whose name `is_package` takes — from `downloads` into `into`, checked
-/// against its line there, telling `progress` each stage; the package's path.
-/// A package that does not match is deleted, and nothing may install it.
+/// against its line there, telling `progress` each stage. A package that does
+/// not match is deleted, and nothing may install it.
 pub async fn fetch(
     downloads: &str,
     tag: &str,
     is_package: fn(&str) -> bool,
     into: &Path,
     progress: &InstallProgress,
-) -> Result<PathBuf, InstallError> {
+) -> Result<Fetched, InstallError> {
     let endpoint =
         Endpoint::new(downloads, None, SILENCE).map_err(|error| InstallError(error.0))?;
     progress(InstallStage::Downloading);
@@ -177,7 +192,10 @@ pub async fn fetch(
             "{name} does not match the release's SHA256SUMS; nothing was installed"
         )));
     }
-    Ok(path)
+    Ok(Fetched {
+        path,
+        sha256: expected,
+    })
 }
 
 /// Write `path` of `endpoint` to `file` as it arrives; its SHA-256.
@@ -399,10 +417,11 @@ mod tests {
         let (base, seen) = serve(vec![(200, None, sums), (200, None, b"abc".to_vec())]).await;
         let directory = tempfile::tempdir().unwrap();
         let (progress, stages) = recorded();
-        let path = fetch(&base, "v0.5.0", linux_package, directory.path(), &progress)
+        let fetched = fetch(&base, "v0.5.0", linux_package, directory.path(), &progress)
             .await
             .unwrap();
-        assert_eq!(std::fs::read(&path).unwrap(), b"abc");
+        assert_eq!(std::fs::read(&fetched.path).unwrap(), b"abc");
+        assert_eq!(Some(fetched.sha256), checksum(ABC));
         assert_eq!(
             *stages.lock().unwrap(),
             [InstallStage::Downloading, InstallStage::Verifying]
