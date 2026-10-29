@@ -569,7 +569,6 @@
   "error.tag.invalid": "A tag precisa de um nome",
   "error.tag.not_found": "Nenhuma sessão tem a tag {tag}",
   "error.action.unknown": "Skill desconhecida: {name}",
-  "error.shortcut.unavailable": "{keys} já está em uso por outro programa. Escolha outras teclas em [shortcuts] em {path} (crie o arquivo se ele não existir) e rode eco restart.",
   "error.completion.failed": "{action}: o modelo falhou — {detail}",
   "error.chat.none": "Nenhum modelo de chat responde sessões {kind} — cadastre um em Configurações › Modelos",
   "error.input.disconnected": "{participant}: {device} não está conectado",

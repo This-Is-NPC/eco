@@ -311,11 +311,10 @@ fn hyprland(bindings: &Path) -> Check {
 }
 
 /// The global shortcuts: on Windows, those the daemon that greeted with
-/// `greeting` registered; each the system refused is named, with the config
-/// of `places` where others are chosen.
+/// `greeting` registered; each another program holds is named as off, which
+/// is no failure: the shortcuts are optional.
 #[cfg(windows)]
-fn shortcuts(greeting: &Result<Option<Vec<Value>>, Failure>, places: &Places) -> Check {
-    let config_path = &places.config;
+fn shortcuts(greeting: &Result<Option<Vec<Value>>, Failure>, _: &Places) -> Check {
     let Ok(Some(events)) = greeting else {
         return fail(
             "shortcuts",
@@ -323,19 +322,20 @@ fn shortcuts(greeting: &Result<Option<Vec<Value>>, Failure>, places: &Places) ->
             "run eco start",
         );
     };
-    let refused: Vec<&str> = events
+    let unavailable: Vec<&str> = events
         .iter()
-        .filter(|event| event["type"] == "error" && event["code"] == "shortcut.unavailable")
-        .filter_map(|event| event["params"]["keys"].as_str())
+        .filter(|event| event["type"] == "shortcuts")
+        .filter_map(|event| event["unavailable"].as_array())
+        .flatten()
+        .filter_map(Value::as_str)
         .collect();
-    match refused.is_empty() {
+    match unavailable.is_empty() {
         true => pass("shortcuts", "registered"),
-        false => fail(
+        false => pass(
             "shortcuts",
-            format!("taken by another program: {}", refused.join(", ")),
             format!(
-                "choose other keys under [shortcuts] in {}, then run eco restart",
-                config_path.display()
+                "registered; taken by another program, so off: {}",
+                unavailable.join(", ")
             ),
         ),
     }
@@ -595,19 +595,18 @@ api_key_env = "ECO_DOCTOR_NEVER_SET"
     #[test]
     fn on_windows_the_shortcuts_are_those_the_daemon_registered() {
         let directory = tempfile::tempdir().unwrap();
-        let path = &Places {
-            config: PathBuf::from(r"C:\eco\config.toml"),
-            ..places(directory.path())
-        };
+        let path = &places(directory.path());
         assert_eq!(shortcuts(&Ok(None), path).fix, "run eco start");
         let registered = Ok(Some(vec![json!({"type": "daemon"})]));
-        assert!(shortcuts(&registered, path).ok);
-        let refused = Ok(Some(vec![
-            json!({"type": "error", "code": "shortcut.unavailable",
-                                          "params": {"keys": "Win+Alt+A"}}),
+        assert_eq!(shortcuts(&registered, path).detail, "registered");
+        let taken = Ok(Some(vec![
+            json!({"type": "shortcuts", "unavailable": ["Win+Alt+A", "Win+Alt+Q"]}),
         ]));
-        let check = shortcuts(&refused, path);
-        assert_eq!(check.detail, "taken by another program: Win+Alt+A");
-        assert!(check.fix.contains(r"C:\eco\config.toml"), "{}", check.fix);
+        let check = shortcuts(&taken, path);
+        assert!(check.ok);
+        assert_eq!(
+            check.detail,
+            "registered; taken by another program, so off: Win+Alt+A, Win+Alt+Q"
+        );
     }
 }

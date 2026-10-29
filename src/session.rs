@@ -120,47 +120,27 @@ fn emitter<W: std::io::Write + Send + 'static>(
 }
 
 /// The global shortcuts (docs/design.md §15): on Linux Hyprland binds the keys,
-/// so the daemon registers none.
+/// so the daemon registers none and none is unavailable.
 #[cfg(unix)]
-fn shortcuts(_: &Config, _: &Path, _: &mpsc::UnboundedSender<String>) -> Vec<Value> {
+fn shortcuts(_: &Config, _: &mpsc::UnboundedSender<String>) -> Vec<String> {
     Vec::new()
 }
 
 /// The global shortcuts (docs/design.md §15): on Windows the daemon registers
-/// them, each pressed one handing `lines` what `eco window` would send; an
-/// error for each the system refused, naming the config at `config_path` where
-/// others are chosen, written to the log too.
+/// them, each pressed one handing `lines` what `eco window` would send. The
+/// keys the system refused are written to the log and returned: they are
+/// optional, so a taken key is no error.
 #[cfg(windows)]
-fn shortcuts(
-    config: &Config,
-    config_path: &Path,
-    lines: &mpsc::UnboundedSender<String>,
-) -> Vec<Value> {
+fn shortcuts(config: &Config, lines: &mpsc::UnboundedSender<String>) -> Vec<String> {
     let bindings = crate::shortcuts::bindings(config.shortcuts.as_ref())
         .expect("a valid config has valid shortcuts");
     crate::adapters::shortcuts_windows::register(bindings, lines.clone())
-        .iter()
+        .into_iter()
         .map(|refused| {
-            let error = shortcut_refused(&refused.written, config_path);
-            eprintln!("eco: {}", error["message"].as_str().unwrap_or_default());
-            error
+            eprintln!("eco: {} is taken by another program", refused.written);
+            refused.written
         })
         .collect()
-}
-
-/// The error a shortcut on `keys` the system refused makes: the keys are taken,
-/// and others go under `[shortcuts]` in the config at `config_path`, which may
-/// not exist yet.
-#[cfg(windows)]
-fn shortcut_refused(keys: &str, config_path: &Path) -> Value {
-    let path = config_path.display();
-    error(
-        "shortcut.unavailable",
-        format!(
-            "{keys} is taken by another program; choose other keys under [shortcuts] in {path} (create the file if it is missing), then run eco restart"
-        ),
-        json!({"keys": keys, "path": path.to_string()}),
-    )
 }
 
 /// The longest the assistant's model may send nothing before the request fails.
@@ -1413,14 +1393,15 @@ impl Pending {
 
 /// What a client that connects is told first: the daemon, the snapshot, what
 /// is known of a newer eco, the sources whose transcription is down, the
-/// change held for the user, if any, and what the windows' `control` tells them.
+/// change held for the user, if any, what the windows' `control` tells them
+/// and the shortcut keys another program holds, if any.
 fn greeting(
     assistant: Assistant,
     overlay_open: Arc<AtomicBool>,
     outages: Outages,
     pending: Arc<Mutex<Pending>>,
     control: Arc<dyn WindowControl>,
-    refused: Vec<Value>,
+    unavailable: Vec<String>,
     updates: Updates,
 ) -> Greeting {
     Arc::new(move || {
@@ -1436,7 +1417,9 @@ fn greeting(
         events.extend(outages.events());
         events.extend(pending.lock().expect("not poisoned").event());
         events.extend(control.greeting());
-        events.extend(refused.iter().cloned());
+        if !unavailable.is_empty() {
+            events.push(json!({"type": "shortcuts", "unavailable": unavailable}));
+        }
         events
     })
 }
@@ -2528,7 +2511,7 @@ pub async fn run(
     let pending: Arc<Mutex<Pending>> = Arc::default();
     let outages = Outages::default();
     let control = window_control(&emit);
-    let refused = shortcuts(&current, config_path, &commands);
+    let unavailable = shortcuts(&current, &commands);
     let updates = Updates::new(
         Parts {
             releases: Arc::new(GitHub::new()?),
@@ -2550,7 +2533,7 @@ pub async fn run(
         outages.clone(),
         Arc::clone(&pending),
         Arc::clone(&control),
-        refused,
+        unavailable,
         updates.clone(),
     );
     let token = uuid::Uuid::new_v4().simple().to_string();
@@ -4743,27 +4726,7 @@ mod tests {
     fn on_linux_the_daemon_registers_no_shortcut() {
         let (lines, _) = mpsc::unbounded_channel();
         let config = Config::from_value(raw()).unwrap();
-        assert_eq!(
-            shortcuts(&config, Path::new("config.toml"), &lines),
-            [] as [Value; 0]
-        );
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn a_refused_shortcut_is_a_coded_error_naming_its_keys() {
-        let refused = shortcut_refused("Win+Alt+A", Path::new(r"C:\eco\config.toml"));
-        assert_eq!(refused["code"], "shortcut.unavailable");
-        assert_eq!(
-            refused["params"],
-            json!({"keys": "Win+Alt+A", "path": r"C:\eco\config.toml"})
-        );
-        let message = refused["message"].as_str().unwrap();
-        assert!(
-            message
-                .contains(r"[shortcuts] in C:\eco\config.toml (create the file if it is missing)"),
-            "{message}"
-        );
+        assert_eq!(shortcuts(&config, &lines), [] as [String; 0]);
     }
 
     #[tokio::test]
@@ -4777,14 +4740,12 @@ mod tests {
             Outages::default(),
             Arc::clone(&d.session.pending),
             windows.clone(),
-            vec![json!({"type": "error", "code": "shortcut.unavailable"})],
+            vec!["Win+Alt+A".to_string()],
             d.session.updates.clone(),
         );
         let events = greeting();
-        assert_eq!(
-            said(&events),
-            ["daemon", "snapshot", "update", "shortcut.unavailable"]
-        );
+        assert_eq!(said(&events), ["daemon", "snapshot", "update", "shortcuts"]);
+        assert_eq!(events[3]["unavailable"], json!(["Win+Alt+A"]));
         assert_eq!(events[0]["overlay"], true);
         assert_eq!(events[0]["version"], env!("CARGO_PKG_VERSION"));
         let exe = std::env::current_exe().unwrap();
@@ -4800,7 +4761,7 @@ mod tests {
                 "update",
                 "config_pending",
                 "window_focus",
-                "shortcut.unavailable"
+                "shortcuts"
             ]
         );
     }

@@ -497,12 +497,12 @@ and an empty one binds none ([the configuration](design.md#9-configuration)):
 ```
 
 The keys are read when the daemon starts: `eco restart` after a change. Keys
-another program holds are not taken from it; the window says so as it
-connects, and the daemon's log too, with the config's path in your profile in
-place of `<config>`:
+another program holds are not taken from it, and that is no error: the
+shortcuts are optional, and the others work. The daemon's log says it, and
+`eco doctor` passes the check naming the keys left off:
 
 ```
-eco: Win+Alt+A is taken by another program; choose other keys under [shortcuts] in <config> (create the file if it is missing), then run eco restart
+eco: Win+Alt+A is taken by another program
 ```
 
 A daemon started where there is no desktop, over ssh say, has every key
