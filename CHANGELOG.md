@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.9.1](https://github.com/This-Is-NPC/eco/compare/v0.9.0...v0.9.1) (2026-10-29)
+
+
+### Bug Fixes
+
+* **updates:** refresh stale checks in settings ([c0602d3](https://github.com/This-Is-NPC/eco/commit/c0602d30763443b30287765537b4dc4c1f4b9f5b))
+* **updates:** refresh stale checks in settings ([be12f01](https://github.com/This-Is-NPC/eco/commit/be12f018dfdff0b06468d745879ee76079dce2ca))
+
 ## [0.9.0](https://github.com/This-Is-NPC/eco/compare/v0.8.0...v0.9.0) (2026-10-29)
 
 
