@@ -204,7 +204,8 @@ the same keys and reads the same lines. None of them starts a second daemon. Eve
 
 **It is not a bot that joins the meeting.** It hears what the laptop plays and
 what its microphone hears, and nothing else. It is released for Linux —
-Omarchy, Hyprland, PipeWire — and as an MSI for Windows; not for macOS.
+Omarchy, Hyprland, PipeWire — and as an MSI for Windows. macOS is in
+progress and not released.
 
 **It does not answer on its own.** Every answer is asked for: a question, a
 skill, a key. An automatic trigger on a question heard is an open question in
@@ -253,6 +254,10 @@ again on the page where you meet it.
   whole machine, so `pkexec` asks in its own window; without `pkexec`,
   `eco update` in a terminal asks through `sudo`
   ([Update](docs/how-to-install-and-remove.md#update)).
+- **No release for macOS yet.** A checkout builds on a Mac with Apple
+  Silicon, but several platform seams have no macOS adapter
+  ([platform seams](docs/design.md#15-platform-seams)), so eco is not
+  supported there yet.
 - **Sessions recorded before eco kept costs stay unknown.** Their logs hold no
   cost records, and nothing brings those costs back.
 
@@ -271,3 +276,4 @@ has the commands.
 - a key for each paid provider you use, or a model server of your own
 - on Windows instead: 64-bit Windows (tested on Windows 11) and the
   Microsoft Visual C++ Redistributable (x64); the MSI carries its own Qt
+- on macOS, in progress: a Mac with Apple Silicon on macOS 14.4 or later

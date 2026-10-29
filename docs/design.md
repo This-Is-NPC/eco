@@ -2542,7 +2542,7 @@ leaves sessions, config, models and the agent skill.
   are kept only as embeddings.
 - It is released for Linux (Omarchy, Hyprland, PipeWire) and as a zip for
   Windows, where it builds and passes its tests and several platform seams
-  have no adapter yet (§15); macOS is not supported. A Windows machine on the LAN that serves
+  have no adapter yet (§15); macOS is in progress and not released. A Windows machine on the LAN that serves
   models over HTTP is reached through the same adapters as any provider.
 - Transcripts stay local in `~/.local/share/eco/`; `--no-save` keeps a session
   in memory only. Secrets are never logged, nor transcript text at info level.
@@ -2742,6 +2742,19 @@ that owns the seam; nothing else names a platform.
 
 eco builds and passes its tests on Windows. The table says where each seam's
 adapter lives on each platform today.
+
+**macOS is in progress.** It targets Apple Silicon (aarch64) alone, on macOS
+14.4 or later, which carries Core Audio process taps (added in 14.2) to
+capture what the Mac plays without asking to record the screen (read in
+Apple's documentation, not yet measured). Its config and
+data both live in `~/Library/Application Support/eco`, and the daemon socket
+is `$TMPDIR/eco.sock`, in the per-user temporary directory macOS gives each
+account (mode `0700`), as macOS has no `XDG_RUNTIME_DIR`. Code that is POSIX
+(the Unix socket, file modes, signals, `sh -c`) is `#[cfg(unix)]` and shared
+with Linux; code that is Linux alone is `#[cfg(target_os = "linux")]`, and a
+macOS adapter `#[cfg(target_os = "macos")]`. A checkout builds there
+(`cargo build --all-targets`, measured on macOS 27.0.1), and no seam in the
+table has a macOS adapter yet.
 
 | Seam | Linux | Windows | File(s) |
 |---|---|---|---|
