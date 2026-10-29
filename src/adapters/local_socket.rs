@@ -369,7 +369,7 @@ mod tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn a_socket_the_process_may_not_open_is_denied_or_unavailable() {
-        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        use std::os::unix::fs::PermissionsExt;
 
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("eco.sock");
@@ -377,7 +377,7 @@ mod tests {
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
         let denied = connect(&path).await;
         // Root connects through any mode.
-        let root = std::fs::metadata("/proc/self").unwrap().uid() == 0;
+        let root = rustix::process::geteuid().is_root();
         assert!(root || matches!(denied, Err(ConnectError::AccessDenied)));
 
         let file = directory.path().join("plain");

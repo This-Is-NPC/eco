@@ -661,15 +661,15 @@ exec sleep 30"#,
         windows.close().await;
     }
 
-    /// Whether the process `pid` is gone or only waits to be reaped.
+    /// Whether the process `pid` is gone or only waits to be reaped, by its
+    /// state as `ps` tells it.
     fn ended(pid: u32) -> bool {
-        fs::read_to_string(format!("/proc/{pid}/stat")).map_or(true, |stat| {
-            stat.rsplit(')')
-                .next()
-                .unwrap()
-                .trim_start()
-                .starts_with('Z')
-        })
+        let state = std::process::Command::new("ps")
+            .args(["-o", "stat=", "-p", &pid.to_string()])
+            .output()
+            .unwrap();
+        let state = String::from_utf8_lossy(&state.stdout);
+        state.trim().is_empty() || state.trim_start().starts_with('Z')
     }
 
     #[tokio::test(start_paused = true)]
@@ -730,7 +730,7 @@ exec sleep 30"#,
         windows.open(None, None).await.unwrap();
         let pid = pids(&windows)[0];
         windows.close().await;
-        assert!(!Path::new(&format!("/proc/{pid}")).exists());
+        assert!(ended(pid));
     }
 
     fn pids(windows: &Windows) -> Vec<u32> {
