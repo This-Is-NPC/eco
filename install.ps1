@@ -24,6 +24,10 @@ function Say([string] $message) { Write-Host "eco: $message" }
 
 $repo = if ($env:REPO) { $env:REPO } else { 'This-Is-NPC/eco' }
 $dryRun = $env:DRY_RUN -eq '1'
+# The line that runs this script again, said after a failure.
+$again = "irm https://raw.githubusercontent.com/$repo/master/install.ps1 | iex"
+# Where Windows Installer writes what it did, kept when it fails.
+$msiLog = Join-Path ([IO.Path]::GetTempPath()) 'eco-msiexec.log'
 $eco = Join-Path $env:ProgramFiles 'eco'
 # The per-user install of eco 0.9 and earlier.
 $old = Join-Path $env:LOCALAPPDATA 'Programs\eco'
@@ -206,12 +210,23 @@ function Get-Download([string] $url, [string] $path, [switch] $quiet) {
     } finally { $client.Dispose() }
 }
 
-# Runs msiexec with `arguments` and waits. Windows Installer asks for
-# administrator rights itself; 3010 asks for a restart.
-function Invoke-Msiexec([string[]] $arguments) {
-    $code = (Start-Process msiexec -ArgumentList ($arguments + '/qb', '/norestart') -Wait -PassThru).ExitCode
-    if ($code -notin 0, 3010) { throw "eco: Windows Installer exited with status $code; see the log it wrote, or run the installer again." }
-    if ($code -eq 3010) { Say 'restart Windows to finish' }
+# Runs msiexec with `arguments` for `doing` ("the install", "the removal") and
+# waits. Windows Installer asks for administrator rights itself and writes its
+# log to `$msiLog`, kept when it fails; each way it can end is said plainly.
+function Invoke-Msiexec([string[]] $arguments, [string] $doing) {
+    Say "$doing needs administrator rights: answer Windows' prompt, which may wait behind this window as a flashing shield in the taskbar"
+    $code = (Start-Process msiexec -ArgumentList ($arguments + '/qb', '/norestart', '/l*v', "`"$msiLog`"") -Wait -PassThru).ExitCode
+    if ($code -in 0, 3010) {
+        Remove-Item -LiteralPath $msiLog -Force -ErrorAction SilentlyContinue
+        if ($code -eq 3010) { Say 'Windows asks for a restart to finish; eco works before it' }
+        return
+    }
+    $why = switch ($code) {
+        { $_ -in 1602, 1223 } { "$doing was cancelled: the administrator prompt was declined or the installer window was closed. Nothing changed." }
+        1618 { "another installation is running in Windows Installer; let it finish. Nothing changed." }
+        default { "$doing failed: Windows Installer ended with status $code. What it did is in its log, $msiLog." }
+    }
+    throw "eco: $why"
 }
 
 function Uninstall-Eco([bool] $everything) {
@@ -225,13 +240,14 @@ function Uninstall-Eco([bool] $everything) {
     }
     if ($products) {
         [void](Stop-Eco $eco)
-        foreach ($product in $products) { Invoke-Msiexec @('/x', $product.PSChildName) }
+        foreach ($product in $products) { Invoke-Msiexec @('/x', $product.PSChildName) 'the removal' }
         Say "removed $eco"
     }
     foreach ($path in $data) {
         if (-not (Test-Path -LiteralPath $path)) { continue }
         if ($everything) { Remove-Folder $path; Say "removed $path" } else { Say "kept $path" }
     }
+    if ($products) { Say 'eco is no longer installed' } else { Say "eco is not installed in $eco; nothing to remove there" }
 }
 
 function Install-Eco {
@@ -277,19 +293,28 @@ function Install-Eco {
 
         $window = Remove-PerUserInstall
         if ($null -eq $window) { $window = Stop-Eco $eco }
-        Invoke-Msiexec @('/i', "`"$msi`"")
-        Say "installed eco in $eco"
+        Invoke-Msiexec @('/i', "`"$msi`"") 'the install'
     } finally {
         Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
     }
 
     $exe = Join-Path $eco 'bin\eco.exe'
+    if (-not (Test-Path -LiteralPath $exe)) {
+        throw "eco: Windows Installer ended without error, but $exe is not there. Its log is $msiLog."
+    }
     if ($null -ne $window) {
         & $exe start --headless | Out-Host
         if ($window) { & $exe start | Out-Host }
     }
-    Say 'installed. Next: open eco from the Start menu, or run eco start in a new terminal'
-    Say 'take it off again with: $env:ECO_UNINSTALL = "keep"; irm https://raw.githubusercontent.com/This-Is-NPC/eco/master/install.ps1 | iex'
+    $version = (& $exe --version) -replace '^eco ', ''
+    Write-Host ''
+    Write-Host "eco $version is installed." -ForegroundColor Green
+    Say "program   $eco"
+    Say "command   eco, in a new terminal ($(Join-Path $eco 'bin') is on the system PATH)"
+    Say "settings  $(Join-Path $env:APPDATA 'eco')"
+    Say "sessions  $(Join-Path $env:LOCALAPPDATA 'eco')"
+    Say 'open it   Start menu > eco, or eco start'
+    Say "remove it `$env:ECO_UNINSTALL = `"keep`"; $again"
 }
 
 try {
@@ -298,7 +323,11 @@ try {
     elseif ($env:ECO_UNINSTALL -eq 'everything') { Uninstall-Eco $true }
     else { throw "eco: ECO_UNINSTALL is keep or everything, not $($env:ECO_UNINSTALL)." }
 } catch {
-    Write-Host $_.Exception.Message -ForegroundColor Red
+    $why = $_.Exception.Message
+    if ($why -notlike 'eco: *') { $why = "eco: $why" }
+    Write-Host $why -ForegroundColor Red
+    $mode = if ($env:ECO_UNINSTALL) { "`$env:ECO_UNINSTALL = `"$($env:ECO_UNINSTALL)`"; " } else { '' }
+    Write-Host "eco: to try again, run: $mode$again" -ForegroundColor Yellow
     # Run as a file, fail with status 1; through iex, leave the session open.
     if ($PSCommandPath) { exit 1 }
 }

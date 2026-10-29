@@ -260,9 +260,15 @@ the MSI by hand and the old install is still there; remove it with
    a minute is tried again, three times in all. Then it stops an eco
    that is running, removes an older per-user install if there is one, and
    runs `msiexec /i` on the MSI: Windows Installer shows its progress and asks
-   for administrator rights. A daemon that was running is started again. Every
-   line the script writes starts with `eco: `; it ends with how to start eco
-   and how to take it off. `$env:VERSION = "0.3.0"` before it picks a release
+   for administrator rights. The script says so first, because the prompt can
+   open behind the terminal, as a flashing shield in the taskbar. A daemon that was running is started again. Every
+   line the script writes starts with `eco: `. It ends with a summary: the
+   version installed, the program folder (`C:\Program Files\eco`), the
+   command and the folder on the system `PATH`, where the settings and the
+   sessions are, how to open eco and how to take it off. A failure is said in
+   red with what happened and whether anything changed (a declined
+   administrator prompt changes nothing; a failed Windows Installer run names
+   its log, `%TEMP%\eco-msiexec.log`), followed by the line that tries again. `$env:VERSION = "0.3.0"` before it picks a release
    other than the latest; `$env:DRY_RUN = "1"` downloads and checks the MSI,
    names what it would remove, and stops there. Running it again is the
    upgrade: the MSI replaces the installed eco, also one of the same version,
