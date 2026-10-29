@@ -2517,7 +2517,6 @@ pub async fn run(
             releases: Arc::new(GitHub::new()?),
             installer: installer::installer(),
             restart: Arc::new(restart_detached),
-            running: running_exe,
             live: {
                 let assistant = assistant.clone();
                 Arc::new(move || !assistant.live().is_empty())
@@ -2586,11 +2585,6 @@ pub async fn run(
     session.check_daily().await;
     session.serve(received, stop_signal()?).await;
     Ok(())
-}
-
-/// The executable the daemon runs from.
-fn running_exe() -> io::Result<PathBuf> {
-    Ok(undeleted(std::env::current_exe()?))
 }
 
 /// `exe` without the ` (deleted)` Linux adds to a running executable's path

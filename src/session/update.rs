@@ -89,8 +89,6 @@ pub struct Parts {
     pub releases: Arc<dyn Releases>,
     pub installer: Arc<dyn Installer>,
     pub restart: Restart,
-    /// The executable the daemon runs from.
-    pub running: fn() -> io::Result<PathBuf>,
     pub live: Live,
     pub emit: Emit,
     /// Where the last check is kept.
@@ -276,7 +274,7 @@ impl Updates {
                 Value::Null,
             ));
         }
-        if let Err(failure) = (self.parts.running)().and_then(|exe| (self.parts.restart)(&exe)) {
+        if let Err(failure) = running_exe().and_then(|exe| (self.parts.restart)(&exe)) {
             let detail = failure.to_string();
             (self.parts.emit)(error(
                 "daemon.restart_failed",
@@ -285,6 +283,11 @@ impl Updates {
             ));
         }
     }
+}
+
+/// The executable the daemon runs from.
+fn running_exe() -> io::Result<PathBuf> {
+    Ok(super::undeleted(std::env::current_exe()?))
 }
 
 /// The name the protocol gives `stage`.
@@ -399,9 +402,6 @@ pub(crate) mod testing {
     /// The executable the fake installer installs.
     pub const INSTALLED: &str = "/installed/eco";
 
-    /// The executable the fake daemon runs from.
-    pub const RUNNING: &str = "/running/eco";
-
     /// The epoch second the tests start at.
     pub const START: i64 = 1_800_000_000;
 
@@ -432,7 +432,6 @@ pub(crate) mod testing {
                 kept.lock().unwrap().push(exe.to_path_buf());
                 Ok(())
             }),
-            running: || Ok(PathBuf::from(RUNNING)),
             live,
             emit,
             state,
@@ -773,6 +772,6 @@ mod tests {
         let f = fixture(None, FakeInstaller::default(), None);
         f.updates.restart(false);
         let restarted = f.fakes.restarted.lock().unwrap();
-        assert_eq!(*restarted, [PathBuf::from(testing::RUNNING)]);
+        assert_eq!(*restarted, [std::env::current_exe().unwrap()]);
     }
 }

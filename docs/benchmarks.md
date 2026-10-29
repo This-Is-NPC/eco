@@ -508,3 +508,25 @@ retention, hexadecimal validation, reset and text contrast. The settings
 keyboard test checks Ctrl+9. The bridge test reads the platform theme
 properties. Native Windows theme changes still require verification on
 Windows; this Linux run does not measure them.
+
+## Windows fixes coverage (2026-10-29)
+
+Measured on Linux with `mise run coverage` on the tree that restarts an
+update into the installed eco, refuses an elevated start, treats taken
+shortcuts as optional and makes the first model of each type its default.
+Before is master at v0.8.0. The run passed 815 unit tests. The whole crate:
+97.16% of lines before, 97.17% after (956 and 953 lines without a test).
+The Windows-only lines (`src/adapters/service_windows.rs`,
+`src/adapters/installer_windows.rs`, the Windows arms of `src/doctor.rs` and
+`src/session.rs`) are tested by `mise run check` on Windows, which this
+Linux run does not measure. Files whose numbers did not move are not named.
+
+| File | Lines before | Lines after | Left without a test, and why |
+|---|---|---|---|
+| `src/session.rs` | 96.93% (145 of 4724) | 96.98% (142 of 4698) | as in the daemon and update sections, except that the running executable is now found in `src/session/update.rs`, where a plain restart's test reads it. |
+| `src/session/update.rs` | 99.61% (2 of 518) | 99.63% (2 of 546) | as before. |
+| `src/lifecycle.rs` | 98.75% (10 of 803) | 98.83% (10 of 855) | as before. |
+| `src/config.rs` | 99.81% (2 of 1060) | 99.82% (2 of 1102) | as before. |
+| `src/installer.rs` | 94.94% (26 of 514) | 94.78% (26 of 498) | as in the update section. The share falls only because its copy of the fake installer, whose lines were covered, gave way to the one in `src/session/update.rs`; no line lost its test. |
+| `src/adapters/installer_linux.rs` | 97.06% (7 of 238) | 97.15% (7 of 246) | as before. |
+| `src/ports.rs` | 70.00% (3 of 10) | 78.57% (3 of 14) | as before. |

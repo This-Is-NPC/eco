@@ -288,9 +288,7 @@ pub async fn version(greeting: Option<Vec<Value>>, releases: &dyn Releases) -> V
 
 #[cfg(test)]
 pub(crate) mod testing {
-    //! Stand-ins for the releases and the installer.
-
-    use std::sync::Mutex;
+    //! Stand-ins for the releases.
 
     use futures::future::BoxFuture;
 
@@ -327,43 +325,16 @@ pub(crate) mod testing {
             })
         }
     }
-
-    /// An installer that keeps the tags it installed, and fails with `fails`.
-    #[derive(Default)]
-    pub struct FakeInstaller {
-        pub installed: Mutex<Vec<String>>,
-        pub fails: Option<&'static str>,
-    }
-
-    impl Installer for FakeInstaller {
-        fn program(&self) -> PathBuf {
-            PathBuf::from("/usr/bin/eco")
-        }
-
-        fn install(
-            &self,
-            tag: String,
-            progress: InstallProgress,
-        ) -> BoxFuture<'static, Result<(), InstallError>> {
-            let fails = self.fails;
-            if fails.is_none() {
-                self.installed.lock().unwrap().push(tag);
-            }
-            Box::pin(async move {
-                progress(InstallStage::Downloading);
-                fails.map_or(Ok(()), |why| Err(InstallError(why.into())))
-            })
-        }
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use std::sync::{Arc, Mutex};
 
-    use super::testing::{FakeInstaller, FakeReleases};
+    use super::testing::FakeReleases;
     use super::*;
     use crate::adapters::http::testing::serve;
+    use crate::session::update::testing::FakeInstaller;
 
     /// The SHA-256 of `abc`.
     const ABC: &str = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";

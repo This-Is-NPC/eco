@@ -415,10 +415,12 @@ mod tests {
         });
     }
 
-    /// A service manager whose daemon comes up on `socket` with its window closed.
+    /// A service manager whose daemon comes up on `socket` with its window
+    /// closed, run by an `elevated` process or not.
     struct FakeService {
         socket: Address,
         starts: AtomicUsize,
+        elevated: bool,
     }
 
     impl ServiceManager for FakeService {
@@ -430,6 +432,10 @@ mod tests {
             })
         }
 
+        fn elevated(&self) -> futures::future::BoxFuture<'_, bool> {
+            Box::pin(async { self.elevated })
+        }
+
         fn output(&self, _: SystemTime) -> futures::future::BoxFuture<'_, Option<String>> {
             Box::pin(async { None })
         }
@@ -439,6 +445,14 @@ mod tests {
         FakeService {
             socket: socket_in(directory),
             starts: 0.into(),
+            elevated: false,
+        }
+    }
+
+    fn elevated_service(directory: &tempfile::TempDir) -> FakeService {
+        FakeService {
+            elevated: true,
+            ..fake_service(directory)
         }
     }
 
@@ -711,52 +725,37 @@ mod tests {
         );
     }
 
-    /// A service of an elevated process, whose start must never be reached.
-    struct Elevated;
-
-    impl ServiceManager for Elevated {
-        fn start(&self) -> futures::future::BoxFuture<'_, Result<()>> {
-            Box::pin(async { panic!("an elevated process started the daemon") })
-        }
-
-        fn elevated(&self) -> futures::future::BoxFuture<'_, bool> {
-            Box::pin(async { true })
-        }
-
-        fn output(&self, _: SystemTime) -> futures::future::BoxFuture<'_, Option<String>> {
-            Box::pin(async { None })
-        }
-    }
-
     const REFUSAL: &str = "eco runs without administrator rights, so every window can reach it; run this from a terminal that is not elevated";
 
     #[tokio::test]
     async fn an_elevated_start_starts_no_daemon() {
         let directory = tempfile::tempdir().unwrap();
-        let error = start(&Elevated, &socket_in(&directory), false)
-            .await
-            .unwrap_err();
+        let service = elevated_service(&directory);
+        let error = start(&service, &service.socket, false).await.unwrap_err();
         assert_eq!(error.to_string(), REFUSAL);
+        assert_eq!(service.starts.into_inner(), 0);
     }
 
     #[tokio::test]
     async fn an_elevated_restart_stops_nothing() {
         let directory = tempfile::tempdir().unwrap();
-        let address = socket_in(&directory);
-        fake_daemon(&address, 1, VERSION, true, OnStop::Exit).await;
-        let error = restart(&Elevated, &address).await.unwrap_err();
+        let service = elevated_service(&directory);
+        fake_daemon(&service.socket, 1, VERSION, true, OnStop::Exit).await;
+        let error = restart(&service, &service.socket).await.unwrap_err();
         assert_eq!(error.to_string(), REFUSAL);
-        assert_eq!(status(&address, false, false).await.unwrap(), 0);
+        assert_eq!(status(&service.socket, false, false).await.unwrap(), 0);
+        assert_eq!(service.starts.into_inner(), 0);
     }
 
     #[tokio::test]
     async fn an_elevated_start_keeps_an_old_daemon_running() {
         let directory = tempfile::tempdir().unwrap();
-        let address = socket_in(&directory);
-        fake_daemon(&address, 1, "0.0.1", true, OnStop::Exit).await;
-        let error = start(&Elevated, &address, false).await.unwrap_err();
+        let service = elevated_service(&directory);
+        fake_daemon(&service.socket, 1, "0.0.1", true, OnStop::Exit).await;
+        let error = start(&service, &service.socket, false).await.unwrap_err();
         assert_eq!(error.to_string(), REFUSAL);
-        assert_eq!(status(&address, false, false).await.unwrap(), 0);
+        assert_eq!(status(&service.socket, false, false).await.unwrap(), 0);
+        assert_eq!(service.starts.into_inner(), 0);
     }
 
     /// A service whose daemon never listens and wrote `output`.
