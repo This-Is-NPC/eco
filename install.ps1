@@ -160,6 +160,8 @@ function Receive-File([Net.Http.HttpClient] $client, [Uri] $uri, [string] $path,
             $done = 0L
             $clock = [Diagnostics.Stopwatch]::StartNew()
             $drawn = -1000
+            # Whether a line of progress is on screen without its newline.
+            $open = $false
             while ($true) {
                 $read = $in.ReadAsync($buffer, 0, $buffer.Length)
                 if (-not $read.Wait(60000)) { throw 'nothing came for a minute' }
@@ -169,10 +171,14 @@ function Receive-File([Net.Http.HttpClient] $client, [Uri] $uri, [string] $path,
                 if (-not $quiet -and $clock.ElapsedMilliseconds - $drawn -ge 200) {
                     Show-Progress $done $total $clock.Elapsed.TotalSeconds
                     $drawn = $clock.ElapsedMilliseconds
+                    $open = $true
                 }
             }
-            if (-not $quiet) { Show-Progress $done $total $clock.Elapsed.TotalSeconds; Write-Host '' }
-        } finally { $out.Dispose(); $in.Dispose() }
+            if (-not $quiet) { Show-Progress $done $total $clock.Elapsed.TotalSeconds; $open = $true }
+        } finally {
+            if ($open) { Write-Host '' }
+            $out.Dispose(); $in.Dispose()
+        }
     } finally { $reply.Dispose() }
 }
 
@@ -191,7 +197,6 @@ function Get-Download([string] $url, [string] $path, [switch] $quiet) {
             try { Receive-File $client $uri $path $quiet; return }
             catch {
                 $why = $_.Exception.GetBaseException().Message
-                if (-not $quiet) { Write-Host '' }
                 if ($_.Exception.GetBaseException() -is [InvalidOperationException] -or $try -ge 3) {
                     throw "eco: could not download ${url}: $why"
                 }
