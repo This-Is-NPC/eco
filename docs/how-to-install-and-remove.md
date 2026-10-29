@@ -536,7 +536,13 @@ of the log stays in the file.
 
 **eco does not start at login** on Windows: it runs once you open it, from
 the Start menu entry below or with `eco start`, and keeps running when the
-terminal that ran `eco start` is closed. An earlier eco wrote a
+terminal that ran `eco start` is closed. It does not start from an
+Administrator terminal, so that the Start menu entry and the windows can
+reach the daemon: `eco start` and `eco restart` there fail with `eco runs
+without administrator rights, so every window can reach it; run this from a
+terminal that is not elevated`. If a daemon an earlier eco started elevated
+is running, run `eco stop` from the elevated terminal, then start eco again.
+An earlier eco wrote a
 login script, `eco.cmd`, into your Startup folder; `eco setup` (and so the installer) and the installer's removal remove it and
 say so:
 

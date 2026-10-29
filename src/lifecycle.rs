@@ -138,6 +138,18 @@ async fn open(mut daemon: Daemon) -> Result<&'static str> {
     }
 }
 
+/// Refuse, before anything is stopped or started, when this process is
+/// elevated: a daemon of high integrity cannot be reached by the windows and
+/// the Start menu entry, which are not.
+async fn ensure_unelevated(service: &dyn ServiceManager) -> Result<()> {
+    if service.elevated().await {
+        bail!(
+            "eco runs without administrator rights, so every window can reach it; run this from a terminal that is not elevated"
+        );
+    }
+    Ok(())
+}
+
 /// Start the daemon through `service` and wait for it at `address`.
 async fn launch(service: &dyn ServiceManager, address: &Address) -> Result<Daemon> {
     let since = SystemTime::now();
@@ -172,6 +184,7 @@ async fn current(service: &dyn ServiceManager, address: &Address) -> Result<Opti
     if is_current(&daemon) {
         return Ok(Some(daemon));
     }
+    ensure_unelevated(service).await?;
     let old = daemon.version;
     drop(daemon.stream);
     halt(address).await?;
@@ -189,7 +202,10 @@ pub async fn start(
 ) -> Result<()> {
     let daemon = match current(service, address).await? {
         Some(daemon) => daemon,
-        None => launch(service, address).await?,
+        None => {
+            ensure_unelevated(service).await?;
+            launch(service, address).await?
+        }
     };
     if show_window {
         println!("{}", open(daemon).await?);
@@ -242,6 +258,7 @@ pub async fn stop(address: &Address) -> Result<()> {
 /// Stop the daemon at `address` and start it again through `service`, with its
 /// window open unless the running daemon had it closed.
 pub async fn restart(service: &dyn ServiceManager, address: &Address) -> Result<()> {
+    ensure_unelevated(service).await?;
     let show_window = if socket(address).await?.is_some() {
         connect(address)
             .await
@@ -692,6 +709,54 @@ mod tests {
             error.to_string(),
             "cannot start eco.service: no user manager"
         );
+    }
+
+    /// A service of an elevated process, whose start must never be reached.
+    struct Elevated;
+
+    impl ServiceManager for Elevated {
+        fn start(&self) -> futures::future::BoxFuture<'_, Result<()>> {
+            Box::pin(async { panic!("an elevated process started the daemon") })
+        }
+
+        fn elevated(&self) -> futures::future::BoxFuture<'_, bool> {
+            Box::pin(async { true })
+        }
+
+        fn output(&self, _: SystemTime) -> futures::future::BoxFuture<'_, Option<String>> {
+            Box::pin(async { None })
+        }
+    }
+
+    const REFUSAL: &str = "eco runs without administrator rights, so every window can reach it; run this from a terminal that is not elevated";
+
+    #[tokio::test]
+    async fn an_elevated_start_starts_no_daemon() {
+        let directory = tempfile::tempdir().unwrap();
+        let error = start(&Elevated, &socket_in(&directory), false)
+            .await
+            .unwrap_err();
+        assert_eq!(error.to_string(), REFUSAL);
+    }
+
+    #[tokio::test]
+    async fn an_elevated_restart_stops_nothing() {
+        let directory = tempfile::tempdir().unwrap();
+        let address = socket_in(&directory);
+        fake_daemon(&address, 1, VERSION, true, OnStop::Exit).await;
+        let error = restart(&Elevated, &address).await.unwrap_err();
+        assert_eq!(error.to_string(), REFUSAL);
+        assert_eq!(status(&address, false, false).await.unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn an_elevated_start_keeps_an_old_daemon_running() {
+        let directory = tempfile::tempdir().unwrap();
+        let address = socket_in(&directory);
+        fake_daemon(&address, 1, "0.0.1", true, OnStop::Exit).await;
+        let error = start(&Elevated, &address, false).await.unwrap_err();
+        assert_eq!(error.to_string(), REFUSAL);
+        assert_eq!(status(&address, false, false).await.unwrap(), 0);
     }
 
     /// A service whose daemon never listens and wrote `output`.

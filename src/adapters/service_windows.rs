@@ -6,6 +6,11 @@
 //! the daemon to exit. So `eco start` has PowerShell's `Start-Process` (which
 //! inherits nothing) run `eco detach`, and that one, holding no handle of the
 //! caller's, starts the daemon.
+//!
+//! The daemon never runs elevated: a process of a lower integrity cannot open
+//! the pipe of an elevated one, so a daemon started from an Administrator
+//! terminal would shut out the Start menu entry and every window. An elevated
+//! process, found by the integrity level `whoami` lists, starts none.
 
 use std::fs::File;
 use std::os::windows::process::CommandExt;
@@ -29,6 +34,9 @@ pub const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 /// needs no quoting inside the script.
 const PROGRAM: &str = "ECO_PROGRAM";
 
+/// The mandatory level SID `whoami /groups` lists for an elevated process.
+const HIGH_INTEGRITY: &str = "S-1-16-12288";
+
 pub struct BackgroundProcess;
 
 impl ServiceManager for BackgroundProcess {
@@ -49,10 +57,32 @@ impl ServiceManager for BackgroundProcess {
         })
     }
 
+    fn elevated(&self) -> BoxFuture<'_, bool> {
+        Box::pin(async {
+            let output = tokio::process::Command::from(whoami()).output().await;
+            output.is_ok_and(|output| is_elevated(&String::from_utf8_lossy(&output.stdout)))
+        })
+    }
+
     /// The daemon log, which each start empties: all of it is the last start's.
     fn output(&self, _: SystemTime) -> BoxFuture<'_, Option<String>> {
         Box::pin(async { read_log(&paths::daemon_log()) })
     }
+}
+
+/// `whoami` listing the groups of this process's token.
+fn whoami() -> Command {
+    let mut command = Command::new("whoami");
+    command
+        .arg("/groups")
+        .stdin(Stdio::null())
+        .creation_flags(CREATE_NO_WINDOW);
+    command
+}
+
+/// Whether the `whoami /groups` listing holds the high mandatory level.
+fn is_elevated(groups: &str) -> bool {
+    groups.contains(HIGH_INTEGRITY)
 }
 
 /// The text of the daemon log at `log`, when there is one.
@@ -119,6 +149,25 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use super::*;
+
+    #[test]
+    fn whoami_lists_the_groups() {
+        let built = whoami();
+        let args: Vec<_> = built.get_args().collect();
+        assert_eq!(built.get_program(), "whoami");
+        assert_eq!(args, ["/groups"]);
+    }
+
+    #[test]
+    fn the_integrity_level_tells_elevation() {
+        let elevated =
+            "Mandatory Label\\High Mandatory Level  Label  S-1-16-12288  Mandatory group\r\n";
+        let limited =
+            "Mandatory Label\\Medium Mandatory Level  Label  S-1-16-8192  Mandatory group\r\n";
+        assert!(is_elevated(elevated));
+        assert!(!is_elevated(limited));
+        assert!(!is_elevated(""));
+    }
 
     #[test]
     fn the_daemon_runs_headless() {

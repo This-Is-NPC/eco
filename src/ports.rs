@@ -256,6 +256,11 @@ pub trait Hooks: Send + Sync {
 pub trait ServiceManager: Send + Sync {
     /// Start the service, with the graphical session it has to reach.
     fn start(&self) -> BoxFuture<'_, anyhow::Result<()>>;
+    /// Whether this process runs with administrator rights, which a daemon
+    /// to start must not have. Only Windows has such a thing.
+    fn elevated(&self) -> BoxFuture<'_, bool> {
+        Box::pin(async { false })
+    }
     /// What the daemons it started at or after `since` wrote, read when one
     /// did not come up; `None` when there is nothing to read.
     fn output(&self, since: std::time::SystemTime) -> BoxFuture<'_, Option<String>>;

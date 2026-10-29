@@ -811,6 +811,15 @@ and administrators (§15).
 | the launcher `eco.desktop` the package installs | `%APPDATA%\Microsoft\Windows\Start Menu\Programs\eco.lnk`, written by `eco setup`: it runs `eco start` through `conhost.exe --headless`, with the icon of `eco-window.exe` |
 | the icon `eco` the package installs, which names `notify-send`'s notifications | the registry key `HKCU\Software\Classes\AppUserModelId\This-Is-NPC.eco`, written by `eco setup` and by the daemon before a notification: `DisplayName` `eco`, `IconUri` the installed `share\eco\eco.ico` |
 
+On Windows eco does not start from an elevated (Administrator) terminal: a
+process of a lower integrity cannot open the pipe of an elevated one, so a
+daemon started there would shut out the Start menu entry, the windows and the
+shortcuts. `eco start` that has to start a daemon, and `eco restart`, find
+the elevation with `whoami /groups` (the high mandatory level,
+`S-1-16-12288`) and fail before stopping or starting anything; `eco stop`
+still works elevated, which removes a daemon an older eco started elevated.
+An unelevated client denied the pipe says so.
+
 A session log holds `session`, `state`, `speech`, `suggestion`, `removed`,
 `meta`, `speaker`, `diarized`, `voiced`, `person`, `attendee`, `unheard`, `edited`,
 `merged`, `split`, `line_person`, `transcriber`, `listening`, `billed`, `spent`, `tags` records, and also
