@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.10.0](https://github.com/This-Is-NPC/eco/compare/v0.9.1...v0.10.0) (2026-10-29)
+
+
+### Features
+
+* **desktop:** open eco from the start menu without a console ([8d00ef5](https://github.com/This-Is-NPC/eco/commit/8d00ef54d9b9174d57d90dce044fb5e0a8487169))
+* **paths:** use the models the package ships ([6a3478d](https://github.com/This-Is-NPC/eco/commit/6a3478dbb9cdccf89b1c5c74d12a2f8af81dd331))
+* **update:** install windows updates through the msi ([4f767f1](https://github.com/This-Is-NPC/eco/commit/4f767f1be246f6dec6af0586b8bd83cd1f250843))
+* **windows:** install eco as a per-machine msi ([ce5b78e](https://github.com/This-Is-NPC/eco/commit/ce5b78ea97f775a81346fefe3489cb965f3c3a8d))
+
+
+### Bug Fixes
+
+* **service:** start the daemon from eco, not the launcher ([4c8a05d](https://github.com/This-Is-NPC/eco/commit/4c8a05d090f114d0bf65c6708b3fe34d6cf4632c))
+* **update:** hold and recheck the msi before windows installs it ([07accac](https://github.com/This-Is-NPC/eco/commit/07accac6bc97f82c3781c34a317f9086cac33d7f))
+* **update:** mark the install variants each platform leaves unused ([ca016ae](https://github.com/This-Is-NPC/eco/commit/ca016ae7ffd8027be4b4aaef9945d4ce8206ed0c))
+
 ## [0.9.1](https://github.com/This-Is-NPC/eco/compare/v0.9.0...v0.9.1) (2026-10-29)
 
 
