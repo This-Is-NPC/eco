@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.9.0](https://github.com/This-Is-NPC/eco/compare/v0.8.0...v0.9.0) (2026-10-29)
+
+
+### Features
+
+* **models:** make the first model of each type its default ([8a2d543](https://github.com/This-Is-NPC/eco/commit/8a2d5439eec7cf2d33b8d1f4cca52f3aeda404ad))
+
+
+### Bug Fixes
+
+* **kit:** keep hairlines out of their own clip ([3d80eac](https://github.com/This-Is-NPC/eco/commit/3d80eaca39cbf0854c8318b33a0f31f1f101da29))
+* **service:** refuse to start the daemon elevated ([2a971b0](https://github.com/This-Is-NPC/eco/commit/2a971b0ba6e84bd62c48f04ffcdfec48f955a105))
+* **shortcuts:** treat taken shortcuts as optional ([aa9944d](https://github.com/This-Is-NPC/eco/commit/aa9944d28a4707d6f7304e3b7ad23c617d2af219))
+* **update:** restart into the installed eco ([bdeba31](https://github.com/This-Is-NPC/eco/commit/bdeba311222859e680c1ae17da898d7591a0568c))
+* **windows:** fix update, borders, elevated start, shortcuts and model defaults ([f68248a](https://github.com/This-Is-NPC/eco/commit/f68248a834ade6438e97e76aba38874472f25dee))
+
 ## [0.8.0](https://github.com/This-Is-NPC/eco/compare/v0.7.0...v0.8.0) (2026-10-20)
 
 
