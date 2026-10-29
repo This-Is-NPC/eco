@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Take eco off Windows through install.ps1 (ECO_UNINSTALL): stop it, then
-remove the eco folder in %LOCALAPPDATA%\\Programs, its PATH entry, the
-Start-menu shortcut, the registry key that names its notifications and the
-login script an older eco wrote.
+remove the MSI install in C:\\Program Files\\eco and, if one is there, the
+per-user install of eco 0.9 and earlier (its folder in
+%LOCALAPPDATA%\\Programs, PATH entry, Start-menu shortcut, notification key
+and login script).
 --delete-everything also deletes %APPDATA%\\eco and %LOCALAPPDATA%\\eco
 (config, sessions, people, models, log); --keep-data keeps them. With
 neither, it asks."""

@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The per-machine installer of eco: the eco folder scripts/lib/windows.py
+     stages (docs/design.md §13) in Program Files. Built by scripts/package with
+     `wix build -d Version=<version> -d Payload=<staged eco folder>`. -->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="eco" Manufacturer="This-Is-NPC" Version="$(Version)"
+           UpgradeCode="EC6067BB-4AE9-4825-BC57-54E27873C957" Scope="perMachine">
+    <MajorUpgrade DowngradeErrorMessage="A newer eco is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Icon Id="EcoIcon.exe" SourceFile="$(Payload)\lib\eco\eco-window.exe" />
+    <Property Id="ARPPRODUCTICON" Value="EcoIcon.exe" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="eco">
+        <Files Include="$(Payload)\**">
+          <Exclude Files="$(Payload)\lib\eco\**" />
+        </Files>
+        <Directory Id="LibFolder" Name="lib">
+          <Directory Id="LauncherFolder" Name="eco">
+            <Files Include="$(Payload)\lib\eco\**" />
+          </Directory>
+        </Directory>
+
+        <!-- eco on every user's PATH. -->
+        <Component Id="PathEntry" Guid="*">
+          <Environment Id="EcoPath" Name="PATH" Value="[INSTALLFOLDER]bin" Part="last"
+                       Action="set" System="yes" />
+          <RegistryValue Root="HKMU" Key="Software\This-Is-NPC\eco" Name="Path" Type="integer"
+                         Value="1" KeyPath="yes" />
+        </Component>
+
+        <!-- The name and icon of eco's notifications, for every user. -->
+        <Component Id="ToastName" Guid="*">
+          <RegistryKey Root="HKLM" Key="Software\Classes\AppUserModelId\This-Is-NPC.eco">
+            <RegistryValue Name="DisplayName" Type="string" Value="eco" KeyPath="yes" />
+            <RegistryValue Name="IconUri" Type="string" Value="[INSTALLFOLDER]share\eco\eco.ico" />
+          </RegistryKey>
+        </Component>
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Component Id="StartMenuEntry" Guid="*">
+        <Shortcut Id="EcoShortcut" Name="eco" Description="eco"
+                  Target="[LauncherFolder]eco-launch.exe" WorkingDirectory="LauncherFolder"
+                  Icon="EcoIcon.exe" />
+        <RegistryValue Root="HKMU" Key="Software\This-Is-NPC\eco" Name="StartMenu" Type="integer"
+                       Value="1" KeyPath="yes" />
+      </Component>
+    </StandardDirectory>
+  </Package>
+</Wix>

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Install the release build of eco from this checkout on Windows, for the
-user who runs it: install.ps1, the installer of a release, run on the zip and
-SHA256SUMS `mise run package` wrote into dist. It stops a running eco, puts
-the zip's eco folder in %LOCALAPPDATA%\\Programs\\eco, its bin on the user's
-PATH, runs `eco setup` and starts again a daemon that was running.
-Idempotent: each install replaces the last; sessions, config and models
-stay."""
+machine: install.ps1, the installer of a release, run on the MSI and
+SHA256SUMS `mise run package` wrote into dist. It removes an older per-user
+install, stops a running eco, installs the MSI in C:\\Program Files\\eco for
+every user (Windows asks for administrator rights) and starts again a daemon
+that was running. Idempotent: each install replaces the last; sessions,
+config and models stay."""
 
 import os
 import sys

@@ -5,6 +5,7 @@ edition = "2024"
 description = "Real-time meeting assistant for Omarchy"
 license = "MIT"
 publish = false
+default-run = "eco"
 
 [dependencies]
 anyhow = "1"
@@ -46,6 +47,8 @@ windows-hotkeys = { version = "0.2.1", default-features = false }
 windows = { version = "0.62.2", features = ["Data_Xml_Dom", "UI_Notifications"] }
 # The registry key that names eco's toasts, through a safe interface.
 windows-registry = "0.6.1"
+# ShellExecuteEx, which starts the daemon through the shell, through a safe interface.
+winsafe = { version = "0.0.29", default-features = false, features = ["advapi", "shell"] }
 
 [lints.rust]
 unsafe_code = "forbid"

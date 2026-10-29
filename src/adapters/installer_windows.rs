@@ -1,246 +1,284 @@
-//! The folder install.ps1 fills, `%LOCALAPPDATA%\Programs\eco`: a release's
-//! Windows zip unpacked beside it and moved in, file by file. Windows lets no
-//! one overwrite or delete a program that runs or a library one loaded — the
-//! daemon's own eco.exe, the windows' Qt — but lets them be renamed: each file
-//! in the way is renamed aside, `<name>.<id>.eco-old`, and deleted at once
-//! when nothing holds it, else by `tidy` the next time the daemon starts. The
-//! folder keeps its path, so the Start-menu entry and the PATH stay as they are.
+//! The Windows Installer package of a release, `eco-<version>-windows-x86_64.msi`,
+//! installed per machine in `%ProgramFiles%\eco`. Windows Installer cannot
+//! replace the files of an eco that runs, so the package is downloaded and
+//! checked while eco runs, then `eco apply-update` does the rest from a copy
+//! of eco outside the install: it stops the daemon, runs `msiexec` unelevated
+//! (Windows Installer asks for the elevation itself), and starts eco again.
+//! The shell starts that copy (`ShellExecuteEx`), so it shares no handle with
+//! the caller, whose output a terminal would otherwise wait on.
+//!
+//! The package waits in a folder of the user's, which any program of theirs
+//! may write, and Windows Installer runs it elevated. So the apply step is
+//! handed its SHA-256 too, opens the package so that no one may write, move or
+//! delete it while it is open, checks it again, and holds it until `msiexec`
+//! has ended.
 
 use std::ffi::OsString;
-use std::fs;
+use std::fs::{self, File};
+use std::io;
+use std::os::windows::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::time::{Duration, Instant};
 
 use futures::future::BoxFuture;
+use sha2::{Digest, Sha256};
 use tokio::process::Command;
 
-use crate::installer::{self, Scratch};
-use crate::ports::{InstallError, InstallProgress, InstallStage, Installer};
+use crate::adapters::control_socket::Address;
+use crate::adapters::notify_windows::Toasts;
+use crate::adapters::service_windows::{CREATE_NO_WINDOW, hidden};
+use crate::apply::{self, Steps};
+use crate::installer::{self, SCRATCH, Scratch};
+use crate::lifecycle;
+use crate::ports::{
+    InstallError, InstallProgress, Installed, Installer, Notifier, Pending, Urgency,
+};
 
-/// What ends the name of a file moved aside.
-const ASIDE: &str = ".eco-old";
+/// What `msiexec` exits with when the install worked but Windows asks for a
+/// restart, which eco does not need.
+const REBOOT_PENDING: i32 = 3010;
 
-/// How long a file another program has open is waited for, as install.ps1 waits.
-const PATIENCE: Duration = Duration::from_secs(5);
+/// What `msiexec` exits with when the user closed its window
+/// (`ERROR_INSTALL_USEREXIT`) or dismissed the elevation prompt
+/// (`ERROR_CANCELLED`).
+const CANCELLED: [i32; 2] = [1602, 1223];
 
-/// Windows' ERROR_SHARING_VIOLATION: another program has the file open.
-const SHARING_VIOLATION: i32 = 32;
+/// What `msiexec` exits with while another installation runs
+/// (`ERROR_INSTALL_ALREADY_RUNNING`).
+const BUSY: i32 = 1618;
 
-#[derive(Clone)]
-pub struct Folder {
+/// The sharing a held package allows others: reading, as `msiexec` does, and
+/// no writing, renaming or deleting (`FILE_SHARE_READ`).
+const SHARE_READ: u32 = 0x1;
+
+/// The name of the copy of eco that applies an update, beside the package.
+const COPY: &str = "eco.exe";
+
+/// The installed eco: `%ProgramFiles%\eco\bin\eco.exe`, where the package puts
+/// it, whichever eco asks.
+fn installed_program() -> PathBuf {
+    std::env::var_os("ProgramFiles")
+        .map_or_else(|| PathBuf::from(r"C:\Program Files"), PathBuf::from)
+        .join(r"eco\bin\eco.exe")
+}
+
+pub struct Msi {
     /// Where the release files are, under each tag.
     downloads: String,
-    /// The installed eco: `%LOCALAPPDATA%\Programs\eco`.
-    install: PathBuf,
-    /// Windows' own tar, which unpacks zip files.
-    tar: PathBuf,
+    /// Where a package is downloaded to, in a folder of its own.
+    scratch: PathBuf,
 }
 
-impl Folder {
+impl Msi {
     pub fn new(downloads: &str) -> Self {
-        let var = |name: &str| std::env::var_os(name).map(PathBuf::from);
         Self {
             downloads: downloads.into(),
-            install: var("LOCALAPPDATA")
-                .unwrap_or_default()
-                .join(r"Programs\eco"),
-            tar: var("SystemRoot")
-                .unwrap_or_else(|| PathBuf::from(r"C:\Windows"))
-                .join(r"System32\tar.exe"),
+            scratch: std::env::temp_dir(),
         }
-    }
-
-    /// Delete the files an earlier update moved aside, and the folders left empty.
-    pub fn tidy(&self) {
-        for file in files(&self.install) {
-            if is_aside(&file) {
-                let _ = fs::remove_file(&file);
-            }
-        }
-        prune(&self.install);
     }
 }
 
-/// The Windows zip of a release, as install.ps1 picks it:
-/// `eco-<version>…-windows-x86_64.zip`.
+/// The Windows package of a release, as install.ps1 picks it:
+/// `eco-<version>…-windows-x86_64.msi`.
 fn is_package(name: &str) -> bool {
     name.strip_prefix("eco-")
-        .and_then(|rest| rest.strip_suffix("-windows-x86_64.zip"))
+        .and_then(|rest| rest.strip_suffix("-windows-x86_64.msi"))
         .is_some_and(|version| {
             version.starts_with(|c: char| c.is_ascii_digit()) && !version.contains(' ')
         })
 }
 
-/// What tar runs with to unpack `zip` into `into`.
-fn arguments(zip: &Path, into: &Path) -> Vec<OsString> {
-    let mut arguments: Vec<OsString> = vec!["-x".into(), "-f".into(), zip.into()];
-    arguments.extend(["-C".into(), into.into()]);
-    arguments
+/// What `msiexec` runs with to install `msi`: basic UI, which shows progress
+/// and asks for the elevation, and no restart.
+fn arguments(msi: &Path) -> Vec<OsString> {
+    vec!["/i".into(), msi.into(), "/qb".into(), "/norestart".into()]
 }
 
-fn is_aside(file: &Path) -> bool {
-    file.to_string_lossy().ends_with(ASIDE)
+/// What `msiexec` ending with `code` means for the install.
+fn outcome(code: Option<i32>) -> Result<(), InstallError> {
+    let failed = |why: String| Err(InstallError(why));
+    match code {
+        Some(0 | REBOOT_PENDING) => Ok(()),
+        Some(code) if CANCELLED.contains(&code) => failed("the installation was cancelled".into()),
+        Some(BUSY) => failed("another installation is running; try again once it ends".into()),
+        Some(code) => failed(format!("the installer failed with exit code {code}")),
+        None => failed("the installer ended without an exit code".into()),
+    }
 }
 
-/// Every file under `directory`, in its folders too; none when it is not there.
-fn files(directory: &Path) -> Vec<PathBuf> {
-    let Ok(entries) = fs::read_dir(directory) else {
-        return Vec::new();
-    };
-    let mut found = Vec::new();
-    for entry in entries.flatten() {
-        let path = entry.path();
-        match entry.file_type() {
-            Ok(kind) if kind.is_dir() => found.extend(files(&path)),
-            Ok(_) => found.push(path),
-            Err(_) => {}
+/// The parameters that run `eco apply-update` on `msi`, whose SHA-256 is
+/// `sha256`.
+fn parameters(msi: &Path, sha256: &[u8; 32]) -> String {
+    format!("apply-update \"{}\" {}", msi.display(), hex(sha256))
+}
+
+/// The 64 lower-case hex digits of `digest`, as SHA256SUMS writes them.
+fn hex(digest: &[u8; 32]) -> String {
+    digest.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+/// The SHA-256 of what `reader` holds, read to its end.
+fn sha256_of(mut reader: impl std::io::Read) -> std::io::Result<[u8; 32]> {
+    let mut hash = Sha256::new();
+    let mut buffer = [0u8; 64 * 1024];
+    loop {
+        match reader.read(&mut buffer)? {
+            0 => break,
+            read => hash.update(&buffer[..read]),
         }
     }
-    found
+    let mut digest = [0u8; 32];
+    digest.copy_from_slice(&hash.finalize());
+    Ok(digest)
 }
 
-/// Delete the empty folders under `directory`, never `directory` itself.
-fn prune(directory: &Path) {
-    let Ok(entries) = fs::read_dir(directory) else {
+/// `package`, opened so that it stays as it is while it is held, once it is
+/// checked to have the SHA-256 `sha256`.
+fn hold(package: &Path, sha256: &[u8; 32]) -> Result<File, InstallError> {
+    let name = package.display();
+    let file = fs::OpenOptions::new()
+        .read(true)
+        .share_mode(SHARE_READ)
+        .open(package)
+        .map_err(|error| InstallError(format!("cannot open {name}: {error}")))?;
+    let found =
+        sha256_of(&file).map_err(|error| InstallError(format!("cannot read {name}: {error}")))?;
+    if found != *sha256 {
+        return Err(InstallError(format!(
+            "{name} changed after it was checked; nothing was installed"
+        )));
+    }
+    Ok(file)
+}
+
+/// Delete the folders of earlier updates under `temp`: the copy of eco that
+/// applied one cannot be deleted while it runs, so the next daemon start does.
+pub fn tidy(temp: &Path) {
+    let Ok(entries) = fs::read_dir(temp) else {
         return;
     };
     for entry in entries.flatten() {
-        if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
-            let path = entry.path();
-            prune(&path);
-            // Fails while it holds anything, which is kept.
-            let _ = fs::remove_dir(&path);
+        if entry.file_name().to_string_lossy().starts_with(SCRATCH) {
+            let _ = fs::remove_dir_all(entry.path());
         }
     }
 }
 
-/// Rename `from` to `to`, tried again while another program has `from` open
-/// for a moment — a window reading a language pack it watches, a virus scan —
-/// for up to `PATIENCE`.
-fn rename(from: &Path, to: &Path) -> std::io::Result<()> {
-    let start = Instant::now();
-    loop {
-        match fs::rename(from, to) {
-            Err(error)
-                if error.raw_os_error() == Some(SHARING_VIOLATION)
-                    && start.elapsed() < PATIENCE =>
-            {
-                std::thread::sleep(Duration::from_millis(50));
-            }
-            done => return done,
-        }
+/// A downloaded, verified package waiting for eco to stop.
+#[derive(Debug)]
+struct Package {
+    msi: PathBuf,
+    sha256: [u8; 32],
+}
+
+impl Pending for Package {
+    fn hand_off(&self) -> io::Result<()> {
+        let copy = self.msi.with_file_name(COPY);
+        fs::copy(std::env::current_exe()?, &copy)?;
+        hidden(&copy, &parameters(&self.msi, &self.sha256)).map_err(io::Error::other)
     }
 }
 
-/// Put back each file moved aside, as `(file, moved)`.
-fn restore(aside: &[(PathBuf, PathBuf)]) {
-    for (file, moved) in aside.iter().rev() {
-        let _ = rename(moved, file);
-    }
-}
-
-/// Make `install` hold the files under `staged`: every file there moved aside
-/// first, then each staged file moved in. A failure puts back what was there.
-/// What was moved aside is deleted unless something still holds it.
-fn replace(staged: &Path, install: &Path) -> Result<(), InstallError> {
-    let failed = |doing: &str, path: &Path, error: std::io::Error| {
-        InstallError(format!("cannot {doing} {}: {error}", path.display()))
-    };
-    let id = uuid::Uuid::new_v4().simple().to_string();
-    let mut aside = Vec::new();
-    for file in files(install).into_iter().filter(|file| !is_aside(file)) {
-        let mut moved = file.clone().into_os_string();
-        moved.push(format!(".{id}{ASIDE}"));
-        let moved = PathBuf::from(moved);
-        if let Err(error) = rename(&file, &moved) {
-            restore(&aside);
-            return Err(failed("move aside", &file, error));
-        }
-        aside.push((file, moved));
-    }
-    let mut placed = Vec::new();
-    for file in files(staged) {
-        let target = install.join(file.strip_prefix(staged).expect("found under staged"));
-        let moved = target
-            .parent()
-            .map_or(Ok(()), fs::create_dir_all)
-            .and_then(|()| rename(&file, &target));
-        if let Err(error) = moved {
-            for placed in &placed {
-                let _ = fs::remove_file(placed);
-            }
-            restore(&aside);
-            return Err(failed("install", &target, error));
-        }
-        placed.push(target);
-    }
-    for (_, moved) in &aside {
-        let _ = fs::remove_file(moved);
-    }
-    prune(install);
-    Ok(())
-}
-
-impl Installer for Folder {
+impl Installer for Msi {
     fn program(&self) -> PathBuf {
-        self.install.join(r"bin\eco.exe")
+        installed_program()
     }
 
     fn install(
         &self,
         tag: String,
         progress: InstallProgress,
-    ) -> BoxFuture<'static, Result<(), InstallError>> {
-        let folder = self.clone();
+    ) -> BoxFuture<'static, Result<Installed, InstallError>> {
+        let downloads = self.downloads.clone();
+        let parent = self.scratch.clone();
         Box::pin(async move {
-            // Beside the install, so every file moves in by a rename.
-            let parent = folder
-                .install
-                .parent()
-                .ok_or_else(|| InstallError("LOCALAPPDATA is not set".into()))?;
-            let scratch = Scratch::new(parent)?;
-            let zip = installer::fetch(
-                &folder.downloads,
-                &tag,
-                is_package,
-                scratch.path(),
-                &progress,
-            )
-            .await?;
-            progress(InstallStage::Installing);
-            let unpacked = scratch.path().join("unpacked");
-            fs::create_dir(&unpacked)
-                .map_err(|error| InstallError(format!("cannot unpack {tag}: {error}")))?;
-            let output = Command::new(&folder.tar)
-                .args(arguments(&zip, &unpacked))
-                .stdin(Stdio::null())
-                .output()
-                .await
-                .map_err(|error| {
-                    InstallError(format!("cannot run {}: {error}", folder.tar.display()))
-                })?;
-            if !output.status.success() {
-                let said = String::from_utf8_lossy(&output.stderr);
-                let last = said.lines().rfind(|line| !line.trim().is_empty());
-                return Err(InstallError(format!(
-                    "cannot unpack {tag}: {}",
-                    last.unwrap_or("tar failed").trim()
-                )));
-            }
-            // The zip holds one folder, eco, laid out as the install.
-            let staged = unpacked.join("eco");
-            if !staged.join(r"bin\eco.exe").is_file() {
-                return Err(InstallError(format!(
-                    "the zip of {tag} holds no eco\\bin\\eco.exe; nothing was installed"
-                )));
-            }
-            let install = folder.install.clone();
-            tokio::task::spawn_blocking(move || replace(&staged, &install))
-                .await
-                .map_err(|error| InstallError(error.to_string()))?
+            let scratch = Scratch::new(&parent)?;
+            let fetched =
+                installer::fetch(&downloads, &tag, is_package, scratch.path(), &progress).await?;
+            scratch.keep();
+            Ok(Installed::Pending(Box::new(Package {
+                msi: fetched.path,
+                sha256: fetched.sha256,
+            })))
         })
     }
+}
+
+/// The apply step on this machine: the daemon of the user, the installed eco,
+/// Windows Installer, and toasts for what goes wrong.
+struct Applying {
+    address: Address,
+    /// The SHA-256 the package was checked to have.
+    sha256: [u8; 32],
+    program: PathBuf,
+    msiexec: PathBuf,
+    toasts: Toasts,
+}
+
+impl Applying {
+    fn new(sha256: [u8; 32]) -> Self {
+        let system = std::env::var_os("SystemRoot").unwrap_or_else(|| r"C:\Windows".into());
+        Self {
+            address: Address::user(),
+            sha256,
+            program: installed_program(),
+            msiexec: PathBuf::from(system).join(r"System32\msiexec.exe"),
+            toasts: Toasts::default(),
+        }
+    }
+}
+
+impl Steps for Applying {
+    fn stop(&self) -> BoxFuture<'_, Result<Option<bool>, InstallError>> {
+        Box::pin(async {
+            lifecycle::shut(&self.address)
+                .await
+                .map_err(|error| InstallError(format!("{error:#}")))
+        })
+    }
+
+    fn install(&self, package: &Path) -> BoxFuture<'_, Result<(), InstallError>> {
+        let package = package.to_path_buf();
+        Box::pin(async move {
+            // Held until msiexec has ended: what it installs is what was checked.
+            let _held = hold(&package, &self.sha256)?;
+            let status = Command::new(&self.msiexec)
+                .args(arguments(&package))
+                .stdin(Stdio::null())
+                .creation_flags(CREATE_NO_WINDOW)
+                .status()
+                .await
+                .map_err(|error| {
+                    InstallError(format!("cannot run {}: {error}", self.msiexec.display()))
+                })?;
+            outcome(status.code())
+        })
+    }
+
+    fn start(&self, window: bool) -> BoxFuture<'_, Result<(), InstallError>> {
+        let program = self.program.clone();
+        let parameters = if window { "start" } else { "start --headless" };
+        Box::pin(async move {
+            tokio::task::spawn_blocking(move || hidden(&program, parameters))
+                .await
+                .map_err(|error| InstallError(error.to_string()))?
+                .map_err(|error| InstallError(error.to_string()))
+        })
+    }
+
+    fn tell(&self, message: &str) {
+        self.toasts.notify("eco", message, Urgency::Critical);
+    }
+
+    fn discard(&self, package: &Path) {
+        let _ = fs::remove_file(package);
+    }
+}
+
+/// `eco apply-update`: install `package`, which has the SHA-256 `sha256`, with
+/// the daemon stopped.
+pub async fn apply(package: &Path, sha256: [u8; 32]) {
+    apply::run(&Applying::new(sha256), package).await;
 }
 
 #[cfg(test)]
@@ -250,157 +288,155 @@ mod tests {
 
     /// The SHA-256 of `abc`.
     const ABC: &str = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
-    const ZIP: &str = "eco-0.5.0-windows-x86_64.zip";
+    const MSI: &str = "eco-0.5.0-windows-x86_64.msi";
 
-    fn write(path: &Path, text: &str) {
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(path, text).unwrap();
+    #[test]
+    fn the_package_is_the_msi_of_the_windows_release() {
+        assert!(is_package(MSI));
+        assert!(is_package("eco-0.5.0-rc.1-windows-x86_64.msi"));
+        for name in [
+            "eco-0.5.0-windows-x86_64.zip",
+            "eco-0.5.0-1-x86_64.pkg.tar.zst",
+            "eco-windows-x86_64.msi",
+            "eco-v0.5.0-windows-x86_64.msi",
+            "eco-0.5.0 -windows-x86_64.msi",
+            "eco-0.5.0-windows-aarch64.msi",
+            "other-0.5.0-windows-x86_64.msi",
+        ] {
+            assert!(!is_package(name), "{name}");
+        }
     }
 
     #[test]
-    fn the_zip_is_the_one_install_ps1_takes() {
-        assert!(is_package(ZIP));
-        assert!(!is_package("eco-0.5.0-1-x86_64.pkg.tar.zst"));
-        assert!(!is_package("eco-windows-x86_64.zip"));
+    fn the_installer_shows_its_progress_and_never_restarts() {
         assert_eq!(
-            arguments(Path::new(r"C:\t\e.zip"), Path::new(r"C:\t\u")),
-            ["-x", "-f", r"C:\t\e.zip", "-C", r"C:\t\u"].map(OsString::from)
+            arguments(Path::new(r"C:\Temp\eco.msi")),
+            ["/i", r"C:\Temp\eco.msi", "/qb", "/norestart"]
         );
     }
 
     #[test]
-    fn the_new_files_take_the_place_of_the_old_ones() {
-        let directory = tempfile::tempdir().unwrap();
-        let install = directory.path().join("eco");
-        let staged = directory.path().join("staged");
-        write(&install.join(r"bin\eco.exe"), "old");
-        write(&install.join(r"lib\eco\gone.dll"), "old");
-        write(&staged.join(r"bin\eco.exe"), "new");
-        write(&staged.join(r"share\eco\overlay\shell.qml"), "new");
-        replace(&staged, &install).unwrap();
+    fn the_exit_code_tells_whether_it_installed() {
+        assert!(outcome(Some(0)).is_ok());
+        assert!(outcome(Some(3010)).is_ok());
+        for (code, why) in [
+            (1602, "the installation was cancelled"),
+            (1223, "the installation was cancelled"),
+            (
+                1618,
+                "another installation is running; try again once it ends",
+            ),
+            (1603, "the installer failed with exit code 1603"),
+        ] {
+            assert_eq!(outcome(Some(code)).unwrap_err().0, why, "{code}");
+        }
         assert_eq!(
-            fs::read_to_string(install.join(r"bin\eco.exe")).unwrap(),
-            "new"
+            outcome(None).unwrap_err().0,
+            "the installer ended without an exit code"
         );
-        assert!(install.join(r"share\eco\overlay\shell.qml").is_file());
-        assert!(!install.join("lib").exists());
-        assert!(files(&install).iter().all(|file| !is_aside(file)));
     }
 
     #[test]
-    fn a_file_another_program_holds_for_a_moment_is_waited_for() {
-        use std::os::windows::fs::OpenOptionsExt;
-        let directory = tempfile::tempdir().unwrap();
-        let install = directory.path().join("eco");
-        let staged = directory.path().join("staged");
-        let pack = install.join(r"share\eco\overlay\Eco\Core\i18n\pt-BR.json");
-        write(&pack, "old");
-        write(
-            &staged.join(r"share\eco\overlay\Eco\Core\i18n\pt-BR.json"),
-            "new",
-        );
-        // Open as Qt opens a file it reads: shared for reading and writing, not
-        // for deleting, which a rename needs.
-        let held = fs::OpenOptions::new()
-            .read(true)
-            .share_mode(0x1 | 0x2)
-            .open(&pack)
-            .unwrap();
-        let reader = std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(300));
-            drop(held);
-        });
-        let replaced = replace(&staged, &install);
-        reader.join().unwrap();
-        replaced.unwrap();
-        assert_eq!(fs::read_to_string(&pack).unwrap(), "new");
-        assert!(files(&install).iter().all(|file| !is_aside(file)));
-    }
-
-    /// What the copy below runs: it lasts until its stdin closes.
-    #[test]
-    #[ignore = "run by a_running_program_is_moved_aside_and_tidied_next_time"]
-    fn lasts_until_stdin_closes() {
-        let _ = std::io::Read::read_to_end(&mut std::io::stdin(), &mut Vec::new());
-    }
-
-    #[test]
-    fn a_running_program_is_moved_aside_and_tidied_next_time() {
-        let directory = tempfile::tempdir().unwrap();
-        let install = directory.path().join("eco");
-        let staged = directory.path().join("staged");
-        // A copy of this test's own executable, running from the install.
-        let program = install.join(r"bin\eco.exe");
-        fs::create_dir_all(program.parent().unwrap()).unwrap();
-        fs::copy(std::env::current_exe().unwrap(), &program).unwrap();
-        let mut running = std::process::Command::new(&program)
-            .args(["--ignored", "--exact"])
-            .arg("adapters::installer_windows::tests::lasts_until_stdin_closes")
-            .stdin(Stdio::piped())
-            .stdout(Stdio::null())
-            .spawn()
-            .unwrap();
-        write(&staged.join(r"bin\eco.exe"), "new");
-        let replaced = replace(&staged, &install);
-        let aside: Vec<PathBuf> = files(&install)
-            .into_iter()
-            .filter(|f| is_aside(f))
-            .collect();
-        drop(running.stdin.take());
-        running.wait().unwrap();
-        replaced.unwrap();
-        assert_eq!(fs::read_to_string(&program).unwrap(), "new");
-        // Running, it could not be deleted: it waits aside for the next start.
-        assert_eq!(aside.len(), 1, "{aside:?}");
-        let folder = Folder {
-            downloads: String::new(),
-            install: install.clone(),
-            tar: PathBuf::new(),
-        };
-        folder.tidy();
-        assert_eq!(files(&install), [program]);
-    }
-
-    #[test]
-    fn the_program_is_the_eco_in_the_install_bin() {
-        let folder = Folder {
-            downloads: String::new(),
-            install: PathBuf::from(r"C:\Users\a\AppData\Local\Programs\eco"),
-            tar: PathBuf::new(),
-        };
+    fn the_copy_is_told_the_quoted_package_and_its_checksum() {
+        let sha256 = installer::checksum(ABC).unwrap();
         assert_eq!(
-            folder.program(),
-            PathBuf::from(r"C:\Users\a\AppData\Local\Programs\eco\bin\eco.exe")
+            parameters(Path::new(r"C:\Users\Zoe Lima\eco.msi"), &sha256),
+            format!(r#"apply-update "C:\Users\Zoe Lima\eco.msi" {ABC}"#)
         );
+    }
+
+    #[test]
+    fn a_digest_reads_back_as_its_hex_and_a_file_hashes_to_it() {
+        let digest = sha256_of(&b"abc"[..]).unwrap();
+        assert_eq!(hex(&digest), ABC);
+        assert_eq!(installer::checksum(&hex(&digest)), Some(digest));
+    }
+
+    #[test]
+    fn a_held_package_cannot_be_written_moved_or_deleted() {
+        let directory = tempfile::tempdir().unwrap();
+        let msi = directory.path().join(MSI);
+        fs::write(&msi, "abc").unwrap();
+        let held = hold(&msi, &installer::checksum(ABC).unwrap()).unwrap();
+        assert!(fs::write(&msi, "evil").is_err());
+        assert!(fs::rename(&msi, directory.path().join("moved.msi")).is_err());
+        assert!(fs::remove_file(&msi).is_err());
+        // What msiexec does: read it beside the hold.
+        assert_eq!(fs::read(&msi).unwrap(), b"abc");
+        drop(held);
+        fs::write(&msi, "free").unwrap();
+    }
+
+    #[test]
+    fn a_package_changed_after_its_check_is_refused() {
+        let directory = tempfile::tempdir().unwrap();
+        let msi = directory.path().join(MSI);
+        fs::write(&msi, "abd").unwrap();
+        let error = hold(&msi, &installer::checksum(ABC).unwrap()).unwrap_err();
+        assert!(
+            error
+                .0
+                .ends_with("changed after it was checked; nothing was installed"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn the_program_is_the_eco_in_the_installs_bin() {
+        assert!(installed_program().ends_with(r"eco\bin\eco.exe"));
+        assert_eq!(Msi::new("").program(), installed_program());
+    }
+
+    #[test]
+    fn only_the_folders_of_earlier_updates_are_tidied() {
+        let temp = tempfile::tempdir().unwrap();
+        let old = temp.path().join(format!("{SCRATCH}1"));
+        fs::create_dir(&old).unwrap();
+        fs::write(old.join("eco.msi"), "").unwrap();
+        let other = temp.path().join("other");
+        fs::create_dir(&other).unwrap();
+        tidy(temp.path());
+        assert!(!old.exists());
+        assert!(other.exists());
+        tidy(&temp.path().join("missing"));
     }
 
     #[tokio::test]
-    async fn a_zip_that_does_not_match_leaves_the_install_as_it_was() {
-        let directory = tempfile::tempdir().unwrap();
-        let install = directory.path().join("eco");
-        write(&install.join(r"bin\eco.exe"), "old");
-        let sums = format!("{ABC}  {ZIP}\n").into_bytes();
-        let (downloads, _) = serve(vec![(200, None, sums), (200, None, b"evil".to_vec())]).await;
-        let folder = Folder {
+    async fn a_verified_package_is_left_pending_in_its_own_folder() {
+        let sums = format!("{ABC}  {MSI}\n").into_bytes();
+        let (downloads, _) = serve(vec![(200, None, sums), (200, None, b"abc".to_vec())]).await;
+        let temp = tempfile::tempdir().unwrap();
+        let msi = Msi {
             downloads,
-            install: install.clone(),
-            // Never run: the zip does not match.
-            tar: directory.path().join("no-tar.exe"),
+            scratch: temp.path().to_path_buf(),
         };
-        let error = folder
+        let installed = msi
+            .install("v0.5.0".into(), Box::new(|_| {}))
+            .await
+            .unwrap();
+        assert!(matches!(installed, Installed::Pending(_)));
+        let folder = fs::read_dir(temp.path()).unwrap().next().unwrap().unwrap();
+        assert!(folder.file_name().to_string_lossy().starts_with(SCRATCH));
+        assert_eq!(fs::read(folder.path().join(MSI)).unwrap(), b"abc");
+    }
+
+    #[tokio::test]
+    async fn a_package_that_does_not_match_leaves_nothing() {
+        let sums = format!("{ABC}  {MSI}\n").into_bytes();
+        let (downloads, _) = serve(vec![(200, None, sums), (200, None, b"evil".to_vec())]).await;
+        let temp = tempfile::tempdir().unwrap();
+        let msi = Msi {
+            downloads,
+            scratch: temp.path().to_path_buf(),
+        };
+        let error = msi
             .install("v0.5.0".into(), Box::new(|_| {}))
             .await
             .unwrap_err();
         assert_eq!(
             error.0,
-            format!("{ZIP} does not match the release's SHA256SUMS; nothing was installed")
+            format!("{MSI} does not match the release's SHA256SUMS; nothing was installed")
         );
-        assert_eq!(files(&install), [install.join(r"bin\eco.exe")]);
-        assert_eq!(
-            fs::read_to_string(install.join(r"bin\eco.exe")).unwrap(),
-            "old"
-        );
-        // The scratch folder beside the install is gone.
-        assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 1);
+        assert_eq!(fs::read_dir(temp.path()).unwrap().count(), 0);
     }
 }

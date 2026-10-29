@@ -13,7 +13,7 @@ use tokio::time::{sleep, timeout};
 use crate::adapters::control_socket::{self, Address};
 use crate::adapters::local_socket::Stream;
 use crate::cli;
-use crate::ports::ServiceManager;
+use crate::ports::{Notifier, ServiceManager, Urgency};
 
 const READY_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -215,6 +215,23 @@ pub async fn start(
     Ok(())
 }
 
+/// What the Start menu entry runs, a program with no console: [`start`] with
+/// the window open. A failure has no console to be printed on, so it is shown
+/// through `notifier`; whether it started.
+pub async fn open_window(
+    service: &dyn ServiceManager,
+    address: &Address,
+    notifier: &dyn Notifier,
+) -> bool {
+    match start(service, address, true).await {
+        Ok(()) => true,
+        Err(error) => {
+            notifier.notify("eco", &format!("{error:#}"), Urgency::Critical);
+            false
+        }
+    }
+}
+
 /// Run `request` against the daemon at `address` and return the exit code,
 /// as [`cli::run`] does. A shortcut's command is first sent to the [`current`]
 /// daemon, which launches its windows.
@@ -255,19 +272,32 @@ pub async fn stop(address: &Address) -> Result<()> {
     Ok(())
 }
 
+/// Whether the daemon at `address` has its window open: `None` when none
+/// answers. A daemon that cannot say is taken to have it open.
+async fn window_open(address: &Address) -> Result<Option<bool>> {
+    if socket(address).await?.is_none() {
+        return Ok(None);
+    }
+    let daemon = connect(address).await.ok().flatten();
+    Ok(Some(daemon.is_none_or(|daemon| daemon.overlay)))
+}
+
+/// Stop the daemon at `address` when one runs and wait until it is gone;
+/// whether its window was open, or `None` when no daemon ran.
+#[cfg(any(windows, test))]
+pub async fn shut(address: &Address) -> Result<Option<bool>> {
+    let open = window_open(address).await?;
+    if open.is_some() {
+        halt(address).await?;
+    }
+    Ok(open)
+}
+
 /// Stop the daemon at `address` and start it again through `service`, with its
 /// window open unless the running daemon had it closed.
 pub async fn restart(service: &dyn ServiceManager, address: &Address) -> Result<()> {
     ensure_unelevated(service).await?;
-    let show_window = if socket(address).await?.is_some() {
-        connect(address)
-            .await
-            .ok()
-            .flatten()
-            .is_none_or(|daemon| daemon.overlay)
-    } else {
-        true
-    };
+    let show_window = window_open(address).await?.unwrap_or(true);
     stop(address).await?;
     start(service, address, show_window).await
 }
@@ -725,6 +755,41 @@ mod tests {
         );
     }
 
+    /// The notifications a [`Notifier`] was asked to show.
+    #[derive(Default)]
+    struct Shown(std::sync::Mutex<Vec<(String, String, Urgency)>>);
+
+    impl Notifier for Shown {
+        fn notify(&self, title: &str, body: &str, urgency: Urgency) {
+            self.0
+                .lock()
+                .unwrap()
+                .push((title.into(), body.into(), urgency));
+        }
+    }
+
+    #[tokio::test]
+    async fn a_window_that_cannot_open_is_shown_as_a_notification() {
+        let directory = tempfile::tempdir().unwrap();
+        let service = elevated_service(&directory);
+        let shown = Shown::default();
+        assert!(!open_window(&service, &service.socket, &shown).await);
+        assert_eq!(
+            *shown.0.lock().unwrap(),
+            [("eco".into(), REFUSAL.into(), Urgency::Critical)]
+        );
+        assert_eq!(service.starts.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn a_window_that_opens_says_nothing() {
+        let directory = tempfile::tempdir().unwrap();
+        let service = fake_service(&directory);
+        let shown = Shown::default();
+        assert!(open_window(&service, &service.socket, &shown).await);
+        assert!(shown.0.lock().unwrap().is_empty());
+    }
+
     const REFUSAL: &str = "eco runs without administrator rights, so every window can reach it; run this from a terminal that is not elevated";
 
     #[tokio::test]
@@ -920,6 +985,27 @@ mod tests {
         let service = fake_service(&directory);
         restart(&service, &service.socket).await.unwrap();
         assert_eq!(service.starts.into_inner(), 1);
+    }
+
+    #[tokio::test]
+    async fn shut_stops_the_daemon_and_says_whether_its_window_was_open() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = socket_in(&directory);
+        assert_eq!(shut(&path).await.unwrap(), None);
+        fake_daemon(&path, 1, VERSION, true, OnStop::Exit).await;
+        assert_eq!(shut(&path).await.unwrap(), Some(true));
+        assert_eq!(status(&path, false, false).await.unwrap(), 3);
+        fake_daemon(&path, 1, VERSION, false, OnStop::Exit).await;
+        assert_eq!(shut(&path).await.unwrap(), Some(false));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn shut_gives_up_on_a_daemon_that_ignores_stop() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = socket_in(&directory);
+        fake_daemon(&path, 1, VERSION, true, OnStop::Ignore).await;
+        let error = shut(&path).await.unwrap_err().to_string();
+        assert_eq!(error, "the daemon did not stop within 10 seconds");
     }
 
     #[tokio::test]

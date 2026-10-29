@@ -2,11 +2,11 @@ eco keeps voice sessions: meetings, conversations, spoken ideas. It captures
 the audio, transcribes it, and streams short answers from a model into a
 window, live or afterwards.
 
-This folder is the whole program. Keep it where it is, for example
-%LOCALAPPDATA%\Programs\eco, and add its bin folder to your PATH.
+This folder is the whole program, installed by the MSI in C:\Program Files\eco
+with its bin folder on the PATH, the models in share\eco\models and eco in
+the Start menu. Keep it whole.
 
-    eco setup             download the models, add eco to the Start menu
-                          and name its notifications
+    eco setup             name eco's notifications for your account
     eco start             start eco and open its window
     eco status            say whether eco runs
     eco stop              stop it
@@ -23,4 +23,4 @@ Needs 64-bit Windows (tested on Windows 11) with the Microsoft Visual C++
 Redistributable (x64).
 
 Docs: https://github.com/This-Is-NPC/eco/blob/master/docs/how-to-install-and-remove.md#on-windows
-Licence: LICENSE (MIT).
+Licence: LICENSE (MIT). The models have their own: MODELS-LICENSES.txt.

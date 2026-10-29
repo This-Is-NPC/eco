@@ -14,7 +14,7 @@ use serde_json::{Value, json};
 use crate::config;
 use crate::domain::assistant::Emit;
 use crate::domain::events::error;
-use crate::ports::{InstallStage, Installer, Releases};
+use crate::ports::{InstallStage, Installed, Installer, Releases};
 
 /// How long a check holds before the daemon asks again.
 pub const DAY: Duration = Duration::from_secs(24 * 60 * 60);
@@ -81,7 +81,7 @@ struct State {
     /// An install runs, or waits for its restart.
     installing: bool,
     /// The version installed whose restart waits for the last live session to end.
-    waiting: Option<String>,
+    waiting: Option<(String, Installed)>,
 }
 
 /// The ports and the state an update needs.
@@ -218,7 +218,7 @@ impl Updates {
             emit(progress(stage_name(stage), &said, ""));
         });
         match self.parts.installer.install(tag, progress).await {
-            Ok(()) => self.installed(installing),
+            Ok(installed) => self.installed(installing, installed),
             Err(failure) => self.failed(&installing, &failure.0),
         }
     }
@@ -229,14 +229,14 @@ impl Updates {
     }
 
     /// `version` is installed: restart now, or once the last live session ends.
-    fn installed(&self, version: String) {
+    fn installed(&self, version: String, installed: Installed) {
         let mut state = self.state();
         if (self.parts.live)() {
             (self.parts.emit)(progress("waiting", &version, ""));
-            state.waiting = Some(version);
+            state.waiting = Some((version, installed));
         } else {
             drop(state);
-            self.restart_installed(&version);
+            self.restart_installed(&version, installed);
         }
     }
 
@@ -250,15 +250,20 @@ impl Updates {
                 false => None,
             }
         };
-        if let Some(version) = waiting {
-            self.restart_installed(&version);
+        if let Some((version, installed)) = waiting {
+            self.restart_installed(&version, installed);
         }
     }
 
-    fn restart_installed(&self, version: &str) {
+    /// Restart into the installed program, or hand a pending package to the
+    /// process that installs it once the daemon has stopped.
+    fn restart_installed(&self, version: &str, installed: Installed) {
         (self.parts.emit)(progress("restarting", version, ""));
-        let program = self.parts.installer.program();
-        match (self.parts.restart)(&program) {
+        let restarted = match installed {
+            Installed::Done => (self.parts.restart)(&self.parts.installer.program()),
+            Installed::Pending(pending) => pending.hand_off(),
+        };
+        match restarted {
             Ok(()) => (self.parts.emit)(progress("done", version, "")),
             Err(failure) => self.failed(version, &failure.to_string()),
         }
@@ -318,7 +323,7 @@ pub(crate) mod testing {
     use futures::FutureExt;
 
     use super::*;
-    use crate::ports::{InstallError, InstallProgress, Release, ReleaseError};
+    use crate::ports::{InstallError, InstallProgress, Pending, Release, ReleaseError};
 
     /// The releases GitHub would list: `latest`, or the network down when none.
     pub struct FakeReleases {
@@ -353,11 +358,24 @@ pub(crate) mod testing {
     }
 
     /// Goes through every stage, then fails with `fails` or installs: the tags
-    /// it installed are kept.
+    /// it installed are kept. With `pending`, the install is left to a
+    /// hand-off that counts into it.
     #[derive(Default)]
     pub struct FakeInstaller {
         pub fails: Option<&'static str>,
+        pub pending: Option<Arc<AtomicUsize>>,
         pub installed: Mutex<Vec<String>>,
+    }
+
+    /// A pending install that counts its hand-offs.
+    #[derive(Debug)]
+    struct CountedHandOff(Arc<AtomicUsize>);
+
+    impl Pending for CountedHandOff {
+        fn hand_off(&self) -> io::Result<()> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
     }
 
     impl Installer for FakeInstaller {
@@ -369,7 +387,7 @@ pub(crate) mod testing {
             &self,
             tag: String,
             progress: InstallProgress,
-        ) -> BoxFuture<'static, Result<(), InstallError>> {
+        ) -> BoxFuture<'static, Result<Installed, InstallError>> {
             progress(InstallStage::Downloading);
             progress(InstallStage::Verifying);
             let result = match self.fails {
@@ -377,7 +395,12 @@ pub(crate) mod testing {
                 None => {
                     progress(InstallStage::Installing);
                     self.installed.lock().unwrap().push(tag);
-                    Ok(())
+                    Ok(match &self.pending {
+                        Some(handed_off) => {
+                            Installed::Pending(Box::new(CountedHandOff(Arc::clone(handed_off))))
+                        }
+                        None => Installed::Done,
+                    })
                 }
             };
             async move { result }.boxed()
@@ -449,7 +472,7 @@ pub(crate) mod testing {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     use super::testing::{FakeInstaller, Fakes, START, updates};
     use super::*;
@@ -709,6 +732,50 @@ mod tests {
         // Restarted once only.
         f.updates.sessions_changed();
         assert_eq!(f.restarts(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_pending_install_is_handed_off_instead_of_restarting() {
+        let handed_off = Arc::new(AtomicUsize::new(0));
+        let installer = FakeInstaller {
+            pending: Some(Arc::clone(&handed_off)),
+            ..FakeInstaller::default()
+        };
+        let f = fixture(Some("v99.0.0"), installer, None);
+        f.updates.install(None).unwrap().await;
+        assert_eq!(handed_off.load(Ordering::SeqCst), 1);
+        assert_eq!(f.restarts(), 0);
+        assert_eq!(
+            f.stages(),
+            [
+                "downloading",
+                "verifying",
+                "installing",
+                "restarting",
+                "done"
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_pending_install_waits_for_the_live_session_then_hands_off_once() {
+        let handed_off = Arc::new(AtomicUsize::new(0));
+        let installer = FakeInstaller {
+            pending: Some(Arc::clone(&handed_off)),
+            ..FakeInstaller::default()
+        };
+        let f = fixture(Some("v99.0.0"), installer, None);
+        f.live.store(true, Ordering::SeqCst);
+        f.updates.install(None).unwrap().await;
+        f.updates.sessions_changed();
+        assert_eq!(handed_off.load(Ordering::SeqCst), 0);
+        assert_eq!(f.stages().last().unwrap(), "waiting");
+        f.live.store(false, Ordering::SeqCst);
+        f.updates.sessions_changed();
+        f.updates.sessions_changed();
+        assert_eq!(handed_off.load(Ordering::SeqCst), 1);
+        assert_eq!(f.restarts(), 0);
+        assert_eq!(f.stages()[4..], ["restarting", "done"]);
     }
 
     #[tokio::test]

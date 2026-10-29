@@ -5,6 +5,8 @@
 //! (docs/design.md §15).
 
 use std::path::Path;
+use std::sync::{Mutex, PoisonError};
+use std::thread::JoinHandle;
 
 use windows::Data::Xml::Dom::XmlDocument;
 use windows::UI::Notifications::{ToastNotification, ToastNotificationManager};
@@ -84,7 +86,21 @@ fn write(id: &str, icon: Option<&Path>) -> windows_registry::Result<Registered> 
     })
 }
 
-pub struct Toasts;
+/// Toasts shown on threads of their own; dropping it waits for them, so that
+/// a program that exits right after a toast still shows it.
+#[derive(Default)]
+pub struct Toasts {
+    shown: Mutex<Vec<JoinHandle<()>>>,
+}
+
+impl Drop for Toasts {
+    fn drop(&mut self) {
+        let shown = self.shown.get_mut().unwrap_or_else(PoisonError::into_inner);
+        for thread in shown.drain(..) {
+            let _ = thread.join();
+        }
+    }
+}
 
 /// `text` safe inside an XML element or attribute.
 fn escape(text: &str) -> String {
@@ -137,7 +153,7 @@ impl Notifier for Toasts {
     fn notify(&self, title: &str, body: &str, urgency: Urgency) {
         let xml = content(title, body, urgency);
         // On a thread of its own: no caller waits on Windows.
-        std::thread::spawn(move || {
+        let thread = std::thread::spawn(move || {
             let (id, why) = app_id();
             if let Some(why) = why {
                 eprintln!("eco: {why}");
@@ -146,6 +162,9 @@ impl Notifier for Toasts {
                 eprintln!("eco: the notification could not show: {error}");
             }
         });
+        let mut shown = self.shown.lock().unwrap_or_else(PoisonError::into_inner);
+        shown.retain(|thread| !thread.is_finished());
+        shown.push(thread);
     }
 }
 

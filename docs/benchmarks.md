@@ -337,10 +337,10 @@ tree that introduced the task; after is the same tree with the CLI tests.
 
 No test was written for these lines, read in the code and left on purpose:
 
-- `main()` in `src/main.rs`: the tokio runtime, the call each command makes
+- `run()` in `src/lib.rs`: the call each command makes
   and the `process::exit` of its code. Each branch only calls a function
   that has its own tests; a test here would restate the match.
-- `set_up` in `src/main.rs` and `run()` and `desktop()` in `src/setup.rs`:
+- `set_up` in `src/lib.rs` and `run()` and `desktop()` in `src/setup.rs`:
   the production model URLs, the user's real paths and the Hyprland
   adapter put together. A test would reach the network or the user's
   files; what they call (`fetch`, `skill_targets`, the adapter) is tested.
@@ -387,7 +387,8 @@ those adapters came in.
 | File | Lines | Left without a test, and why |
 |---|---|---|
 | `src/session.rs` | 96.10% | `run()` (1949–2042 at measurement): builds the real VAD model, the platform's audio, window control and shortcuts (PipeWire, Hyprland, none), `eco-window` and the user's socket; the Ctrl-C arm of `stop_signal()`, which a test cannot press; `impl Overlay for overlay::Windows`: hands each call to real windows; the omapass key source and the `omapass` command's task: run the user's keyring (what they return is tested through `omapass_listed`); the closing brace of `pipeline()`, which only ends by being aborted. |
-| `src/main.rs` | 89.22% | the body of `main()` (tokio runtime, each command's call, `process::exit`) and `set_up`'s I/O; `panic!` arms of tests, which run only when a test fails. |
+| `src/lib.rs` | 89.32% (80 of 749) | the body of `run()` (each command's call, `process::exit`), `open_window()` (the notifier and the real service) and `set_up`'s I/O; `panic!` arms of tests, which run only when a test fails. |
+| `src/main.rs`, `src/bin/eco-launch.rs` | 0% (5 of 5 each) | the tokio runtime and the one call each makes, to `eco::run()` and `eco::open_window()`; a test would restate them. |
 | `src/paths.rs` | 88.56% | the public wrappers that read the real environment and home (151–212); the layout behind them is tested with a fixed environment. |
 | `src/adapters/audio_pipewire.rs` | 79.27% | the trait methods that start the real `pw-record` and `pw-dump` (22–41); the arguments they build are tested. |
 | `src/import.rs` | 97.09% | the Silero and speaker-model closures in `run` and `diarizing()`, which start the real `eco diarize` child from the current executable. |
@@ -529,4 +530,26 @@ Linux run does not measure. Files whose numbers did not move are not named.
 | `src/config.rs` | 99.81% (2 of 1060) | 99.82% (2 of 1102) | as before. |
 | `src/installer.rs` | 94.94% (26 of 514) | 94.78% (26 of 498) | as in the update section. The share falls only because its copy of the fake installer, whose lines were covered, gave way to the one in `src/session/update.rs`; no line lost its test. |
 | `src/adapters/installer_linux.rs` | 97.06% (7 of 238) | 97.15% (7 of 246) | as before. |
+| `src/ports.rs` | 70.00% (3 of 10) | 78.57% (3 of 14) | as before. |
+
+## Windows installer coverage (2026-10-29)
+
+Measured on Linux with `mise run coverage` on the tree that packages eco for
+Windows as a per-machine MSI, ships the models in it, installs updates through
+it and starts eco from the Start menu without a console. Before is master at
+v0.9.1. The run passed 830 unit tests. The whole crate: 97.16% of lines
+before and after (956 and 968 lines without a test, of 33620 and 34087). The
+Windows-only code (`src/adapters/installer_windows.rs`,
+`src/adapters/service_windows.rs`, the Windows arms of `src/lib.rs` and
+`src/setup.rs`) is tested by `mise run check` on Windows, which this Linux run
+does not measure. Files whose numbers did not move are not named.
+
+| File | Lines before | Lines after | Left without a test, and why |
+|---|---|---|---|
+| `src/apply.rs` | new | 100.00% (0 of 147) | none. |
+| `src/installer.rs` | 94.94% (26 of 514) | 94.86% (27 of 525) | the same lines as before, as in the update section; the line view shows no new line at zero, the summary counts one more. |
+| `src/paths.rs` | 89.89% (27 of 267) | 89.83% (30 of 295) | as before, and `shipped_model`, one call that finds the models beside the running eco: its lookup order is tested through `model`. |
+| `src/setup.rs` | 88.55% (15 of 131) | 90.59% (16 of 170) | as before. |
+| `src/lifecycle.rs` | 98.75% (10 of 803) | 98.92% (10 of 925) | as before. |
+| `src/session/update.rs` | 99.61% (2 of 518) | 99.67% (2 of 600) | as before. |
 | `src/ports.rs` | 70.00% (3 of 10) | 78.57% (3 of 14) | as before. |

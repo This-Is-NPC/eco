@@ -3,7 +3,7 @@
 //!
 //! A process started here inherits every inheritable handle of eco's, a pipe
 //! a shell reads eco's output from among them, and that shell would wait for
-//! the daemon to exit. So `eco start` has PowerShell's `Start-Process` (which
+//! the daemon to exit. So `eco start` has the shell (`ShellExecuteEx`, which
 //! inherits nothing) run `eco detach`, and that one, holding no handle of the
 //! caller's, starts the daemon.
 //!
@@ -14,12 +14,13 @@
 
 use std::fs::File;
 use std::os::windows::process::CommandExt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::SystemTime;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, anyhow};
 use futures::future::BoxFuture;
+use winsafe::{SHELLEXECUTEINFO, ShellExecuteEx, co};
 
 use crate::config::private_dir;
 use crate::paths;
@@ -30,10 +31,6 @@ use crate::ports::ServiceManager;
 /// `cmd` say, would open a console window of its own.
 pub const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
-/// The variable that hands `Start-Process` the program to run, so its path
-/// needs no quoting inside the script.
-const PROGRAM: &str = "ECO_PROGRAM";
-
 /// The mandatory level SID `whoami /groups` lists for an elevated process.
 const HIGH_INTEGRITY: &str = "S-1-16-12288";
 
@@ -42,18 +39,8 @@ pub struct BackgroundProcess;
 impl ServiceManager for BackgroundProcess {
     fn start(&self) -> BoxFuture<'_, Result<()>> {
         Box::pin(async {
-            let output =
-                tokio::process::Command::from(hidden(&std::env::current_exe()?, &["detach"]))
-                    .output()
-                    .await
-                    .context("cannot run powershell")?;
-            if !output.status.success() {
-                bail!(
-                    "cannot start the daemon: {}",
-                    String::from_utf8_lossy(&output.stderr).trim()
-                );
-            }
-            Ok(())
+            let eco = eco_program(&std::env::current_exe()?)?;
+            tokio::task::spawn_blocking(move || hidden(&eco, "detach")).await?
         })
     }
 
@@ -68,6 +55,32 @@ impl ServiceManager for BackgroundProcess {
     fn output(&self, _: SystemTime) -> BoxFuture<'_, Option<String>> {
         Box::pin(async { read_log(&paths::daemon_log()) })
     }
+}
+
+/// The `eco` program, run as `eco detach`, for the eco program `exe`: `exe`
+/// itself, or, for `eco-launch`, the `eco` of its install
+/// (`<prefix>\bin\eco.exe` for `<prefix>\lib\eco\eco-launch.exe`) or of its
+/// build, beside it. Never another program, which would not know `detach`.
+fn eco_program(exe: &Path) -> Result<PathBuf> {
+    let name = format!("eco{}", std::env::consts::EXE_SUFFIX);
+    if exe.file_name().is_some_and(|file| file == name.as_str()) {
+        return Ok(exe.to_path_buf());
+    }
+    let installed = exe
+        .parent()
+        .and_then(Path::parent)
+        .and_then(Path::parent)
+        .map(|prefix| prefix.join("bin").join(&name));
+    installed
+        .into_iter()
+        .chain([exe.with_file_name(&name)])
+        .find(|candidate| candidate.is_file())
+        .ok_or_else(|| {
+            anyhow!(
+                "cannot start the daemon: no {name} beside {}",
+                exe.display()
+            )
+        })
 }
 
 /// `whoami` listing the groups of this process's token.
@@ -98,25 +111,20 @@ pub fn detach() -> Result<()> {
     Ok(())
 }
 
-/// PowerShell starting `program` with `arguments` (none holding a space or a
-/// quote) in a hidden window, sharing no handle with this process.
-fn hidden(program: &Path, arguments: &[&str]) -> Command {
-    let list = arguments
-        .iter()
-        .map(|argument| format!("'{argument}'"))
-        .collect::<Vec<_>>()
-        .join(",");
-    let mut command = Command::new("powershell");
-    command
-        .args(["-NoProfile", "-NonInteractive", "-Command"])
-        .arg(format!(
-            "$ErrorActionPreference = 'Stop'; \
-             Start-Process -WindowStyle Hidden -FilePath $env:{PROGRAM} -ArgumentList {list}"
-        ))
-        .env(PROGRAM, program)
-        .stdin(Stdio::null())
-        .creation_flags(CREATE_NO_WINDOW);
-    command
+/// Have the shell start `program` with `parameters` in a hidden window, as
+/// a process that shares no handle with this one, and return once it has.
+pub(crate) fn hidden(program: &Path, parameters: &str) -> Result<()> {
+    let file = program
+        .to_str()
+        .ok_or_else(|| anyhow!("cannot start {}: the path is not text", program.display()))?;
+    ShellExecuteEx(&SHELLEXECUTEINFO {
+        mask: co::SEE_MASK::FLAG_NO_UI | co::SEE_MASK::NOASYNC,
+        file,
+        parameters: Some(parameters),
+        show: co::SW::HIDE,
+        ..Default::default()
+    })
+    .map_err(|error| anyhow!("cannot start {file}: {error}"))
 }
 
 /// The command that runs the daemon of `exe` in the background.
@@ -145,10 +153,41 @@ fn spawn(exe: &Path, log: &Path) -> Result<Child> {
 
 #[cfg(test)]
 mod tests {
-    use std::ffi::OsStr;
     use std::time::{Duration, Instant};
 
     use super::*;
+
+    #[test]
+    fn the_daemon_is_started_by_eco_itself_or_the_eco_of_the_launcher() {
+        let directory = tempfile::tempdir().unwrap();
+        let file = |path: &Path| {
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, "").unwrap();
+            path.to_path_buf()
+        };
+        let eco = file(&directory.path().join(r"bin\eco.exe"));
+        let launcher = file(&directory.path().join(r"lib\eco\eco-launch.exe"));
+        assert_eq!(eco_program(&eco).unwrap(), eco);
+        assert_eq!(eco_program(&launcher).unwrap(), eco);
+        let build = directory.path().join("release");
+        let built = file(&build.join("eco.exe"));
+        assert_eq!(
+            eco_program(&file(&build.join("eco-launch.exe"))).unwrap(),
+            built
+        );
+    }
+
+    #[test]
+    fn a_launcher_with_no_eco_beside_it_starts_nothing() {
+        let directory = tempfile::tempdir().unwrap();
+        let launcher = directory.path().join("eco-launch.exe");
+        std::fs::write(&launcher, "").unwrap();
+        let error = eco_program(&launcher).unwrap_err().to_string();
+        assert!(
+            error.starts_with("cannot start the daemon: no eco.exe beside"),
+            "{error}"
+        );
+    }
 
     #[test]
     fn whoami_lists_the_groups() {
@@ -178,34 +217,12 @@ mod tests {
     }
 
     #[test]
-    fn start_process_is_handed_the_program_and_its_arguments() {
-        let built = hidden(Path::new(r"C:\Program Files\eco\eco.exe"), &["detach"]);
-        let args: Vec<_> = built.get_args().collect();
-        assert_eq!(built.get_program(), "powershell");
-        assert!(
-            args[3].to_string_lossy().ends_with(
-                "Start-Process -WindowStyle Hidden -FilePath $env:ECO_PROGRAM -ArgumentList 'detach'"
-            ),
-            "{args:?}"
-        );
-        let program: Vec<_> = built.get_envs().collect();
-        assert_eq!(
-            program,
-            [(
-                OsStr::new(PROGRAM),
-                Some(OsStr::new(r"C:\Program Files\eco\eco.exe"))
-            )]
-        );
-    }
-
-    #[test]
     fn what_it_starts_does_not_hold_the_callers_output() {
-        // ping on the loopback lives for about 20 s; the caller reading
-        // PowerShell's output returns once PowerShell exits.
+        // ping on the loopback lives for about 20 s; the shell returns once
+        // it has started it.
         let ping = Path::new(&std::env::var_os("SystemRoot").unwrap()).join(r"System32\PING.EXE");
         let began = Instant::now();
-        let output = hidden(&ping, &["-n", "20", "127.0.0.1"]).output().unwrap();
-        assert!(output.status.success(), "{output:?}");
+        hidden(&ping, "-n 20 127.0.0.1").unwrap();
         assert!(
             began.elapsed() < Duration::from_secs(15),
             "{:?}",
@@ -214,12 +231,14 @@ mod tests {
     }
 
     #[test]
-    fn a_program_powershell_cannot_start_is_an_error() {
+    fn a_program_the_shell_cannot_start_is_an_error() {
         let directory = tempfile::tempdir().unwrap();
-        let output = hidden(&directory.path().join("none.exe"), &["detach"])
-            .output()
-            .unwrap();
-        assert!(!output.status.success());
+        let error = hidden(&directory.path().join("none.exe"), "detach").unwrap_err();
+        assert!(
+            error.to_string().starts_with("cannot start ")
+                && error.to_string().contains("none.exe"),
+            "{error}"
+        );
     }
 
     #[test]

@@ -325,6 +325,13 @@ pub trait Releases: Send + Sync {
 pub enum InstallStage {
     Downloading,
     Verifying,
+    #[cfg_attr(
+        all(windows, not(test)),
+        expect(
+            dead_code,
+            reason = "the Windows installer installs after eco stops, past these stages"
+        )
+    )]
     Installing,
 }
 
@@ -335,16 +342,48 @@ pub struct InstallError(pub String);
 /// Told each stage as an install reaches it.
 pub type InstallProgress = Box<dyn Fn(InstallStage) + Send + Sync>;
 
+/// What an install leaves to do.
+#[derive(Debug)]
+pub enum Installed {
+    /// Installed: eco restarts into [`Installer::program`].
+    #[cfg_attr(
+        all(windows, not(test)),
+        expect(
+            dead_code,
+            reason = "the Windows installer always leaves its package pending"
+        )
+    )]
+    Done,
+    /// A verified package that cannot be installed while eco runs.
+    #[cfg_attr(
+        all(unix, not(test)),
+        expect(
+            dead_code,
+            reason = "only the Windows installer leaves a package pending"
+        )
+    )]
+    Pending(Box<dyn Pending>),
+}
+
+/// An install that waits for eco to stop running.
+pub trait Pending: Send + Sync + std::fmt::Debug {
+    /// Install it in a process that outlives eco: it stops the daemon,
+    /// installs the package and, if the daemon ran, starts eco again. Returns
+    /// once that process has started.
+    fn hand_off(&self) -> std::io::Result<()>;
+}
+
 /// Installs a release of eco over the installed one.
 pub trait Installer: Send + Sync {
     /// Download release `tag`'s package (`v0.5.0`), check it against the
-    /// release's SHA256SUMS and install it; nothing is installed when it does
-    /// not match. Calls `progress` as each stage starts.
+    /// release's SHA256SUMS and install it, or leave it [`Installed::Pending`];
+    /// nothing is installed when it does not match. Calls `progress` as each
+    /// stage starts.
     fn install(
         &self,
         tag: String,
         progress: InstallProgress,
-    ) -> BoxFuture<'static, Result<(), InstallError>>;
+    ) -> BoxFuture<'static, Result<Installed, InstallError>>;
 
     /// The eco executable an install puts in place.
     fn program(&self) -> PathBuf;

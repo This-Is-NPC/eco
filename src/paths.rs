@@ -22,14 +22,9 @@ impl<V: Fn(&str) -> Option<OsString>> Layout<V> {
             .unwrap_or_else(|| self.home().join(fallback))
     }
 
-    fn vad_model(&self) -> PathBuf {
-        self.data_dir().join("models").join("silero_vad.onnx")
-    }
-
-    fn speaker_model(&self) -> PathBuf {
-        self.data_dir()
-            .join("models")
-            .join("wespeaker_campplus.onnx")
+    /// Where `eco setup` downloads the model `file` to.
+    fn model(&self, file: &str) -> PathBuf {
+        self.data_dir().join("models").join(file)
     }
 
     fn people_dir(&self) -> PathBuf {
@@ -177,7 +172,11 @@ pub fn home() -> PathBuf {
 
 /// `<prefix>/<directory>/<path>` for the running `<prefix>/bin/eco`, when it is there.
 fn beside_binary(directory: &str, path: &str) -> Option<PathBuf> {
-    let exe = env::current_exe().ok()?;
+    beside(&env::current_exe().ok()?, directory, path)
+}
+
+/// [`beside_binary`] for the binary `exe`.
+fn beside(exe: &Path, directory: &str, path: &str) -> Option<PathBuf> {
     Some(under(exe.parent()?.parent()?, directory, path)).filter(|file| file.exists())
 }
 
@@ -212,12 +211,35 @@ pub fn hypr_bindings() -> PathBuf {
     layout().hypr_bindings()
 }
 
+/// The file name of the Silero VAD model.
+pub const VAD_MODEL_FILE: &str = "silero_vad.onnx";
+
+/// The file name of the WeSpeaker CAM++ speaker model.
+pub const SPEAKER_MODEL_FILE: &str = "wespeaker_campplus.onnx";
+
+/// The model `file` a package ships, `<prefix>/share/eco/models/<file>`.
+pub fn shipped_model(file: &str) -> Option<PathBuf> {
+    shipped(&format!("models/{file}"))
+}
+
+/// Where `eco setup` downloads the model `file` to.
+pub fn downloaded_model(file: &str) -> PathBuf {
+    layout().model(file)
+}
+
+/// The model `file` eco loads: the one its package ships, else the one `eco
+/// setup` downloaded.
+fn model(exe: Option<&Path>, file: &str) -> PathBuf {
+    exe.and_then(|exe| beside(exe, "share/eco", &format!("models/{file}")))
+        .unwrap_or_else(|| downloaded_model(file))
+}
+
 pub fn vad_model() -> PathBuf {
-    layout().vad_model()
+    model(env::current_exe().ok().as_deref(), VAD_MODEL_FILE)
 }
 
 pub fn speaker_model() -> PathBuf {
-    layout().speaker_model()
+    model(env::current_exe().ok().as_deref(), SPEAKER_MODEL_FILE)
 }
 
 pub fn people_dir() -> PathBuf {
@@ -252,12 +274,6 @@ pub fn daemon_log() -> PathBuf {
 #[cfg(windows)]
 pub fn startup_dir() -> PathBuf {
     layout().startup_dir()
-}
-
-/// The folder of the user's own entries in the Start menu.
-#[cfg(windows)]
-pub fn start_menu_dir() -> PathBuf {
-    layout().start_menu_dir()
 }
 
 /// The socket where the running Hyprland tells its events, when eco runs under one.
@@ -324,8 +340,8 @@ mod tests {
         vec![
             layout.config_file(),
             layout.hypr_bindings(),
-            layout.vad_model(),
-            layout.speaker_model(),
+            layout.model(VAD_MODEL_FILE),
+            layout.model(SPEAKER_MODEL_FILE),
             layout.people_dir(),
             layout.sessions_dir(),
             layout.socket_path(),
@@ -434,8 +450,8 @@ mod tests {
         ]);
         let found = [
             layout.config_file(),
-            layout.vad_model(),
-            layout.speaker_model(),
+            layout.model(VAD_MODEL_FILE),
+            layout.model(SPEAKER_MODEL_FILE),
             layout.people_dir(),
             layout.sessions_dir(),
             layout.socket_path(),
@@ -474,6 +490,32 @@ mod tests {
         assert_eq!(
             layout.sessions_dir(),
             PathBuf::from(r"C:\Users\you\AppData\Local\eco\sessions")
+        );
+    }
+
+    #[test]
+    fn a_shipped_model_wins_over_the_downloaded_one() {
+        let prefix = tempfile::tempdir().unwrap();
+        let exe = prefix.path().join("bin").join("eco");
+        assert_eq!(
+            model(Some(&exe), VAD_MODEL_FILE),
+            downloaded_model(VAD_MODEL_FILE)
+        );
+        let models = prefix.path().join("share").join("eco").join("models");
+        std::fs::create_dir_all(&models).unwrap();
+        std::fs::write(models.join(VAD_MODEL_FILE), "").unwrap();
+        assert_eq!(
+            model(Some(&exe), VAD_MODEL_FILE),
+            models.join(VAD_MODEL_FILE)
+        );
+        // Another model, and an unknown binary, use the download.
+        assert_eq!(
+            model(Some(&exe), SPEAKER_MODEL_FILE),
+            downloaded_model(SPEAKER_MODEL_FILE)
+        );
+        assert_eq!(
+            model(None, VAD_MODEL_FILE),
+            downloaded_model(VAD_MODEL_FILE)
         );
     }
 

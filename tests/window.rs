@@ -203,6 +203,7 @@ async fn general_refreshes_stale_updates_and_shows_their_age() {
     let mut listener = Listener::bind(dir.path());
     let mut window = offscreen("updates", dir.path())
         .env("ECO_SOCKET", listener.name())
+        .env("ECO_TOKEN", "secret")
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .kill_on_drop(true)

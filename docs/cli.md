@@ -5,7 +5,7 @@ Every command of `eco`, with its arguments and flags. This page is generated:
 `mise run cli:gen` writes it with `usage generate md` from the usage spec that
 `eco usage` prints from the command definitions, and `mise run check` fails
 when it no longer matches the binary. To change a line here, change the
-command's definition in `src/main.rs` and run `mise run cli:gen`.
+command's definition in `src/lib.rs` and run `mise run cli:gen`.
 
 The commands reach eco in four ways.
 

@@ -2,7 +2,7 @@
 //! is tied into.
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 use reqwest::Client;
@@ -11,7 +11,7 @@ use sha2::{Digest, Sha256};
 #[cfg(unix)]
 use crate::adapters::desktop_hyprland::Hyprland;
 #[cfg(windows)]
-use crate::adapters::desktop_windows::{OldLoginScript, StartMenu, ToastName};
+use crate::adapters::desktop_windows::{OldLoginScript, ToastName};
 use crate::adapters::http;
 use crate::config;
 use crate::paths;
@@ -22,7 +22,7 @@ struct Model {
     name: &'static str,
     url: &'static str,
     sha256: &'static str,
-    target: fn() -> PathBuf,
+    file: &'static str,
 }
 
 const MODELS: [Model; 2] = [
@@ -32,14 +32,14 @@ const MODELS: [Model; 2] = [
         name: "Silero VAD",
         url: "https://github.com/snakers4/silero-vad/raw/v6.2.3/src/silero_vad/data/silero_vad_op18_ifless.onnx",
         sha256: "7671cd04b004e9076da0d4a7b1a5aec36adf161c39230c1cb94a4fd5db6bbd28",
-        target: paths::vad_model,
+        file: paths::VAD_MODEL_FILE,
     },
     // WeSpeaker CAM++ trained on VoxCeleb (Apache-2.0), for telling speakers apart.
     Model {
         name: "WeSpeaker CAM++",
         url: "https://huggingface.co/Wespeaker/wespeaker-voxceleb-campplus/resolve/main/voxceleb_CAM%2B%2B.onnx",
         sha256: "b50810498b5bcf5773d086f6993d344476bd0c88b566a41e8d801aaf8461efad",
-        target: paths::speaker_model,
+        file: paths::SPEAKER_MODEL_FILE,
     },
 ];
 
@@ -50,15 +50,34 @@ fn digest(bytes: &[u8]) -> String {
         .collect()
 }
 
-/// Download each model unless the one in place already has the pinned checksum.
+/// Download each model unless the package ships it or the one in place already
+/// has the pinned checksum.
 pub async fn run() -> Result<Vec<String>> {
     let client = http::client(None)?;
     let mut done = Vec::new();
     for model in &MODELS {
-        let target = (model.target)();
-        done.push(fetch(&client, model.name, model.sha256, model.url, &target).await?);
+        let shipped = paths::shipped_model(model.file);
+        let target = paths::downloaded_model(model.file);
+        done.push(ensure(&client, model, shipped.as_deref(), &target).await?);
     }
     Ok(done)
+}
+
+/// Say that `model` ships at `shipped`, or download it to `target`.
+async fn ensure(
+    client: &Client,
+    model: &Model,
+    shipped: Option<&Path>,
+    target: &Path,
+) -> Result<String> {
+    match shipped {
+        Some(shipped) => Ok(format!(
+            "{} ships with eco: {}",
+            model.name,
+            shipped.display()
+        )),
+        None => fetch(client, model.name, model.sha256, model.url, target).await,
+    }
 }
 
 /// Download `url` to `target` unless `target` already has `sha256`; nothing is
@@ -99,13 +118,13 @@ pub fn desktop() -> Vec<Box<dyn DesktopIntegration>> {
     ))]
 }
 
-/// What `eco setup` ties eco into: Windows, which lists it in the Start menu,
-/// names its notifications "eco" and no longer starts it at login.
+/// What `eco setup` ties eco into: Windows, which names its notifications
+/// "eco" and no longer starts it at login. The installer lists it in the Start
+/// menu.
 #[cfg(windows)]
 pub fn desktop() -> Vec<Box<dyn DesktopIntegration>> {
     vec![
         Box::new(OldLoginScript::new(paths::startup_dir())),
-        Box::new(StartMenu::new(paths::start_menu_dir())),
         Box::new(ToastName),
     ]
 }
@@ -131,6 +150,30 @@ mod tests {
         .await;
         let head = seen.lock().unwrap().head.clone();
         (done, head)
+    }
+
+    #[tokio::test]
+    async fn a_shipped_model_is_not_downloaded() {
+        let directory = tempfile::tempdir().unwrap();
+        let target = directory.path().join("model.onnx");
+        let (base, seen) = serve_once(200, b"abc".to_vec()).await;
+        let model = Model {
+            name: "Test model",
+            url: Box::leak(format!("{base}/model.onnx").into_boxed_str()),
+            sha256: ABC,
+            file: "model.onnx",
+        };
+        let client = http::client(None).unwrap();
+        let shipped = Path::new("share/eco/models/model.onnx");
+        let done = ensure(&client, &model, Some(shipped), &target).await;
+        assert_eq!(
+            done.unwrap(),
+            format!("Test model ships with eco: {}", shipped.display())
+        );
+        assert!(seen.lock().unwrap().head.is_empty());
+        assert!(!target.exists());
+        let done = ensure(&client, &model, None, &target).await;
+        assert_eq!(done.unwrap(), format!("saved {}", target.display()));
     }
 
     #[test]

@@ -15,6 +15,10 @@ usage = "5.1.0"
 # reads Qt 6.11's repository layout, which no release does yet, run by uv.
 uv = { version = "0.12.24", os = ["windows"] }
 "pipx:miurahr/aqtinstall" = { version = "076e1659807d0b362a3ed684d54c2e9c775eb9c7", os = ["windows"] }
+# The Windows installer (scripts/package): WiX 6, run by the .NET SDK. WiX 7
+# asks the person who builds to accept the OSMF EULA, so it is not used.
+dotnet = { version = "8.0.427", os = ["windows"] }
+"dotnet:wix" = { version = "6.0.2", os = ["windows"] }
 
 [env]
 _.file = ".env"
@@ -43,12 +47,12 @@ depends = ["window:build"]
 run = "scripts/install"
 
 [tasks."install:windows"]
-description = "Windows only: build the release zip (package) and install it with install.ps1 for your account in %LOCALAPPDATA%\\Programs\\eco, its bin on your PATH, then eco setup"
+description = "Windows only: build the MSI (package) and install it with install.ps1 for every user in C:\\Program Files\\eco; Windows asks for administrator rights"
 run = "scripts/install-windows"
 run_windows = [{ task = "package" }, "python scripts/install-windows"]
 
 [tasks."uninstall:windows"]
-description = "Windows only: stop eco and remove the install with install.ps1, its PATH entry, login script, Start-menu shortcut and notification app id; asks whether to delete your sessions, config and models too"
+description = "Windows only: stop eco and remove its install with install.ps1 (the MSI, or an older per-user install); asks whether to delete your sessions, config and models too"
 raw = true
 usage = '''
 flag "--keep-data" help="Keep the sessions, config and models without asking"
@@ -144,7 +148,7 @@ description = "Install the versioned pre-push hook that runs the gate and posts 
 run = "scripts/hooks-install"
 
 [tasks.package]
-description = "Build the release package: on Linux the Arch package of the committed HEAD into target/arch/pkg; on Windows dist/eco-<version>-windows-x86_64.zip"
+description = "Build the release package: on Linux the Arch package of the committed HEAD into target/arch/pkg; on Windows the MSI dist/eco-<version>-windows-x86_64.msi"
 run = "scripts/package"
 run_windows = [{ task = "window:build" }, "python scripts/package"]
 
