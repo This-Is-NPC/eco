@@ -131,6 +131,9 @@ function Get-Product {
 # tries a dropped connection again and gives up on one that sends nothing for
 # a minute, so a slow download shows it moves and a dead one ends.
 function Get-Download([string] $url, [string] $path, [switch] $quiet) {
+    # curl draws on stderr; when that is redirected, PowerShell would take each
+    # line for an error. Its exit status says how it went.
+    $ErrorActionPreference = 'Continue'
     [string[]] $show = if ($quiet) { '--silent', '--show-error' } else { '--progress-bar' }
     & (Join-Path $env:SystemRoot 'System32\curl.exe') --fail --location --retry 3 `
         --connect-timeout 30 --speed-limit 1 --speed-time 60 @show --output $path $url
