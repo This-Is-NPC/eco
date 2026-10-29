@@ -30,7 +30,10 @@ if (cache / QT / folder / whole).is_file():
     sys.exit(0)
 if cache.exists():
     shutil.rmtree(cache)
+cache.mkdir()
+# Run inside .qt, where aqt's own log stays out of the checkout.
 subprocess.run(
     ["aqt", "install-qt", host, "desktop", QT, arch, "--outputdir", str(cache), "--archives", "qtbase", "qtdeclarative"],
     check=True,
+    cwd=cache,
 )
