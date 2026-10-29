@@ -196,9 +196,10 @@ output, and `No audio source is you any more.` when it was you.
 `Echo cancellation is off: <why>`, and eco records from the raw microphone.
 
 **A microphone heard as silence on macOS.** macOS gives a microphone it has
-not allowed eco only silence, and says nothing. Allow eco, or the terminal it
-runs in, under **System Settings › Privacy & Security › Microphone**, then
-start the session again.
+not allowed eco only silence. The first session asks once; once refused,
+each session that starts shows the error toast
+`macOS does not let eco hear the microphone: allow it in System Settings › Privacy & Security › Microphone`.
+Allow eco, or the terminal it runs in, there, then start the session again.
 
 **Echo cancellation on Windows and macOS.** Neither offers eco one: the ECHO
 CANCELLATION row is dimmed. With `echo_cancel = true` in a config written by

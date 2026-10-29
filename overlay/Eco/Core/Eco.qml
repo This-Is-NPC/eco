@@ -466,7 +466,23 @@ Singleton {
   }
   // A note is context later answers use: a fact the user writes, not a question.
   function noteOn(id, text) { send("session.note " + JSON.stringify({ id: id, text: text })) }
-  function startSession(title, kind, code, slots, tags) { send("session.start " + JSON.stringify({ title: title, kind: kind, language: code, contexts: slots, tags: tags, window: window })) }
+  // checkMicrophone asks the system once for the microphone, where it asks
+  // (macOS), and says when it refuses: the capture then hears only silence.
+  function checkMicrophone() {
+    if (Host.microphone === "undetermined")
+      Host.askMicrophone()
+    else if (Host.microphone === "denied")
+      post([{ key: "error.microphone.denied" }], "error", { topic: "microphone" })
+  }
+  readonly property Connections microphoneAnswer: Connections {
+    target: Host
+    function onMicrophoneChanged() {
+      if (Host.microphone === "denied")
+        root.post([{ key: "error.microphone.denied" }], "error", { topic: "microphone" })
+    }
+  }
+
+  function startSession(title, kind, code, slots, tags) { checkMicrophone(); send("session.start " + JSON.stringify({ title: title, kind: kind, language: code, contexts: slots, tags: tags, window: window })) }
   // The slots sessions of `kind` start with on.
   function contextsOfKind(kind) { return contexts.filter(slot => slot.kinds.includes(kind)).map(slot => slot.name) }
   // The slots a session ({kind, contexts}) has on: the ones chosen, or those of its kind.

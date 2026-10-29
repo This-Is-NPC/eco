@@ -23,6 +23,7 @@
 #include <ole2.h>
 #elif defined(Q_OS_MACOS)
 #include <QEvent>
+#include <QPermissions>
 
 #include "bridge_macos.h"
 #else
@@ -40,6 +41,7 @@ class Host : public QObject {
   Q_PROPERTY(bool systemDark READ systemDark NOTIFY systemThemeChanged)
   Q_PROPERTY(QString systemThemeDirectory READ systemThemeDirectory CONSTANT)
   Q_PROPERTY(bool foreground READ foreground NOTIFY foregroundChanged)
+  Q_PROPERTY(QString microphone READ microphone NOTIFY microphoneChanged)
 
 public:
   explicit Host(QObject *parent = nullptr) : QObject(parent) {
@@ -90,6 +92,31 @@ public:
   bool foreground() const { return QGuiApplication::applicationState() == Qt::ApplicationActive; }
 #else
   bool foreground() const { return true; }
+#endif
+
+  // Whether the system lets this process's daemon hear the microphone:
+  // "granted", "denied", or on macOS "undetermined" until the user is asked.
+  // Elsewhere nothing asks, and it is always "granted".
+#ifdef Q_OS_MACOS
+  QString microphone() const {
+    switch (qApp->checkPermission(QMicrophonePermission{})) {
+    case Qt::PermissionStatus::Granted:
+      return QStringLiteral("granted");
+    case Qt::PermissionStatus::Denied:
+      return QStringLiteral("denied");
+    default:
+      return QStringLiteral("undetermined");
+    }
+  }
+
+  // Asks the user once for the microphone; the answer changes `microphone`.
+  Q_INVOKABLE void askMicrophone() {
+    qApp->requestPermission(QMicrophonePermission{}, this, [this] { Q_EMIT microphoneChanged(); });
+  }
+#else
+  QString microphone() const { return QStringLiteral("granted"); }
+
+  Q_INVOKABLE void askMicrophone() {}
 #endif
 
   // The value of the environment variable `name`, or "" when it is unset.
@@ -202,5 +229,6 @@ private:
 
 Q_SIGNALS:
   void foregroundChanged();
+  void microphoneChanged();
   void systemThemeChanged();
 };

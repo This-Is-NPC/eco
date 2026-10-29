@@ -261,9 +261,10 @@ again on the page where you meet it.
   ([platform seams](docs/design.md#15-platform-seams)), so eco is not
   supported there yet. It registers no global shortcut: bind a key to an
   `eco window` command in the Shortcuts app
-  ([on macOS](docs/how-to-install-and-remove.md#on-macos)). A microphone macOS
-  denies eco records silence, with no
-  error: allow it in **System Settings › Privacy & Security › Microphone**
+  ([on macOS](docs/how-to-install-and-remove.md#on-macos)). macOS asks once
+  for the microphone when a session starts; refused, the session hears
+  silence and the window says to allow it in **System Settings › Privacy &
+  Security › Microphone**
   ([how to set up audio sources](docs/how-to-set-up-audio-sources.md)).
 - **Sessions recorded before eco kept costs stay unknown.** Their logs hold no
   cost records, and nothing brings those costs back.

@@ -668,6 +668,7 @@
   "error.stt.credential_missing": "Transcrição indisponível: {name} não tem chave no Gerenciador de Credenciais do Windows. Rode eco key set {credential}, ou adicione a credencial genérica eco:{credential} com a chave como senha, depois eco restart.",
   "error.stt.down": "Transcrição fora do ar · reconectando",
   "error.capture.down": "Dispositivo sem áudio · abrindo de novo",
+  "error.microphone.denied": "O macOS não deixa o eco ouvir o microfone: permita em Ajustes do Sistema › Privacidade e Segurança › Microfone",
   "transcription.back": "Transcrição de volta",
   "transcription.back_dropped": "Transcrição de volta · {n} s de áudio perdidos",
   "notify.answer": "{action} · resposta pronta",

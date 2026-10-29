@@ -17,6 +17,11 @@
 #include "line_socket.h"
 #include "text_file.h"
 
+#ifdef Q_OS_MACOS
+#include <QtPlugin>
+Q_IMPORT_PLUGIN(QDarwinMicrophonePermissionPlugin)
+#endif
+
 int main(int argc, char **argv) {
   if (argc != 2) {
     std::fputs("usage: eco-window <file.qml>\n", stderr);

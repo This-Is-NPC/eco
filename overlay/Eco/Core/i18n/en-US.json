@@ -668,6 +668,7 @@
   "error.stt.credential_missing": "Transcription unavailable: {name} has no key in the Windows Credential Manager. Run eco key set {credential}, or add the generic credential eco:{credential} with the key as its password, then eco restart.",
   "error.stt.down": "Transcription down · reconnecting",
   "error.capture.down": "Device not heard · opening it again",
+  "error.microphone.denied": "macOS does not let eco hear the microphone: allow it in System Settings › Privacy & Security › Microphone",
   "transcription.back": "Transcription back",
   "transcription.back_dropped": "Transcription back · {n} s of audio lost",
   "notify.answer": "{action} · answer ready",
