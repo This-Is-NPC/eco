@@ -134,8 +134,9 @@ and translation pickers — stays on screen, dimmed, its hint saying why. Skip t
 step 3 if you only want transcripts.
 
 **ADD MODEL** opens a new model, marked NEW and EDITING, starting from the
-provider and key source of the last model of its type. A new model is the
-default of nothing: step 4 makes it one. Fill it top to bottom:
+provider and key source of the last model of its type. The first model of its type
+becomes that type's default on save; any other is the default of nothing until
+step 4 makes it one. Fill it top to bottom:
 
 - **TYPE** — **CHAT**. It can change only while nothing uses the model.
 - **NAME** — yours, such as `gemini`. It is what every other section shows.
@@ -200,8 +201,14 @@ only stands in where nothing else does. **SAVE**.
 
 ## 4. Say which model does what
 
-**The defaults are set on the Models table.** Pick a model and press, in the
-bar:
+**The first model of each type is its default.** Register one chat model and
+one transcription model and each is already the default of its type (DEFAULT
+FOR CHAT and DEFAULT FOR TRANSCRIPTION); a second model of a type does not
+replace it. Deleting a default's model is refused (see below); a saved config
+that loses it makes the first remaining model of that type the default.
+
+**Any other default is set on the Models table.** Pick a model and press, in
+the bar:
 
 | model | command | sets | used by |
 |---|---|---|---|

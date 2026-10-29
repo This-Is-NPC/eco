@@ -4454,7 +4454,7 @@ mod tests {
         let events = d.line("config.set {").await;
         assert_eq!(said(&events), ["config.invalid"]);
         let mut wrong = raw();
-        wrong["stt"] = json!({"model": "nowhere"});
+        wrong["llm"] = json!({"concurrency": 0});
         wrong["token"] = json!("secret");
         let events = d.line(&format!("config.set {wrong}")).await;
         assert_eq!(said(&events), ["config.invalid"]);
@@ -5183,31 +5183,6 @@ mod tests {
                 "other": {"transcription": "w", "chat": "m", "translation": "m", "actions": ["probe"]},
                 "idea": {"transcription": "dg", "chat": "fast", "translation": "fast", "actions": ["probe"]},
             })
-        );
-    }
-
-    #[tokio::test]
-    async fn a_kind_with_its_own_chat_model_answers_where_no_default_does() {
-        let mut raw = raw();
-        raw["llm"]["model"] = json!("");
-        raw["models"][1]["kinds"] = json!(["idea"]);
-        raw["actions"] = json!([
-            {"name": "probe", "prompt": "p", "format": "f", "model": "m"},
-            {"name": "ask", "prompt": "p", "format": "f"},
-        ]);
-        let mut d = daemon(raw);
-        let snapshot = d.configured().await;
-        assert_eq!(
-            snapshot["kind_models"]["meeting"],
-            json!({"transcription": "w", "chat": "", "translation": "", "actions": ["probe"]})
-        );
-        assert_eq!(
-            snapshot["kind_models"]["idea"],
-            json!({"transcription": "w", "chat": "m", "translation": "", "actions": ["probe", "ask"]})
-        );
-        assert_eq!(
-            snapshot["default_models"],
-            snapshot["kind_models"]["meeting"]
         );
     }
 

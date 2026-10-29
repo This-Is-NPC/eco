@@ -441,7 +441,11 @@ matters.
   up fails answers with that reason until it is fixed or turned off.
   In the window, Models' DEFAULT FOR REVIEW picks `model`, General turns
   `enabled` and `verbose` on, and Prompts holds `prompt`.
-- **Default model:** `[llm] model` names the assistant's; an action's `model`
+- **Default model:** `[llm] model` names the assistant's, and `[stt] model` the
+  transcription model; saving a config whose default is empty, or names no
+  registered model of its type, sets it to the first registered model of that
+  type, in registration order (empty while there is none; a file read at
+  startup is not changed). An action's `model`
   names another (e.g. a slower, better model for a deep action). Only the models
   something uses are set up. Latency measurements: [benchmarks.md](benchmarks.md).
 - **Prompt, built for the provider's cache:** a request is a conversation that
@@ -2041,8 +2045,10 @@ title until the item changes again; a refused DELETE or quick change shows as an
 error toast (§12.2). The default models are not required, as the daemon does not
 require them (§9): a config with no model registered saves, and a default it
 names must be a registered model of its type (`overlay/Eco/Core/draft.js`,
-`problems`). Naming a new model makes it the default of nothing; each default
-is set on the Models table.
+`problems`). The daemon makes the first registered model of a type the default
+of that type when a saved config leaves it empty or names no model of that
+type, so a new model is a default only when it is the first of its type; the
+others are set on the Models table.
 
 Closing the window with an item unsaved asks first: SAVE AND CLOSE saves
 each changed item in turn, the one on screen first, and closes once none is

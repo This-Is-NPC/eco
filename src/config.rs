@@ -446,6 +446,27 @@ pub struct Config {
     pub shortcuts: Option<BTreeMap<String, String>>,
 }
 
+impl Raw {
+    /// An empty default model, or one that is no registered model of its type,
+    /// becomes the first registered model of that type, in registration order.
+    fn with_default_models(mut self) -> Self {
+        let pick = |models: &[ModelConfig], kind: ModelType, current: &str| {
+            let named = |m: &&ModelConfig| m.kind == kind;
+            if models.iter().filter(named).any(|m| m.name == current) {
+                return current.to_string();
+            }
+            models
+                .iter()
+                .find(named)
+                .map(|m| m.name.clone())
+                .unwrap_or_default()
+        };
+        self.llm.model = pick(&self.models, ModelType::Chat, &self.llm.model);
+        self.stt.model = pick(&self.models, ModelType::Transcription, &self.stt.model);
+        self
+    }
+}
+
 impl Config {
     /// The user's global context files, joined, `~` expanded.
     pub fn context(&self) -> std::io::Result<String> {
@@ -502,11 +523,13 @@ impl Config {
             .or_else(|| self.model(&self.stt.model))
     }
 
-    /// Build a Config from its JSON shape (what the overlay sends); validate it.
+    /// Build a Config from its JSON shape (what the overlay sends), where an empty
+    /// default model, or one that is no registered model of its type, becomes the
+    /// first registered model of that type; validate it.
     pub fn from_value(value: Value) -> Result<Self, ConfigError> {
         let raw: Raw = serde_json::from_value(value)
             .map_err(|error| ConfigError(format!("invalid config: {error}")))?;
-        Self::from_raw(raw)
+        Self::from_raw(raw.with_default_models())
     }
 
     /// The JSON shape of this Config; `Config::from_value(c.to_value())` gives `c` back.
@@ -1011,7 +1034,6 @@ mod tests {
     fn roles_and_actions_name_registered_models() {
         let config = Config::from_value(raw()).unwrap();
         assert_eq!(config.model("grok").unwrap().model, "x-ai/grok-4.20");
-        assert!(error_of(with("llm", json!({"model": "nenhum"}))).contains("assistant"));
         let mut value = raw();
         value["actions"][0]["model"] = json!("nenhum");
         assert!(error_of(value).contains("action"));
@@ -1025,8 +1047,6 @@ mod tests {
 
     #[test]
     fn each_role_names_a_model_of_its_type() {
-        assert!(error_of(with("stt", json!({"model": "gemini"}))).contains("transcription"));
-        assert!(error_of(with("llm", json!({"model": "whisper"}))).contains("chat"));
         let mut value = raw();
         value["actions"][0]["model"] = json!("whisper");
         assert!(error_of(value).contains("chat"));
@@ -1314,20 +1334,44 @@ mod tests {
         );
     }
 
+    fn models_of(names: &[(&str, &str)]) -> Value {
+        let models: Vec<Value> = names
+            .iter()
+            .map(|(name, kind)| {
+                json!({"name": name, "type": kind, "base_url": "http://x", "model": name})
+            })
+            .collect();
+        json!({"models": models})
+    }
+
+    fn defaults_of(value: Value) -> (String, String) {
+        let config = Config::from_value(value).unwrap();
+        (config.llm.model, config.stt.model)
+    }
+
     #[test]
-    fn a_default_names_a_registered_model_or_none() {
-        let only_models = json!({"models": [
-            {"name": "w", "type": "transcription", "base_url": "http://stt", "model": "whisper-1"},
-            {"name": "m", "type": "chat", "base_url": "http://llm", "model": "m"},
-        ]});
-        let config = Config::from_value(only_models.clone()).unwrap();
-        assert_eq!(config.transcriber("meeting"), None);
-        let mut named = only_models;
-        named["stt"] = json!({"model": "m"});
-        assert!(error_of(named.clone()).contains("transcription must name"));
-        named["stt"] = json!({"model": "w"});
-        named["llm"] = json!({"model": "w"});
-        assert!(error_of(named).contains("assistant must name"));
+    fn the_first_model_of_each_type_becomes_its_default() {
+        assert_eq!(defaults_of(models_of(&[])), (String::new(), String::new()));
+        let chat = models_of(&[("m", "chat")]);
+        assert_eq!(defaults_of(chat), ("m".into(), String::new()));
+        let stt = models_of(&[("w", "transcription")]);
+        assert_eq!(defaults_of(stt), (String::new(), "w".into()));
+        let both = models_of(&[("w", "transcription"), ("m", "chat"), ("n", "chat")]);
+        assert_eq!(defaults_of(both), ("m".into(), "w".into()));
+    }
+
+    #[test]
+    fn a_chosen_default_is_kept_and_a_lost_one_is_replaced() {
+        let mut value = models_of(&[("w", "transcription"), ("m", "chat"), ("n", "chat")]);
+        value["llm"] = json!({"model": "n"});
+        assert_eq!(defaults_of(value.clone()), ("n".into(), "w".into()));
+        value["models"].as_array_mut().unwrap().remove(2);
+        assert_eq!(defaults_of(value.clone()), ("m".into(), "w".into()));
+        value["models"] = json!([]);
+        assert_eq!(defaults_of(value.clone()), (String::new(), String::new()));
+        value["stt"] = json!({"model": "m"});
+        value["models"] = models_of(&[("m", "chat"), ("w", "transcription")])["models"].clone();
+        assert_eq!(defaults_of(value), ("m".into(), "w".into()));
     }
 
     #[test]
@@ -1351,6 +1395,10 @@ mod tests {
             error,
             "transcription must name a registered transcription model"
         );
+
+        fs::write(&path, "[llm]\nmodel = \"whisper\"\n").unwrap();
+        let error = load(&path).unwrap_err().0;
+        assert_eq!(error, "the assistant must name a registered chat model");
 
         fs::write(&path, "[llm]\nmodle = \"m\"\n").unwrap();
         let error = load(&path).unwrap_err().0;
