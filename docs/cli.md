@@ -92,6 +92,18 @@ The release to install, e.g. 0.5.0; an older one too
 
 Only say whether a newer release is out
 
+## `eco uninstall`
+
+- **Usage**: `eco uninstall [--everything]`
+
+Remove eco and keep the user's data, or with --everything delete it too: the config, sessions, people and models. Refused while a session records
+
+### Flags
+
+#### `--everything`
+
+Also delete the config, sessions, people and models
+
 ## `eco version`
 
 - **Usage**: `eco version`

@@ -2,7 +2,6 @@
 //! transcription, sessions and the LLM, served to the QML overlay over a Unix socket.
 
 mod adapters;
-#[cfg(any(windows, test))]
 mod apply;
 mod bench;
 mod cli;
@@ -72,6 +71,13 @@ enum Command {
         #[arg(long, conflicts_with = "version")]
         check: bool,
     },
+    /// Remove eco and keep the user's data, or with --everything delete it too: the
+    /// config, sessions, people and models. Refused while a session records.
+    Uninstall {
+        /// Also delete the config, sessions, people and models.
+        #[arg(long)]
+        everything: bool,
+    },
     /// Print the installed version, the running daemon's and the newest release's, as JSON.
     Version,
     /// Check that eco is installed, set up and running; prints each check as
@@ -111,6 +117,12 @@ enum Command {
         /// Its SHA-256, the 64 hex digits the release's SHA256SUMS names it by.
         #[arg(value_parser = sha256)]
         sha256: [u8; 32],
+    },
+    /// Remove eco with the daemon stopped, and the user's data too (run by `eco uninstall` and the daemon).
+    #[command(hide = true)]
+    ApplyUninstall {
+        #[arg(long)]
+        everything: bool,
     },
     /// Tell the speakers of the regions on stdin apart (run by the daemon on import).
     #[command(hide = true)]
@@ -425,6 +437,9 @@ enum Run {
         version: Option<String>,
         check: bool,
     },
+    Uninstall {
+        everything: bool,
+    },
     Version,
     Doctor,
     Status {
@@ -442,6 +457,9 @@ enum Run {
     ApplyUpdate {
         package: PathBuf,
         sha256: [u8; 32],
+    },
+    ApplyUninstall {
+        everything: bool,
     },
     Diarize {
         model: PathBuf,
@@ -470,6 +488,7 @@ impl From<Command> for Run {
             Command::Stop => return Run::Stop,
             Command::Restart => return Run::Restart,
             Command::Update { version, check } => return Run::Update { version, check },
+            Command::Uninstall { everything } => return Run::Uninstall { everything },
             Command::Version => return Run::Version,
             Command::Doctor => return Run::Doctor,
             Command::Status {
@@ -498,6 +517,7 @@ impl From<Command> for Run {
             Command::ApplyUpdate { package, sha256 } => {
                 return Run::ApplyUpdate { package, sha256 };
             }
+            Command::ApplyUninstall { everything } => return Run::ApplyUninstall { everything },
             Command::Diarize { model } => return Run::Diarize { model },
             Command::Usage => return Run::Usage,
             Command::Key {
@@ -694,6 +714,9 @@ pub async fn run() -> Result<()> {
         Run::Update { version, check } => {
             exit_with(cli::print(installer::run(version, check).await))
         }
+        Run::Uninstall { everything } => {
+            exit_with(cli::print(installer::run_uninstall(everything).await))
+        }
         Run::Version => exit_with(cli::print(installer::run_version().await)),
         Run::Doctor => exit_with(doctor::run(&Address::user()).await),
         Run::Status {
@@ -714,6 +737,14 @@ pub async fn run() -> Result<()> {
         Run::ApplyUpdate { package, sha256 } => {
             adapters::installer_windows::apply(&package, sha256).await;
             Ok(())
+        }
+        Run::ApplyUninstall { everything } => {
+            // The steps are dropped before the exit, which waits for the toast.
+            let removed = {
+                let steps = apply::Local::new(installer::installer(), session::notifier());
+                apply::uninstall(&steps, everything).await
+            };
+            exit_with(i32::from(!removed))
         }
         Run::Diarize { model } => adapters::diarizer_process::serve(&model),
         Run::Usage => {
@@ -1098,6 +1129,23 @@ mod tests {
             rejected(&["apply-update", r"C:\Temp\eco.msi", "abc"]),
             ErrorKind::ValueValidation
         );
+    }
+
+    #[test]
+    fn uninstall_keeps_the_data_unless_everything_is_named() {
+        assert!(matches!(
+            run(&["uninstall"]),
+            Run::Uninstall { everything: false }
+        ));
+        assert!(matches!(
+            run(&["uninstall", "--everything"]),
+            Run::Uninstall { everything: true }
+        ));
+        assert!(matches!(
+            run(&["apply-uninstall", "--everything"]),
+            Run::ApplyUninstall { everything: true }
+        ));
+        assert_eq!(rejected(&["uninstall", "now"]), ErrorKind::UnknownArgument);
     }
 
     #[test]

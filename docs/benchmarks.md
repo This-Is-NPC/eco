@@ -553,3 +553,24 @@ does not measure. Files whose numbers did not move are not named.
 | `src/lifecycle.rs` | 98.75% (10 of 803) | 98.92% (10 of 925) | as before. |
 | `src/session/update.rs` | 99.61% (2 of 518) | 99.67% (2 of 600) | as before. |
 | `src/ports.rs` | 70.00% (3 of 10) | 78.57% (3 of 14) | as before. |
+
+## Uninstall coverage (2026-10-29)
+
+Measured on Linux with `mise run coverage` on the tree that adds `eco
+uninstall`, the daemon's `uninstall` command and the window's UNINSTALL row.
+The run passed 859 unit tests. The whole crate: 97.21% of lines (969 of 34777
+without a test). The Windows-only code (the removal in
+`src/adapters/installer_windows.rs`) is not measured by this Linux run. Its
+arguments, exit codes and product filter are tested by `mise run check` on
+Windows; the registry read and the hand-off of the copy of `eco.exe` are not
+tested by anything, as they need Windows Installer and the shell. Master was
+not measured again for this change; the lines new to the files below that have
+no test are the ones named.
+
+| File | Lines | Left without a test, and why |
+|---|---|---|
+| `src/apply.rs` | 99.72% (1 of 361) | the line view shows no line at zero; the summary counts one. |
+| `src/installer.rs` | 94.68% (32 of 602) | `run_uninstall()`, three lines that ask the real user's socket (`uninstall()` behind it is tested with a fake daemon and installer); the rest as in the update section. |
+| `src/lib.rs` | 88.66% (87 of 767) | the `ApplyUninstall` arm of `run()`, which stops the user's daemon and runs the real installer (`apply::uninstall` and `Local` are tested with fakes and a temporary directory); the rest as in the daemon section. |
+| `src/session/update.rs` | 99.72% (2 of 703) | as in the update section. |
+| `src/adapters/installer_linux.rs` | 98.28% (7 of 408) | `Pacman::new`, which reads the real `PATH` and terminal; the removal's arguments, the unit's arguments, the exit codes and the hand-off through a stand-in `systemd-run` are tested. |

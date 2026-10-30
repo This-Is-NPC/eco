@@ -35,6 +35,25 @@ impl<V: Fn(&str) -> Option<OsString>> Layout<V> {
         self.data_dir().join("sessions")
     }
 
+    /// The directories eco keeps the user's files in: its config, its data and
+    /// its state, each once.
+    fn kept(&self) -> Vec<PathBuf> {
+        let mut dirs = Vec::new();
+        for dir in [
+            self.config_file().parent().map(Path::to_path_buf),
+            Some(self.data_dir()),
+            self.update_state().parent().map(Path::to_path_buf),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            if !dirs.contains(&dir) {
+                dirs.push(dir);
+            }
+        }
+        dirs
+    }
+
     fn expand(&self, path: &str) -> PathBuf {
         match path.strip_prefix("~/") {
             Some(rest) => self.home().join(rest),
@@ -250,6 +269,12 @@ pub fn sessions_dir() -> PathBuf {
     layout().sessions_dir()
 }
 
+/// The directories that hold the config, sessions, people, models and state
+/// of the user, which `eco uninstall --everything` deletes.
+pub fn kept() -> Vec<PathBuf> {
+    layout().kept()
+}
+
 pub fn socket_path() -> PathBuf {
     layout().socket_path()
 }
@@ -333,6 +358,33 @@ mod tests {
     #[test]
     fn the_update_state_is_eco_s_own_file() {
         assert!(update_state().ends_with(Path::new("eco").join("update.json")));
+    }
+
+    #[test]
+    fn everything_eco_keeps_sits_in_a_directory_of_its_own() {
+        assert!(kept().iter().all(|dir| dir.ends_with("eco")));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn what_the_user_keeps_is_the_config_the_data_and_the_state() {
+        let layout = with(&[("HOME", "/home/you")]);
+        assert_eq!(
+            layout.kept(),
+            [
+                "/home/you/.config/eco",
+                "/home/you/.local/share/eco",
+                "/home/you/.local/state/eco"
+            ]
+            .map(PathBuf::from)
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn on_windows_the_state_is_in_the_data_directory() {
+        let layout = with(&[("APPDATA", r"C:\r"), ("LOCALAPPDATA", r"C:\l")]);
+        assert_eq!(layout.kept(), [r"C:\r\eco", r"C:\l\eco"].map(PathBuf::from));
     }
 
     #[cfg(unix)]

@@ -243,6 +243,12 @@ pub async fn run(version: Option<String>, check: bool) -> Result<Value, Failure>
     update(&Address::user(), &releases, &*installer(), version, check).await
 }
 
+/// `eco uninstall` of the user's eco: through the user's daemon, or here with
+/// this platform's installer.
+pub async fn run_uninstall(everything: bool) -> Result<Value, Failure> {
+    uninstall(&Address::user(), &*installer(), everything).await
+}
+
 /// `eco version` of the user's eco and daemon, against GitHub.
 pub async fn run_version() -> Result<Value, Failure> {
     let greeting = cli::greeting(&Address::user()).await.ok().flatten();
@@ -303,6 +309,24 @@ pub async fn update(
         }
     };
     Ok(json!({"current": CURRENT, "version": version, "installed": true, "restart": restart}))
+}
+
+/// `eco uninstall`: remove eco, and with `everything` the user's files too.
+/// The running daemon at `address` hands the removal off, so it refuses while
+/// a session records; with no daemon, `installer` does it here. What it
+/// removed is said once the removal runs; Windows Installer shows the rest.
+pub async fn uninstall(
+    address: &Address,
+    installer: &dyn Installer,
+    everything: bool,
+) -> Result<Value, Failure> {
+    if !cli::uninstall(address, everything).await? {
+        installer
+            .uninstall(everything)
+            .hand_off()
+            .map_err(|error| Failure::new("uninstall.failed", error.to_string()))?;
+    }
+    Ok(json!({"uninstalled": true, "data": if everything { "deleted" } else { "kept" }}))
 }
 
 /// `eco version`: this eco's version, the version of the daemon that greeted
@@ -673,6 +697,63 @@ mod tests {
             .await
             .unwrap_err();
         assert_eq!(failure, Failure::new("update.failed", "pkexec is missing"));
+    }
+
+    #[tokio::test]
+    async fn without_a_daemon_the_removal_is_handed_off_here() {
+        let directory = tempfile::tempdir().unwrap();
+        let installer = FakeInstaller::default();
+        let said = uninstall(&nowhere(&directory), &installer, false)
+            .await
+            .unwrap();
+        assert_eq!(said, json!({"uninstalled": true, "data": "kept"}));
+        let said = uninstall(&nowhere(&directory), &installer, true)
+            .await
+            .unwrap();
+        assert_eq!(said, json!({"uninstalled": true, "data": "deleted"}));
+        assert_eq!(*installer.uninstalled.lock().unwrap(), [false, true]);
+    }
+
+    #[tokio::test]
+    async fn a_removal_that_cannot_be_handed_off_is_a_failure() {
+        let directory = tempfile::tempdir().unwrap();
+        let installer = FakeInstaller {
+            uninstall_fails: Some("no systemd-run"),
+            ..FakeInstaller::default()
+        };
+        let failure = uninstall(&nowhere(&directory), &installer, true)
+            .await
+            .unwrap_err();
+        assert_eq!(failure, Failure::new("uninstall.failed", "no systemd-run"));
+    }
+
+    #[tokio::test]
+    async fn a_running_daemon_removes_and_the_installer_is_left_alone() {
+        use tokio::io::{AsyncBufReadExt, BufReader};
+
+        use crate::adapters::{control_socket, local_socket};
+
+        let directory = tempfile::tempdir().unwrap();
+        let address = Address::scratch(directory.path());
+        let listener = control_socket::FakeListener::bind(&address).await;
+        tokio::spawn(async move {
+            let stream = listener.accept().await.unwrap();
+            let (reader, mut writer) = local_socket::split(stream);
+            let mut lines = BufReader::new(reader).lines();
+            let line = lines.next_line().await.unwrap().unwrap();
+            assert_eq!(line, r#"uninstall {"everything":true}"#);
+            let removing = json!({"type": "uninstall", "stage": "removing",
+                                  "everything": true, "detail": ""});
+            writer
+                .write_all(format!("{removing}\n").as_bytes())
+                .await
+                .unwrap();
+            let _ = lines.next_line().await;
+        });
+        let installer = FakeInstaller::default();
+        let said = uninstall(&address, &installer, true).await.unwrap();
+        assert_eq!(said["data"], "deleted");
+        assert!(installer.uninstalled.lock().unwrap().is_empty());
     }
 
     #[tokio::test]

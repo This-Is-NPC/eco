@@ -1,10 +1,13 @@
 //! pacman: a release installed as the Arch package it carries, with `pacman
 //! -U` run as root — through pkexec, which asks for the password in a window
 //! of its own, or, on a system without pkexec, through sudo on the terminal
-//! eco runs in, as install.sh does.
+//! eco runs in, as install.sh does. The same for removing it, `pacman -Rns`.
+//! The daemon is a systemd user service that the package does not stop, so the
+//! removal is `eco apply-uninstall` in a transient unit of the user's systemd,
+//! which stops the daemon first and outlives it.
 
 use std::ffi::{OsStr, OsString};
-use std::io::IsTerminal;
+use std::io::{self, IsTerminal};
 use std::path::{Path, PathBuf};
 use std::process::{ExitStatus, Stdio};
 
@@ -12,7 +15,7 @@ use futures::future::BoxFuture;
 use tokio::process::Command;
 
 use crate::installer::{self, Scratch};
-use crate::ports::{InstallError, InstallProgress, InstallStage, Installed, Installer};
+use crate::ports::{InstallError, InstallProgress, InstallStage, Installed, Installer, Pending};
 
 #[derive(Clone)]
 pub struct Pacman {
@@ -41,7 +44,7 @@ impl Pacman {
             (Some(pkexec), _) => Ok(pkexec.clone()),
             (None, true) => Ok(self.sudo.clone()),
             (None, false) => Err(InstallError(
-                "pkexec is not installed, and there is no terminal for sudo to ask for the password; install polkit, or run eco update in a terminal".into(),
+                "pkexec is not installed, and there is no terminal for sudo to ask for the password; install polkit, or run eco in a terminal".into(),
             )),
         }
     }
@@ -69,18 +72,98 @@ fn arguments(package: &Path) -> Vec<OsString> {
     arguments
 }
 
-/// What the elevator's exit `status` says: installed, or why not.
-fn outcome(status: ExitStatus) -> Result<(), InstallError> {
+/// What the elevator's exit `status` says of `pacman` with `operation`
+/// (`-U`), which leaves nothing `done` (installed) when it fails.
+fn outcome(status: ExitStatus, operation: &str, done: &str) -> Result<(), InstallError> {
     match status.code() {
         Some(0) => Ok(()),
         // pkexec's own: the password prompt was dismissed (126) or refused (127).
-        Some(126 | 127) => Err(InstallError(
-            "the password was not given; nothing was installed".into(),
-        )),
-        Some(code) => Err(InstallError(format!(
-            "pacman -U failed with exit status {code}"
+        Some(126 | 127) => Err(InstallError(format!(
+            "the password was not given; nothing was {done}"
         ))),
-        None => Err(InstallError("pacman -U was stopped by a signal".into())),
+        Some(code) => Err(InstallError(format!(
+            "pacman {operation} failed with exit status {code}"
+        ))),
+        None => Err(InstallError(format!(
+            "pacman {operation} was stopped by a signal"
+        ))),
+    }
+}
+
+/// Run pacman as root through `elevator` with `arguments`, its output on
+/// stderr: stdout is the command's JSON.
+async fn elevated(
+    elevator: &Path,
+    arguments: Vec<OsString>,
+    operation: &str,
+    done: &str,
+) -> Result<(), InstallError> {
+    let status = Command::new(elevator)
+        .args(arguments)
+        .stdin(Stdio::inherit())
+        .stdout(Stdio::from(std::io::stderr()))
+        .status()
+        .await
+        .map_err(|error| InstallError(format!("cannot run {}: {error}", elevator.display())))?;
+    outcome(status, operation, done)
+}
+
+/// What the elevator runs to remove the package, without asking again and
+/// with the files it made.
+fn removal_arguments() -> Vec<OsString> {
+    ["pacman", "-Rns", "--noconfirm", "eco"]
+        .map(OsString::from)
+        .to_vec()
+}
+
+/// What `systemd-run` runs: `eco apply-uninstall`, in the terminal that asked
+/// and until it ends, or on its own, past the daemon.
+fn unit_arguments(exe: &Path, everything: bool, terminal: bool) -> Vec<OsString> {
+    let mut arguments: Vec<OsString> = ["--user", "--collect", "--quiet"]
+        .map(OsString::from)
+        .to_vec();
+    if terminal {
+        arguments.extend(["--pty", "--wait"].map(OsString::from));
+    }
+    arguments.push(exe.into());
+    arguments.push("apply-uninstall".into());
+    if everything {
+        arguments.push("--everything".into());
+    }
+    arguments
+}
+
+/// A removal waiting for the daemon to stop.
+#[derive(Debug)]
+struct Removal {
+    systemd_run: PathBuf,
+    everything: bool,
+    /// Whether eco was asked in a terminal, which the removal then keeps and
+    /// is waited for in.
+    terminal: bool,
+}
+
+impl Pending for Removal {
+    fn hand_off(&self) -> io::Result<()> {
+        let mut command = std::process::Command::new(&self.systemd_run);
+        command.args(unit_arguments(
+            &std::env::current_exe()?,
+            self.everything,
+            self.terminal,
+        ));
+        if !self.terminal {
+            command
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null());
+        }
+        // Without `--wait`, systemd-run ends once the unit has started.
+        match command.status()? {
+            status if status.success() => Ok(()),
+            status => Err(io::Error::other(format!(
+                "systemd-run could not run the removal ({status})"
+            ))),
+        }
     }
 }
 
@@ -108,18 +191,23 @@ impl Installer for Pacman {
             .await?
             .path;
             progress(InstallStage::Installing);
-            // pacman's output goes to stderr: stdout is the command's JSON.
-            let status = Command::new(&elevator)
-                .args(arguments(&package))
-                .stdin(Stdio::inherit())
-                .stdout(Stdio::from(std::io::stderr()))
-                .status()
+            elevated(&elevator, arguments(&package), "-U", "installed")
                 .await
-                .map_err(|error| {
-                    InstallError(format!("cannot run {}: {error}", elevator.display()))
-                })?;
-            outcome(status).map(|()| Installed::Done)
+                .map(|()| Installed::Done)
         })
+    }
+
+    fn uninstall(&self, everything: bool) -> Box<dyn Pending> {
+        Box::new(Removal {
+            systemd_run: PathBuf::from("systemd-run"),
+            everything,
+            terminal: self.terminal,
+        })
+    }
+
+    fn remove(&self) -> BoxFuture<'static, Result<(), InstallError>> {
+        let elevator = self.elevator();
+        Box::pin(async move { elevated(&elevator?, removal_arguments(), "-Rns", "removed").await })
     }
 }
 
@@ -307,6 +395,122 @@ mod tests {
             .await
             .unwrap_err();
         assert_eq!(error.0, "pacman -U was stopped by a signal");
+    }
+
+    #[test]
+    fn a_removal_waits_in_the_terminal_that_asked_for_it() {
+        let pending = pacman("", None, true).uninstall(true);
+        let said = format!("{pending:?}");
+        assert!(said.contains("everything: true") && said.contains("terminal: true"));
+    }
+
+    #[test]
+    fn the_package_is_removed_with_its_files_without_asking() {
+        assert_eq!(
+            removal_arguments(),
+            ["pacman", "-Rns", "--noconfirm", "eco"].map(OsString::from)
+        );
+    }
+
+    #[test]
+    fn the_removal_runs_in_a_unit_that_waits_only_in_a_terminal() {
+        let exe = Path::new("/usr/bin/eco");
+        assert_eq!(
+            unit_arguments(exe, false, false),
+            [
+                "--user",
+                "--collect",
+                "--quiet",
+                "/usr/bin/eco",
+                "apply-uninstall"
+            ]
+            .map(OsString::from)
+        );
+        assert_eq!(
+            unit_arguments(exe, true, true),
+            [
+                "--user",
+                "--collect",
+                "--quiet",
+                "--pty",
+                "--wait",
+                "/usr/bin/eco",
+                "apply-uninstall",
+                "--everything"
+            ]
+            .map(OsString::from)
+        );
+    }
+
+    fn removal(systemd_run: PathBuf, terminal: bool) -> Box<dyn Pending> {
+        Box::new(Removal {
+            systemd_run,
+            everything: true,
+            terminal,
+        })
+    }
+
+    #[test]
+    fn handing_off_the_removal_runs_systemd_run_with_the_unit() {
+        let directory = tempfile::tempdir().unwrap();
+        let ran = directory.path().join("ran");
+        let body = format!("printf '%s\\n' \"$@\" > {}", ran.display());
+        let systemd_run = fake_program(directory.path(), "systemd-run", &body);
+        removal(systemd_run, false).hand_off().unwrap();
+        let said = fs::read_to_string(&ran).unwrap();
+        let lines: Vec<&str> = said.lines().collect();
+        assert_eq!(lines[..3], ["--user", "--collect", "--quiet"]);
+        assert_eq!(
+            lines[lines.len() - 2..],
+            ["apply-uninstall", "--everything"]
+        );
+    }
+
+    #[test]
+    fn a_systemd_run_that_fails_or_is_missing_fails_the_hand_off() {
+        let directory = tempfile::tempdir().unwrap();
+        let failing = fake_program(directory.path(), "systemd-run", "exit 1");
+        let error = removal(failing, true).hand_off().unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .starts_with("systemd-run could not run the removal")
+        );
+        let missing = directory.path().join("gone").join("systemd-run");
+        assert!(removal(missing, false).hand_off().is_err());
+    }
+
+    #[tokio::test]
+    async fn removing_runs_pacman_through_pkexec() {
+        let directory = tempfile::tempdir().unwrap();
+        let (pkexec, ran) = fake_pkexec(directory.path(), 0);
+        pacman("", Some(pkexec), false).remove().await.unwrap();
+        assert_eq!(
+            fs::read_to_string(&ran)
+                .unwrap()
+                .lines()
+                .collect::<Vec<_>>(),
+            ["pacman", "-Rns", "--noconfirm", "eco"]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_removal_that_is_refused_or_cannot_be_elevated_is_said() {
+        for (code, said) in [
+            (126, "the password was not given; nothing was removed"),
+            (1, "pacman -Rns failed with exit status 1"),
+        ] {
+            let directory = tempfile::tempdir().unwrap();
+            let (pkexec, _) = fake_pkexec(directory.path(), code);
+            let error = pacman("", Some(pkexec), false).remove().await.unwrap_err();
+            assert_eq!(error.0, said);
+        }
+        let error = pacman("", None, false).remove().await.unwrap_err();
+        assert!(
+            error.0.starts_with("pkexec is not installed"),
+            "{}",
+            error.0
+        );
     }
 
     #[tokio::test]

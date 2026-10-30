@@ -24,7 +24,7 @@ Codes: `argument.invalid`, `daemon.offline`, `daemon.access_denied`, `daemon.una
 `chat.none`, `translation.none`, `completion.failed`, `suggestion.removed`, `import.busy`, `import.failed`, `import.no_ffmpeg` (install ffmpeg and ffprobe),
 `person.not_found`, `person.invalid`, `person.exists`, `people.failed`,
 `line.not_found`, `update.unavailable` (GitHub could not be asked),
-`update.failed`, `update.busy`.
+`update.failed`, `update.busy`, `uninstall.recording`, `uninstall.failed`.
 
 The commands talk to the running eco daemon. On `daemon.offline`, tell the
 user; run `eco start --headless` only if they agree. On
@@ -54,6 +54,14 @@ only when the user asks for the update. They print `{current, version,
 installed, restart}`: `restart` is `now`, `when_session_ends` (a session that
 records is never cut; the restart waits for it to end) or `none` (no daemon
 restarted).
+
+`eco uninstall` removes eco and keeps the user's data (config, sessions,
+people, models); `eco uninstall --everything` deletes that too, for good. Both
+ask nothing, may ask the user for their password, and print `{uninstalled,
+data}` with `data` `kept` or `deleted`. Run them only when the user asks for
+the removal, and `--everything` only when they said to delete their data. A
+session that records refuses it (`uninstall.recording`): tell the user, do not
+end the session for them.
 
 ## Read
 

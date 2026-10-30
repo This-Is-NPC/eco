@@ -365,11 +365,12 @@ pub enum Installed {
     Pending(Box<dyn Pending>),
 }
 
-/// An install that waits for eco to stop running.
+/// An install or a removal that waits for eco to stop running.
 pub trait Pending: Send + Sync + std::fmt::Debug {
-    /// Install it in a process that outlives eco: it stops the daemon,
-    /// installs the package and, if the daemon ran, starts eco again. Returns
-    /// once that process has started.
+    /// Do it in a process that outlives eco: it stops the daemon, installs
+    /// the package and, if the daemon ran, starts eco again; or removes eco.
+    /// Returns once that process has started, or, for a removal asked in a
+    /// terminal, once it has ended.
     fn hand_off(&self) -> std::io::Result<()>;
 }
 
@@ -387,6 +388,15 @@ pub trait Installer: Send + Sync {
 
     /// The eco executable an install puts in place.
     fn program(&self) -> PathBuf;
+
+    /// Remove eco: the removal itself, to hand off once the daemon is told to
+    /// stop; with `everything`, the config, sessions, people and models too.
+    /// There is nothing to download, so it is not a future.
+    fn uninstall(&self, everything: bool) -> Box<dyn Pending>;
+
+    /// Remove the installed package, as `eco apply-uninstall` does with the
+    /// daemon stopped. The user's files are not its business.
+    fn remove(&self) -> BoxFuture<'static, Result<(), InstallError>>;
 }
 
 /// How much a notification asks of the user's attention.

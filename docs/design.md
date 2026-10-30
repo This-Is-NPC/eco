@@ -1227,6 +1227,7 @@ session it shows:
 {"type":"keys","env":["ECO_LAN_KEY","OPENROUTER_API_KEY"],"credentials":null,"credential_error":""}
 {"type":"update","current":"0.4.0","latest":"0.5.0","newer":true,"notes":"https://github.com/This-Is-NPC/eco/releases/tag/v0.5.0","checked_at":1791083833,"check":true,"error":""}
 {"type":"update_progress","stage":"installing","version":"0.5.0","detail":""}
+{"type":"uninstall","stage":"removing","everything":false,"detail":""}
 {"type":"error","code":"session.none","params":{},"message":"start a session first"}
 ```
 
@@ -1252,6 +1253,11 @@ saying why it failed. The restart runs the eco the installer installed
 (`/usr/bin/eco`, `%LOCALAPPDATA%\Programs\eco\bin\eco.exe`), not the
 executable the daemon was started from; `daemon.restart` alone restarts the
 running executable.
+
+`uninstall` answers the command of that name (§13, *Removing*): `stage` is
+`removing` once the removal is handed off, after which the daemon stops, or
+`failed` with `detail` saying why it could not be handed off; `everything`
+repeats the choice.
 
 `shortcuts` names the global shortcut keys another program holds, as
 `unavailable`, a list of keys as the daemon registers them (`Win+Alt+A`). It
@@ -1421,6 +1427,8 @@ it is refused with `daemon.recording`, and the window asks before it sends
 `force`; a restart that cannot be spawned is `daemon.restart_failed`
 `{detail}`; a second `update.install` while one runs or waits is
 `update.busy`),
+`uninstall <json>` (`{"everything"}`: removes eco as `eco uninstall` does, and
+says `uninstall`; refused with `uninstall.recording` while a session is live),
 `sync` (no command: the connection answers `synced` to this client alone once
 it has read every line before it, §10), `events <json>` (no command either:
 `{"except": [types]}`, the event types this connection no longer receives,
@@ -1497,6 +1505,11 @@ How the commands are built:
   installs it itself and `restart` is `"none"`. Codes: `update.unavailable`
   (GitHub could not be asked, or has no such release), `update.failed` (the
   download, the checksum or the install failed) and `update.busy`.
+- `uninstall [--everything]` removes eco and prints `{"uninstalled","data"}`,
+  `data` being `"kept"` or `"deleted"` (§13, *Removing*). A running daemon
+  hands the removal off and refuses it while a session records; the command
+  asks no question. Codes: `uninstall.recording`, `uninstall.failed` (the
+  removal could not be handed off) and `update.busy`.
 - `version` prints `{"installed","daemon","latest","channel"}`: this
   executable's version, the running daemon's (`null` when none runs), the
   latest release — what the running daemon last found, `null` before its first
@@ -2401,6 +2414,31 @@ and the installer, one adapter per platform.
   path without the ` (deleted)` Linux adds once pacman replaced it. On Windows
   the daemon says `restarting` when it has handed off, and the apply step
   does the stop and the start.
+
+**Removing.** `eco uninstall [--everything]` and the window's UNINSTALL
+(Settings › General) remove eco through the same installer port. Nothing is
+downloaded, so `Installer::uninstall(everything)` is not a future: it returns a
+`Pending` removal, handed off as an update is, and `Installer::remove` is what
+the hand-off's process runs. A running daemon takes `uninstall <json>`
+(`{"everything"}`, §10.2): while a session is live it is refused with
+`uninstall.recording`, a second one with `update.busy`; otherwise it hands the
+removal off and says `uninstall` `{stage, everything, detail}`, `removing`
+once handed off or `failed` with the reason. With no daemon, or one that
+answers `command.unknown`, the command hands it off itself. The process is
+`eco apply-uninstall [--everything]` (hidden, `src/apply.rs`): it stops the
+daemon (`lifecycle::shut`), calls `Installer::remove`, deletes `paths::kept()`
+(config, data and state directories) with `--everything` and only after the
+removal succeeded, shows the result as a notification, and starts nothing.
+On Linux the hand-off is `systemd-run --user --collect --quiet <eco>
+apply-uninstall`, with `--pty --wait` when eco was asked in a terminal so that
+sudo can ask there; `remove` is `pkexec pacman -Rns --noconfirm eco` (sudo in a
+terminal), as `install` picks. On Windows the hand-off copies `eco.exe` into an
+`eco-update-` folder of the temporary directory and has the shell start the copy
+hidden; `remove` runs `msiexec /x <ProductCode> /qb /norestart` for every
+`HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall` entry whose
+`DisplayName` is `eco`, `Publisher` `This-Is-NPC` and `WindowsInstaller` 1,
+with the exit codes of an install (1602 and 1223 are "the removal was
+cancelled; nothing changed").
 
 **Releases.** Commits follow Conventional Commits, and release-please reads
 them (`release-please-config.json`, `.release-please-manifest.json`). Every
