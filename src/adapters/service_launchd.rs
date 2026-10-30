@@ -15,9 +15,6 @@ use crate::config::replace_file;
 use crate::paths;
 use crate::ports::ServiceManager;
 
-/// The agent's label in launchd.
-const LABEL: &str = "io.github.this-is-npc.eco";
-
 pub struct LaunchAgent;
 
 impl ServiceManager for LaunchAgent {
@@ -61,7 +58,7 @@ impl Agent {
 
     /// The agent as launchd names it: `gui/<uid>/io.github.this-is-npc.eco`.
     fn target(&self) -> String {
-        format!("{}/{LABEL}", self.domain)
+        format!("{}/{}", self.domain, paths::LAUNCH_AGENT)
     }
 }
 
@@ -72,13 +69,14 @@ fn plist(exe: &Path, log: &Path, path: &str) -> String {
     let exe = escape(&exe.to_string_lossy());
     let log = escape(&log.to_string_lossy());
     let path = escape(path);
+    let label = paths::LAUNCH_AGENT;
     format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
 	<key>Label</key>
-	<string>{LABEL}</string>
+	<string>{label}</string>
 	<key>ProgramArguments</key>
 	<array>
 		<string>{exe}</string>

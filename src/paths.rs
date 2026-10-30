@@ -156,7 +156,7 @@ impl<V: Fn(&str) -> Option<OsString>> Layout<V> {
 
     fn launch_agent(&self) -> PathBuf {
         self.home()
-            .join("Library/LaunchAgents/io.github.this-is-npc.eco.plist")
+            .join(format!("Library/LaunchAgents/{LAUNCH_AGENT}.plist"))
     }
 
     fn app_dir(&self) -> PathBuf {
@@ -274,6 +274,9 @@ pub fn config_file() -> PathBuf {
 pub fn hypr_bindings() -> PathBuf {
     layout().hypr_bindings()
 }
+
+/// The label of the launchd agent that runs the daemon on macOS.
+pub const LAUNCH_AGENT: &str = "io.github.this-is-npc.eco";
 
 /// The file name of the Silero VAD model.
 pub const VAD_MODEL_FILE: &str = "silero_vad.onnx";
