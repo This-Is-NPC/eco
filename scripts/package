@@ -85,6 +85,8 @@ elif sys.platform == "darwin":
     digest = hashlib.sha256(archive.read_bytes()).hexdigest()
     (archive.parent / "SHA256SUMS").write_text(f"{digest}  {archive.name}\n")
     files = sum(1 for path in eco.rglob("*") if path.is_file())
+    # The staged folder holds a second eco-window.app, which Launchpad would list.
+    shutil.rmtree(staging)
     print(f"{digest}  {archive.name}")
     print(f"{archive}: {files} files, {archive.stat().st_size} bytes")
 else:
