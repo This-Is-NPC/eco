@@ -2666,11 +2666,13 @@ fn restart_command(exe: &Path) -> std::process::Command {
     command
 }
 
-/// `exe restart`, a process of its own that outlives the daemon it stops.
+/// `exe restart` in a process group of its own: launchd kills what is left in
+/// the agent's group once the daemon exits, and the restart must outlive it.
 #[cfg(target_os = "macos")]
 fn restart_command(exe: &Path) -> std::process::Command {
+    use std::os::unix::process::CommandExt;
     let mut command = std::process::Command::new(exe);
-    command.arg("restart");
+    command.arg("restart").process_group(0);
     command
 }
 
@@ -4982,6 +4984,26 @@ mod tests {
         assert_eq!(command.get_program(), "/usr/local/bin/eco");
         let args: Vec<_> = command.get_args().collect();
         assert_eq!(args, ["restart"]);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn on_macos_the_restart_leaves_the_daemons_process_group() {
+        let dir = tempfile::tempdir().unwrap();
+        let written = dir.path().join("group");
+        let eco = crate::adapters::fake_program::fake_program(
+            dir.path(),
+            "eco",
+            &format!("ps -o pgid= -p $$ > '{}'", written.display()),
+        );
+        assert!(restart_command(&eco).status().unwrap().success());
+        let group: u32 = std::fs::read_to_string(&written)
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+        let ours = rustix::process::getpgrp().as_raw_nonzero().get() as u32;
+        assert_ne!(group, ours);
     }
 
     #[cfg(target_os = "linux")]
