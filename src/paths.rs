@@ -436,6 +436,16 @@ mod tests {
         );
     }
 
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn on_macos_the_config_data_and_state_are_one_directory() {
+        let layout = with(&[("HOME", "/Users/you")]);
+        assert_eq!(
+            layout.kept(),
+            [PathBuf::from("/Users/you/Library/Application Support/eco")]
+        );
+    }
+
     #[cfg(windows)]
     #[test]
     fn on_windows_the_state_is_in_the_data_directory() {
@@ -553,8 +563,8 @@ mod tests {
         let layout = with(&[("HOME", "/Users/you"), ("TMPDIR", "/var/folders/ab/T/")]);
         let found = [
             layout.config_file(),
-            layout.vad_model(),
-            layout.speaker_model(),
+            layout.model(VAD_MODEL_FILE),
+            layout.model(SPEAKER_MODEL_FILE),
             layout.people_dir(),
             layout.sessions_dir(),
             layout.socket_path(),

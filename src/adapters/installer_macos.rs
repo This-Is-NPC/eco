@@ -3,18 +3,23 @@
 //! rename. macOS lets a program that runs be renamed, so the daemon and its
 //! windows keep running from the folder moved aside, which is deleted at once;
 //! the folder keeps its path, so the PATH and the launchd agent stay as they are.
+//! Removing eco is `eco apply-uninstall` in a process of its own, which stops
+//! the daemon first and outlives it, then deletes the folder and the agent.
 
 use std::ffi::OsString;
 use std::fs;
+use std::io::{self, IsTerminal};
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
 use futures::future::BoxFuture;
 use tokio::process::Command;
 
+use crate::adapters::service_launchd;
 use crate::installer::{self, Scratch};
 use crate::paths;
-use crate::ports::{InstallError, InstallProgress, InstallStage, Installer};
+use crate::ports::{InstallError, InstallProgress, InstallStage, Installed, Installer, Pending};
 
 #[derive(Clone)]
 pub struct Folder {
@@ -24,6 +29,8 @@ pub struct Folder {
     install: PathBuf,
     /// The system's tar, which unpacks the archive.
     tar: PathBuf,
+    /// Whether eco was asked in a terminal, where a removal is then waited for.
+    terminal: bool,
 }
 
 impl Folder {
@@ -32,7 +39,50 @@ impl Folder {
             downloads: downloads.into(),
             install: paths::app_dir(),
             tar: PathBuf::from("/usr/bin/tar"),
+            terminal: io::stdin().is_terminal(),
         }
+    }
+}
+
+/// What the removal runs: `eco apply-uninstall`, with `--everything` to delete
+/// the user's files too.
+fn removal_arguments(everything: bool) -> Vec<OsString> {
+    let mut arguments = vec![OsString::from("apply-uninstall")];
+    if everything {
+        arguments.push("--everything".into());
+    }
+    arguments
+}
+
+/// A removal waiting for the daemon to stop.
+#[derive(Debug)]
+struct Removal {
+    /// The eco that runs it, this one: macOS lets it be deleted as it runs.
+    exe: PathBuf,
+    everything: bool,
+    /// Whether eco was asked in a terminal, which the removal then keeps and
+    /// is waited for in.
+    terminal: bool,
+}
+
+impl Pending for Removal {
+    fn hand_off(&self) -> io::Result<()> {
+        let mut command = std::process::Command::new(&self.exe);
+        command.args(removal_arguments(self.everything));
+        if self.terminal {
+            return match command.status()? {
+                status if status.success() => Ok(()),
+                status => Err(io::Error::other(format!("the removal failed ({status})"))),
+            };
+        }
+        // A group of its own, so it outlives the daemon it stops.
+        command
+            .process_group(0)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map(drop)
     }
 }
 
@@ -78,16 +128,45 @@ fn swap(staged: &Path, install: &Path) -> Result<(), InstallError> {
     Ok(())
 }
 
+/// Delete the installed folder; nothing to do when it is not there.
+fn remove_folder(install: &Path) -> Result<(), InstallError> {
+    match fs::remove_dir_all(install) {
+        Err(error) if error.kind() != io::ErrorKind::NotFound => Err(InstallError(format!(
+            "cannot delete {}: {error}",
+            install.display()
+        ))),
+        _ => Ok(()),
+    }
+}
+
 impl Installer for Folder {
     fn program(&self) -> PathBuf {
         self.install.join("bin/eco")
+    }
+
+    fn uninstall(&self, everything: bool) -> Box<dyn Pending> {
+        Box::new(Removal {
+            exe: std::env::current_exe().unwrap_or_else(|_| self.program()),
+            everything,
+            terminal: self.terminal,
+        })
+    }
+
+    fn remove(&self) -> BoxFuture<'static, Result<(), InstallError>> {
+        let install = self.install.clone();
+        Box::pin(async move {
+            service_launchd::take_off()
+                .await
+                .map_err(|error| InstallError(format!("{error:#}")))?;
+            remove_folder(&install)
+        })
     }
 
     fn install(
         &self,
         tag: String,
         progress: InstallProgress,
-    ) -> BoxFuture<'static, Result<(), InstallError>> {
+    ) -> BoxFuture<'static, Result<Installed, InstallError>> {
         let folder = self.clone();
         Box::pin(async move {
             // Beside the install, so the folder moves in by a rename.
@@ -106,7 +185,8 @@ impl Installer for Folder {
                 scratch.path(),
                 &progress,
             )
-            .await?;
+            .await?
+            .path;
             progress(InstallStage::Installing);
             let unpacked = scratch.path().join("unpacked");
             fs::create_dir(&unpacked)
@@ -134,7 +214,7 @@ impl Installer for Folder {
                     "the archive of {tag} holds no eco/bin/eco; nothing was installed"
                 )));
             }
-            swap(&staged, &folder.install)
+            swap(&staged, &folder.install).map(|()| Installed::Done)
         })
     }
 }
@@ -144,6 +224,7 @@ mod tests {
     use sha2::{Digest, Sha256};
 
     use super::*;
+    use crate::adapters::fake_program::fake_program;
     use crate::adapters::http::testing::serve;
 
     const ARCHIVE: &str = "eco-0.5.0-macos-aarch64.tar.gz";
@@ -197,11 +278,79 @@ mod tests {
             downloads: String::new(),
             install: PathBuf::from("/Users/a/Applications/eco"),
             tar: PathBuf::new(),
+            terminal: false,
         };
         assert_eq!(
             folder.program(),
             PathBuf::from("/Users/a/Applications/eco/bin/eco")
         );
+    }
+
+    #[test]
+    fn the_removal_is_apply_uninstall_and_deletes_the_data_only_when_asked() {
+        assert_eq!(removal_arguments(false), ["apply-uninstall"]);
+        assert_eq!(removal_arguments(true), ["apply-uninstall", "--everything"]);
+    }
+
+    #[test]
+    fn a_removal_asked_in_a_terminal_is_waited_for_and_says_when_it_failed() {
+        let directory = tempfile::tempdir().unwrap();
+        let calls = directory.path().join("calls");
+        let eco = fake_program(
+            directory.path(),
+            "eco",
+            &format!(
+                "echo \"$*\" > '{}'\n[ \"$2\" = --everything ]",
+                calls.display()
+            ),
+        );
+        let removal = |everything| Removal {
+            exe: eco.clone(),
+            everything,
+            terminal: true,
+        };
+        removal(true).hand_off().unwrap();
+        assert_eq!(
+            fs::read_to_string(&calls).unwrap(),
+            "apply-uninstall --everything\n"
+        );
+        let error = removal(false).hand_off().unwrap_err();
+        assert!(
+            error.to_string().starts_with("the removal failed"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn a_removal_asked_elsewhere_runs_on_its_own() {
+        let directory = tempfile::tempdir().unwrap();
+        let calls = directory.path().join("calls");
+        let eco = fake_program(
+            directory.path(),
+            "eco",
+            &format!("echo \"$*\" > '{}'", calls.display()),
+        );
+        let removal = Removal {
+            exe: eco,
+            everything: false,
+            terminal: false,
+        };
+        removal.hand_off().unwrap();
+        let start = std::time::Instant::now();
+        while fs::read_to_string(&calls).unwrap_or_default() != "apply-uninstall\n" {
+            assert!(start.elapsed() < std::time::Duration::from_secs(5));
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+    }
+
+    #[test]
+    fn the_folder_is_deleted_and_a_missing_one_is_nothing_to_do() {
+        let directory = tempfile::tempdir().unwrap();
+        let install = directory.path().join("eco");
+        write(&install.join("bin/eco"), "old");
+        remove_folder(&install).unwrap();
+        assert!(!install.exists());
+        remove_folder(&install).unwrap();
     }
 
     #[test]
@@ -230,6 +379,7 @@ mod tests {
             downloads,
             install: install.clone(),
             tar: PathBuf::from("/usr/bin/tar"),
+            terminal: false,
         };
         folder
             .install("v0.5.0".into(), Box::new(|_| {}))
@@ -257,6 +407,7 @@ mod tests {
             downloads,
             install: install.clone(),
             tar: PathBuf::from("/usr/bin/tar"),
+            terminal: false,
         };
         let error = folder
             .install("v0.5.0".into(), Box::new(|_| {}))

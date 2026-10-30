@@ -595,7 +595,8 @@ archive downloaded in a browser needs its quarantine removed once:
 macOS archive; none does yet, and it says
 `the SHA256SUMS of v0.10.1 names no package for this system`.
 
-To take it off, keeping your sessions, config and models:
+To take it off, keeping your sessions, config and models, `eco uninstall`
+([Taking it off](#taking-it-off)), or from the checkout:
 
 ```bash
 mise run uninstall:macos -- --keep-data
@@ -905,6 +906,15 @@ failed. eco does not start again. The copy stays in the temporary directory,
 which Windows clears. A key in the Credential Manager stays: remove it with
 `eco key remove <name>` first. `install.ps1` with `ECO_UNINSTALL` (above) does
 the same from outside eco.
+
+**On macOS,** a process of its own (`eco apply-uninstall`, in a process group
+of its own, so stopping the daemon does not stop it) stops the daemon, takes
+the launchd agent out of your session (`launchctl bootout`), deletes
+`~/Library/LaunchAgents/eco.plist` and `~/Applications/eco`; asked in a
+terminal, it runs there until it ends. With `--everything` it then deletes
+`~/Library/Application Support/eco`. A notification says how it ended. Keys you
+gave with `launchctl setenv` last until you log out. `install-macos.sh` with
+`ECO_UNINSTALL` and `mise run uninstall:macos` do the same from outside eco.
 
 **From the window,** **Settings › General** has an **UNINSTALL** group with an
 **UNINSTALL** button. It opens a dialog that says what goes: the program, the

@@ -120,7 +120,7 @@ install_eco() {
     *) say "add $eco/bin to your PATH, e.g. in ~/.zprofile: export PATH=\"\$HOME/Applications/eco/bin:\$PATH\"" ;;
   esac
   say "installed. Next: eco start"
-  say "take it off again with: curl -fsSL https://raw.githubusercontent.com/${REPO}/master/install-macos.sh | ECO_UNINSTALL=keep bash"
+  say "remove it with eco uninstall (keeps your data; --everything deletes it too)"
 }
 
 case "$ECO_UNINSTALL" in

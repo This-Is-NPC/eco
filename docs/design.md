@@ -2498,7 +2498,15 @@ step waits up to 10 s for eco's windows (`eco-window.exe`, `eco-launch.exe`,
 listed by `tasklist`) to close after the daemon: a file one holds stays until
 a restart. It then deletes eco's app id from the user's hive, and its own
 notification shows under PowerShell's app id, so that nothing of eco's is
-written again after it is gone.
+written again after it is gone. On macOS the hand-off runs `<eco>
+apply-uninstall` in a process group of its own (`process_group(0)`), so the
+daemon it stops does not take it along, with its output discarded; asked in a
+terminal, it runs in that terminal and is waited for. `remove` takes the
+launchd agent off (`launchctl bootout gui/<uid>/eco` when `launchctl print`
+finds it, then `~/Library/LaunchAgents/eco.plist` deleted,
+`src/adapters/service_launchd.rs`) and deletes `~/Applications/eco`, the
+running eco among it, which macOS allows. `paths::kept()` is
+`~/Library/Application Support/eco` alone there.
 
 **Releases.** Commits follow Conventional Commits, and release-please reads
 them (`release-please-config.json`, `.release-please-manifest.json`). Every

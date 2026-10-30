@@ -23,11 +23,7 @@ pub struct LaunchAgent;
 impl ServiceManager for LaunchAgent {
     fn start(&self) -> BoxFuture<'_, Result<()>> {
         Box::pin(async {
-            let agent = Agent {
-                plist: paths::launch_agent(),
-                log: paths::daemon_log(),
-                domain: format!("gui/{}", rustix::process::getuid().as_raw()),
-            };
+            let agent = Agent::user();
             let exe = std::env::current_exe()?;
             let path = std::env::var("PATH").unwrap_or_default();
             start(
@@ -54,6 +50,15 @@ struct Agent {
 }
 
 impl Agent {
+    /// This user's agent.
+    fn user() -> Self {
+        Self {
+            plist: paths::launch_agent(),
+            log: paths::daemon_log(),
+            domain: format!("gui/{}", rustix::process::getuid().as_raw()),
+        }
+    }
+
     /// The agent as launchd names it: `gui/<uid>/eco`.
     fn target(&self) -> String {
         format!("{}/{LABEL}", self.domain)
@@ -148,6 +153,37 @@ async fn start(launchctl: &Path, agent: &Agent, definition: &str) -> Result<()> 
         "cannot start the eco agent",
     )
     .await
+}
+
+/// Take this user's agent off, as `eco uninstall` does: out of launchd and its
+/// definition deleted; nothing to do when there is none.
+pub async fn take_off() -> Result<()> {
+    take_off_agent(Path::new("launchctl"), &Agent::user()).await
+}
+
+/// Take `agent` off through the program `launchctl`: `bootout` when launchd
+/// holds it, then its definition deleted.
+async fn take_off_agent(launchctl: &Path, agent: &Agent) -> Result<()> {
+    let target = agent.target();
+    let loaded = Command::new(launchctl)
+        .args(["print", &target])
+        .output()
+        .await
+        .is_ok_and(|output| output.status.success());
+    if loaded {
+        run(
+            launchctl,
+            &["bootout", &target],
+            "cannot take the eco agent off",
+        )
+        .await?;
+    }
+    match std::fs::remove_file(&agent.plist) {
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+            Err(error).with_context(|| format!("cannot delete {}", agent.plist.display()))
+        }
+        _ => Ok(()),
+    }
 }
 
 /// Run `launchctl` with `args`; on failure, `failed` and what it said.
@@ -298,6 +334,29 @@ exit 0"#,
             "cannot load the eco agent: Bootstrap failed: 5: Input/output error"
         );
         assert!(!calls(dir.path()).contains("kickstart"));
+    }
+
+    #[tokio::test]
+    async fn an_agent_is_taken_out_of_launchd_and_its_definition_deleted() {
+        let dir = tempfile::tempdir().unwrap();
+        let program = launchctl(dir.path(), 0, "none");
+        let agent = agent(dir.path());
+        fs::create_dir_all(agent.plist.parent().unwrap()).unwrap();
+        fs::write(&agent.plist, "<plist/>").unwrap();
+        take_off_agent(&program, &agent).await.unwrap();
+        assert!(!agent.plist.exists());
+        assert_eq!(
+            calls(dir.path()),
+            "print gui/501/eco\nbootout gui/501/eco\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn no_agent_is_nothing_to_take_off() {
+        let dir = tempfile::tempdir().unwrap();
+        let program = launchctl(dir.path(), 113, "none");
+        take_off_agent(&program, &agent(dir.path())).await.unwrap();
+        assert_eq!(calls(dir.path()), "print gui/501/eco\n");
     }
 
     #[tokio::test]
