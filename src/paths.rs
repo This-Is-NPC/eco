@@ -276,6 +276,7 @@ pub fn hypr_bindings() -> PathBuf {
 }
 
 /// The label of the launchd agent that runs the daemon on macOS.
+#[cfg(target_os = "macos")]
 pub const LAUNCH_AGENT: &str = "io.github.this-is-npc.eco";
 
 /// The file name of the Silero VAD model.
