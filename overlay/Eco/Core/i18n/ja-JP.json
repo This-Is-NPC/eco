@@ -668,7 +668,6 @@
   "error.stt.credential_missing": "文字起こしを利用できません：{name} のキーが Windows 資格情報マネージャーにありません。eco key set {credential} を実行するか、汎用資格情報 eco:{credential} をキーをパスワードにして追加し、eco restart を実行してください。",
   "error.stt.down": "文字起こし停止中 · 再接続しています",
   "error.capture.down": "デバイスが聞こえません · 開き直しています",
-  "error.microphone.denied": "macOS が eco にマイクの使用を許可していません: システム設定 › プライバシーとセキュリティ › マイク で許可してください",
   "transcription.back": "文字起こし復旧",
   "transcription.back_dropped": "文字起こし復旧 · 音声 {n} 秒が失われました",
   "notify.answer": "{action} · 回答完了",

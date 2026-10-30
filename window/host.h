@@ -105,9 +105,9 @@ public:
   QString monospaceFamily() const { return QStringLiteral("monospace"); }
 #endif
 
-  // Whether the system lets this process's daemon hear the microphone:
-  // "granted", "denied", or on macOS "undetermined" until the user is asked.
-  // Elsewhere nothing asks, and it is always "granted".
+  // Whether the system lets this process hear the microphone: "granted",
+  // "denied", or on macOS "undetermined" until the user is asked. Elsewhere
+  // nothing asks, and it is always "granted".
 #ifdef Q_OS_MACOS
   QString microphone() const {
     switch (qApp->checkPermission(QMicrophonePermission{})) {

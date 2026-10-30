@@ -14,11 +14,18 @@ use tokio::sync::mpsc;
 use crate::adapters::audio_convert::{Sample, ToFrames};
 use crate::adapters::devices::{DEFAULT_INPUT, DEFAULT_OUTPUT, defaults, listed};
 use crate::ports::{
-    AudioDevices, AudioError, AudioSource, Device, EchoCancelling, EchoError, Frame,
+    AudioDevices, AudioError, AudioSource, Device, EchoCancelling, EchoError, FRAME_SAMPLES, Frame,
+    SAMPLE_RATE,
 };
 
 /// About 8 s of frames between the device's thread and the session.
 const QUEUED_FRAMES: usize = 256;
+
+/// About 2 s of frames: a microphone that gives nothing but zeros that long
+/// from its opening is one the system keeps from eco, since a real one always
+/// hears some noise. macOS hands such silence, and no error, to a process the
+/// user has not let hear the microphone.
+const REFUSED_AFTER: usize = 2 * SAMPLE_RATE as usize / FRAME_SAMPLES;
 
 /// The audio of a Windows or macOS session.
 pub struct Cpal;
@@ -100,6 +107,37 @@ fn heard(kind: ErrorKind, said: String) -> Option<Heard> {
 /// One device captured while its frames are read.
 struct CpalSource(Device);
 
+/// Whether a microphone just opened is kept from eco: it has given only zeros
+/// for `REFUSED_AFTER` frames. Once it hears anything, it never is.
+#[derive(Default)]
+struct Refusal {
+    silent: usize,
+    heard: bool,
+}
+
+impl Refusal {
+    /// Note `frame`; true once the microphone counts as refused.
+    fn refused(&mut self, frame: &[i16]) -> bool {
+        if self.heard {
+            return false;
+        }
+        if frame.iter().any(|&sample| sample != 0) {
+            self.heard = true;
+            return false;
+        }
+        self.silent += 1;
+        self.silent >= REFUSED_AFTER
+    }
+}
+
+/// Why a refused microphone is not heard, and where the user lets eco hear it.
+fn refused(device: &Device) -> AudioError {
+    AudioError(format!(
+        "{}: macOS lets eco hear only silence; allow eco in System Settings › Privacy & Security › Microphone",
+        device.label
+    ))
+}
+
 /// A playing stream and what it hears. `heard` is declared first so it drops
 /// first: the stream's thread may wait on a full queue, and dropping the stream
 /// waits for that thread.
@@ -107,6 +145,8 @@ struct Open {
     heard: mpsc::Receiver<Heard>,
     _stream: cpal::Stream,
     _silence: Option<cpal::Stream>,
+    /// On macOS, a microphone's: whether the system keeps it from eco.
+    refusal: Option<Refusal>,
 }
 
 enum State {
@@ -139,6 +179,9 @@ impl AudioSource for CpalSource {
                         }
                         State::Open(mut open) => match open.heard.recv().await {
                             Some(Heard::Frame(frame)) => {
+                                if open.refusal.as_mut().is_some_and(|r| r.refused(&frame)) {
+                                    return Some((Err(refused(&device)), State::Ended));
+                                }
                                 return Some((Ok(frame), State::Open(open)));
                             }
                             Some(Heard::Reopen) => State::Closed,
@@ -217,6 +260,7 @@ fn open(device: &Device) -> Result<Open, AudioError> {
         heard,
         _stream: stream,
         _silence: silence,
+        refusal: (cfg!(target_os = "macos") && device.kind != "output").then(Refusal::default),
     })
 }
 
@@ -323,6 +367,43 @@ mod tests {
             panic!("{frames:?}");
         };
         assert_eq!(said, "Old headset: not connected");
+    }
+
+    #[test]
+    fn a_microphone_that_gives_only_zeros_from_its_opening_is_refused() {
+        let silent = vec![0; FRAME_SAMPLES];
+        let mut refusal = Refusal::default();
+        for _ in 1..REFUSED_AFTER {
+            assert!(!refusal.refused(&silent));
+        }
+        assert!(refusal.refused(&silent));
+    }
+
+    #[test]
+    fn a_microphone_that_heard_anything_is_never_refused() {
+        let silent = vec![0; FRAME_SAMPLES];
+        let mut noise = silent.clone();
+        noise[100] = -3;
+        let mut refusal = Refusal::default();
+        assert!(!refusal.refused(&silent));
+        assert!(!refusal.refused(&noise));
+        for _ in 0..REFUSED_AFTER * 2 {
+            assert!(!refusal.refused(&silent));
+        }
+    }
+
+    #[test]
+    fn a_refused_microphone_says_where_to_allow_it() {
+        let said = refused(&Device::new(
+            "BuiltInMicrophoneDevice",
+            "MacBook Microphone",
+            "input",
+        ))
+        .0;
+        assert_eq!(
+            said,
+            "MacBook Microphone: macOS lets eco hear only silence; allow eco in System Settings › Privacy & Security › Microphone"
+        );
     }
 
     #[tokio::test]
