@@ -1281,8 +1281,11 @@ Singleton {
         speaking(event.who, "", "")
       // A source back is settled once it is heard again.
       const heard = event.who.split("#")[0]
-      if (links[heard] && links[heard].state === "back")
-        links = Object.fromEntries(Object.entries(links).filter(([who]) => who !== heard))
+      if (links[heard] && links[heard].state === "back") {
+        const kept = Object.assign({}, links)
+        delete kept[heard]
+        links = kept
+      }
       break
     }
     case "transcription":
