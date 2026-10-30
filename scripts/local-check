@@ -68,7 +68,11 @@ post_when_pushed() {
     printf '[dry-run] poll until %s is on GitHub, then POST state=%s\n' "$SHA" "$state"
     return 0
   fi
-  setsid nohup bash -c '
+  # Its own session where setsid exists (Linux); macOS has none, and nohup
+  # alone keeps it alive past the terminal.
+  local detach=(nohup)
+  command -v setsid >/dev/null && detach=(setsid nohup)
+  "${detach[@]}" bash -c '
     repo="$1"; sha="$2"; state="$3"; ctx="$4"; desc="$5"
     for _ in $(seq 1 60); do
       if gh api -X GET "repos/$repo/commits/$sha" --silent >/dev/null 2>&1; then
