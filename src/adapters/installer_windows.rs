@@ -20,6 +20,7 @@ use std::ffi::OsString;
 use std::fs::{self, File};
 use std::io;
 use std::os::windows::fs::OpenOptionsExt;
+use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 

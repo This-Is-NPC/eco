@@ -109,8 +109,8 @@ impl Toasts {
     /// those of the step that removes eco.
     pub fn unregistered() -> Self {
         Self {
+            shown: Mutex::default(),
             register: false,
-            ..Self::default()
         }
     }
 }
