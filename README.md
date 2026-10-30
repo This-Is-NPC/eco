@@ -274,10 +274,11 @@ again on the page where you meet it.
   `xattr -dr com.apple.quarantine ~/Applications/eco` once. It registers no
   global shortcut: bind a key to an
   `eco window` command in the Shortcuts app
-  ([on macOS](docs/how-to-install-and-remove.md#on-macos)). macOS asks once
-  for the microphone when a session starts; refused, the microphone hears
-  only silence, and the transcription strip says to allow eco in **System
-  Settings › Privacy & Security › Microphone**
+  ([on macOS](docs/how-to-install-and-remove.md#on-macos)). macOS asks for
+  the microphone the first time eco opens it, and again after each install or
+  update, since a build signed ad hoc is a new program to it; refused, the
+  microphone hears only silence, and the transcription strip says to allow
+  eco in **System Settings › Privacy & Security › Microphone**
   ([how to set up audio sources](docs/how-to-set-up-audio-sources.md)).
 - **Sessions recorded before eco kept costs stay unknown.** Their logs hold no
   cost records, and nothing brings those costs back.

@@ -196,12 +196,15 @@ output, and `No audio source is you any more.` when it was you.
 `Echo cancellation is off: <why>`, and eco records from the raw microphone.
 
 **A microphone heard as silence on macOS.** macOS gives a microphone it has
-not allowed eco only silence, and no error. The first session asks once. A
+not allowed eco only silence, and no error. It asks once, the first time the
+daemon opens the microphone, and asks again after each install or `eco update`:
+eco is signed ad hoc, so macOS takes each new build for another program. A
 microphone that gives nothing but zeros for its first 2 s is taken as
-refused: the transcription strip says `Device not heard · opening it again`,
-and its hint says
+refused, and none of that silence is transcribed: the transcription strip
+says `Device not heard · opening it again` until it is allowed, and its hint
+says
 `<microphone>: macOS lets eco hear only silence; allow eco in System Settings › Privacy & Security › Microphone`.
-Allow eco there; the microphone is opened again on its own.
+Allow eco there; the microphone is opened again on its own, with no restart.
 
 **Echo cancellation on Windows and macOS.** Neither offers eco one: the ECHO
 CANCELLATION row is dimmed. With `echo_cancel = true` in a config written by

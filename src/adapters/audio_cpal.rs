@@ -4,6 +4,8 @@
 //! the domain's frames through `audio_convert`. Neither offers eco echo
 //! cancellation.
 
+use std::collections::VecDeque;
+
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{DeviceDescription, DeviceDirection, DeviceId, ErrorKind, SampleFormat};
 use futures::FutureExt;
@@ -108,25 +110,29 @@ fn heard(kind: ErrorKind, said: String) -> Option<Heard> {
 struct CpalSource(Device);
 
 /// Whether a microphone just opened is kept from eco: it has given only zeros
-/// for `REFUSED_AFTER` frames. Once it hears anything, it never is.
+/// for `REFUSED_AFTER` frames. Its frames are held until it hears anything, so
+/// a refused one is never heard, not even once; after that, it never is refused.
 #[derive(Default)]
 struct Refusal {
-    silent: usize,
+    held: VecDeque<Frame>,
     heard: bool,
 }
 
 impl Refusal {
-    /// Note `frame`; true once the microphone counts as refused.
-    fn refused(&mut self, frame: &[i16]) -> bool {
+    /// Hold `frame`; true once the microphone counts as refused.
+    fn take(&mut self, frame: Frame) -> bool {
+        self.heard = self.heard || frame.iter().any(|&sample| sample != 0);
+        self.held.push_back(frame);
+        !self.heard && self.held.len() >= REFUSED_AFTER
+    }
+
+    /// The oldest frame held, once the microphone has heard anything.
+    fn release(&mut self) -> Option<Frame> {
         if self.heard {
-            return false;
+            self.held.pop_front()
+        } else {
+            None
         }
-        if frame.iter().any(|&sample| sample != 0) {
-            self.heard = true;
-            return false;
-        }
-        self.silent += 1;
-        self.silent >= REFUSED_AFTER
     }
 }
 
@@ -177,19 +183,27 @@ impl AudioSource for CpalSource {
                                 }
                             }
                         }
-                        State::Open(mut open) => match open.heard.recv().await {
-                            Some(Heard::Frame(frame)) => {
-                                if open.refusal.as_mut().is_some_and(|r| r.refused(&frame)) {
-                                    return Some((Err(refused(&device)), State::Ended));
-                                }
+                        State::Open(mut open) => {
+                            if let Some(frame) = open.refusal.as_mut().and_then(Refusal::release) {
                                 return Some((Ok(frame), State::Open(open)));
                             }
-                            Some(Heard::Reopen) => State::Closed,
-                            Some(Heard::Lost(failure)) => {
-                                return Some((Err(failure), State::Ended));
+                            match open.heard.recv().await {
+                                Some(Heard::Frame(frame)) => match open.refusal.as_mut() {
+                                    None => return Some((Ok(frame), State::Open(open))),
+                                    Some(refusal) => {
+                                        if refusal.take(frame) {
+                                            return Some((Err(refused(&device)), State::Ended));
+                                        }
+                                        State::Open(open)
+                                    }
+                                },
+                                Some(Heard::Reopen) => State::Closed,
+                                Some(Heard::Lost(failure)) => {
+                                    return Some((Err(failure), State::Ended));
+                                }
+                                None => return None,
                             }
-                            None => return None,
-                        },
+                        }
                     };
                 }
             }
@@ -370,25 +384,30 @@ mod tests {
     }
 
     #[test]
-    fn a_microphone_that_gives_only_zeros_from_its_opening_is_refused() {
-        let silent = vec![0; FRAME_SAMPLES];
+    fn a_microphone_that_gives_only_zeros_from_its_opening_is_refused_unheard() {
         let mut refusal = Refusal::default();
         for _ in 1..REFUSED_AFTER {
-            assert!(!refusal.refused(&silent));
+            assert!(!refusal.take(vec![0; FRAME_SAMPLES]));
+            assert_eq!(refusal.release(), None);
         }
-        assert!(refusal.refused(&silent));
+        assert!(refusal.take(vec![0; FRAME_SAMPLES]));
+        assert_eq!(refusal.release(), None);
     }
 
     #[test]
-    fn a_microphone_that_heard_anything_is_never_refused() {
+    fn a_microphone_that_heard_anything_hands_on_every_frame_and_is_never_refused() {
         let silent = vec![0; FRAME_SAMPLES];
         let mut noise = silent.clone();
         noise[100] = -3;
         let mut refusal = Refusal::default();
-        assert!(!refusal.refused(&silent));
-        assert!(!refusal.refused(&noise));
+        assert!(!refusal.take(silent.clone()));
+        assert!(!refusal.take(noise.clone()));
+        assert_eq!(refusal.release(), Some(silent.clone()));
+        assert_eq!(refusal.release(), Some(noise));
+        assert_eq!(refusal.release(), None);
         for _ in 0..REFUSED_AFTER * 2 {
-            assert!(!refusal.refused(&silent));
+            assert!(!refusal.take(silent.clone()));
+            assert_eq!(refusal.release(), Some(silent.clone()));
         }
     }
 

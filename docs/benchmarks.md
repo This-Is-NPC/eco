@@ -599,7 +599,7 @@ does not compile it.
 
 | File | Lines | Left without a test, and why |
 |---|---|---|
-| `src/adapters/audio_cpal.rs` | 46.46% (159 of 297) | everything that opens a real device: `capture_cancelled` (42–44), the host's device list failing (58), the source's open and read loop (128–148), `open` past the device lookup (170–245: the output that is also a microphone, the stream config, the silent stream, the sample formats) and `build` with its callbacks; the test's panic arms (311, 323); and the ignored test that prints this machine's devices and a second of each (347–396), run by hand. The device mapping, the error mapping, a missing device and the listing's defaults are tested. |
+| `src/adapters/audio_cpal.rs` | 52.69% (167 of 353) | everything that opens a real device: `capture_cancelled` (51–53), the host's device list failing (67), the source's open and read loop (177–204: opening, a held frame let go, a refused microphone, a reopened or lost stream), `open` past the device lookup (227–303: the output that is also a microphone, the stream config, the silent stream, the sample formats) and `build` with its callbacks; the test's panic arms (369, 381); and the ignored test that prints this machine's devices and a second of each (447–496), run by hand. The device mapping, the error mapping, a missing device, the listing's defaults and when a microphone counts as refused, its frames held until then, are tested. |
 | `src/adapters/unsupported.rs` | 94.81% (4 of 77) | `Notifier::notify` (74–76), which only writes a line to the daemon's stderr; the audio it no longer serves left with its tests. |
 
 ## macOS service coverage (2026-10-29)
