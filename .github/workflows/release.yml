@@ -90,10 +90,45 @@ jobs:
       - name: Attach the package to the release
         run: gh release upload $env:TAG (Get-Item dist\eco-*-windows-x86_64.msi).FullName --clobber
 
+  package-macos:
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    # Apple Silicon: the archive is aarch64 alone.
+    runs-on: macos-14
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ needs.release-please.outputs.tag_name }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Only the tools the package needs; the rest of mise.toml is not installed.
+      MISE_TASK_RUN_AUTO_INSTALL: "false"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
+
+      - name: Install the pinned tools
+        uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
+        with:
+          install_args: rust python cmake ninja uv pipx:miurahr/aqtinstall
+          cache: false
+
+      # window:build installs Qt through qt:install and builds eco.app, which
+      # package bundles.
+      - name: Build the package
+        run: |
+          mise run window:build
+          mise run package
+
+      - name: Attach the package to the release
+        run: gh release upload "$TAG" dist/eco-*-macos-aarch64.tar.gz --clobber
+
   # One SHA256SUMS for every package, in the format install.sh checks. It
-  # still runs when only the Windows package failed: install.sh needs it.
+  # still runs when only the Windows or the macOS package failed: install.sh
+  # needs it.
   checksums:
-    needs: [release-please, package-linux, package-windows]
+    needs: [release-please, package-linux, package-windows, package-macos]
     if: ${{ !cancelled() && needs.package-linux.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:

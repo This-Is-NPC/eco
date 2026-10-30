@@ -53,9 +53,15 @@ this line, run once, removes it first and keeps your data.
 `$env:ECO_UNINSTALL = "keep"` before the same line takes eco off again
 ([on Windows](docs/how-to-install-and-remove.md#on-windows)).
 
-On a Mac with Apple Silicon, no release carries a macOS archive yet: from a
-checkout, `mise run install:macos` builds one and installs it in
-`~/Applications/eco`, and `mise run uninstall:macos` takes it off
+On a Mac with Apple Silicon, in a terminal:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/This-Is-NPC/eco/master/install-macos.sh | bash
+```
+
+It downloads the release's macOS archive, checks it against the same
+`SHA256SUMS`, puts eco in `~/Applications/eco` for you alone and runs
+`eco setup`. `ECO_UNINSTALL=keep` before `bash` takes eco off again
 ([on macOS](docs/how-to-install-and-remove.md#on-macos)).
 
 **Updating.** When a newer release is out, the window says so. **Settings ›
@@ -211,8 +217,8 @@ second daemon. Every screen the window draws is in
 
 **It is not a bot that joins the meeting.** It hears what the laptop plays and
 what its microphone hears, and nothing else. It is released for Linux —
-Omarchy, Hyprland, PipeWire — and as an MSI for Windows. macOS is in
-progress and not released.
+Omarchy, Hyprland, PipeWire — as an MSI for Windows, and as an archive for
+macOS on Apple Silicon.
 
 **It does not answer on its own.** Every answer is asked for: a question, a
 skill, a key. An automatic trigger on a question heard is an open question in
@@ -261,18 +267,17 @@ again on the page where you meet it.
   whole machine, so `pkexec` asks in its own window; without `pkexec`,
   `eco update` in a terminal asks through `sudo`
   ([Update](docs/how-to-install-and-remove.md#update)).
-- **No release for macOS yet.** A checkout builds and installs on a Mac with
-  Apple Silicon, but no release carries a macOS archive, and `eco setup`
-  adds eco to no launcher there
+- **macOS: Apple Silicon only, and no launcher entry from `eco setup`.**
+  Open `~/Applications/eco/lib/eco/eco.app`, or run `eco start`
   ([platform seams](docs/design.md#15-platform-seams)). Its programs are
   signed ad hoc, not by a developer: an archive downloaded in a browser needs
   `xattr -dr com.apple.quarantine ~/Applications/eco` once. It registers no
   global shortcut: bind a key to an
   `eco window` command in the Shortcuts app
   ([on macOS](docs/how-to-install-and-remove.md#on-macos)). macOS asks once
-  for the microphone when a session starts; refused, the session hears
-  silence and the window says to allow it in **System Settings › Privacy &
-  Security › Microphone**
+  for the microphone when a session starts; refused, the microphone hears
+  only silence, and the transcription strip says to allow eco in **System
+  Settings › Privacy & Security › Microphone**
   ([how to set up audio sources](docs/how-to-set-up-audio-sources.md)).
 - **Sessions recorded before eco kept costs stay unknown.** Their logs hold no
   cost records, and nothing brings those costs back.
@@ -292,4 +297,4 @@ has the commands.
 - a key for each paid provider you use, or a model server of your own
 - on Windows instead: 64-bit Windows (tested on Windows 11) and the
   Microsoft Visual C++ Redistributable (x64); the MSI carries its own Qt
-- on macOS, in progress: a Mac with Apple Silicon on macOS 14.6 or later
+- on macOS instead: a Mac with Apple Silicon on macOS 14.6 or later

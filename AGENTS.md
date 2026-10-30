@@ -152,8 +152,8 @@ eco keeps voice sessions for Omarchy (Arch Linux, Hyprland/Wayland,
 PipeWire): meetings, conversations, other sessions, spoken ideas — each a session
 with a kind the user picks. It captures the audio, transcribes it, and
 streams short answers from an LLM into an overlay, live or afterwards.
-It runs on Linux and on Windows; macOS (Apple Silicon only, macOS 14.6 or
-later) is in progress. Development happens on the Omarchy laptop.
+It runs on Linux, on Windows and on macOS (Apple Silicon only, macOS 14.6 or
+later). Development happens on the Omarchy laptop.
 Windows is built and tested by hand on a Windows machine, and macOS on a
 Mac (`mise run check` on each); there is no CI for either. A
 Windows machine on the LAN may also serve models over HTTP, reached
