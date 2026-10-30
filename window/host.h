@@ -42,6 +42,7 @@ class Host : public QObject {
   Q_PROPERTY(QString systemThemeDirectory READ systemThemeDirectory CONSTANT)
   Q_PROPERTY(bool foreground READ foreground NOTIFY foregroundChanged)
   Q_PROPERTY(QString monospaceFamily READ monospaceFamily CONSTANT)
+  Q_PROPERTY(bool trayHoldsMenu READ trayHoldsMenu CONSTANT)
 
 public:
   explicit Host(QObject *parent = nullptr) : QObject(parent) {
@@ -101,6 +102,16 @@ public:
   QString monospaceFamily() const { return QFontDatabase::systemFont(QFontDatabase::FixedFont).family(); }
 #else
   QString monospaceFamily() const { return QStringLiteral("monospace"); }
+#endif
+
+  // Whether the tray icon may hold its menu, which then opens on its own. On
+  // macOS Qt's status item aborts as such a menu begins tracking (it reads a
+  // click count off an event that has none, which macOS 27 refuses), so there
+  // the menu is opened apart, on a secondary click.
+#ifdef Q_OS_MACOS
+  bool trayHoldsMenu() const { return false; }
+#else
+  bool trayHoldsMenu() const { return true; }
 #endif
 
   // The value of the environment variable `name`, or "" when it is unset.

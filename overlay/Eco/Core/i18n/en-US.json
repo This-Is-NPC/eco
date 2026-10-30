@@ -482,7 +482,7 @@
   "interface.hide_from_share": "HIDE FROM SCREEN SHARING",
   "interface.hide_from_share_tip": "eco's windows are hidden from whoever watches your shared screen, and from your own screenshots and recordings too: the system cannot tell them apart",
   "interface.tray": "SHOW ECO IN THE TRAY",
-  "interface.tray_tip": "An icon in the system tray (the bar's on Omarchy, the notification area on Windows): a click opens eco, its menu starts a session, opens the settings or stops eco",
+  "interface.tray_tip": "An icon in the system tray (the bar's on Omarchy, the notification area on Windows, the menu bar on macOS, where a right click opens the menu): a click opens eco, its menu starts a session, opens the settings or stops eco",
   "interface.notifications": "SYSTEM NOTIFICATIONS",
   "interface.notifications_tip": "While no eco window is active, the system notifies when transcription stops or comes back, an answer is ready, an error occurs or a newer release is out; an answer is named, never shown",
   "interface.language_tip": "The language of eco's windows; automatic follows the system's",

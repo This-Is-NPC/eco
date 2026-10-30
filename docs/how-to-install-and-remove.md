@@ -636,6 +636,10 @@ eco restart
 none shows, allow them in **System Settings › Notifications**. macOS has no
 urgent notification; an urgent one plays the alert sound.
 
+**The tray icon** is turned on the same way, in **Settings › General ›
+SHOW ECO IN THE TRAY**; it shows in the menu bar. A click opens the eco
+window; a right click or Control-click opens its menu.
+
 **Global shortcuts.** eco registers none on macOS, and `eco doctor` says so.
 To have one, make a shortcut in the Shortcuts app with the action **Run Shell
 Script** running, say, `eco window new` (by its full path, as `which eco`

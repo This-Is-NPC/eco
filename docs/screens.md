@@ -922,7 +922,8 @@ when setup never ran; if it cannot, the notification goes out labelled
 "Windows PowerShell". None is pictured: a notification is drawn by the system, not by eco.
 
 SHOW ECO IN THE TRAY turned on puts an icon in the system tray at once — on
-Omarchy the bar's tray, on Windows the notification area — and turned off, it
+Omarchy the bar's tray, on Windows the notification area, on macOS the menu
+bar — and turned off, it
 goes; no restart. The icon is eco's bars in white,
 with a red dot while a session records; its tooltip says `eco · idle` or
 `eco · recording · <title>` (`<title>` is a placeholder for the session's
@@ -931,7 +932,8 @@ window focus` does. Its menu has no picture here, as the tray is drawn by the
 bar, not by eco; it holds **Open** (the same), **New session** (the start
 dialog), **Settings** (opens or closes them, as `eco window config`) and
 **Stop eco** (as `eco stop`: the windows and the icon go with the daemon). On
-Omarchy the bar may keep tray icons in a drawer behind its `<` arrow.
+Omarchy the bar may keep tray icons in a drawer behind its `<` arrow. On macOS
+the menu opens on a secondary click (right click or Control-click).
 
 **What keeps an item from saving** shows on its own field: an outline in the
 error colour and the reason under it, and the keyboard goes to the first such

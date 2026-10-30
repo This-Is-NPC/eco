@@ -482,7 +482,7 @@
   "interface.hide_from_share": "OCULTAR NO COMPARTILHAMENTO DE TELA",
   "interface.hide_from_share_tip": "As janelas do eco ficam ocultas para quem assiste à sua tela compartilhada, e também nas suas capturas e gravações de tela: o sistema não as distingue",
   "interface.tray": "MOSTRAR O ECO NA BANDEJA",
-  "interface.tray_tip": "Um ícone na bandeja do sistema (a da barra no Omarchy, a área de notificação no Windows): um clique abre o eco, o menu inicia uma sessão, abre as configurações ou encerra o eco",
+  "interface.tray_tip": "Um ícone na bandeja do sistema (a da barra no Omarchy, a área de notificação no Windows, a barra de menus no macOS, onde o clique direito abre o menu): um clique abre o eco, o menu inicia uma sessão, abre as configurações ou encerra o eco",
   "interface.notifications": "NOTIFICAÇÕES DO SISTEMA",
   "interface.notifications_tip": "Enquanto nenhuma janela do eco está ativa, o sistema avisa quando a transcrição para ou volta, uma resposta fica pronta, ocorre um erro ou sai uma versão mais nova; a resposta é nomeada, nunca mostrada",
   "interface.language_tip": "O idioma das janelas do eco; o automático segue o do sistema",
