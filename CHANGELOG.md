@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.11.0](https://github.com/This-Is-NPC/eco/compare/v0.10.1...v0.11.0) (2026-10-30)
+
+
+### Features
+
+* **settings:** uninstall eco from the window ([cb8f82d](https://github.com/This-Is-NPC/eco/commit/cb8f82d6e4744f8b11e1f28290a0b08d9c3b920a))
+* **uninstall:** remove eco from the cli ([9105175](https://github.com/This-Is-NPC/eco/commit/9105175cb8088477033293d78c8874886f0a8fa1))
+* **uninstall:** remove eco from the cli and the window ([c4689fe](https://github.com/This-Is-NPC/eco/commit/c4689fe78bec6682966eec275a89d106b13fa59f))
+
+
+### Bug Fixes
+
+* **uninstall:** build the windows removal step ([843a83f](https://github.com/This-Is-NPC/eco/commit/843a83f788c3dd77eed13fc6ac5f61516a4acd64))
+* **uninstall:** keep the data choice and leave nothing behind ([c02ca7b](https://github.com/This-Is-NPC/eco/commit/c02ca7be1ec6b6e6fe345d6237e4174210bab9b8))
+* **uninstall:** leave no empty program folder on windows ([29e6de8](https://github.com/This-Is-NPC/eco/commit/29e6de890ff1bf05c48d239ada2234022af651f7))
+
 ## [0.10.1](https://github.com/This-Is-NPC/eco/compare/v0.10.0...v0.10.1) (2026-10-29)
 
 
