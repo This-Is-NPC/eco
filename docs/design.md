@@ -2514,11 +2514,13 @@ running eco among it, which macOS allows. `paths::kept()` is
 
 **Releases.** Commits follow Conventional Commits, and release-please reads
 them (`release-please-config.json`, `.release-please-manifest.json`). Every
-pull request merged into `master` runs `.github/workflows/release.yml`, which
-opens or updates a release pull request: it moves the version in `Cargo.toml`,
+pull request merged into `master`, from a fork too, runs
+`.github/workflows/release.yml` on `pull_request_target`, so its token may
+write (no job runs the pull request's code: the packages are built from the
+tag). It opens or updates a release pull request: it moves the version in `Cargo.toml`,
 `Cargo.lock` and the `PKGBUILD`, and writes `CHANGELOG.md`. Merging that pull
 request tags `v<version>`, and the same workflow builds from the tag, in
-three jobs after release-please:
+four jobs after release-please:
 
 - `package-linux` builds the Arch package with `scripts/package` in an Arch
   container and attaches it to the release.
