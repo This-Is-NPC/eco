@@ -111,8 +111,10 @@ pub fn detach() -> Result<()> {
     Ok(())
 }
 
-/// Have the shell start `program` with `parameters` in a hidden window, as
-/// a process that shares no handle with this one, and return once it has.
+/// Have the shell start `program` with `parameters` in a hidden window, in
+/// the program's own folder, as a process that shares no handle with this
+/// one, and return once it has. A folder a process works in cannot be
+/// removed, so the process never inherits this one's.
 pub(crate) fn hidden(program: &Path, parameters: &str) -> Result<()> {
     let file = program
         .to_str()
@@ -121,6 +123,7 @@ pub(crate) fn hidden(program: &Path, parameters: &str) -> Result<()> {
         mask: co::SEE_MASK::FLAG_NO_UI | co::SEE_MASK::NOASYNC,
         file,
         parameters: Some(parameters),
+        directory: program.parent().and_then(Path::to_str),
         show: co::SW::HIDE,
         ..Default::default()
     })
@@ -228,6 +231,26 @@ mod tests {
             "{:?}",
             began.elapsed()
         );
+    }
+
+    #[test]
+    fn what_it_starts_works_in_its_own_folder() {
+        let directory = tempfile::tempdir().unwrap();
+        let cmd = directory.path().join("cmd.exe");
+        std::fs::copy(std::env::var_os("ComSpec").unwrap(), &cmd).unwrap();
+        let written = directory.path().join("folder.txt");
+        hidden(&cmd, &format!("/c cd > \"{}\"", written.display())).unwrap();
+        let began = Instant::now();
+        let folder = loop {
+            match std::fs::read_to_string(&written) {
+                Ok(text) if text.ends_with('\n') => break text,
+                _ if began.elapsed() < Duration::from_secs(10) => {
+                    std::thread::sleep(Duration::from_millis(50))
+                }
+                other => panic!("{other:?}"),
+            }
+        };
+        assert_eq!(Path::new(folder.trim()), directory.path());
     }
 
     #[test]

@@ -2434,7 +2434,8 @@ apply-uninstall`, with `--pty --wait` when eco was asked in a terminal so that
 sudo can ask there; `remove` is `pkexec pacman -Rns --noconfirm eco` (sudo in a
 terminal), as `install` picks. On Windows the hand-off copies `eco.exe` into an
 `eco-update-` folder of the temporary directory and has the shell start the copy
-hidden; `remove` runs `msiexec /x <ProductCode> /qb /norestart` for every
+hidden, working in that folder (a process started there by the Start-menu
+entry would keep the program folder from being removed); `remove` runs `msiexec /x <ProductCode> /qb /norestart` for every
 `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall` entry whose
 `DisplayName` is `eco`, `Publisher` `This-Is-NPC` and `WindowsInstaller` 1,
 with the exit codes of an install (1602 and 1223 are "the removal was
