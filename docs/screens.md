@@ -899,6 +899,15 @@ and no commands: each value saves at once.
   session is recording. Restarting eco now stops its recording.", with CANCEL
   and RESTART. None of these steps is pictured. See [how to install and
   remove eco](how-to-install-and-remove.md#update).
+- **UNINSTALL.** UNINSTALL ECO opens a dialog, UNINSTALL ECO: "eco, its
+  window, its shortcuts and its service are removed. Your sessions, people,
+  config and models stay on this computer." ALSO DELETE MY DATA, a dim chip,
+  turns lit to say that they are deleted too ("…and so are your sessions,
+  people, config and models.") and adds "Deleted data cannot be recovered."
+  CANCEL leaves everything as it was; UNINSTALL sends the same command as `eco
+  uninstall` and the window closes as eco stops. A session that records
+  refuses it, in an error toast. Not pictured. See [taking eco
+  off](how-to-install-and-remove.md#taking-it-off).
 
 SYSTEM NOTIFICATIONS turned on has the daemon send a notification of the
 system — on Omarchy through `notify-send`, on Windows a Windows notification —

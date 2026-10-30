@@ -432,6 +432,11 @@ Singleton {
   function restartDaemon(force) {
     send("daemon.restart " + JSON.stringify({ force: force }))
   }
+  // uninstall removes eco, and with `everything` the user's data too; the
+  // window closes as the daemon stops.
+  function uninstall(everything) {
+    send("uninstall " + JSON.stringify({ everything: everything }))
+  }
   function dismissUpdate() { updateDismissed = updateNotice }
   function openReleaseNotes() {
     if (updateState !== null && updateState.notes)
@@ -1454,6 +1459,9 @@ Singleton {
     case "update_progress":
       updateProgress = { stage: event.stage, version: event.version || "", detail: event.detail || "" }
       post([{ key: "update.stage." + event.stage, args: updateProgress }], event.stage === "failed" ? "error" : "info", { topic: "update" })
+      break
+    case "uninstall":
+      post([{ key: "uninstall.stage." + event.stage, args: event }], event.stage === "failed" ? "error" : "info", { topic: "uninstall" })
       break
     case "config_pending":
       pendingConfig = event.hooks.length + event.files.length + event.models.length > 0 ? event : null

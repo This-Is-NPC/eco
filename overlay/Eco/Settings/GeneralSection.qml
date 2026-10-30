@@ -9,7 +9,9 @@ import Eco.Kit
 // once; Enter or Space on a row turns its switch, opens its list or starts
 // writing its number. The note says what the row picked does. UPDATES also
 // tells the version running and the latest release, installs a newer one and
-// restarts the daemon, asking first while a session records.
+// restarts the daemon, asking first while a session records. UNINSTALL asks
+// first too, and whether to delete the data with eco; nothing is deleted
+// unless it is turned on.
 SettingsSection {
   id: section
 
@@ -19,8 +21,28 @@ SettingsSection {
     ["reviewer", ["review", "show_draft"]],
     ["audio", ["drop_echoes", "echo_cancel"]],
     ["answers", ["max_context_chars", "concurrency"]],
-    ["updates", ["update_check", "version", "daemon"]]
+    ["updates", ["update_check", "version", "daemon"]],
+    ["uninstall", ["uninstall"]]
   ]
+  // UNINSTALL asks what goes with eco: its data stays unless turned on here.
+  readonly property ConfirmDialog uninstallDialog: ConfirmDialog {
+    id: removal
+    property bool everything: false
+    title: I18n.t("uninstall.title")
+    question: I18n.t(everything ? "uninstall.question_everything" : "uninstall.question_keep")
+    warning: everything ? I18n.t("uninstall.warning") : ""
+    confirmIcon: "check"
+    confirmText: I18n.t("uninstall.confirm").toUpperCase()
+    onClosed: everything = false
+    onConfirmed: Eco.uninstall(everything)
+
+    Chip {
+      text: I18n.t("uninstall.data").toUpperCase()
+      checked: removal.everything
+      dim: !removal.everything
+      onClicked: removal.everything = !removal.everything
+    }
+  }
   // Why echo cancellation cannot run here, or "".
   readonly property string echoUnavailable: Eco.echoCancelError ? I18n.t("error." + Eco.echoCancelError) : ""
   readonly property var tips: ({
@@ -37,7 +59,8 @@ SettingsSection {
     update_check: I18n.t("general.update_check_tip"),
     version: Eco.updateState !== null && Eco.updateState.error
       ? I18n.t("update.error_tip", { error: Eco.updateState.error }) : I18n.t("general.version_tip"),
-    daemon: I18n.t("general.daemon_tip")
+    daemon: I18n.t("general.daemon_tip"),
+    uninstall: I18n.t("general.uninstall_tip")
   })
   readonly property var labels: ({
     language: I18n.t("interface.language"),
@@ -52,14 +75,16 @@ SettingsSection {
     concurrency: I18n.t("general.concurrency"),
     update_check: I18n.t("general.update_check"),
     version: I18n.t("general.version"),
-    daemon: I18n.t("general.daemon")
+    daemon: I18n.t("general.daemon"),
+    uninstall: I18n.t("general.uninstall")
   })
   readonly property var titles: ({
     interface: I18n.t("general.group_interface"),
     reviewer: I18n.t("general.group_reviewer"),
     audio: I18n.t("general.group_audio"),
     answers: I18n.t("general.group_answers"),
-    updates: I18n.t("general.group_updates")
+    updates: I18n.t("general.group_updates"),
+    uninstall: I18n.t("general.group_uninstall")
   })
   // The version row's value: the version running and what is known of the
   // latest, or the stage of the install under way or failed.
@@ -101,7 +126,7 @@ SettingsSection {
     readonly property bool language: key === "language"
     readonly property bool counts: key === "max_context_chars" || key === "concurrency"
     // The rows whose chip runs a command rather than turning a switch.
-    readonly property bool command: key === "version" || key === "daemon"
+    readonly property bool command: key === "version" || key === "daemon" || key === "uninstall"
     readonly property bool on: Eco.config !== null && section.isOn(Eco.config, key)
     function act() {
       if (value.language)
@@ -161,8 +186,8 @@ SettingsSection {
         elide: Text.ElideRight
       }
     }
-    // VERSION: UPDATE to a newer release, else CHECK NOW; DAEMON: RESTART.
-    // Each beside what it acts on.
+    // VERSION: UPDATE to a newer release, else CHECK NOW; DAEMON: RESTART;
+    // UNINSTALL: the question first. Each beside what it acts on.
     Row {
       visible: value.command
       anchors.verticalCenter: parent.verticalCenter
@@ -170,13 +195,16 @@ SettingsSection {
       Chip {
         id: run
         readonly property bool newer: Eco.updateState !== null && Eco.updateState.newer
-        text: (value.key === "daemon" ? I18n.t("update.restart") : newer ? I18n.t("update.update") : I18n.t("update.check_now")).toUpperCase()
+        text: (value.key === "uninstall" ? I18n.t("uninstall.button") : value.key === "daemon" ? I18n.t("update.restart")
+          : newer ? I18n.t("update.update") : I18n.t("update.check_now")).toUpperCase()
         checked: value.key === "version" && newer
-        tip: value.key === "daemon" ? I18n.t("update.restart_tip")
+        tip: value.key === "uninstall" ? I18n.t("uninstall.tip") : value.key === "daemon" ? I18n.t("update.restart_tip")
           : newer ? I18n.t("update.update_tip", { version: Eco.updateState.latest }) : I18n.t("update.check_now_tip")
-        enabled: Eco.connected && (value.key === "daemon" || !Eco.updating && !Eco.updateChecking)
+        enabled: Eco.connected && (value.key === "daemon" || !Eco.updating && (value.key === "uninstall" || !Eco.updateChecking))
         onClicked: {
-          if (value.key === "daemon")
+          if (value.key === "uninstall")
+            removal.open()
+          else if (value.key === "daemon")
             Eco.restartDaemon(false)
           else if (newer)
             Eco.installUpdate(Eco.updateState.latest)
@@ -187,7 +215,8 @@ SettingsSection {
       Label {
         anchors.verticalCenter: parent.verticalCenter
         width: section.toolsWidth - run.width - 10
-        text: value.key === "version" ? section.versionText
+        text: value.key === "uninstall" ? ""
+          : value.key === "version" ? section.versionText
           : Eco.updateProgress !== null && Eco.updateProgress.stage === "waiting" ? I18n.t("update.stage.waiting", Eco.updateProgress)
           : I18n.t(Eco.connected ? "update.daemon_running" : "update.daemon_offline")
         color: value.key === "version" && Eco.updateProgress !== null && Eco.updateProgress.stage === "failed" ? Theme.error : Theme.dim
