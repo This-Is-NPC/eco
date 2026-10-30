@@ -1,5 +1,37 @@
 # Changelog
 
+## [0.12.0](https://github.com/This-Is-NPC/eco/compare/v0.11.0...v0.12.0) (2026-10-30)
+
+
+### Features
+
+* **audio:** capture microphone and output on macOS ([c4e879a](https://github.com/This-Is-NPC/eco/commit/c4e879ab71d9094e5e93b343113d1595cf6769f2))
+* **installer:** package, install and update eco on macOS ([954dd59](https://github.com/This-Is-NPC/eco/commit/954dd5931f07c7d75f911693f1458891b5c542f0))
+* **installer:** remove eco from macOS with eco uninstall ([fa2e0e1](https://github.com/This-Is-NPC/eco/commit/fa2e0e156f1cc04ad96c0121e4c31d685e0740b1))
+* **notify:** show notifications on macOS through osascript ([845eff3](https://github.com/This-Is-NPC/eco/commit/845eff32ee5ba5df3d41f289f4a8aea6e4bf9020))
+* **platform:** build and run the daemon on macOS ([d8f6d88](https://github.com/This-Is-NPC/eco/commit/d8f6d8834f270c6f9418b013de16decd79baf8fc))
+* **release:** build and attach the macOS archive ([02c771f](https://github.com/This-Is-NPC/eco/commit/02c771fb49ce3d238ce5bb4f9368954975afed8b))
+* run eco on macOS ([1f0a2c2](https://github.com/This-Is-NPC/eco/commit/1f0a2c29c70068f9affcb4f0f6b3ba70c450c9c3))
+* **service:** run the daemon as a launchd agent on macOS ([01f8e04](https://github.com/This-Is-NPC/eco/commit/01f8e04eb043f345d3ea6d956bb1ac4add8e1629))
+* **window:** ask macOS for the microphone when a session starts ([54eb151](https://github.com/This-Is-NPC/eco/commit/54eb1517532c689198c7a151322cd12243a9198f))
+* **window:** build eco-window and control its windows on macOS ([10d7535](https://github.com/This-Is-NPC/eco/commit/10d75359160d272818805af0f2a48f628e7e0166))
+* **window:** name the macOS app eco with eco's icon ([115e44c](https://github.com/This-Is-NPC/eco/commit/115e44cb62bdf0afaef5a9c040f5b93cc88c748c))
+
+
+### Bug Fixes
+
+* **audio:** keep a refused microphone unheard ([1afb39e](https://github.com/This-Is-NPC/eco/commit/1afb39ea58fdb0344d29988350e2d826873d8549))
+* **audio:** tell a microphone macOS keeps from eco ([4708e31](https://github.com/This-Is-NPC/eco/commit/4708e3189224b80c428528077f7013765b9c8912))
+* **hooks:** post local-check from macOS, which has no setsid ([d693080](https://github.com/This-Is-NPC/eco/commit/d693080842b3042ea07473af5ef3a0c5b688a83f))
+* **overlay:** forget a source back without fromEntries ([0fa4392](https://github.com/This-Is-NPC/eco/commit/0fa4392bb9023f549d9c7b0421a02d54f35cff31))
+* **package:** remove the staged macOS folder once archived ([a587c37](https://github.com/This-Is-NPC/eco/commit/a587c372230e4f94cc86e61527158e7488bdf681))
+* **paths:** build the launchd agent's label only on macOS ([a3a8369](https://github.com/This-Is-NPC/eco/commit/a3a8369b93c166e820a1e1d1abe76003b973ccbd))
+* **service:** name the launchd agent by reverse domain ([d507ad6](https://github.com/This-Is-NPC/eco/commit/d507ad674ce7ab9b51265b243d53857afd05c351))
+* **session:** restart outside the launchd agent's group ([1a64fae](https://github.com/This-Is-NPC/eco/commit/1a64fae53940f6cafda014ce7bd61dd62b3c9c62))
+* **tray:** open the menu apart from the macOS menu bar item ([d8bcdf7](https://github.com/This-Is-NPC/eco/commit/d8bcdf70cbc955bdc147654e95aab542da5a9796))
+* **window:** draw the overlay in the fixed-width font on macOS ([24e98e9](https://github.com/This-Is-NPC/eco/commit/24e98e904f92a023a22e219e13476cbb91eab6c8))
+* **window:** leave the microphone prompt to the daemon ([386e61a](https://github.com/This-Is-NPC/eco/commit/386e61a87d260f2623efcbe7b40ba5fbefd0eb5b))
+
 ## [0.11.0](https://github.com/This-Is-NPC/eco/compare/v0.10.1...v0.11.0) (2026-10-30)
 
 
