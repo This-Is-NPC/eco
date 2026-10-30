@@ -19,7 +19,7 @@ format, so install.ps1 installs it from dist as it does from a release
 
 On macOS: dist/eco-<version>-macos-aarch64.tar.gz of the working tree, one
 folder eco/ laid out the same way: bin/eco, the window program as
-lib/eco/eco-window.app with the Qt it runs with inside (macdeployqt, from the
+lib/eco/eco.app with the Qt it runs with inside (macdeployqt, from the
 Qt under .qt), the overlay in share/eco/overlay, the licence and README.txt.
 Every program in it is signed ad hoc, since macdeployqt rewrites them. Beside
 it, dist/SHA256SUMS names it, so install-macos.sh installs it from dist as it
@@ -54,9 +54,9 @@ if sys.platform == "win32":
     print(f"{digest}  {installer.name}")
     print(f"{installer}: {installer.stat().st_size} bytes")
 elif sys.platform == "darwin":
-    app = root / "target/window/eco-window.app"
+    app = root / "target/window.noindex/eco.app"
     if not app.is_dir():
-        sys.exit("package: no target/window/eco-window.app; run `mise run window:build`")
+        sys.exit("package: no target/window.noindex/eco.app; run `mise run window:build`")
     qt = sorted((root / ".qt").glob("*/macos"))
     if len(qt) != 1:
         sys.exit("package: no Qt under .qt; run `mise run qt:install`")
@@ -67,7 +67,7 @@ elif sys.platform == "darwin":
     shutil.rmtree(staging, ignore_errors=True)
     (eco / "bin").mkdir(parents=True)
     shutil.copy2(root / "target/release/eco", eco / "bin/eco")
-    window = eco / "lib/eco/eco-window.app"
+    window = eco / "lib/eco/eco.app"
     shutil.copytree(app, window, symlinks=True)
     subprocess.run(
         [qt[0] / "bin/macdeployqt", window, f"-qmldir={root / 'overlay'}", "-always-overwrite", "-verbose=0"],
@@ -85,7 +85,7 @@ elif sys.platform == "darwin":
     digest = hashlib.sha256(archive.read_bytes()).hexdigest()
     (archive.parent / "SHA256SUMS").write_text(f"{digest}  {archive.name}\n")
     files = sum(1 for path in eco.rglob("*") if path.is_file())
-    # The staged folder holds a second eco-window.app, which Launchpad would list.
+    # The staged folder holds a second eco.app, which Launchpad would list.
     shutil.rmtree(staging)
     print(f"{digest}  {archive.name}")
     print(f"{archive}: {files} files, {archive.stat().st_size} bytes")

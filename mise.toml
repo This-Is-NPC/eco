@@ -34,11 +34,11 @@ run = "scripts/qt-install"
 run_windows = "python scripts/qt-install"
 
 [tasks."window:build"]
-description = "Build eco-window, the Qt 6 program that runs the overlay, into target/window"
+description = "Build eco-window, the Qt 6 program that runs the overlay, into target/window (on macOS eco.app, into target/window.noindex)"
 depends = ["qt:install"]
 run = "scripts/window-build"
 run_windows = "python scripts/window-build"
-sources = ["window/**/*", "packaging/windows/eco.ico", "scripts/window-build"]
+sources = ["window/**/*", "packaging/windows/eco.ico", "packaging/macos/eco.icns", "scripts/window-build"]
 outputs = { auto = true }
 
 [tasks.install]
@@ -62,11 +62,11 @@ run = "scripts/uninstall-windows"
 run_windows = "python scripts/uninstall-windows"
 
 [tasks.icon]
-description = "Render packaging/windows/eco.ico, the icon eco-window.exe carries on Windows, and the tray icons in overlay/icons from packaging/eco.svg"
+description = "Render packaging/windows/eco.ico, the icon eco-window.exe carries on Windows, packaging/macos/eco.icns, eco.app's on macOS, and the tray icons in overlay/icons from packaging/eco.svg"
 run = "scripts/icon"
 run_windows = "python scripts/icon"
 sources = ["packaging/eco.svg", "scripts/icon"]
-outputs = ["packaging/windows/eco.ico", "overlay/icons/tray.png", "overlay/icons/tray-recording.png"]
+outputs = ["packaging/windows/eco.ico", "packaging/macos/eco.icns", "overlay/icons/tray.png", "overlay/icons/tray-recording.png"]
 
 [tasks."readme:gif"]
 description = "Render the README's animated GIF from packaging/eco.omapixel (needs omapixel)"

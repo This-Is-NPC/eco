@@ -146,7 +146,7 @@ const PROGRAM: &str = "target/window/eco-window";
 #[cfg(windows)]
 const PROGRAM: &str = "target/window/eco-window.exe";
 #[cfg(target_os = "macos")]
-const PROGRAM: &str = "target/window/eco-window.app/Contents/MacOS/eco-window";
+const PROGRAM: &str = "target/window.noindex/eco.app/Contents/MacOS/eco";
 
 /// The eco-window `mise run window:build` built.
 fn program() -> PathBuf {

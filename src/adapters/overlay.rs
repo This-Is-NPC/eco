@@ -33,21 +33,27 @@ pub fn language_pack(code: &str) -> serde_json::Map<String, serde_json::Value> {
 }
 
 /// The window program, under `lib/eco` once installed and `target/window` in
-/// a checkout: on macOS the program inside its bundle.
+/// a checkout: on macOS the program inside its bundle, `eco.app`, named and
+/// drawn as the app is on the other systems.
 #[cfg(target_os = "linux")]
 pub const PROGRAM: &str = "eco-window";
 #[cfg(target_os = "macos")]
-pub const PROGRAM: &str = "eco-window.app/Contents/MacOS/eco-window";
+pub const PROGRAM: &str = "eco.app/Contents/MacOS/eco";
 #[cfg(windows)]
 pub const PROGRAM: &str = "eco-window.exe";
+
+/// Where `mise run window:build` puts it in this checkout: on macOS a folder
+/// Spotlight skips, so Launchpad lists only the installed eco.app.
+#[cfg(not(target_os = "macos"))]
+const BUILT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/target/window");
+#[cfg(target_os = "macos")]
+const BUILT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/target/window.noindex");
 
 /// The program that runs it: installed beside the binary
 /// (`<prefix>/lib/eco/eco-window`), or this checkout's build
 /// (`mise run window:build`) when eco runs from it.
 pub fn program() -> PathBuf {
-    paths::shipped_program(PROGRAM).unwrap_or_else(|| {
-        Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/target/window")).join(PROGRAM)
-    })
+    paths::shipped_program(PROGRAM).unwrap_or_else(|| Path::new(BUILT).join(PROGRAM))
 }
 
 /// The overlay windows, each its own eco-window process: a number, which the

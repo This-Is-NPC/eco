@@ -3,7 +3,9 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleExecutable</key>
-	<string>eco-window</string>
+	<string>eco</string>
+	<key>CFBundleIconFile</key>
+	<string>eco</string>
 	<key>CFBundleIdentifier</key>
 	<string>io.github.this-is-npc.eco.window</string>
 	<key>CFBundleName</key>
