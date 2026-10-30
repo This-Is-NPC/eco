@@ -609,7 +609,7 @@ service: the daemon's unit tests, 779 passed, 1 ignored.
 
 | File | Lines | Left without a test, and why |
 |---|---|---|
-| `src/adapters/service_launchd.rs` | 89.19% (24 of 222) | `impl ServiceManager for LaunchAgent` (24–45): the entry points that run the real `launchctl` on the user's real agent, log and executable; what they build and run is tested through `start` with a stand-in `launchctl`. The `create_dir_all` error (132), a `~/Library/LaunchAgents` that cannot be made. |
+| `src/adapters/service_launchd.rs` | 88.89% (33 of 297) | `impl ServiceManager for LaunchAgent` (21–38) and `take_off` (173–175): the entry points that run the real `launchctl` on the user's real agent, log and executable; `Agent::user` (51–57), which reads this user's real paths and uid. What they build and run is tested through `start` and `take_off_agent` with a stand-in `launchctl`. The `create_dir_all` error (150), a `~/Library/LaunchAgents` that cannot be made, and a definition that cannot be deleted (196). |
 | `src/adapters/daemon_log.rs` | 97.22% (1 of 36) | a log directory that cannot be made (15). |
 | `src/adapters/unsupported.rs` | 93.10% (4 of 58) | `Notifier::notify` (59–61), which only writes a line to the daemon's stderr; the service it no longer serves left with its test. |
 

@@ -623,8 +623,8 @@ work as on Linux. The daemon's output goes to
 
 The agent runs with the `PATH` of whatever ran `eco start`, and Homebrew's
 folders added when it lacks them, so it finds Homebrew's `ffmpeg` even when
-eco was opened from Finder or Launchpad. It does not see the other variables
-of that terminal: give a key to your login session, until you log out, then restart
+eco was opened from Finder or Launchpad. It sees no other variable of what
+started it: give a key to your login session, until you log out, then restart
 eco:
 
 ```bash
