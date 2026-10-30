@@ -23,6 +23,7 @@
 #include <ole2.h>
 #elif defined(Q_OS_MACOS)
 #include <QEvent>
+#include <QFontDatabase>
 #include <QPermissions>
 
 #include "bridge_macos.h"
@@ -42,6 +43,7 @@ class Host : public QObject {
   Q_PROPERTY(QString systemThemeDirectory READ systemThemeDirectory CONSTANT)
   Q_PROPERTY(bool foreground READ foreground NOTIFY foregroundChanged)
   Q_PROPERTY(QString microphone READ microphone NOTIFY microphoneChanged)
+  Q_PROPERTY(QString monospaceFamily READ monospaceFamily CONSTANT)
 
 public:
   explicit Host(QObject *parent = nullptr) : QObject(parent) {
@@ -92,6 +94,15 @@ public:
   bool foreground() const { return QGuiApplication::applicationState() == Qt::ApplicationActive; }
 #else
   bool foreground() const { return true; }
+#endif
+
+  // The font family every text is in: the system's fixed-width one on macOS,
+  // which knows no "monospace"; elsewhere "monospace", which the system
+  // resolves to the user's terminal font.
+#ifdef Q_OS_MACOS
+  QString monospaceFamily() const { return QFontDatabase::systemFont(QFontDatabase::FixedFont).family(); }
+#else
+  QString monospaceFamily() const { return QStringLiteral("monospace"); }
 #endif
 
   // Whether the system lets this process's daemon hear the microphone:

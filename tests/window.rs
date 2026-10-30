@@ -659,6 +659,9 @@ async fn the_bridge_carries_lines_reconnects_reads_files_and_exits_cleanly() {
     );
     #[cfg(not(target_os = "macos"))]
     assert_eq!(answer["microphone"], "granted");
+    // On macOS the fixed-width family is Cocoa's, read on the real platform below.
+    #[cfg(not(target_os = "macos"))]
+    assert_eq!(answer["monospace"], "monospace");
     #[cfg(target_os = "linux")]
     assert_eq!(
         Path::new(answer["system_theme_directory"].as_str().unwrap()),
@@ -712,7 +715,8 @@ fn clipboard() -> (&'static str, std::process::Command) {
 }
 
 /// A text copied on Windows or macOS stays on the clipboard once the window is
-/// killed, as `eco stop` kills it. Offscreen, Qt keeps a clipboard of its own.
+/// killed, as `eco stop` kills it, and on macOS the text is in the system's
+/// fixed-width font. Offscreen, Qt keeps a clipboard and fonts of its own.
 #[cfg(any(windows, target_os = "macos"))]
 #[tokio::test]
 async fn a_copied_text_outlives_the_window() {
@@ -723,7 +727,11 @@ async fn a_copied_text_outlives_the_window() {
     let (platform, mut read) = clipboard();
     let mut window = bridge(platform, dir.path(), &listener, &file);
     let mut link = accept(&mut listener, &mut window).await;
-    assert_eq!(ask(&mut link, "copy").await["line"], "copy");
+    let answer = ask(&mut link, "copy").await;
+    assert_eq!(answer["line"], "copy");
+    // macOS has no "monospace" family: the system's fixed-width one stands in.
+    #[cfg(target_os = "macos")]
+    assert_ne!(answer["monospace"], "monospace");
     window.kill().await.unwrap();
     let read = read.output().unwrap();
     assert_eq!(String::from_utf8_lossy(&read.stdout).trim(), "olá");

@@ -23,7 +23,7 @@ QtObject {
         if (line === "copy")
           Host.copy(Host.env("ECO_TEST_VALUE"))
         send(JSON.stringify({ line: line, value: Host.env("ECO_TEST_VALUE"), text: file.text, pid: Host.pid,
-          path: Host.localPath(Host.env("ECO_TEST_URL")), foreground: Host.foreground, microphone: Host.microphone,
+          path: Host.localPath(Host.env("ECO_TEST_URL")), foreground: Host.foreground, microphone: Host.microphone, monospace: Host.monospaceFamily,
           system_dark: Host.systemDark, system_theme_directory: Host.systemThemeDirectory }))
       }
     }
