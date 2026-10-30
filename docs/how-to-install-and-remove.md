@@ -265,7 +265,7 @@ the MSI by hand and the old install is still there; remove it with
    line the script writes starts with `eco: `. It ends with a summary: the
    version installed, the program folder (`C:\Program Files\eco`), the
    command and the folder on the system `PATH`, where the settings and the
-   sessions are, how to open eco and how to take it off. A failure is said in
+   sessions are, how to open eco and how to take it off (`eco uninstall`). A failure is said in
    red with what happened and whether anything changed (a declined
    administrator prompt changes nothing; a failed Windows Installer run names
    its log, `%TEMP%\eco-msiexec.log`), followed by the line that tries again. `$env:VERSION = "0.3.0"` before it picks a release

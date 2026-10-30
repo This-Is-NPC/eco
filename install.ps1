@@ -314,7 +314,7 @@ function Install-Eco {
     Say "settings  $(Join-Path $env:APPDATA 'eco')"
     Say "sessions  $(Join-Path $env:LOCALAPPDATA 'eco')"
     Say 'open it   Start menu > eco, or eco start'
-    Say "remove it `$env:ECO_UNINSTALL = `"keep`"; $again"
+    Say 'remove it eco uninstall (keeps your data; --everything deletes it too)'
 }
 
 try {
