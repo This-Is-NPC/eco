@@ -20,7 +20,8 @@ format, so install.ps1 installs it from dist as it does from a release
 On macOS: dist/eco-<version>-macos-aarch64.tar.gz of the working tree, one
 folder eco/ laid out the same way: bin/eco, the window program as
 lib/eco/eco.app with the Qt it runs with inside (macdeployqt, from the
-Qt under .qt), the overlay in share/eco/overlay, the licence and README.txt.
+Qt under .qt), the overlay in share/eco/overlay, the models in
+share/eco/models, the licences and README.txt.
 Every program in it is signed ad hoc, since macdeployqt rewrites them. Beside
 it, dist/SHA256SUMS names it, so install-macos.sh installs it from dist as it
 does from a release (scripts/install-macos)."""
@@ -76,7 +77,16 @@ elif sys.platform == "darwin":
     for program in (window, eco / "bin/eco"):
         subprocess.run(["codesign", "--force", "--deep", "--sign", "-", program], check=True)
     shutil.copytree(root / "overlay", eco / "share/eco/overlay")
+    # The models, as the Windows package ships them: the ones `eco setup` of
+    # this build downloads into the data directory, checked against their
+    # pinned checksums.
+    subprocess.run([eco / "bin/eco", "setup"], check=True, stdout=subprocess.DEVNULL)
+    downloaded = Path.home() / "Library/Application Support/eco/models"
+    (eco / "share/eco/models").mkdir(parents=True)
+    for name in ("silero_vad.onnx", "wespeaker_campplus.onnx"):
+        shutil.copy2(downloaded / name, eco / "share/eco/models" / name)
     shutil.copy2(root / "LICENSE", eco / "LICENSE")
+    shutil.copy2(root / "packaging/windows/MODELS-LICENSES.txt", eco / "MODELS-LICENSES.txt")
     shutil.copy2(root / "packaging/macos/README.txt", eco / "README.txt")
     archive = root / "dist" / f"eco-{version}-macos-aarch64.tar.gz"
     archive.parent.mkdir(exist_ok=True)
