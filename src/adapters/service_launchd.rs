@@ -1,5 +1,5 @@
-//! macOS: eco as the launchd agent `eco` in the user's GUI domain, defined by
-//! `~/Library/LaunchAgents/eco.plist` and run through `launchctl`, its output
+//! macOS: eco as the launchd agent `io.github.this-is-npc.eco` in the user's GUI domain, defined by
+//! `~/Library/LaunchAgents/io.github.this-is-npc.eco.plist` and run through `launchctl`, its output
 //! in a log under the data directory. The agent runs when started, never at
 //! login, as on Linux and Windows.
 
@@ -16,7 +16,7 @@ use crate::paths;
 use crate::ports::ServiceManager;
 
 /// The agent's label in launchd.
-const LABEL: &str = "eco";
+const LABEL: &str = "io.github.this-is-npc.eco";
 
 pub struct LaunchAgent;
 
@@ -25,7 +25,7 @@ impl ServiceManager for LaunchAgent {
         Box::pin(async {
             let agent = Agent::user();
             let exe = std::env::current_exe()?;
-            let path = std::env::var("PATH").unwrap_or_default();
+            let path = agent_path(&std::env::var("PATH").unwrap_or_default());
             start(
                 Path::new("launchctl"),
                 &agent,
@@ -59,15 +59,15 @@ impl Agent {
         }
     }
 
-    /// The agent as launchd names it: `gui/<uid>/eco`.
+    /// The agent as launchd names it: `gui/<uid>/io.github.this-is-npc.eco`.
     fn target(&self) -> String {
         format!("{}/{LABEL}", self.domain)
     }
 }
 
 /// The agent's definition: `exe daemon --headless`, its output in `log`, with
-/// the `PATH` of the shell that started it (launchd's own finds no Homebrew
-/// program, ffmpeg among them). It does not run at load, so not at login.
+/// `path` (`agent_path`), so it finds Homebrew programs, ffmpeg among them. It
+/// does not run at load, so not at login.
 fn plist(exe: &Path, log: &Path, path: &str) -> String {
     let exe = escape(&exe.to_string_lossy());
     let log = escape(&log.to_string_lossy());
@@ -102,6 +102,21 @@ fn plist(exe: &Path, log: &Path, path: &str) -> String {
 </plist>
 "#
     )
+}
+
+/// Where Homebrew puts its programs, on Apple Silicon and on Intel.
+const HOMEBREW: [&str; 2] = ["/opt/homebrew/bin", "/usr/local/bin"];
+
+/// The agent's `PATH`: `caller`'s, then Homebrew's folders it lacks. eco
+/// opened from Finder or Launchpad has launchd's own, which holds neither.
+fn agent_path(caller: &str) -> String {
+    let mut path: Vec<&str> = caller.split(':').filter(|dir| !dir.is_empty()).collect();
+    for dir in HOMEBREW {
+        if !path.contains(&dir) {
+            path.push(dir);
+        }
+    }
+    path.join(":")
 }
 
 /// `text` as XML character data.
@@ -233,7 +248,7 @@ exit 0"#,
 
     fn agent(dir: &Path) -> Agent {
         Agent {
-            plist: dir.join("LaunchAgents/eco.plist"),
+            plist: dir.join("LaunchAgents/io.github.this-is-npc.eco.plist"),
             log: dir.join("data/daemon.log"),
             domain: "gui/501".into(),
         }
@@ -257,7 +272,7 @@ exit 0"#,
         assert_eq!(
             strings,
             [
-                "eco",
+                "io.github.this-is-npc.eco",
                 "/Apps/eco &amp; co/eco",
                 "daemon",
                 "--headless",
@@ -268,6 +283,19 @@ exit 0"#,
             ]
         );
         assert!(text.contains("<key>RunAtLoad</key>\n\t<false/>"), "{text}");
+    }
+
+    #[test]
+    fn the_agent_finds_homebrew_whatever_path_started_it() {
+        assert_eq!(
+            agent_path("/usr/bin:/bin:/usr/sbin:/sbin"),
+            "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin"
+        );
+        assert_eq!(
+            agent_path("/opt/homebrew/bin:/Users/you/.cargo/bin:/usr/local/bin:/usr/bin"),
+            "/opt/homebrew/bin:/Users/you/.cargo/bin:/usr/local/bin:/usr/bin"
+        );
+        assert_eq!(agent_path(""), "/opt/homebrew/bin:/usr/local/bin");
     }
 
     #[tokio::test]
@@ -283,7 +311,7 @@ exit 0"#,
         assert_eq!(
             calls(dir.path()),
             format!(
-                "print gui/501/eco\nbootstrap gui/501 {}\nkickstart gui/501/eco\n",
+                "print gui/501/io.github.this-is-npc.eco\nbootstrap gui/501 {}\nkickstart gui/501/io.github.this-is-npc.eco\n",
                 agent.plist.display()
             )
         );
@@ -299,7 +327,7 @@ exit 0"#,
         start(&program, &agent, "<plist/>").await.unwrap();
         assert_eq!(
             calls(dir.path()),
-            "print gui/501/eco\nkickstart gui/501/eco\n"
+            "print gui/501/io.github.this-is-npc.eco\nkickstart gui/501/io.github.this-is-npc.eco\n"
         );
     }
 
@@ -315,8 +343,8 @@ exit 0"#,
         assert_eq!(
             calls(dir.path()),
             format!(
-                "print gui/501/eco\nbootout gui/501/eco\nbootstrap gui/501 {}\n\
-                 kickstart gui/501/eco\n",
+                "print gui/501/io.github.this-is-npc.eco\nbootout gui/501/io.github.this-is-npc.eco\nbootstrap gui/501 {}\n\
+                 kickstart gui/501/io.github.this-is-npc.eco\n",
                 agent.plist.display()
             )
         );
@@ -347,7 +375,7 @@ exit 0"#,
         assert!(!agent.plist.exists());
         assert_eq!(
             calls(dir.path()),
-            "print gui/501/eco\nbootout gui/501/eco\n"
+            "print gui/501/io.github.this-is-npc.eco\nbootout gui/501/io.github.this-is-npc.eco\n"
         );
     }
 
@@ -356,7 +384,10 @@ exit 0"#,
         let dir = tempfile::tempdir().unwrap();
         let program = launchctl(dir.path(), 113, "none");
         take_off_agent(&program, &agent(dir.path())).await.unwrap();
-        assert_eq!(calls(dir.path()), "print gui/501/eco\n");
+        assert_eq!(
+            calls(dir.path()),
+            "print gui/501/io.github.this-is-npc.eco\n"
+        );
     }
 
     #[tokio::test]

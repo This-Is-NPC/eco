@@ -25,7 +25,7 @@ ECO_UNINSTALL="${ECO_UNINSTALL:-}"
 eco="$HOME/Applications/eco"
 exe="$eco/bin/eco"
 data="$HOME/Library/Application Support/eco"
-agent="$HOME/Library/LaunchAgents/eco.plist"
+agent="$HOME/Library/LaunchAgents/io.github.this-is-npc.eco.plist"
 
 say() { printf 'eco: %s\n' "$*" >&2; }
 die() { say "$*"; exit 1; }
@@ -55,7 +55,7 @@ uninstall_eco() {
     return 0
   fi
   stop_eco >/dev/null
-  launchctl bootout "gui/$(id -u)/eco" 2>/dev/null || true
+  launchctl bootout "gui/$(id -u)/io.github.this-is-npc.eco" 2>/dev/null || true
   for path in "${paths[@]}"; do
     if [[ -e "$path" ]]; then rm -rf "$path"; say "removed $path"; fi
   done

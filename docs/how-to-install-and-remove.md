@@ -565,13 +565,15 @@ it, one command each:
 
 ## On macOS
 
-macOS (Apple Silicon, macOS 14.6 or later) has no release yet: eco is built
-from a checkout ([working on eco](design.md#working-on-eco)), which installs
-it for you alone:
+On a Mac with Apple Silicon and macOS 14.6 or later, eco installs for you
+alone from the release's macOS archive:
 
 ```bash
-mise run install:macos
+curl -fsSL https://raw.githubusercontent.com/This-Is-NPC/eco/master/install-macos.sh | bash
 ```
+
+From a checkout ([working on eco](design.md#working-on-eco)),
+`mise run install:macos` builds the archive and installs it the same way:
 
 ```
 eco: downloading eco-0.9.1-macos-aarch64.tar.gz
@@ -583,16 +585,18 @@ eco: add /Users/you/Applications/eco/bin to your PATH, e.g. in ~/.zprofile: expo
 eco: installed. Next: eco start
 ```
 
-It builds the archive a release would carry, checks it as a download is
-checked, puts it in `~/Applications/eco` and runs `eco setup`. Add
+It checks the archive against the release's `SHA256SUMS`, puts it in
+`~/Applications/eco` and runs `eco setup`. Open eco from
+`~/Applications/eco/lib/eco/eco.app` (Finder or Launchpad), which runs
+`eco start`, or run `eco start` yourself. Add
 `~/Applications/eco/bin` to your `PATH` as it says; a link to `eco` from
 another folder does not work, since eco finds its window beside the path it
 was started by. Its programs are signed ad hoc, not by a developer, so an
 archive downloaded in a browser needs its quarantine removed once:
 `xattr -dr com.apple.quarantine ~/Applications/eco`.
 
-`eco update` installs a newer release over it when that release carries a
-macOS archive; none does yet, and it says
+`eco update` installs a newer release over it, as on Linux and Windows. A
+release before the first that carries a macOS archive has none, and it says
 `the SHA256SUMS of v0.10.1 names no package for this system`.
 
 To take it off, keeping your sessions, config and models, `eco uninstall`
@@ -609,17 +613,18 @@ eco: kept /Users/you/Library/Application Support/eco
 
 `--delete-everything` deletes those too; with neither, it asks.
 
-The daemon runs in the background as the launchd agent `eco` of your login
+The daemon runs in the background as the launchd agent `io.github.this-is-npc.eco` of your login
 session. `eco start` writes it to
-`~/Library/LaunchAgents/eco.plist`, loads it and starts it; it does not run
+`~/Library/LaunchAgents/io.github.this-is-npc.eco.plist`, loads it and starts it; it does not run
 at login, as on Linux and Windows. `eco stop`, `eco restart` and `eco status`
 work as on Linux. The daemon's output goes to
 `~/Library/Application Support/eco/daemon.log`, emptied at each start, and
 `eco start` shows it when the daemon does not come up.
 
-The agent runs with the `PATH` of the terminal that ran `eco start`, so it
-finds Homebrew's `ffmpeg`. It does not see the other variables of that
-terminal: give a key to your login session, until you log out, then restart
+The agent runs with the `PATH` of whatever ran `eco start`, and Homebrew's
+folders added when it lacks them, so it finds Homebrew's `ffmpeg` even when
+eco was opened from Finder or Launchpad. It does not see the other variables
+of that terminal: give a key to your login session, until you log out, then restart
 eco:
 
 ```bash
@@ -910,7 +915,7 @@ the same from outside eco.
 **On macOS,** a process of its own (`eco apply-uninstall`, in a process group
 of its own, so stopping the daemon does not stop it) stops the daemon, takes
 the launchd agent out of your session (`launchctl bootout`), deletes
-`~/Library/LaunchAgents/eco.plist` and `~/Applications/eco`; asked in a
+`~/Library/LaunchAgents/io.github.this-is-npc.eco.plist` and `~/Applications/eco`; asked in a
 terminal, it runs there until it ends. With `--everything` it then deletes
 `~/Library/Application Support/eco`. A notification says how it ended. Keys you
 gave with `launchctl setenv` last until you log out. `install-macos.sh` with

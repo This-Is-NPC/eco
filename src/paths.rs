@@ -155,7 +155,8 @@ impl<V: Fn(&str) -> Option<OsString>> Layout<V> {
     }
 
     fn launch_agent(&self) -> PathBuf {
-        self.home().join("Library/LaunchAgents/eco.plist")
+        self.home()
+            .join("Library/LaunchAgents/io.github.this-is-npc.eco.plist")
     }
 
     fn app_dir(&self) -> PathBuf {
@@ -585,7 +586,7 @@ mod tests {
             "/var/folders/ab/T/eco.token",
             "/Users/you/Library/Application Support/eco/daemon.log",
             "/Users/you/Library/Application Support/eco/update.json",
-            "/Users/you/Library/LaunchAgents/eco.plist",
+            "/Users/you/Library/LaunchAgents/io.github.this-is-npc.eco.plist",
             "/Users/you/Applications/eco",
             "/Users/you/cv.md",
         ];
