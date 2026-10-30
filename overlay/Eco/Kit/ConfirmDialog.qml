@@ -18,6 +18,11 @@ ModalDialog {
   property string confirmIcon: "close"
   property string cancelText: I18n.t("dialog.cancel")
   signal confirmed()
+  // confirm closes the dialog, then says it was confirmed: what the button does.
+  function confirm() {
+    close()
+    confirmed()
+  }
   // The way back was pressed; Esc and a press outside only close it.
   signal cancelled()
 
@@ -74,10 +79,7 @@ ModalDialog {
           icon: dialog.confirmIcon
           text: dialog.confirmText
           armed: true
-          onClicked: {
-            dialog.close()
-            dialog.confirmed()
-          }
+          onClicked: dialog.confirm()
         }
       }
     }

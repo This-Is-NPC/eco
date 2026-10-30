@@ -33,7 +33,8 @@ SettingsSection {
     warning: everything ? I18n.t("uninstall.warning") : ""
     confirmIcon: "check"
     confirmText: I18n.t("uninstall.confirm").toUpperCase()
-    onClosed: everything = false
+    // Each time it opens the data stays, until the chip says otherwise.
+    onAboutToShow: everything = false
     onConfirmed: Eco.uninstall(everything)
 
     Chip {

@@ -45,11 +45,11 @@ QtObject {
       dialog.leading[0].clicked()
       root.check("the data chip asks to delete it too", dialog.everything && dialog.warning !== "")
       dialog.close()
-      root.check("closing forgets the choice", !dialog.everything)
       dialog.open()
+      root.check("opening again keeps the data", !dialog.everything)
       dialog.leading[0].clicked()
-      dialog.confirmed()
-      dialog.close()
+      // What the UNINSTALL button does: close, then confirm, with the choice kept.
+      dialog.confirm()
       Eco.handle({ type: "uninstall", stage: "failed", everything: true, detail: "no systemd-run" })
       const told = Eco.notices[Eco.notices.length - 1]
       root.check("a removal that did not start says why", told.kind === "error"

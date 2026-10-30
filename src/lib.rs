@@ -741,7 +741,7 @@ pub async fn run() -> Result<()> {
         Run::ApplyUninstall { everything } => {
             // The steps are dropped before the exit, which waits for the toast.
             let removed = {
-                let steps = apply::Local::new(installer::installer(), session::notifier());
+                let steps = apply::Local::new(installer::installer(), session::removal_notifier());
                 apply::uninstall(&steps, everything).await
             };
             exit_with(i32::from(!removed))

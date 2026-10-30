@@ -30,7 +30,7 @@ use tokio::process::Command;
 use windows_registry::LOCAL_MACHINE;
 
 use crate::adapters::control_socket::Address;
-use crate::adapters::notify_windows::Toasts;
+use crate::adapters::notify_windows::{self, Toasts};
 use crate::adapters::service_windows::{CREATE_NO_WINDOW, hidden};
 use crate::apply::{self, Steps};
 use crate::installer::{self, SCRATCH, Scratch};
@@ -149,6 +149,46 @@ fn products() -> Result<Vec<String>, InstallError> {
             })
         })
         .collect())
+}
+
+/// The programs of eco that hold its install's files open while they run,
+/// besides the daemon `lifecycle::shut` already waited for.
+const WINDOWS: [&str; 2] = ["eco-window.exe", "eco-launch.exe"];
+
+/// How long eco's windows are waited for to close before Windows Installer
+/// runs; one still open past it keeps its files until a restart.
+const WINDOWS_PATIENCE: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// `tasklist` listing every process by name, one CSV line each.
+fn tasklist() -> std::process::Command {
+    let mut command = std::process::Command::new("tasklist");
+    command
+        .args(["/FO", "CSV", "/NH"])
+        .stdin(Stdio::null())
+        .creation_flags(CREATE_NO_WINDOW);
+    command
+}
+
+/// Whether the `tasklist` listing `listing` holds one of eco's windows.
+fn windows_open(listing: &str) -> bool {
+    listing.lines().any(|line| {
+        WINDOWS
+            .iter()
+            .any(|name| line.starts_with(&format!("\"{name}\"")))
+    })
+}
+
+/// Wait, up to `WINDOWS_PATIENCE`, for eco's windows to close after its daemon
+/// stopped: Windows Installer cannot remove or replace a file one holds.
+async fn windows_closed() {
+    let until = tokio::time::Instant::now() + WINDOWS_PATIENCE;
+    while tokio::time::Instant::now() < until {
+        let listing = Command::from(tasklist()).output().await;
+        if listing.is_ok_and(|output| !windows_open(&String::from_utf8_lossy(&output.stdout))) {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    }
 }
 
 /// Run `msiexec` as the installer asks, removing the product `code`.
@@ -308,10 +348,13 @@ impl Installer for Msi {
                     "eco is not installed with Windows Installer; nothing to remove".into(),
                 ));
             }
+            windows_closed().await;
             let msiexec = msiexec_path();
             for code in codes {
                 remove_product(&msiexec, &code).await?;
             }
+            // The toasts registered eco's name under the user's hive.
+            notify_windows::unregister(notify_windows::APP_ID);
             Ok(())
         })
     }
@@ -354,6 +397,7 @@ impl Steps for Applying {
         Box::pin(async move {
             // Held until msiexec has ended: what it installs is what was checked.
             let _held = hold(&package, &self.sha256)?;
+            windows_closed().await;
             let status = Command::new(&self.msiexec)
                 .args(arguments(&package))
                 .stdin(Stdio::null())
@@ -500,6 +544,24 @@ mod tests {
             parameters(Path::new(r"C:\Users\Zoe Lima\eco.msi"), &sha256),
             format!(r#"apply-update "C:\Users\Zoe Lima\eco.msi" {ABC}"#)
         );
+    }
+
+    #[test]
+    fn tasklist_lists_every_process_by_name() {
+        let built = tasklist();
+        let args: Vec<_> = built.get_args().collect();
+        assert_eq!(built.get_program(), "tasklist");
+        assert_eq!(args, ["/FO", "CSV", "/NH"]);
+    }
+
+    #[test]
+    fn a_window_of_eco_in_the_listing_is_one_still_open() {
+        let idle = "\"System\",\"4\",\"Services\",\"0\",\"144 K\"\r\n\"eco.exe\",\"7\",\"Console\",\"2\",\"9 K\"\r\n";
+        assert!(!windows_open(idle));
+        for name in WINDOWS {
+            let open = format!("{idle}\"{name}\",\"9\",\"Console\",\"2\",\"40 K\"\r\n");
+            assert!(windows_open(&open), "{name}");
+        }
     }
 
     #[test]

@@ -91,6 +91,20 @@ pub fn notifier() -> Arc<dyn Notifier> {
     Arc::new(crate::adapters::notify_windows::Toasts::default())
 }
 
+/// The notifications of the step that removes eco, which must leave nothing
+/// of eco's behind: on Windows, toasts that do not register eco's name.
+#[cfg(unix)]
+pub fn removal_notifier() -> Arc<dyn Notifier> {
+    notifier()
+}
+
+/// The notifications of the step that removes eco, which must leave nothing
+/// of eco's behind: on Windows, toasts that do not register eco's name.
+#[cfg(windows)]
+pub fn removal_notifier() -> Arc<dyn Notifier> {
+    Arc::new(crate::adapters::notify_windows::Toasts::unregistered())
+}
+
 /// The texts notifications read: the interface's language pack, in the
 /// system language on "auto", each key it lacks read in English.
 fn interface_texts(config: &Config) -> Texts {

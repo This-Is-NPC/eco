@@ -2438,7 +2438,12 @@ hidden; `remove` runs `msiexec /x <ProductCode> /qb /norestart` for every
 `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall` entry whose
 `DisplayName` is `eco`, `Publisher` `This-Is-NPC` and `WindowsInstaller` 1,
 with the exit codes of an install (1602 and 1223 are "the removal was
-cancelled; nothing changed").
+cancelled; nothing changed"). Before it, as before an update's `msiexec`, the
+step waits up to 10 s for eco's windows (`eco-window.exe`, `eco-launch.exe`,
+listed by `tasklist`) to close after the daemon: a file one holds stays until
+a restart. It then deletes eco's app id from the user's hive, and its own
+notification shows under PowerShell's app id, so that nothing of eco's is
+written again after it is gone.
 
 **Releases.** Commits follow Conventional Commits, and release-please reads
 them (`release-please-config.json`, `.release-please-manifest.json`). Every
