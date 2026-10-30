@@ -25,12 +25,13 @@ use clap::{Parser, Subcommand};
 
 use crate::adapters::control_socket::Address;
 use crate::adapters::credentials;
-// What runs the daemon in the background: the systemd user service, nothing
-// yet on macOS, or on Windows a process of the user's own (docs/design.md §15).
-#[cfg(target_os = "linux")]
-use crate::adapters::service_systemd::SystemdUser as PlatformService;
+// What runs the daemon in the background: the systemd user service, the
+// launchd agent on macOS, or on Windows a process of the user's own
+// (docs/design.md §15).
 #[cfg(target_os = "macos")]
 use crate::adapters::service_launchd::LaunchAgent as PlatformService;
+#[cfg(target_os = "linux")]
+use crate::adapters::service_systemd::SystemdUser as PlatformService;
 #[cfg(windows)]
 use crate::adapters::service_windows::BackgroundProcess as PlatformService;
 
