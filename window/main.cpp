@@ -21,8 +21,6 @@
 #ifdef Q_OS_MACOS
 #include <QDir>
 #include <QProcess>
-#include <QtPlugin>
-Q_IMPORT_PLUGIN(QDarwinMicrophonePermissionPlugin)
 #endif
 
 int main(int argc, char **argv) {

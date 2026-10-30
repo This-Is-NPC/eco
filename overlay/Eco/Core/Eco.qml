@@ -466,9 +466,7 @@ Singleton {
   }
   // A note is context later answers use: a fact the user writes, not a question.
   function noteOn(id, text) { send("session.note " + JSON.stringify({ id: id, text: text })) }
-  // A session start asks the system once for the microphone, where it asks
-  // (macOS). Whether the daemon is let hear it, the daemon says.
-  function startSession(title, kind, code, slots, tags) { if (Host.microphone === "undetermined") Host.askMicrophone(); send("session.start " + JSON.stringify({ title: title, kind: kind, language: code, contexts: slots, tags: tags, window: window })) }
+  function startSession(title, kind, code, slots, tags) { send("session.start " + JSON.stringify({ title: title, kind: kind, language: code, contexts: slots, tags: tags, window: window })) }
   // The slots sessions of `kind` start with on.
   function contextsOfKind(kind) { return contexts.filter(slot => slot.kinds.includes(kind)).map(slot => slot.name) }
   // The slots a session ({kind, contexts}) has on: the ones chosen, or those of its kind.

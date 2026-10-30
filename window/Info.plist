@@ -16,7 +16,5 @@
 	<string>14.6</string>
 	<key>LSUIElement</key>
 	<true/>
-	<key>NSMicrophoneUsageDescription</key>
-	<string>eco transcribes what your microphone hears during a session.</string>
 </dict>
 </plist>

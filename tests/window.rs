@@ -651,14 +651,6 @@ async fn the_bridge_carries_lines_reconnects_reads_files_and_exits_cleanly() {
         }
     }
     assert!(answer["system_dark"].is_boolean());
-    // Only macOS asks for the microphone; what it answers is this machine's.
-    #[cfg(target_os = "macos")]
-    assert!(
-        ["granted", "denied", "undetermined"].contains(&answer["microphone"].as_str().unwrap()),
-        "{answer}"
-    );
-    #[cfg(not(target_os = "macos"))]
-    assert_eq!(answer["microphone"], "granted");
     // On macOS the fixed-width family is Cocoa's, read on the real platform below.
     #[cfg(not(target_os = "macos"))]
     assert_eq!(answer["monospace"], "monospace");

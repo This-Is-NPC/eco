@@ -17,11 +17,8 @@ if(APPLE)
   enable_language(OBJCXX)
   target_sources(eco-window PRIVATE bridge_macos.h bridge_macos.mm)
   target_link_libraries(eco-window PRIVATE "-framework AppKit")
-  # The microphone permission: Qt's plugin asks the system, which reads the
-  # usage text in the bundle's Info.plist. The bundle, eco.app with eco's
-  # icon, as the app is named and drawn on Linux, also carries the Qt it runs
-  # with once packaged.
-  target_link_libraries(eco-window PRIVATE Qt6::QDarwinMicrophonePermissionPlugin)
+  # The bundle, eco.app with eco's icon, as the app is named and drawn on
+  # Linux, also carries the Qt it runs with once packaged.
   set(icon ${CMAKE_CURRENT_SOURCE_DIR}/../packaging/macos/eco.icns)
   target_sources(eco-window PRIVATE ${icon})
   set_source_files_properties(${icon} PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
