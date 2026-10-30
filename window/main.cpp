@@ -2,7 +2,8 @@
 // window, tray.qml, the tray icon, or lab.qml, the control lab — with the
 // bridge in host.h, line_socket.h and text_file.h imported as `EcoHost`, and
 // the entry's folder on the import path, where the Eco.* modules live
-// (docs/design.md §3).
+// (docs/design.md §3). On macOS, opened from Finder or Launchpad with no
+// file, it starts eco with its window instead, as eco-launch does on Windows.
 
 #include <QApplication>
 #include <QCoreApplication>
@@ -17,7 +18,21 @@
 #include "line_socket.h"
 #include "text_file.h"
 
+#ifdef Q_OS_MACOS
+#include <QDir>
+#include <QProcess>
+#endif
+
 int main(int argc, char **argv) {
+#ifdef Q_OS_MACOS
+  // The installed bundle is lib/eco/eco.app, and its program
+  // Contents/MacOS/eco: the eco beside it is bin/eco, five folders up.
+  if (argc == 1) {
+    QCoreApplication core(argc, argv);
+    const QString eco = QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("../../../../../bin/eco"));
+    return QProcess::startDetached(QDir::cleanPath(eco), {QStringLiteral("start")}) ? 0 : 1;
+  }
+#endif
   if (argc != 2) {
     std::fputs("usage: eco-window <file.qml>\n", stderr);
     return 2;

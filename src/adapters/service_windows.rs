@@ -12,7 +12,6 @@
 //! terminal would shut out the Start menu entry and every window. An elevated
 //! process, found by the integrity level `whoami` lists, starts none.
 
-use std::fs::File;
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -22,7 +21,7 @@ use anyhow::{Context, Result, anyhow};
 use futures::future::BoxFuture;
 use winsafe::{SHELLEXECUTEINFO, ShellExecuteEx, co};
 
-use crate::config::private_dir;
+use crate::adapters::daemon_log;
 use crate::paths;
 use crate::ports::ServiceManager;
 
@@ -53,7 +52,7 @@ impl ServiceManager for BackgroundProcess {
 
     /// The daemon log, which each start empties: all of it is the last start's.
     fn output(&self, _: SystemTime) -> BoxFuture<'_, Option<String>> {
-        Box::pin(async { read_log(&paths::daemon_log()) })
+        Box::pin(async { daemon_log::read(&paths::daemon_log()) })
     }
 }
 
@@ -98,12 +97,6 @@ fn is_elevated(groups: &str) -> bool {
     groups.contains(HIGH_INTEGRITY)
 }
 
-/// The text of the daemon log at `log`, when there is one.
-fn read_log(log: &Path) -> Option<String> {
-    let bytes = std::fs::read(log).ok()?;
-    Some(String::from_utf8_lossy(&bytes).into_owned())
-}
-
 /// Start the daemon from this executable, its output in the daemon log; run
 /// by `eco detach`.
 pub fn detach() -> Result<()> {
@@ -142,10 +135,7 @@ fn command(exe: &Path) -> Command {
 /// Start the daemon of `exe` with its output in `log`, emptied first; it
 /// outlives this process.
 fn spawn(exe: &Path, log: &Path) -> Result<Child> {
-    if let Some(directory) = log.parent() {
-        private_dir(directory)?;
-    }
-    let output = File::create(log).with_context(|| format!("cannot write {}", log.display()))?;
+    let output = daemon_log::emptied(log)?;
     command(exe)
         .stdin(Stdio::null())
         .stdout(output.try_clone()?)
@@ -277,22 +267,6 @@ mod tests {
         let written = std::fs::read_to_string(&log).unwrap();
         assert!(written.contains("Microsoft"), "{written}");
         assert!(!written.contains("an earlier run"));
-    }
-
-    #[test]
-    fn the_output_is_the_daemon_log() {
-        let directory = tempfile::tempdir().unwrap();
-        let log = directory.path().join("daemon.log");
-        assert_eq!(read_log(&log), None);
-        std::fs::write(
-            &log,
-            "eco: missing C:\\Users\\Zo\u{eb}\\silero_vad.onnx; run `eco setup`\r\n",
-        )
-        .unwrap();
-        assert_eq!(
-            read_log(&log).as_deref(),
-            Some("eco: missing C:\\Users\\Zo\u{eb}\\silero_vad.onnx; run `eco setup`\r\n")
-        );
     }
 
     #[test]

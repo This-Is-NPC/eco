@@ -1,10 +1,13 @@
-//! The platform's audio on Windows: WASAPI through cpal. Devices are the active
-//! endpoints, an output is captured in loopback (what it plays), and each
-//! device's own format becomes the domain's frames through `audio_convert`.
-//! Windows offers eco no echo cancellation.
+//! The platform's audio on Windows and macOS, through cpal: WASAPI endpoints or
+//! Core Audio devices. An output is captured in loopback (what it plays: WASAPI
+//! loopback, or a Core Audio process tap), and each device's own format becomes
+//! the domain's frames through `audio_convert`. Neither offers eco echo
+//! cancellation.
+
+use std::collections::VecDeque;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use cpal::{DeviceDescription, DeviceDirection, DeviceId, ErrorKind, HostId, SampleFormat};
+use cpal::{DeviceDescription, DeviceDirection, DeviceId, ErrorKind, SampleFormat};
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use futures::stream::{self, BoxStream, StreamExt};
@@ -13,16 +16,23 @@ use tokio::sync::mpsc;
 use crate::adapters::audio_convert::{Sample, ToFrames};
 use crate::adapters::devices::{DEFAULT_INPUT, DEFAULT_OUTPUT, defaults, listed};
 use crate::ports::{
-    AudioDevices, AudioError, AudioSource, Device, EchoCancelling, EchoError, Frame,
+    AudioDevices, AudioError, AudioSource, Device, EchoCancelling, EchoError, FRAME_SAMPLES, Frame,
+    SAMPLE_RATE,
 };
 
 /// About 8 s of frames between the device's thread and the session.
 const QUEUED_FRAMES: usize = 256;
 
-/// The audio of a Windows session.
-pub struct Wasapi;
+/// About 2 s of frames: a microphone that gives nothing but zeros that long
+/// from its opening is one the system keeps from eco, since a real one always
+/// hears some noise. macOS hands such silence, and no error, to a process the
+/// user has not let hear the microphone.
+const REFUSED_AFTER: usize = 2 * SAMPLE_RATE as usize / FRAME_SAMPLES;
 
-impl AudioDevices for Wasapi {
+/// The audio of a Windows or macOS session.
+pub struct Cpal;
+
+impl AudioDevices for Cpal {
     fn list(&self) -> BoxFuture<'static, Vec<Device>> {
         async {
             // A device that cannot be described panics inside cpal: that listing
@@ -34,12 +44,12 @@ impl AudioDevices for Wasapi {
     }
 
     fn capture(&self, device: &Device) -> Box<dyn AudioSource> {
-        Box::new(WasapiSource(device.clone()))
+        Box::new(CpalSource(device.clone()))
     }
 
-    /// Nothing is cancelled on Windows: the default microphone as it is.
+    /// Nothing is cancelled: the default microphone as it is.
     fn capture_cancelled(&self) -> Box<dyn AudioSource> {
-        Box::new(WasapiSource(defaults().swap_remove(0)))
+        Box::new(CpalSource(defaults().swap_remove(0)))
     }
 
     fn cancels_echo(&self) -> bool {
@@ -51,7 +61,7 @@ impl AudioDevices for Wasapi {
     }
 }
 
-/// Every active endpoint that is a microphone or an output.
+/// Every active device that is a microphone or an output.
 fn endpoints() -> Vec<Device> {
     let Ok(devices) = cpal::default_host().devices() else {
         return Vec::new();
@@ -61,15 +71,16 @@ fn endpoints() -> Vec<Device> {
         .collect()
 }
 
-/// The device an endpoint is, by its endpoint id and friendly name; none when
-/// either cannot be read or it neither captures nor plays.
+/// The device an endpoint is, by its id (a WASAPI endpoint id or a Core Audio
+/// UID) and name; none when either cannot be read or it neither captures nor
+/// plays. A device that does both is its microphone.
 fn endpoint(
     id: Result<DeviceId, cpal::Error>,
     description: Result<DeviceDescription, cpal::Error>,
 ) -> Option<Device> {
     let description = description.ok()?;
     let kind = match description.direction() {
-        DeviceDirection::Input => "input",
+        DeviceDirection::Input | DeviceDirection::Duplex => "input",
         DeviceDirection::Output => "output",
         _ => return None,
     };
@@ -96,7 +107,42 @@ fn heard(kind: ErrorKind, said: String) -> Option<Heard> {
 }
 
 /// One device captured while its frames are read.
-struct WasapiSource(Device);
+struct CpalSource(Device);
+
+/// Whether a microphone just opened is kept from eco: it has given only zeros
+/// for `REFUSED_AFTER` frames. Its frames are held until it hears anything, so
+/// a refused one is never heard, not even once; after that, it never is refused.
+#[derive(Default)]
+struct Refusal {
+    held: VecDeque<Frame>,
+    heard: bool,
+}
+
+impl Refusal {
+    /// Hold `frame`; true once the microphone counts as refused.
+    fn take(&mut self, frame: Frame) -> bool {
+        self.heard = self.heard || frame.iter().any(|&sample| sample != 0);
+        self.held.push_back(frame);
+        !self.heard && self.held.len() >= REFUSED_AFTER
+    }
+
+    /// The oldest frame held, once the microphone has heard anything.
+    fn release(&mut self) -> Option<Frame> {
+        if self.heard {
+            self.held.pop_front()
+        } else {
+            None
+        }
+    }
+}
+
+/// Why a refused microphone is not heard, and where the user lets eco hear it.
+fn refused(device: &Device) -> AudioError {
+    AudioError(format!(
+        "{}: macOS lets eco hear only silence; allow eco in System Settings › Privacy & Security › Microphone",
+        device.label
+    ))
+}
 
 /// A playing stream and what it hears. `heard` is declared first so it drops
 /// first: the stream's thread may wait on a full queue, and dropping the stream
@@ -105,6 +151,8 @@ struct Open {
     heard: mpsc::Receiver<Heard>,
     _stream: cpal::Stream,
     _silence: Option<cpal::Stream>,
+    /// On macOS, a microphone's: whether the system keeps it from eco.
+    refusal: Option<Refusal>,
 }
 
 enum State {
@@ -113,7 +161,7 @@ enum State {
     Ended,
 }
 
-impl AudioSource for WasapiSource {
+impl AudioSource for CpalSource {
     fn frames(&mut self) -> BoxStream<'_, Result<Frame, AudioError>> {
         let device = self.0.clone();
         stream::unfold(State::Closed, move |mut state| {
@@ -135,16 +183,27 @@ impl AudioSource for WasapiSource {
                                 }
                             }
                         }
-                        State::Open(mut open) => match open.heard.recv().await {
-                            Some(Heard::Frame(frame)) => {
+                        State::Open(mut open) => {
+                            if let Some(frame) = open.refusal.as_mut().and_then(Refusal::release) {
                                 return Some((Ok(frame), State::Open(open)));
                             }
-                            Some(Heard::Reopen) => State::Closed,
-                            Some(Heard::Lost(failure)) => {
-                                return Some((Err(failure), State::Ended));
+                            match open.heard.recv().await {
+                                Some(Heard::Frame(frame)) => match open.refusal.as_mut() {
+                                    None => return Some((Ok(frame), State::Open(open))),
+                                    Some(refusal) => {
+                                        if refusal.take(frame) {
+                                            return Some((Err(refused(&device)), State::Ended));
+                                        }
+                                        State::Open(open)
+                                    }
+                                },
+                                Some(Heard::Reopen) => State::Closed,
+                                Some(Heard::Lost(failure)) => {
+                                    return Some((Err(failure), State::Ended));
+                                }
+                                None => return None,
                             }
-                            None => return None,
-                        },
+                        }
                     };
                 }
             }
@@ -160,10 +219,17 @@ fn open(device: &Device) -> Result<Open, AudioError> {
     let endpoint = match device.id.as_str() {
         DEFAULT_INPUT => host.default_input_device(),
         DEFAULT_OUTPUT => host.default_output_device(),
-        id => host.device_by_id(&DeviceId::new(HostId::Wasapi, id)),
+        id => host.device_by_id(&DeviceId::new(host.id(), id)),
     }
     .ok_or_else(|| AudioError(format!("{}: not connected", device.label)))?;
-    // An output is opened as an input: WASAPI captures it in loopback.
+    // An output is opened as an input and captured in loopback; on a device that
+    // also captures, that would be its microphone instead.
+    if device.kind == "output" && endpoint.supports_input() {
+        return Err(AudioError(format!(
+            "{}: what it plays cannot be captured, it is also a microphone",
+            device.label
+        )));
+    }
     let supported = match device.kind.as_str() {
         "output" => endpoint.default_output_config(),
         _ => endpoint.default_input_config(),
@@ -172,9 +238,10 @@ fn open(device: &Device) -> Result<Open, AudioError> {
     let (sender, heard) = mpsc::channel(QUEUED_FRAMES);
     let config = supported.config();
     // WASAPI hands a loopback nothing while its output plays nothing; eco's own
-    // silent stream on that output keeps silence arriving as frames.
+    // silent stream on that output keeps silence arriving as frames. A Core Audio
+    // tap hands silence on its own.
     let silence = match device.kind.as_str() {
-        "output" => {
+        "output" if cfg!(windows) => {
             let silent = endpoint
                 .build_output_stream_raw(
                     config,
@@ -207,6 +274,7 @@ fn open(device: &Device) -> Result<Open, AudioError> {
         heard,
         _stream: stream,
         _silence: silence,
+        refusal: (cfg!(target_os = "macos") && device.kind != "output").then(Refusal::default),
     })
 }
 
@@ -247,7 +315,7 @@ mod tests {
     }
 
     fn id(endpoint: &str) -> Result<DeviceId, cpal::Error> {
-        Ok(DeviceId::new(HostId::Wasapi, endpoint))
+        Ok(DeviceId::new(cpal::default_host().id(), endpoint))
     }
 
     #[test]
@@ -264,6 +332,11 @@ mod tests {
         assert_eq!(
             endpoint(id(speakers), described("Speakers", DeviceDirection::Output)),
             Some(Device::new(speakers, "Speakers", "output"))
+        );
+        let headset = "AppleUSBAudioEngine:Headset:1";
+        assert_eq!(
+            endpoint(id(headset), described("Headset", DeviceDirection::Duplex)),
+            Some(Device::new(headset, "Headset", "input"))
         );
         assert_eq!(
             endpoint(id(mic), described("?", DeviceDirection::Unknown)),
@@ -302,7 +375,7 @@ mod tests {
     #[tokio::test]
     async fn a_device_that_is_not_there_ends_the_source_with_why() {
         let gone = Device::new("{0.0.1.00000000}.{gone}", "Old headset", "input");
-        let mut source = Wasapi.capture(&gone);
+        let mut source = Cpal.capture(&gone);
         let frames: Vec<_> = source.frames().collect().await;
         let [Err(AudioError(said))] = &frames[..] else {
             panic!("{frames:?}");
@@ -310,11 +383,58 @@ mod tests {
         assert_eq!(said, "Old headset: not connected");
     }
 
+    #[test]
+    fn a_microphone_that_gives_only_zeros_from_its_opening_is_refused_unheard() {
+        let mut refusal = Refusal::default();
+        for _ in 1..REFUSED_AFTER {
+            assert!(!refusal.take(vec![0; FRAME_SAMPLES]));
+            assert_eq!(refusal.release(), None);
+        }
+        assert!(refusal.take(vec![0; FRAME_SAMPLES]));
+        assert_eq!(refusal.release(), None);
+    }
+
+    #[test]
+    fn a_microphone_that_heard_anything_hands_on_every_frame_and_is_never_refused() {
+        let silent = vec![0; FRAME_SAMPLES];
+        let mut noise = silent.clone();
+        noise[100] = -3;
+        let mut refusal = Refusal::default();
+        assert!(!refusal.take(silent.clone()));
+        assert!(!refusal.take(noise.clone()));
+        assert_eq!(refusal.release(), Some(silent.clone()));
+        assert_eq!(refusal.release(), Some(noise));
+        assert_eq!(refusal.release(), None);
+        for _ in 0..REFUSED_AFTER * 2 {
+            assert!(!refusal.take(silent.clone()));
+            assert_eq!(refusal.release(), Some(silent.clone()));
+        }
+    }
+
+    #[test]
+    fn a_refused_microphone_says_where_to_allow_it() {
+        let said = refused(&Device::new(
+            "BuiltInMicrophoneDevice",
+            "MacBook Microphone",
+            "input",
+        ))
+        .0;
+        assert_eq!(
+            said,
+            "MacBook Microphone: macOS lets eco hear only silence; allow eco in System Settings › Privacy & Security › Microphone"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_listing_starts_with_the_system_defaults() {
+        assert_eq!(Cpal.list().await[..2], defaults()[..]);
+    }
+
     #[tokio::test]
     async fn echo_cancellation_is_not_available() {
-        assert!(!Wasapi.cancels_echo());
+        assert!(!Cpal.cancels_echo());
         assert!(matches!(
-            Wasapi.cancel_echo(DEFAULT_INPUT).await,
+            Cpal.cancel_echo(DEFAULT_INPUT).await,
             Err(EchoError::Unavailable)
         ));
     }
@@ -325,7 +445,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     #[ignore = "reads this machine's audio endpoints and captures from them"]
     async fn print_this_machines_devices_and_a_second_of_each() {
-        let devices = Wasapi.list().await;
+        let devices = Cpal.list().await;
         for device in &devices {
             println!("{:<6} {:<50} {}", device.kind, device.label, device.id);
         }
@@ -353,7 +473,7 @@ mod tests {
             if playing {
                 tone.play().unwrap();
             }
-            let mut source = Wasapi.capture(device);
+            let mut source = Cpal.capture(device);
             let heard: Vec<_> = source
                 .frames()
                 .take_until(tokio::time::sleep(std::time::Duration::from_secs(1)))

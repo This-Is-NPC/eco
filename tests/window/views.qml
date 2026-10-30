@@ -169,6 +169,11 @@ Item {
       Eco.handle({ type: "session", live: [] })
       root.check("a capture error goes when the session ends", !Eco.notices.some(notice => notice.live))
       Eco.handle({ type: "session", live: [recording] })
+      // A source back is no longer told once it is heard again; the others stay.
+      Eco.handle({ type: "transcription", who: "Eles", state: "back" })
+      Eco.handle({ type: "transcription", who: "Nós", state: "down", code: "stt.down" })
+      Eco.handle({ type: "transcript", session: "s1", who: "Eles#1", name: "Eles", text: "oi", at: 1, counts: {} })
+      root.check("a source back goes once it is heard again", JSON.stringify(Object.keys(Eco.links)) === JSON.stringify(["Nós"]))
       Eco.handle({ type: "error", code: "transcription.failed", params: { who: "Eles", detail: "x" }, message: "x" })
       Eco.leaveSession()
       root.check("a transcription error goes when the session is left", !Eco.notices.some(notice => notice.live))

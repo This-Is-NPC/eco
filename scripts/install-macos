@@ -1,0 +1,19 @@
+#!/usr/bin/env python3
+"""Install the release build of eco from this checkout on macOS, for the user
+who runs it: install-macos.sh, the installer of a release, run on the archive
+and SHA256SUMS `mise run package` wrote into dist. It stops a running eco,
+puts the archive's eco folder in ~/Applications/eco, runs `eco setup` and
+starts again a daemon that was running. Idempotent: each install replaces the
+last; sessions, config and models stay."""
+
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+if sys.platform != "darwin":
+    sys.exit("install:macos installs eco on macOS; on Linux run `mise run install`")
+
+root = Path(os.environ.get("MISE_PROJECT_ROOT") or Path.cwd())
+env = os.environ | {"BASE_URL": (root / "dist").as_uri()}
+sys.exit(subprocess.run(["bash", root / "install-macos.sh"], env=env).returncode)

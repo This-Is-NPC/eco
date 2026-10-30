@@ -56,7 +56,7 @@ Singleton {
   // An example in an empty field: fainter than any value, so it never reads as typed.
   readonly property color placeholder: Qt.alpha(dim, 0.55)
   readonly property color badgeForeground: background
-  readonly property string fontFamily: "monospace"
+  readonly property string fontFamily: Host.monospaceFamily
 
   // Ten colours for inputs, speakers and people, as "#rrggbb": the theme's own
   // made readable, then their hues turned when it has fewer. None is near

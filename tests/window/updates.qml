@@ -25,6 +25,8 @@ Item {
       if (!Eco.connected)
         return
       if (root.step++ === 0) {
+        // The texts checked are English, whatever the system's language.
+        Eco.uiLanguage = "en-US"
         Eco.handle({ type: "update", current: "0.8.0", latest: "0.8.0", newer: false,
           notes: "", checked_at: Date.now() / 1000 - 7200, check: true, error: "" })
         root.settings.page = root.settings.at.general

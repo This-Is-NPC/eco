@@ -537,7 +537,10 @@ pub(crate) mod tests {
         let mut session = Session::begin("Call", "meeting", LIVE, "pt", files.writer());
         session.hear_at("Eles", "Hello", now());
         let storage = files.storage(&session.id).unwrap();
-        assert!(storage.path.starts_with(sessions.to_str().unwrap()));
+        let real = crate::paths::real(directory.path())
+            .unwrap()
+            .join("sessions");
+        assert!(storage.path.starts_with(real.to_str().unwrap()));
         #[cfg(unix)]
         {
             assert_eq!(mode(&sessions), 0o700);

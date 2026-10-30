@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Render, from packaging/eco.svg, packaging/windows/eco.ico, the icon
-eco-window.exe carries on Windows, and the tray icons overlay/tray.qml shows:
+eco-window.exe carries on Windows, packaging/macos/eco.icns, the icon of the
+eco.app bundle on macOS, and the tray icons overlay/tray.qml shows:
 overlay/icons/tray.png, the bars alone in white, and
 overlay/icons/tray-recording.png, the same with a red dot while a session
 records. On the standard library alone: the SVG is filled rounded rectangles,
@@ -15,6 +16,8 @@ import zlib
 from pathlib import Path
 
 SIZES = (16, 24, 32, 48, 64, 256)
+# The icns types of the PNG sizes macOS picks from, each drawn once.
+ICNS = ((b"icp4", 16), (b"icp5", 32), (b"icp6", 64), (b"ic07", 128), (b"ic08", 256), (b"ic09", 512), (b"ic10", 1024))
 TRAY_SIZE = 64
 WHITE = (255, 255, 255)
 SAMPLES = 4
@@ -23,6 +26,7 @@ SVG = "{http://www.w3.org/2000/svg}"
 root = Path(os.environ.get("MISE_PROJECT_ROOT") or Path.cwd())
 source = root / "packaging/eco.svg"
 target = root / "packaging/windows/eco.ico"
+icns = root / "packaging/macos/eco.icns"
 icons = root / "overlay/icons"
 
 
@@ -115,6 +119,13 @@ for size, image in zip(SIZES, images):
     offset += len(image)
 target.write_bytes(icon + b"".join(images))
 print(f"wrote {target.relative_to(root)}: {', '.join(map(str, SIZES))} px")
+
+entries = b"".join(
+    kind + struct.pack(">I", 8 + len(image)) + image
+    for kind, image in ((kind, png(render(shapes, viewbox[2], size), size)) for kind, size in ICNS)
+)
+icns.write_bytes(b"icns" + struct.pack(">I", 8 + len(entries)) + entries)
+print(f"wrote {icns.relative_to(root)}: {', '.join(str(size) for _, size in ICNS)} px")
 
 # The tray: the bars, the shapes of the first colour, in white; while recording,
 # a dot top right with a clear ring around it.

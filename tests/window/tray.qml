@@ -1,5 +1,6 @@
 import QtQuick
 import Qt.labs.platform
+import EcoHost
 import Eco.Core
 
 // The tray icon as eco-window runs it, run by tests/window.rs: once it meets
@@ -37,9 +38,10 @@ QtObject {
       Eco.handle({ type: "session", live: [] })
       root.check("ended, it is idle again", tray.tooltip === I18n.t("tray.idle"))
 
+      root.check("the icon holds its menu only where it can", tray.menu === (Host.trayHoldsMenu ? tray.actions : null))
       tray.activated(SystemTrayIcon.Context)
       tray.activated(SystemTrayIcon.Trigger)
-      for (const item of tray.menu.items)
+      for (const item of tray.actions.items)
         if (!item.separator)
           item.triggered()
       Qt.exit(root.failed)

@@ -21,6 +21,11 @@
 #endif
 #include <windows.h>
 #include <ole2.h>
+#elif defined(Q_OS_MACOS)
+#include <QEvent>
+#include <QFontDatabase>
+
+#include "bridge_macos.h"
 #else
 #include <QProcess>
 #include <QStringList>
@@ -28,13 +33,16 @@
 
 // Host is the process as QML sees it: its pid, its environment, local paths,
 // the clipboard, raising a window and whether the system's foreground is one of
-// its windows; on Windows also leaving its windows out of screen capture.
+// its windows; on Windows and macOS also leaving its windows out of screen
+// capture.
 class Host : public QObject {
   Q_OBJECT
   Q_PROPERTY(qint64 pid READ pid CONSTANT)
   Q_PROPERTY(bool systemDark READ systemDark NOTIFY systemThemeChanged)
   Q_PROPERTY(QString systemThemeDirectory READ systemThemeDirectory CONSTANT)
   Q_PROPERTY(bool foreground READ foreground NOTIFY foregroundChanged)
+  Q_PROPERTY(QString monospaceFamily READ monospaceFamily CONSTANT)
+  Q_PROPERTY(bool trayHoldsMenu READ trayHoldsMenu CONSTANT)
 
 public:
   explicit Host(QObject *parent = nullptr) : QObject(parent) {
@@ -45,6 +53,9 @@ public:
     inFront = ownsForeground();
     hook = SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, nullptr, &Host::foregroundMoved, 0, 0,
                            WINEVENT_OUTOFCONTEXT);
+#elif defined(Q_OS_MACOS)
+    qApp->installEventFilter(this);
+    connect(qApp, &QGuiApplication::applicationStateChanged, this, &Host::foregroundChanged);
 #endif
   }
 
@@ -61,7 +72,7 @@ public:
   bool systemDark() const { return QGuiApplication::styleHints()->colorScheme() != Qt::ColorScheme::Light; }
 
   QString systemThemeDirectory() const {
-#ifdef Q_OS_WIN
+#if defined(Q_OS_WIN) || defined(Q_OS_MACOS)
     return {};
 #else
     QString state = qEnvironmentVariable("XDG_STATE_HOME");
@@ -73,12 +84,34 @@ public:
 
   // Whether the window in front of the system is one of this process's. On
   // Windows Qt calls a window active that the system left behind another
-  // program, its taskbar button flashing (docs/design.md §15); elsewhere Qt's
-  // word holds, and this is always true.
+  // program, its taskbar button flashing (docs/design.md §15); on macOS it is
+  // whether this application is the active one; on Linux Qt's word holds, and
+  // this is always true.
 #ifdef Q_OS_WIN
   bool foreground() const { return inFront; }
+#elif defined(Q_OS_MACOS)
+  bool foreground() const { return QGuiApplication::applicationState() == Qt::ApplicationActive; }
 #else
   bool foreground() const { return true; }
+#endif
+
+  // The font family every text is in: the system's fixed-width one on macOS,
+  // which knows no "monospace"; elsewhere "monospace", which the system
+  // resolves to the user's terminal font.
+#ifdef Q_OS_MACOS
+  QString monospaceFamily() const { return QFontDatabase::systemFont(QFontDatabase::FixedFont).family(); }
+#else
+  QString monospaceFamily() const { return QStringLiteral("monospace"); }
+#endif
+
+  // Whether the tray icon may hold its menu, which then opens on its own. On
+  // macOS Qt's status item aborts as such a menu begins tracking (it reads a
+  // click count off an event that has none, which macOS 27 refuses), so there
+  // the menu is opened apart, on a secondary click.
+#ifdef Q_OS_MACOS
+  bool trayHoldsMenu() const { return false; }
+#else
+  bool trayHoldsMenu() const { return true; }
 #endif
 
   // The value of the environment variable `name`, or "" when it is unset.
@@ -89,12 +122,15 @@ public:
 
   // Puts `text` on the clipboard so that it stays there after this process
   // exits: on Windows through Qt, its data handed to the system at once, so
-  // that it survives even a process killed; elsewhere through wl-copy, which
-  // keeps serving it.
+  // that it survives even a process killed; on macOS straight onto the
+  // pasteboard, since Qt's promise of the data dies with the process; on Linux
+  // through wl-copy, which keeps serving it.
   Q_INVOKABLE void copy(const QString &text) const {
 #ifdef Q_OS_WIN
     QGuiApplication::clipboard()->setText(text);
     OleFlushClipboard();
+#elif defined(Q_OS_MACOS)
+    copyToPasteboard(text);
 #else
     QProcess::startDetached(QStringLiteral("wl-copy"), {QStringLiteral("--"), text});
 #endif
@@ -128,7 +164,7 @@ public:
     window->requestActivate();
   }
 
-#ifdef Q_OS_WIN
+#if defined(Q_OS_WIN) || defined(Q_OS_MACOS)
   // Leaves every window of this process out of screen capture, or shows them
   // in it again; while left out, so is every window it shows later.
   Q_INVOKABLE void hideFromCapture(bool hidden) {
@@ -145,15 +181,23 @@ public:
   }
 
 private:
-  // A window without a native one yet gets the affinity once it shows.
+  // A window without a native one yet is left out once it shows.
   void exclude(QWindow *window) const {
-    if (window->handle())
-      SetWindowDisplayAffinity(reinterpret_cast<HWND>(window->winId()),
-                               hiding ? WDA_EXCLUDEFROMCAPTURE : WDA_NONE);
+    if (!window->handle())
+      return;
+#ifdef Q_OS_WIN
+    SetWindowDisplayAffinity(reinterpret_cast<HWND>(window->winId()), hiding ? WDA_EXCLUDEFROMCAPTURE : WDA_NONE);
+#else
+    // Only a Cocoa window is an NSView; an offscreen one has nothing to leave out.
+    if (QGuiApplication::platformName() == QStringLiteral("cocoa"))
+      setHiddenFromCapture(window, hiding);
+#endif
   }
 
   bool hiding = false;
+#endif
 
+#ifdef Q_OS_WIN
   // Whether the foreground window belongs to this process.
   static bool ownsForeground() {
     DWORD owner = 0;

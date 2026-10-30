@@ -1,7 +1,8 @@
 //! Every filesystem path eco builds, in one place (docs/design.md §15).
 //! On Linux they sit under the home, the XDG base directories and
-//! `/run/user/<uid>`; on Windows under `%APPDATA%` and `%LOCALAPPDATA%`,
-//! with the daemon's named pipe at `\\.\pipe\eco-<user>`.
+//! `/run/user/<uid>`; on macOS under `~/Library/Application Support/eco`,
+//! with the daemon socket in `$TMPDIR`; on Windows under `%APPDATA%` and
+//! `%LOCALAPPDATA%`, with the daemon's named pipe at `\\.\pipe\eco-<user>`.
 
 use std::env;
 use std::ffi::OsString;
@@ -15,6 +16,7 @@ struct Layout<V> {
 /// Paths built the same way on every platform, below the home and the data directory.
 impl<V: Fn(&str) -> Option<OsString>> Layout<V> {
     /// The directory `variable` names, or `fallback` under the home when it is unset or empty.
+    #[cfg(not(target_os = "macos"))]
     fn base(&self, variable: &str, fallback: &str) -> PathBuf {
         (self.var)(variable)
             .filter(|value| !value.is_empty())
@@ -62,13 +64,31 @@ impl<V: Fn(&str) -> Option<OsString>> Layout<V> {
     }
 }
 
-/// Linux: the home, the XDG base directories and `/run/user/<uid>`.
+/// Linux and macOS: the home, the socket and token in the runtime directory,
+/// and the omapass plugin where Omarchy installs it.
 #[cfg(unix)]
 impl<V: Fn(&str) -> Option<OsString>> Layout<V> {
     fn home(&self) -> PathBuf {
         (self.var)("HOME").map(PathBuf::from).unwrap_or_default()
     }
 
+    fn socket_path(&self) -> PathBuf {
+        self.runtime_dir().join("eco.sock")
+    }
+
+    fn token_path(&self) -> PathBuf {
+        self.runtime_dir().join("eco.token")
+    }
+
+    fn omapass_plugin(&self) -> PathBuf {
+        self.home()
+            .join(".config/omarchy/plugins/io.github.this-is-npc.omapass/bin/omapass")
+    }
+}
+
+/// Linux: the XDG base directories and `/run/user/<uid>`.
+#[cfg(target_os = "linux")]
+impl<V: Fn(&str) -> Option<OsString>> Layout<V> {
     fn config_home(&self) -> PathBuf {
         self.base("XDG_CONFIG_HOME", ".config")
     }
@@ -92,18 +112,10 @@ impl<V: Fn(&str) -> Option<OsString>> Layout<V> {
         self.config_home().join("hypr/bindings.lua")
     }
 
-    fn socket_path(&self) -> PathBuf {
-        self.runtime_dir().join("eco.sock")
-    }
-
     fn update_state(&self) -> PathBuf {
         self.base("XDG_STATE_HOME", ".local/state")
             .join("eco")
             .join("update.json")
-    }
-
-    fn token_path(&self) -> PathBuf {
-        self.runtime_dir().join("eco.token")
     }
 
     fn hypr_events(&self) -> Option<PathBuf> {
@@ -116,10 +128,47 @@ impl<V: Fn(&str) -> Option<OsString>> Layout<V> {
                 .join(".socket2.sock"),
         )
     }
+}
 
-    fn omapass_plugin(&self) -> PathBuf {
+/// macOS: config and data in the user's Application Support, the socket in
+/// the per-user temporary directory macOS gives each account.
+#[cfg(target_os = "macos")]
+impl<V: Fn(&str) -> Option<OsString>> Layout<V> {
+    fn data_dir(&self) -> PathBuf {
+        self.home().join("Library/Application Support/eco")
+    }
+
+    /// `$TMPDIR`, else the data directory, which eco keeps private.
+    fn runtime_dir(&self) -> PathBuf {
+        (self.var)("TMPDIR")
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from)
+            .unwrap_or_else(|| self.data_dir())
+    }
+
+    fn config_file(&self) -> PathBuf {
+        self.data_dir().join("config.toml")
+    }
+
+    fn update_state(&self) -> PathBuf {
+        self.data_dir().join("update.json")
+    }
+
+    fn launch_agent(&self) -> PathBuf {
         self.home()
-            .join(".config/omarchy/plugins/io.github.this-is-npc.omapass/bin/omapass")
+            .join(format!("Library/LaunchAgents/{LAUNCH_AGENT}.plist"))
+    }
+
+    fn app_dir(&self) -> PathBuf {
+        self.home().join("Applications/eco")
+    }
+}
+
+/// Windows and macOS: the log of the daemon started in the background.
+#[cfg(any(windows, target_os = "macos"))]
+impl<V: Fn(&str) -> Option<OsString>> Layout<V> {
+    fn daemon_log(&self) -> PathBuf {
+        self.data_dir().join("daemon.log")
     }
 }
 
@@ -158,10 +207,6 @@ impl<V: Fn(&str) -> Option<OsString>> Layout<V> {
         self.data_dir().join("update.json")
     }
 
-    fn daemon_log(&self) -> PathBuf {
-        self.data_dir().join("daemon.log")
-    }
-
     fn start_menu_dir(&self) -> PathBuf {
         self.base("APPDATA", r"AppData\Roaming")
             .join(r"Microsoft\Windows\Start Menu\Programs")
@@ -178,7 +223,7 @@ fn layout() -> Layout<impl Fn(&str) -> Option<OsString>> {
     }
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 fn users_uid() -> u32 {
     std::fs::metadata("/proc/self")
         .map(|m| std::os::unix::fs::MetadataExt::uid(&m))
@@ -225,10 +270,14 @@ pub fn config_file() -> PathBuf {
 }
 
 /// The Hyprland file that holds the user's key bindings.
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 pub fn hypr_bindings() -> PathBuf {
     layout().hypr_bindings()
 }
+
+/// The label of the launchd agent that runs the daemon on macOS.
+#[cfg(target_os = "macos")]
+pub const LAUNCH_AGENT: &str = "io.github.this-is-npc.eco";
 
 /// The file name of the Silero VAD model.
 pub const VAD_MODEL_FILE: &str = "silero_vad.onnx";
@@ -290,9 +339,21 @@ pub fn token_path() -> PathBuf {
 }
 
 /// Where the daemon started in the background writes its output.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 pub fn daemon_log() -> PathBuf {
     layout().daemon_log()
+}
+
+/// The launchd agent that runs the daemon in the background.
+#[cfg(target_os = "macos")]
+pub fn launch_agent() -> PathBuf {
+    layout().launch_agent()
+}
+
+/// Where a release of eco is installed for the user, and updated in place.
+#[cfg(target_os = "macos")]
+pub fn app_dir() -> PathBuf {
+    layout().app_dir()
 }
 
 /// The folder whose programs Windows runs at the user's login.
@@ -302,7 +363,7 @@ pub fn startup_dir() -> PathBuf {
 }
 
 /// The socket where the running Hyprland tells its events, when eco runs under one.
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 pub fn hypr_events() -> Option<PathBuf> {
     layout().hypr_events()
 }
@@ -365,7 +426,7 @@ mod tests {
         assert!(kept().iter().all(|dir| dir.ends_with("eco")));
     }
 
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     #[test]
     fn what_the_user_keeps_is_the_config_the_data_and_the_state() {
         let layout = with(&[("HOME", "/home/you")]);
@@ -380,6 +441,16 @@ mod tests {
         );
     }
 
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn on_macos_the_config_data_and_state_are_one_directory() {
+        let layout = with(&[("HOME", "/Users/you")]);
+        assert_eq!(
+            layout.kept(),
+            [PathBuf::from("/Users/you/Library/Application Support/eco")]
+        );
+    }
+
     #[cfg(windows)]
     #[test]
     fn on_windows_the_state_is_in_the_data_directory() {
@@ -387,7 +458,7 @@ mod tests {
         assert_eq!(layout.kept(), [r"C:\r\eco", r"C:\l\eco"].map(PathBuf::from));
     }
 
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     fn all(layout: &Layout<impl Fn(&str) -> Option<OsString>>) -> Vec<PathBuf> {
         vec![
             layout.config_file(),
@@ -405,7 +476,7 @@ mod tests {
         ]
     }
 
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     #[test]
     fn paths_follow_the_xdg_variables_when_set() {
         let layout = with(&[
@@ -432,7 +503,7 @@ mod tests {
         assert_eq!(all(&layout), expected.map(PathBuf::from));
     }
 
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     #[test]
     fn unset_or_empty_xdg_variables_fall_back_under_the_home() {
         let runtime = format!("/run/user/{}", users_uid());
@@ -463,7 +534,7 @@ mod tests {
         assert_eq!(all(&empty), expected);
     }
 
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     #[test]
     fn without_a_home_paths_are_relative() {
         let layout = with(&[]);
@@ -474,7 +545,7 @@ mod tests {
         assert_eq!(layout.expand("~/cv.md"), PathBuf::from("cv.md"));
     }
 
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     #[test]
     fn hyprland_events_are_in_its_instance_directory_and_only_under_it() {
         let under = with(&[
@@ -489,6 +560,55 @@ mod tests {
         assert_eq!(without.hypr_events(), None);
         let empty = with(&[("HYPRLAND_INSTANCE_SIGNATURE", "")]);
         assert_eq!(empty.hypr_events(), None);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_paths_are_under_application_support_and_the_temporary_directory() {
+        let layout = with(&[("HOME", "/Users/you"), ("TMPDIR", "/var/folders/ab/T/")]);
+        let found = [
+            layout.config_file(),
+            layout.model(VAD_MODEL_FILE),
+            layout.model(SPEAKER_MODEL_FILE),
+            layout.people_dir(),
+            layout.sessions_dir(),
+            layout.socket_path(),
+            layout.token_path(),
+            layout.daemon_log(),
+            layout.update_state(),
+            layout.launch_agent(),
+            layout.app_dir(),
+            layout.expand("~/cv.md"),
+        ];
+        let expected = [
+            "/Users/you/Library/Application Support/eco/config.toml",
+            "/Users/you/Library/Application Support/eco/models/silero_vad.onnx",
+            "/Users/you/Library/Application Support/eco/models/wespeaker_campplus.onnx",
+            "/Users/you/Library/Application Support/eco/people",
+            "/Users/you/Library/Application Support/eco/sessions",
+            "/var/folders/ab/T/eco.sock",
+            "/var/folders/ab/T/eco.token",
+            "/Users/you/Library/Application Support/eco/daemon.log",
+            "/Users/you/Library/Application Support/eco/update.json",
+            "/Users/you/Library/LaunchAgents/io.github.this-is-npc.eco.plist",
+            "/Users/you/Applications/eco",
+            "/Users/you/cv.md",
+        ];
+        assert_eq!(found, expected.map(PathBuf::from));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn without_a_temporary_directory_the_socket_is_in_the_data_directory() {
+        for layout in [
+            with(&[("HOME", "/Users/you")]),
+            with(&[("HOME", "/Users/you"), ("TMPDIR", "")]),
+        ] {
+            assert_eq!(
+                layout.socket_path(),
+                PathBuf::from("/Users/you/Library/Application Support/eco/eco.sock")
+            );
+        }
     }
 
     #[cfg(windows)]

@@ -8,7 +8,7 @@ use anyhow::{Context, Result, bail};
 use reqwest::Client;
 use sha2::{Digest, Sha256};
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 use crate::adapters::desktop_hyprland::Hyprland;
 #[cfg(windows)]
 use crate::adapters::desktop_windows::{OldLoginScript, ToastName};
@@ -110,12 +110,18 @@ async fn fetch(
 }
 
 /// What `eco setup` ties eco into: Hyprland, which loads eco's rules.
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 pub fn desktop() -> Vec<Box<dyn DesktopIntegration>> {
     vec![Box::new(Hyprland::new(
         paths::hypr_bindings(),
         paths::shipped("hypr/eco.lua"),
     ))]
+}
+
+/// What `eco setup` ties eco into: nothing yet on macOS, which it says.
+#[cfg(target_os = "macos")]
+pub fn desktop() -> Vec<Box<dyn DesktopIntegration>> {
+    vec![Box::new(crate::adapters::unsupported::Unsupported)]
 }
 
 /// What `eco setup` ties eco into: Windows, which names its notifications

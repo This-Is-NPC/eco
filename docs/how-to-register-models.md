@@ -73,6 +73,9 @@ it starts, so a new variable is listed after `eco restart`:
   settings › Environment Variables › User variables** (or run
   `setx ECO_LAN_KEY "…"` in a terminal), then restart eco from a new terminal
   or the Start menu, so it starts with the new environment: `eco restart`.
+- **On macOS,** run `launchctl setenv ECO_LAN_KEY "…"`, which lasts until you
+  log out, then `eco restart`
+  ([on macOS](how-to-install-and-remove.md#on-macos)).
 
 `eco key list` prints the names the daemon can read, as JSON:
 
@@ -113,10 +116,12 @@ deletes it. A daemon that was running reads a new credential after
 soon as they exist, without a restart, since the daemon searches the
 Credential Manager each time the list opens. Those outputs are read in the code, not seen: an ssh login by
 key, the only way into the machine eco was built on, has no Credential
-Manager ([on Windows](how-to-install-and-remove.md#on-windows)). On Linux,
-`eco key` says `the Windows Credential Manager is only on Windows; on Linux
-keep the key in omapass (api_key_omapass) or an environment variable
-(api_key_env)`.
+Manager ([on Windows](how-to-install-and-remove.md#on-windows)). On Linux and
+macOS, `eco key` says `the Windows Credential Manager is only on Windows; keep
+the key in an environment variable (api_key_env), or on Omarchy in omapass
+(api_key_omapass)`. eco does not use the macOS Keychain: it ties each key to
+the program's signature, and eco is not signed, so every new build would ask
+for each key again.
 
 ## 2. Add a chat model
 

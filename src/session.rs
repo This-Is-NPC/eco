@@ -58,21 +58,21 @@ pub mod update;
 
 use update::{Parts, Updates};
 
-// The platform's audio: Linux's, or Windows' (docs/design.md §15).
-#[cfg(unix)]
+// The platform's audio: PipeWire on Linux, cpal on Windows and macOS (docs/design.md §15).
+#[cfg(any(windows, target_os = "macos"))]
+use crate::adapters::audio_cpal::Cpal as PlatformAudio;
+#[cfg(target_os = "linux")]
 use crate::adapters::audio_pipewire::PipeWire as PlatformAudio;
-#[cfg(windows)]
-use crate::adapters::audio_wasapi::Wasapi as PlatformAudio;
 
 /// The platform's window control (docs/design.md §15): Hyprland's on Linux.
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 fn window_control(_: &Emit) -> Arc<dyn WindowControl> {
     Arc::new(crate::adapters::window_hyprland::HyprlandWindows::default())
 }
 
-/// The platform's window control (docs/design.md §15): on Windows the windows'
-/// own, told through `emit`.
-#[cfg(windows)]
+/// The platform's window control (docs/design.md §15): on Windows and macOS
+/// the windows' own, told through `emit`.
+#[cfg(any(windows, target_os = "macos"))]
 fn window_control(emit: &Emit) -> Arc<dyn WindowControl> {
     Arc::new(crate::adapters::window_host::HostWindows::new(Arc::clone(
         emit,
@@ -80,9 +80,15 @@ fn window_control(emit: &Emit) -> Arc<dyn WindowControl> {
 }
 
 /// The desktop's notifications (docs/design.md §15): notify-send on Linux.
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 pub fn notifier() -> Arc<dyn Notifier> {
     Arc::new(crate::adapters::notify_linux::NotifySend)
+}
+
+/// The desktop's notifications (docs/design.md §15): osascript on macOS.
+#[cfg(target_os = "macos")]
+pub fn notifier() -> Arc<dyn Notifier> {
+    Arc::new(crate::adapters::notify_macos::Osascript)
 }
 
 /// The desktop's notifications (docs/design.md §15): toasts on Windows.
@@ -135,9 +141,21 @@ fn emitter<W: std::io::Write + Send + 'static>(
 
 /// The global shortcuts (docs/design.md §15): on Linux Hyprland binds the keys,
 /// so the daemon registers none and none is unavailable.
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 fn shortcuts(_: &Config, _: &mpsc::UnboundedSender<String>) -> Vec<String> {
     Vec::new()
+}
+
+/// The global shortcuts (docs/design.md §15): none yet on macOS, so every
+/// key is unavailable, and the log says why.
+#[cfg(target_os = "macos")]
+fn shortcuts(config: &Config, _: &mpsc::UnboundedSender<String>) -> Vec<String> {
+    eprintln!("eco: global shortcuts are not available on this system yet");
+    crate::shortcuts::bindings(config.shortcuts.as_ref())
+        .expect("a valid config has valid shortcuts")
+        .into_iter()
+        .map(|binding| binding.written)
+        .collect()
 }
 
 /// The global shortcuts (docs/design.md §15): on Windows the daemon registers
@@ -2638,13 +2656,23 @@ fn spawn_quiet(mut command: std::process::Command) -> io::Result<()> {
 
 /// `exe restart` in a transient unit of the user's systemd, so stopping the
 /// daemon's unit does not stop it too.
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 fn restart_command(exe: &Path) -> std::process::Command {
     let mut command = std::process::Command::new("systemd-run");
     command
         .args(["--user", "--collect", "--quiet"])
         .arg(exe)
         .arg("restart");
+    command
+}
+
+/// `exe restart` in a process group of its own: launchd kills what is left in
+/// the agent's group once the daemon exits, and the restart must outlive it.
+#[cfg(target_os = "macos")]
+fn restart_command(exe: &Path) -> std::process::Command {
+    use std::os::unix::process::CommandExt;
+    let mut command = std::process::Command::new(exe);
+    command.arg("restart").process_group(0);
     command
 }
 
@@ -4736,7 +4764,7 @@ mod tests {
             .unwrap();
     }
 
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     #[test]
     fn on_linux_the_daemon_registers_no_shortcut() {
         let (lines, _) = mpsc::unbounded_channel();
@@ -4935,7 +4963,50 @@ mod tests {
         assert!(spawn_quiet(missing).is_err());
     }
 
-    #[cfg(unix)]
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn on_macos_every_shortcut_is_unavailable() {
+        let (lines, _) = mpsc::unbounded_channel();
+        let config = Config::from_value(raw()).unwrap();
+        let expected: Vec<String> = crate::shortcuts::bindings(config.shortcuts.as_ref())
+            .unwrap()
+            .into_iter()
+            .map(|binding| binding.written)
+            .collect();
+        assert!(!expected.is_empty());
+        assert_eq!(shortcuts(&config, &lines), expected);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn on_macos_the_restart_is_the_executable_itself() {
+        let command = restart_command(Path::new("/usr/local/bin/eco"));
+        assert_eq!(command.get_program(), "/usr/local/bin/eco");
+        let args: Vec<_> = command.get_args().collect();
+        assert_eq!(args, ["restart"]);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn on_macos_the_restart_leaves_the_daemons_process_group() {
+        let dir = tempfile::tempdir().unwrap();
+        let written = dir.path().join("group");
+        let eco = crate::adapters::fake_program::fake_program(
+            dir.path(),
+            "eco",
+            &format!("ps -o pgid= -p $$ > '{}'", written.display()),
+        );
+        assert!(restart_command(&eco).status().unwrap().success());
+        let group: u32 = std::fs::read_to_string(&written)
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+        let ours = rustix::process::getpgrp().as_raw_nonzero().get() as u32;
+        assert_ne!(group, ours);
+    }
+
+    #[cfg(target_os = "linux")]
     #[test]
     fn the_restart_runs_in_a_unit_of_its_own() {
         let command = restart_command(Path::new("/usr/bin/eco"));

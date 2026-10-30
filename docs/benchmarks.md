@@ -575,3 +575,62 @@ no test are the ones named.
 | `src/session/update.rs` | 99.72% (2 of 703) | as in the update section. |
 | `src/session.rs` | 96.93% (145 of 4725) | `removal_notifier()`, one composition line beside `notifier()`, which builds the notifications of the removal step (on Windows, toasts that do not register eco's name); the rest as in the daemon section. Before this change, 96.98% (142 of 4698). |
 | `src/adapters/installer_linux.rs` | 98.28% (7 of 408) | `Pacman::new`, which reads the real `PATH` and terminal; the removal's arguments, the unit's arguments, the exit codes and the hand-off through a stand-in `systemd-run` are tested. |
+
+## macOS base seams coverage (2026-10-29)
+
+Measured on macOS 27.0.1 (Apple Silicon) with `cargo llvm-cov --summary-only
+--show-missing-lines --bin eco` on the tree that builds eco there: the
+daemon's unit tests, 767 passed. `tests/window.rs` and `tests/overlay.rs`
+need Qt, which no task installs on macOS yet, so they did not run. The
+macOS-only lines are counted here and nowhere else; a Linux run does not
+compile them.
+
+| File | Lines | Left without a test, and why |
+|---|---|---|
+| `src/adapters/unsupported.rs` | 96.61% (4 of 118) | `Notifier::notify` (110–112), which only writes a line to the daemon's stderr. |
+| `src/paths.rs` | as in the daemon section | the public wrappers that read the real environment and home; the macOS layout behind them is tested with a fixed environment. |
+
+## macOS audio coverage (2026-10-29)
+
+Measured as in the section above, after the macOS audio moved onto the cpal
+adapter that Windows uses: the daemon's unit tests, 771 passed, 1 ignored (the
+by-hand capture test). The adapter's macOS lines are counted here; a Linux run
+does not compile it.
+
+| File | Lines | Left without a test, and why |
+|---|---|---|
+| `src/adapters/audio_cpal.rs` | 52.69% (167 of 353) | everything that opens a real device: `capture_cancelled` (51–53), the host's device list failing (67), the source's open and read loop (177–204: opening, a held frame let go, a refused microphone, a reopened or lost stream), `open` past the device lookup (227–303: the output that is also a microphone, the stream config, the silent stream, the sample formats) and `build` with its callbacks; the test's panic arms (369, 381); and the ignored test that prints this machine's devices and a second of each (447–496), run by hand. The device mapping, the error mapping, a missing device, the listing's defaults and when a microphone counts as refused, its frames held until then, are tested. |
+| `src/adapters/unsupported.rs` | 94.81% (4 of 77) | `Notifier::notify` (74–76), which only writes a line to the daemon's stderr; the audio it no longer serves left with its tests. |
+
+## macOS service coverage (2026-10-29)
+
+Measured as above after the launchd agent replaced `Unsupported` as the macOS
+service: the daemon's unit tests, 779 passed, 1 ignored.
+
+| File | Lines | Left without a test, and why |
+|---|---|---|
+| `src/adapters/service_launchd.rs` | 88.89% (33 of 297) | `impl ServiceManager for LaunchAgent` (21–38) and `take_off` (173–175): the entry points that run the real `launchctl` on the user's real agent, log and executable; `Agent::user` (51–57), which reads this user's real paths and uid. What they build and run is tested through `start` and `take_off_agent` with a stand-in `launchctl`. The `create_dir_all` error (150), a `~/Library/LaunchAgents` that cannot be made, and a definition that cannot be deleted (196). |
+| `src/adapters/daemon_log.rs` | 97.22% (1 of 36) | a log directory that cannot be made (15). |
+| `src/adapters/unsupported.rs` | 93.10% (4 of 58) | `Notifier::notify` (59–61), which only writes a line to the daemon's stderr; the service it no longer serves left with its test. |
+
+## macOS notifications coverage (2026-10-29)
+
+Measured as above after the `osascript` notifier replaced `Unsupported` as the
+macOS notifier: the daemon's unit tests, 782 passed, 1 ignored.
+
+| File | Lines | Left without a test, and why |
+|---|---|---|
+| `src/adapters/notify_macos.rs` | 90.32% (3 of 31) | `Notifier::notify` (34–36), which runs the real `osascript` and shows a notification on the user's screen; the command it builds is tested. |
+| `src/adapters/notify_program.rs` | 75.00% (8 of 32) | `show` (9–15), the thread that runs the program and writes why it failed to the daemon's stderr, where a test cannot read; `run`, which decides what is written, is tested. Shared with Linux, where it replaces the same lines of `notify_linux.rs`. |
+| `src/adapters/unsupported.rs` | 98.18% (1 of 55) | the empty path `Installer::program` falls back to when the running executable cannot be found. |
+
+## macOS installer coverage (2026-10-29)
+
+Measured as above after the macOS installer replaced `Unsupported` for
+`eco update`: the daemon's unit tests, 785 passed, 1 ignored.
+
+| File | Lines | Left without a test, and why |
+|---|---|---|
+| `src/adapters/installer_macos.rs` | 88.02% (26 of 217) | `Folder::new` (30–36), which reads the user's real home; the old folder that cannot be moved aside (68); a home with no parent or an `~/Applications` that cannot be made (99–100); tar that cannot run or fails (120–128), which the system's `/usr/bin/tar` does not on a well-formed archive. A release that installs, an archive without eco and a folder that cannot move in are tested. |
+| `src/adapters/unsupported.rs` | 100.00% | now only `eco setup`'s desktop step, tested. |
+

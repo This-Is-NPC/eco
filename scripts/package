@@ -15,13 +15,23 @@ the icon eco's notifications show in share/eco/eco.ico, the models in
 share/eco/models, the licences and README.txt. `wix build` (WiX, pinned by
 mise) packs it. Beside it, dist/SHA256SUMS names the MSI in the release's
 format, so install.ps1 installs it from dist as it does from a release
-(scripts/install-windows)."""
+(scripts/install-windows).
+
+On macOS: dist/eco-<version>-macos-aarch64.tar.gz of the working tree, one
+folder eco/ laid out the same way: bin/eco, the window program as
+lib/eco/eco.app with the Qt it runs with inside (macdeployqt, from the
+Qt under .qt), the overlay in share/eco/overlay, the models in
+share/eco/models, the licences and README.txt.
+Every program in it is signed ad hoc, since macdeployqt rewrites them. Beside
+it, dist/SHA256SUMS names it, so install-macos.sh installs it from dist as it
+does from a release (scripts/install-macos)."""
 
 import hashlib
 import os
 import shutil
 import subprocess
 import sys
+import tarfile
 import tomllib
 from pathlib import Path
 
@@ -44,6 +54,51 @@ if sys.platform == "win32":
     (installer.parent / "SHA256SUMS").write_text(f"{digest}  {installer.name}\n", newline="\n")
     print(f"{digest}  {installer.name}")
     print(f"{installer}: {installer.stat().st_size} bytes")
+elif sys.platform == "darwin":
+    app = root / "target/window.noindex/eco.app"
+    if not app.is_dir():
+        sys.exit("package: no target/window.noindex/eco.app; run `mise run window:build`")
+    qt = sorted((root / ".qt").glob("*/macos"))
+    if len(qt) != 1:
+        sys.exit("package: no Qt under .qt; run `mise run qt:install`")
+    subprocess.run(["cargo", "build", "--release", "--locked", "--quiet"], cwd=root, check=True)
+    version = tomllib.loads((root / "Cargo.toml").read_text())["package"]["version"]
+    staging = root / "target/macos"
+    eco = staging / "eco"
+    shutil.rmtree(staging, ignore_errors=True)
+    (eco / "bin").mkdir(parents=True)
+    shutil.copy2(root / "target/release/eco", eco / "bin/eco")
+    window = eco / "lib/eco/eco.app"
+    shutil.copytree(app, window, symlinks=True)
+    subprocess.run(
+        [qt[0] / "bin/macdeployqt", window, f"-qmldir={root / 'overlay'}", "-always-overwrite", "-verbose=0"],
+        check=True,
+    )
+    for program in (window, eco / "bin/eco"):
+        subprocess.run(["codesign", "--force", "--deep", "--sign", "-", program], check=True)
+    shutil.copytree(root / "overlay", eco / "share/eco/overlay")
+    # The models, as the Windows package ships them: the ones `eco setup` of
+    # this build downloads into the data directory, checked against their
+    # pinned checksums.
+    subprocess.run([eco / "bin/eco", "setup"], check=True, stdout=subprocess.DEVNULL)
+    downloaded = Path.home() / "Library/Application Support/eco/models"
+    (eco / "share/eco/models").mkdir(parents=True)
+    for name in ("silero_vad.onnx", "wespeaker_campplus.onnx"):
+        shutil.copy2(downloaded / name, eco / "share/eco/models" / name)
+    shutil.copy2(root / "LICENSE", eco / "LICENSE")
+    shutil.copy2(root / "packaging/windows/MODELS-LICENSES.txt", eco / "MODELS-LICENSES.txt")
+    shutil.copy2(root / "packaging/macos/README.txt", eco / "README.txt")
+    archive = root / "dist" / f"eco-{version}-macos-aarch64.tar.gz"
+    archive.parent.mkdir(exist_ok=True)
+    with tarfile.open(archive, "w:gz") as tar:
+        tar.add(eco, arcname="eco")
+    digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+    (archive.parent / "SHA256SUMS").write_text(f"{digest}  {archive.name}\n")
+    files = sum(1 for path in eco.rglob("*") if path.is_file())
+    # The staged folder holds a second eco.app, which Launchpad would list.
+    shutil.rmtree(staging)
+    print(f"{digest}  {archive.name}")
+    print(f"{archive}: {files} files, {archive.stat().st_size} bytes")
 else:
     out = root / "target/arch"
     shutil.rmtree(out, ignore_errors=True)

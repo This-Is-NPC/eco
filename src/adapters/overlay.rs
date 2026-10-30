@@ -32,14 +32,28 @@ pub fn language_pack(code: &str) -> serde_json::Map<String, serde_json::Value> {
         .unwrap_or_default()
 }
 
+/// The window program, under `lib/eco` once installed and `target/window` in
+/// a checkout: on macOS the program inside its bundle, `eco.app`, named and
+/// drawn as the app is on the other systems.
+#[cfg(target_os = "linux")]
+pub const PROGRAM: &str = "eco-window";
+#[cfg(target_os = "macos")]
+pub const PROGRAM: &str = "eco.app/Contents/MacOS/eco";
+#[cfg(windows)]
+pub const PROGRAM: &str = "eco-window.exe";
+
+/// Where `mise run window:build` puts it in this checkout: on macOS a folder
+/// Spotlight skips, so Launchpad lists only the installed eco.app.
+#[cfg(not(target_os = "macos"))]
+const BUILT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/target/window");
+#[cfg(target_os = "macos")]
+const BUILT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/target/window.noindex");
+
 /// The program that runs it: installed beside the binary
-/// (`<prefix>/lib/eco/eco-window`, `eco-window.exe` on Windows), or this
-/// checkout's build (`mise run window:build`) when eco runs from it.
+/// (`<prefix>/lib/eco/eco-window`), or this checkout's build
+/// (`mise run window:build`) when eco runs from it.
 pub fn program() -> PathBuf {
-    let name = format!("eco-window{}", std::env::consts::EXE_SUFFIX);
-    paths::shipped_program(&name).unwrap_or_else(|| {
-        Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/target/window")).join(name)
-    })
+    paths::shipped_program(PROGRAM).unwrap_or_else(|| Path::new(BUILT).join(PROGRAM))
 }
 
 /// The overlay windows, each its own eco-window process: a number, which the
@@ -661,15 +675,15 @@ exec sleep 30"#,
         windows.close().await;
     }
 
-    /// Whether the process `pid` is gone or only waits to be reaped.
+    /// Whether the process `pid` is gone or only waits to be reaped, by its
+    /// state as `ps` tells it.
     fn ended(pid: u32) -> bool {
-        fs::read_to_string(format!("/proc/{pid}/stat")).map_or(true, |stat| {
-            stat.rsplit(')')
-                .next()
-                .unwrap()
-                .trim_start()
-                .starts_with('Z')
-        })
+        let state = std::process::Command::new("ps")
+            .args(["-o", "stat=", "-p", &pid.to_string()])
+            .output()
+            .unwrap();
+        let state = String::from_utf8_lossy(&state.stdout);
+        state.trim().is_empty() || state.trim_start().starts_with('Z')
     }
 
     #[tokio::test(start_paused = true)]
@@ -730,7 +744,7 @@ exec sleep 30"#,
         windows.open(None, None).await.unwrap();
         let pid = pids(&windows)[0];
         windows.close().await;
-        assert!(!Path::new(&format!("/proc/{pid}")).exists());
+        assert!(ended(pid));
     }
 
     fn pids(windows: &Windows) -> Vec<u32> {

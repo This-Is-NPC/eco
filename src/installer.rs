@@ -39,9 +39,15 @@ const SILENCE: Duration = Duration::from_secs(30);
 
 /// This platform's installer: the Arch package through pacman on Linux, the
 /// Windows Installer package on Windows.
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 pub fn installer() -> Arc<dyn Installer> {
     Arc::new(crate::adapters::installer_linux::Pacman::new(DOWNLOADS))
+}
+
+/// This platform's installer: the folder `mise run install:macos` fills.
+#[cfg(target_os = "macos")]
+pub fn installer() -> Arc<dyn Installer> {
+    Arc::new(crate::adapters::installer_macos::Folder::new(DOWNLOADS))
 }
 
 /// This platform's installer: the Arch package through pacman on Linux, the
@@ -52,8 +58,8 @@ pub fn installer() -> Arc<dyn Installer> {
 }
 
 /// Delete what an update left in the temporary directory because it was
-/// running: on Windows, the copy of eco that installed it; pacman leaves
-/// nothing behind on Linux.
+/// running: on Windows, the copy of eco that installed it; nothing is left
+/// behind elsewhere.
 #[cfg(unix)]
 pub fn tidy() {}
 

@@ -53,6 +53,17 @@ this line, run once, removes it first and keeps your data.
 `$env:ECO_UNINSTALL = "keep"` before the same line takes eco off again
 ([on Windows](docs/how-to-install-and-remove.md#on-windows)).
 
+On a Mac with Apple Silicon, in a terminal:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/This-Is-NPC/eco/master/install-macos.sh | bash
+```
+
+It downloads the release's macOS archive, checks it against the same
+`SHA256SUMS`, puts eco in `~/Applications/eco` for you alone and runs
+`eco setup`. `ECO_UNINSTALL=keep` before `bash` takes eco off again
+([on macOS](docs/how-to-install-and-remove.md#on-macos)).
+
 **Updating.** When a newer release is out, the window says so. **Settings ›
 General › UPDATES › UPDATE**, or `eco update`, installs it and restarts eco;
 a session that records is never cut, the restart waits for it to end
@@ -197,14 +208,17 @@ where they work:
 
 The Hyprland keys run `eco window …` (listed in [the commands](docs/cli.md)),
 which hands one line to the running daemon; on Windows the daemon registers
-the same keys and reads the same lines. None of them starts a second daemon. Every screen the window draws is in
+the same keys and reads the same lines; on macOS no key is global, and the
+Shortcuts app can bind one to an `eco window` command. None of them starts a
+second daemon. Every screen the window draws is in
 [the walk through it](docs/screens.md), in the order somebody meets them.
 
 ## What it does not do
 
 **It is not a bot that joins the meeting.** It hears what the laptop plays and
 what its microphone hears, and nothing else. It is released for Linux —
-Omarchy, Hyprland, PipeWire — and as an MSI for Windows; not for macOS.
+Omarchy, Hyprland, PipeWire — as an MSI for Windows, and as an archive for
+macOS on Apple Silicon.
 
 **It does not answer on its own.** Every answer is asked for: a question, a
 skill, a key. An automatic trigger on a question heard is an open question in
@@ -239,8 +253,8 @@ again on the page where you meet it.
 - **The Windows programs are not code-signed.** The first time one runs,
   SmartScreen may say "Windows protected your PC": **More info › Run anyway**
   ([on Windows](docs/how-to-install-and-remove.md#on-windows)).
-- **No echo cancellation on Windows.** Windows offers eco none: with ECHO
-  CANCELLATION on, a session says so and records the raw microphone
+- **No echo cancellation on Windows or macOS.** Neither offers eco one: with
+  ECHO CANCELLATION on, a session says so and records the raw microphone
   ([how to set up audio sources](docs/how-to-set-up-audio-sources.md)). DROP
   ECHOES and headphones still work.
 - **No omapass on Windows.** Its keyring does not exist there; keep keys in
@@ -253,6 +267,19 @@ again on the page where you meet it.
   whole machine, so `pkexec` asks in its own window; without `pkexec`,
   `eco update` in a terminal asks through `sudo`
   ([Update](docs/how-to-install-and-remove.md#update)).
+- **macOS: Apple Silicon only, and no launcher entry from `eco setup`.**
+  Open `~/Applications/eco/lib/eco/eco.app`, or run `eco start`
+  ([platform seams](docs/design.md#15-platform-seams)). Its programs are
+  signed ad hoc, not by a developer: an archive downloaded in a browser needs
+  `xattr -dr com.apple.quarantine ~/Applications/eco` once. It registers no
+  global shortcut: bind a key to an
+  `eco window` command in the Shortcuts app
+  ([on macOS](docs/how-to-install-and-remove.md#on-macos)). macOS asks for
+  the microphone the first time eco opens it, and again after each install or
+  update, since a build signed ad hoc is a new program to it; refused, the
+  microphone hears only silence, and the transcription strip says to allow
+  eco in **System Settings › Privacy & Security › Microphone**
+  ([how to set up audio sources](docs/how-to-set-up-audio-sources.md)).
 - **Sessions recorded before eco kept costs stay unknown.** Their logs hold no
   cost records, and nothing brings those costs back.
 
@@ -271,3 +298,4 @@ has the commands.
 - a key for each paid provider you use, or a model server of your own
 - on Windows instead: 64-bit Windows (tested on Windows 11) and the
   Microsoft Visual C++ Redistributable (x64); the MSI carries its own Qt
+- on macOS instead: a Mac with Apple Silicon on macOS 14.6 or later

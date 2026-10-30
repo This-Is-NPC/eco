@@ -1,0 +1,32 @@
+#!/usr/bin/env python3
+"""Take eco off macOS through install-macos.sh (ECO_UNINSTALL): stop it, then
+remove ~/Applications/eco and the launchd agent.
+--delete-everything also deletes ~/Library/Application Support/eco (config,
+sessions, people, models, log); --keep-data keeps it. With neither, it asks."""
+
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+if sys.platform != "darwin":
+    sys.exit("uninstall:macos takes eco off macOS; on Linux run `mise run uninstall`")
+
+root = Path(os.environ.get("MISE_PROJECT_ROOT") or Path.cwd())
+keep = os.environ.get("usage_keep_data") == "true"
+delete = os.environ.get("usage_delete_everything") == "true"
+if keep and delete:
+    sys.exit("uninstall:macos: give --keep-data or --delete-everything, not both")
+if not keep and not delete:
+    print("1) uninstall eco, keep sessions, config and models")
+    print("2) uninstall and delete everything")
+    answer = input("Choose 1 or 2: ").strip()
+    if answer == "2":
+        delete = input("Type delete to delete your sessions, config and models: ").strip() == "delete"
+        if not delete:
+            sys.exit("nothing removed")
+    elif answer != "1":
+        sys.exit("nothing removed")
+
+env = os.environ | {"ECO_UNINSTALL": "everything" if delete else "keep"}
+sys.exit(subprocess.run(["bash", root / "install-macos.sh"], env=env).returncode)

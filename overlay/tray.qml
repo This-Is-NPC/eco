@@ -1,10 +1,12 @@
 import QtQuick
 import Qt.labs.platform
+import EcoHost
 import Eco.Core
 
 // The tray icon, as eco-window runs it while `[ui] tray` is on: a click opens
 // the eco window or brings it forward, and the menu asks what `eco window` and
-// `eco stop` ask (docs/design.md §12.7). Its icon carries a dot while a session
+// `eco stop` ask (docs/design.md §12.7); where the icon cannot hold the menu
+// (Host.trayHoldsMenu), a secondary click opens it. Its icon carries a dot while a session
 // records.
 SystemTrayIcon {
   id: tray
@@ -43,9 +45,12 @@ SystemTrayIcon {
   onActivated: reason => {
     if (reason === SystemTrayIcon.Trigger)
       Eco.callWindow("focus")
+    else if (reason === SystemTrayIcon.Context && !Host.trayHoldsMenu)
+      actions.open()
   }
 
-  menu: Menu {
+  menu: Host.trayHoldsMenu ? actions : null
+  property Menu actions: Menu {
     MenuItem {
       text: I18n.t("tray.open")
       onTriggered: Eco.callWindow("focus")

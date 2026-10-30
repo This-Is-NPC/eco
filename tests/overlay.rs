@@ -7,22 +7,23 @@ use std::process::Command;
 const ROOT: &str = env!("CARGO_MANIFEST_DIR");
 
 /// Qt 6's test runner as qt6-declarative installs it on Arch.
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 fn runner() -> PathBuf {
     "/usr/lib/qt6/bin/qmltestrunner".into()
 }
 
-/// Qt 6's test runner in the Qt `mise run qt:install` put under `.qt`.
+/// Where Qt's test runner sits in the Qt `mise run qt:install` puts under `.qt`.
 #[cfg(windows)]
+const QT_RUNNER: &str = "msvc2022_64/bin/qmltestrunner.exe";
+#[cfg(target_os = "macos")]
+const QT_RUNNER: &str = "macos/bin/qmltestrunner";
+
+/// Qt 6's test runner in the Qt `mise run qt:install` put under `.qt`.
+#[cfg(not(target_os = "linux"))]
 fn runner() -> PathBuf {
     let found: Vec<PathBuf> = std::fs::read_dir(Path::new(ROOT).join(".qt"))
         .expect("no Qt under .qt; run `mise run qt:install`")
-        .map(|version| {
-            version
-                .unwrap()
-                .path()
-                .join("msvc2022_64/bin/qmltestrunner.exe")
-        })
+        .map(|version| version.unwrap().path().join(QT_RUNNER))
         .filter(|runner| runner.is_file())
         .collect();
     let [runner] = <[PathBuf; 1]>::try_from(found).expect("one Qt under .qt");
