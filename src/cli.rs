@@ -277,6 +277,19 @@ pub async fn update(address: &Address, version: &str) -> Result<Option<&'static 
     }
 }
 
+/// Have the daemon at `address` hand the removal of eco off, with the user's
+/// files too when `everything`; `false` when no daemon answers, or one older
+/// than removals does not know the command, to remove without it.
+pub async fn uninstall(address: &Address, everything: bool) -> Result<bool, Failure> {
+    match Client::reach(address).await? {
+        Some(mut client) => match client.uninstall(everything).await {
+            Err(failure) if failure.code == "command.unknown" => Ok(false),
+            done => done.map(|()| true),
+        },
+        None => Ok(false),
+    }
+}
+
 /// The error event among `codes` (prefixes), as a failure of this request.
 fn failure_in(event: &Value, codes: &[&str]) -> Option<Failure> {
     let code = event.get("code").and_then(Value::as_str)?;
@@ -378,6 +391,25 @@ impl Client {
                 };
             }
             failure_in(event, &["update.", "command."]).map(Err)
+        })
+        .await
+    }
+
+    /// `uninstall`: done once the daemon has handed the removal off.
+    async fn uninstall(&mut self, everything: bool) -> Result<(), Failure> {
+        self.send(&format!("uninstall {}", json!({"everything": everything})))
+            .await?;
+        self.until(|event| {
+            if event["type"] == "uninstall" {
+                return match event["stage"].as_str().unwrap_or_default() {
+                    "failed" => Some(Err(Failure::new(
+                        "uninstall.failed",
+                        event["detail"].as_str().unwrap_or_default(),
+                    ))),
+                    _ => Some(Ok(())),
+                };
+            }
+            failure_in(event, &["uninstall.", "update.", "command."]).map(Err)
         })
         .await
     }
@@ -2522,6 +2554,42 @@ mod tests {
         assert_eq!(
             client.update("0.5.0").await.unwrap_err().code,
             "update.busy"
+        );
+    }
+
+    fn removal(stage: &str, detail: &str) -> Value {
+        json!({"type": "uninstall", "stage": stage, "everything": true, "detail": detail})
+    }
+
+    #[tokio::test]
+    async fn a_removal_through_the_daemon_ends_when_it_is_handed_off() {
+        let command = r#"uninstall {"everything":true}"#;
+        let mut client = talking_to(command, vec![removal("removing", "")]);
+        assert_eq!(client.uninstall(true).await, Ok(()));
+        let (_directory, socket) = listening(vec![(command, vec![removal("removing", "")])]).await;
+        assert_eq!(uninstall(&socket, true).await, Ok(true));
+        // A daemon from before removals leaves it to the command.
+        let unknown = refusal("command.unknown");
+        let (_directory, socket) = listening(vec![(command, vec![unknown])]).await;
+        assert_eq!(uninstall(&socket, true).await, Ok(false));
+        let directory = tempfile::tempdir().unwrap();
+        let address = Address::scratch(directory.path());
+        assert_eq!(uninstall(&address, true).await, Ok(false));
+    }
+
+    #[tokio::test]
+    async fn a_removal_through_the_daemon_fails_with_its_reason_or_its_refusal() {
+        let command = r#"uninstall {"everything":false}"#;
+        let failed = removal("failed", "no systemd-run");
+        let mut client = talking_to(command, vec![failed]);
+        assert_eq!(
+            client.uninstall(false).await,
+            Err(Failure::new("uninstall.failed", "no systemd-run"))
+        );
+        let mut client = talking_to(command, vec![refusal("uninstall.recording")]);
+        assert_eq!(
+            client.uninstall(false).await.unwrap_err().code,
+            "uninstall.recording"
         );
     }
 

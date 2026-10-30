@@ -13,7 +13,8 @@
 //! as a keyboard and a pointer press them, in `tests/window/bars.qml`; and the
 //! eco window closed with the settings open,
 //! saying so to the daemon before it exits,
-//! in `tests/window/close.qml`; its views and settings made only while
+//! in `tests/window/close.qml`; the uninstall dialog, in
+//! `tests/window/uninstall.qml`; its views and settings made only while
 //! wanted, in `tests/window/lazy.qml`; and the tray icon's states and menu, in
 //! `tests/window/tray.qml`. Needs `mise run window:build`.
 
@@ -236,6 +237,47 @@ async fn general_refreshes_stale_updates_and_shows_their_age() {
         1,
         "{sent:?}"
     );
+}
+
+/// UNINSTALL in General asks first and sends `uninstall` with the choice only
+/// once confirmed.
+#[tokio::test]
+async fn uninstalling_asks_first_and_sends_the_choice_once_confirmed() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut listener = Listener::bind(dir.path());
+    let mut window = offscreen("uninstall", dir.path())
+        .env("ECO_SOCKET", listener.name())
+        .env("ECO_TOKEN", "secret")
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .unwrap();
+    let mut daemon = accept(&mut listener, &mut window).await;
+    let mut stderr = window.stderr.take().unwrap();
+    let mut said = String::new();
+    let mut sent = Vec::new();
+    let status = tokio::time::timeout(Duration::from_secs(30), async {
+        let lines = async {
+            let mut line = String::new();
+            while daemon.read_line(&mut line).await.unwrap_or(0) > 0 {
+                sent.push(line.trim_end().to_string());
+                line.clear();
+            }
+        };
+        let errors = tokio::io::AsyncReadExt::read_to_string(&mut stderr, &mut said);
+        let (_, read) = tokio::join!(lines, errors);
+        read.unwrap();
+        window.wait().await.unwrap()
+    })
+    .await
+    .expect("the uninstall checks did not finish");
+    assert!(status.success(), "{said}");
+    let removals: Vec<&String> = sent
+        .iter()
+        .filter(|line| line.starts_with("uninstall"))
+        .collect();
+    assert_eq!(removals, [r#"uninstall {"everything":true}"#], "{sent:?}");
 }
 
 /// A 6000-line session read back loads and takes its translations within a

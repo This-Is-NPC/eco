@@ -265,7 +265,7 @@ the MSI by hand and the old install is still there; remove it with
    line the script writes starts with `eco: `. It ends with a summary: the
    version installed, the program folder (`C:\Program Files\eco`), the
    command and the folder on the system `PATH`, where the settings and the
-   sessions are, how to open eco and how to take it off. A failure is said in
+   sessions are, how to open eco and how to take it off (`eco uninstall`). A failure is said in
    red with what happened and whether anything changed (a declined
    administrator prompt changes nothing; a failed Windows Installer run names
    its log, `%TEMP%\eco-msiexec.log`), followed by the line that tries again. `$env:VERSION = "0.3.0"` before it picks a release
@@ -793,32 +793,70 @@ write.
 
 ## Taking it off
 
-Removing eco keeps your data: the config, the sessions, the people and the
-models stay.
+eco takes itself off. Removing it keeps your data by default: the config, the
+sessions, the people and the models stay.
 
 ```bash
-eco stop
-sudo pacman -R eco
+eco uninstall               # keeps your data
+eco uninstall --everything  # also deletes the config, sessions, people and models
 ```
 
-`eco stop` ends the daemon; `pacman -R` then removes everything the package
-put on the machine: the binary, the window, the Hyprland rules, the launcher,
-the icon, the completions, the licence and the user service.
+It asks no question: the command is the question. A running daemon takes the
+removal and refuses it while a session records (`uninstall.recording`); end the
+session first. With no daemon, `eco uninstall` hands the removal off itself.
+It prints `{"uninstalled":true,"data":"kept"}` (`"deleted"` with
+`--everything`) once the removal has started.
+
+**On Linux,** a process of its own (`eco apply-uninstall`, in a transient
+`systemd-run --user` unit, so stopping the daemon does not stop it) stops the
+daemon, then runs `pkexec pacman -Rns --noconfirm eco`, which shows the
+desktop's password prompt; without `pkexec`, in a terminal, `sudo pacman -Rns`.
+That removes everything the package put on the machine: the binary, the window,
+the Hyprland rules, the launcher, the icon, the completions, the licence and the
+user service. With `--everything` it then deletes `~/.config/eco`,
+`~/.local/share/eco` and `~/.local/state/eco`. A removal that fails, or a
+password prompt that is dismissed, deletes nothing. A notification says how it
+ended.
+
+**On Windows,** a copy of `eco.exe` in the temporary directory stops the daemon
+and runs `msiexec /x` for every eco Windows Installer lists, which shows its
+progress and asks for the elevation. With `--everything` it then deletes
+`%APPDATA%\eco` and `%LOCALAPPDATA%\eco`. A toast says how it ended: removed, `eco
+was not removed: the removal was cancelled; nothing changed` when the
+installer's window is closed or the elevation refused, or the reason it
+failed. eco does not start again. The copy stays in the temporary directory,
+which Windows clears. A key in the Credential Manager stays: remove it with
+`eco key remove <name>` first. `install.ps1` with `ECO_UNINSTALL` (above) does
+the same from outside eco.
+
+**From the window,** **Settings › General** has an **UNINSTALL** group with an
+**UNINSTALL** button. It opens a dialog that says what goes: the program, the
+window, the shortcuts and the service. **ALSO DELETE MY DATA** is off:
+sessions, people, config and models stay. Turn it on and **UNINSTALL** deletes
+them too. **CANCEL** closes the dialog and changes nothing. Confirming sends the
+same command as `eco uninstall`; the window closes as eco stops. While a
+session records, the answer is an error toast: `A session is recording; end it
+before removing eco`.
 
 **The line `eco setup` added to `~/.config/hypr/bindings.lua` stays,** and
 does nothing: it loads the rules only while the file exists. To remove it too,
 delete the line that ends in `-- eco setup`.
 
-**Kept on purpose:** the config, the sessions, the people, the models and the
-agent skill. Removing the program is not a reason to lose a year of meetings.
-To remove those too:
+**Kept on purpose, unless you ask for everything:** the config, the sessions,
+the people and the models. Removing the program is not a reason to lose a year
+of meetings. **Never removed by eco:** the agent skill, which lives in other
+programs' folders:
 
 ```bash
-rm -rf ~/.config/eco ~/.local/share/eco
 rm -rf ~/.agents/skills/eco ~/.claude/skills/eco
 ```
 
 Keys you put in `~/.config/uwsm/env` stay there until you delete those lines.
+
+Without eco running, `sudo pacman -Rns eco` removes the package alone, and
+`rm -rf ~/.config/eco ~/.local/share/eco ~/.local/state/eco` the data.
+(Read in the code; the Linux and Windows removals have not been run in the
+real packages.)
 
 ---
 

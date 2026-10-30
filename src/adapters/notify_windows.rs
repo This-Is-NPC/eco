@@ -88,9 +88,36 @@ fn write(id: &str, icon: Option<&Path>) -> windows_registry::Result<Registered> 
 
 /// Toasts shown on threads of their own; dropping it waits for them, so that
 /// a program that exits right after a toast still shows it.
-#[derive(Default)]
 pub struct Toasts {
     shown: Mutex<Vec<JoinHandle<()>>>,
+    /// Whether each toast registers eco's app id first, which writes it under
+    /// the user's hive; off once eco is removed, which leaves nothing behind.
+    register: bool,
+}
+
+impl Default for Toasts {
+    fn default() -> Self {
+        Self {
+            shown: Mutex::default(),
+            register: true,
+        }
+    }
+}
+
+impl Toasts {
+    /// Toasts that never register eco's app id, shown under PowerShell's:
+    /// those of the step that removes eco.
+    pub fn unregistered() -> Self {
+        Self {
+            shown: Mutex::default(),
+            register: false,
+        }
+    }
+}
+
+/// Remove the registration of the app id `id` from the user's hive, if any.
+pub fn unregister(id: &str) {
+    let _ = CURRENT_USER.remove_tree(key(id));
 }
 
 impl Drop for Toasts {
@@ -152,9 +179,13 @@ fn show(id: &str, xml: &str) -> windows::core::Result<()> {
 impl Notifier for Toasts {
     fn notify(&self, title: &str, body: &str, urgency: Urgency) {
         let xml = content(title, body, urgency);
+        let register = self.register;
         // On a thread of its own: no caller waits on Windows.
         let thread = std::thread::spawn(move || {
-            let (id, why) = app_id();
+            let (id, why) = match register {
+                true => app_id(),
+                false => (POWERSHELL, None),
+            };
             if let Some(why) = why {
                 eprintln!("eco: {why}");
             }
@@ -195,6 +226,16 @@ pub mod testing {
 mod tests {
     use super::testing::TestId;
     use super::*;
+
+    #[test]
+    fn unregistering_removes_the_app_id_and_a_second_time_is_quiet() {
+        let id = TestId::new("This-Is-NPC.eco-unregister-test");
+        register(id.0, None).unwrap();
+        assert!(CURRENT_USER.open(key(id.0)).is_ok());
+        unregister(id.0);
+        assert!(CURRENT_USER.open(key(id.0)).is_err());
+        unregister(id.0);
+    }
 
     /// The strings the key of the app id `id` holds, by name.
     fn held(id: &str) -> Vec<(String, String)> {

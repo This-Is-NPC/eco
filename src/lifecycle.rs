@@ -284,7 +284,6 @@ async fn window_open(address: &Address) -> Result<Option<bool>> {
 
 /// Stop the daemon at `address` when one runs and wait until it is gone;
 /// whether its window was open, or `None` when no daemon ran.
-#[cfg(any(windows, test))]
 pub async fn shut(address: &Address) -> Result<Option<bool>> {
     let open = window_open(address).await?;
     if open.is_some() {

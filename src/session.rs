@@ -91,6 +91,20 @@ pub fn notifier() -> Arc<dyn Notifier> {
     Arc::new(crate::adapters::notify_windows::Toasts::default())
 }
 
+/// The notifications of the step that removes eco, which must leave nothing
+/// of eco's behind: on Windows, toasts that do not register eco's name.
+#[cfg(unix)]
+pub fn removal_notifier() -> Arc<dyn Notifier> {
+    notifier()
+}
+
+/// The notifications of the step that removes eco, which must leave nothing
+/// of eco's behind: on Windows, toasts that do not register eco's name.
+#[cfg(windows)]
+pub fn removal_notifier() -> Arc<dyn Notifier> {
+    Arc::new(crate::adapters::notify_windows::Toasts::unregistered())
+}
+
 /// The texts notifications read: the interface's language pack, in the
 /// system language on "auto", each key it lacks read in English.
 fn interface_texts(config: &Config) -> Texts {
@@ -2235,6 +2249,12 @@ impl Session {
                 if let Some(install) = self.updates.install(version) {
                     self.background.spawn(install);
                 }
+            }
+            ("uninstall", payload) => {
+                let request: Value = payload
+                    .and_then(|payload| serde_json::from_str(payload).ok())
+                    .unwrap_or_default();
+                self.updates.uninstall(request["everything"] == true);
             }
             ("daemon.restart", payload) => {
                 let request: Value = payload
@@ -4780,6 +4800,23 @@ mod tests {
         assert_eq!(stages, ["restarting", "done"]);
         assert_eq!(d.fakes.restarts(), 1);
         assert_eq!(*d.fakes.installer.installed.lock().unwrap(), ["v99.0.0"]);
+    }
+
+    #[tokio::test]
+    async fn uninstalling_hands_the_removal_off_unless_a_session_records() {
+        let mut d = daemon(raw());
+        d.start("Retro").await;
+        let events = d.line("uninstall").await;
+        assert_eq!(said(&events), ["uninstall.recording"]);
+        d.line("session.end").await;
+        let removing = d.line(r#"uninstall {"everything": true}"#).await;
+        let event = removing
+            .iter()
+            .find(|event| event["type"] == "uninstall")
+            .unwrap();
+        assert_eq!(event["stage"], "removing");
+        assert_eq!(event["everything"], true);
+        assert_eq!(*d.fakes.installer.uninstalled.lock().unwrap(), [true]);
     }
 
     #[tokio::test]

@@ -269,6 +269,36 @@ impl Updates {
         }
     }
 
+    /// Remove eco, and with `everything` the user's files too, by handing the
+    /// removal to a process that stops the daemon: `uninstall` says
+    /// `removing` once it runs, `failed` when it could not start. Refused,
+    /// with `uninstall.recording`, while a session is live; `update.busy` while
+    /// an install or a removal runs.
+    pub fn uninstall(&self, everything: bool) {
+        if (self.parts.live)() {
+            return (self.parts.emit)(error(
+                "uninstall.recording",
+                "a session is recording; end it before removing eco",
+                Value::Null,
+            ));
+        }
+        if std::mem::replace(&mut self.state().installing, true) {
+            return (self.parts.emit)(error(
+                "update.busy",
+                "an update is already being installed",
+                Value::Null,
+            ));
+        }
+        let stage = match self.parts.installer.uninstall(everything).hand_off() {
+            Ok(()) => removal("removing", everything, ""),
+            Err(failure) => {
+                self.state().installing = false;
+                removal("failed", everything, &failure.to_string())
+            }
+        };
+        (self.parts.emit)(stage);
+    }
+
     /// Restart the daemon; while a session is live, only when `force`d, else
     /// `daemon.recording` is said.
     pub fn restart(&self, force: bool) {
@@ -307,6 +337,11 @@ pub fn stage_name(stage: InstallStage) -> &'static str {
 /// The `update_progress` event of `stage` for `version`.
 fn progress(stage: &str, version: &str, detail: &str) -> Value {
     json!({"type": "update_progress", "stage": stage, "version": version, "detail": detail})
+}
+
+/// The `uninstall` event of `stage`.
+fn removal(stage: &str, everything: bool, detail: &str) -> Value {
+    json!({"type": "uninstall", "stage": stage, "everything": everything, "detail": detail})
 }
 
 fn without_time(mut event: Value) -> Value {
@@ -365,6 +400,32 @@ pub(crate) mod testing {
         pub fails: Option<&'static str>,
         pub pending: Option<Arc<AtomicUsize>>,
         pub installed: Mutex<Vec<String>>,
+        /// Whether `everything` was asked at each removal handed off.
+        pub uninstalled: Arc<Mutex<Vec<bool>>>,
+        /// Why a removal cannot be handed off.
+        pub uninstall_fails: Option<&'static str>,
+        /// Why the package cannot be removed.
+        pub remove_fails: Option<&'static str>,
+    }
+
+    /// A pending removal that keeps what it was asked.
+    #[derive(Debug)]
+    struct RemovalHandOff {
+        everything: bool,
+        fails: Option<&'static str>,
+        asked: Arc<Mutex<Vec<bool>>>,
+    }
+
+    impl Pending for RemovalHandOff {
+        fn hand_off(&self) -> io::Result<()> {
+            match self.fails {
+                Some(why) => Err(io::Error::other(why)),
+                None => {
+                    self.asked.lock().unwrap().push(self.everything);
+                    Ok(())
+                }
+            }
+        }
     }
 
     /// A pending install that counts its hand-offs.
@@ -402,6 +463,22 @@ pub(crate) mod testing {
                         None => Installed::Done,
                     })
                 }
+            };
+            async move { result }.boxed()
+        }
+
+        fn uninstall(&self, everything: bool) -> Box<dyn Pending> {
+            Box::new(RemovalHandOff {
+                everything,
+                fails: self.uninstall_fails,
+                asked: Arc::clone(&self.uninstalled),
+            })
+        }
+
+        fn remove(&self) -> BoxFuture<'static, Result<(), InstallError>> {
+            let result = match self.remove_fails {
+                Some(why) => Err(InstallError(why.into())),
+                None => Ok(()),
             };
             async move { result }.boxed()
         }
@@ -776,6 +853,62 @@ mod tests {
         assert_eq!(handed_off.load(Ordering::SeqCst), 1);
         assert_eq!(f.restarts(), 0);
         assert_eq!(f.stages()[4..], ["restarting", "done"]);
+    }
+
+    fn removals(f: &Fixture) -> Vec<Value> {
+        let events = f.events.lock().unwrap();
+        events.clone()
+    }
+
+    #[tokio::test]
+    async fn removing_eco_hands_the_removal_off_and_says_so() {
+        for everything in [false, true] {
+            let f = fixture(None, FakeInstaller::default(), None);
+            f.updates.uninstall(everything);
+            assert_eq!(removals(&f), [removal("removing", everything, "")]);
+            assert_eq!(*f.fakes.installer.uninstalled.lock().unwrap(), [everything]);
+        }
+    }
+
+    #[tokio::test]
+    async fn a_recording_session_refuses_the_removal() {
+        let f = fixture(None, FakeInstaller::default(), None);
+        f.live.store(true, Ordering::SeqCst);
+        f.updates.uninstall(true);
+        assert_eq!(f.events.lock().unwrap()[0]["code"], "uninstall.recording");
+        assert!(f.fakes.installer.uninstalled.lock().unwrap().is_empty());
+        // Nothing was started: once the session ends, the removal can go.
+        f.live.store(false, Ordering::SeqCst);
+        f.updates.uninstall(true);
+        assert_eq!(f.fakes.installer.uninstalled.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_removal_cannot_start_while_an_install_or_a_removal_runs() {
+        let f = fixture(Some("v99.0.0"), FakeInstaller::default(), None);
+        let install = f.updates.install(None).unwrap();
+        f.updates.uninstall(false);
+        assert_eq!(f.events.lock().unwrap()[0]["code"], "update.busy");
+        install.await;
+        let f = fixture(None, FakeInstaller::default(), None);
+        f.updates.uninstall(false);
+        f.updates.uninstall(false);
+        assert_eq!(f.events.lock().unwrap()[1]["code"], "update.busy");
+        assert_eq!(f.fakes.installer.uninstalled.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_removal_that_cannot_start_says_why_and_can_be_asked_again() {
+        let installer = FakeInstaller {
+            uninstall_fails: Some("no systemd-run"),
+            ..FakeInstaller::default()
+        };
+        let f = fixture(None, installer, None);
+        f.updates.uninstall(true);
+        f.updates.uninstall(true);
+        let said = removals(&f);
+        assert_eq!(said[0], removal("failed", true, "no systemd-run"));
+        assert_eq!(said[1], removal("failed", true, "no systemd-run"));
     }
 
     #[tokio::test]

@@ -7,6 +7,9 @@
 //! The shell starts that copy (`ShellExecuteEx`), so it shares no handle with
 //! the caller, whose output a terminal would otherwise wait on.
 //!
+//! Removing eco is the same: `eco apply-uninstall` from such a copy stops the
+//! daemon and runs `msiexec /x` for every eco product the registry lists.
+//!
 //! The package waits in a folder of the user's, which any program of theirs
 //! may write, and Windows Installer runs it elevated. So the apply step is
 //! handed its SHA-256 too, opens the package so that no one may write, move or
@@ -17,6 +20,7 @@ use std::ffi::OsString;
 use std::fs::{self, File};
 use std::io;
 use std::os::windows::fs::OpenOptionsExt;
+use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
@@ -24,8 +28,10 @@ use futures::future::BoxFuture;
 use sha2::{Digest, Sha256};
 use tokio::process::Command;
 
+use windows_registry::LOCAL_MACHINE;
+
 use crate::adapters::control_socket::Address;
-use crate::adapters::notify_windows::Toasts;
+use crate::adapters::notify_windows::{self, Toasts};
 use crate::adapters::service_windows::{CREATE_NO_WINDOW, hidden};
 use crate::apply::{self, Steps};
 use crate::installer::{self, SCRATCH, Scratch};
@@ -33,6 +39,9 @@ use crate::lifecycle;
 use crate::ports::{
     InstallError, InstallProgress, Installed, Installer, Notifier, Pending, Urgency,
 };
+
+/// Where Windows Installer lists what it installed.
+const UNINSTALL_KEY: &str = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall";
 
 /// What `msiexec` exits with when the install worked but Windows asks for a
 /// restart, which eco does not need.
@@ -94,15 +103,137 @@ fn arguments(msi: &Path) -> Vec<OsString> {
     vec!["/i".into(), msi.into(), "/qb".into(), "/norestart".into()]
 }
 
-/// What `msiexec` ending with `code` means for the install.
-fn outcome(code: Option<i32>) -> Result<(), InstallError> {
+/// What `msiexec` runs with to remove the product `code` (`{GUID}`): the
+/// same UI and no restart.
+fn removal_arguments(code: &str) -> Vec<OsString> {
+    vec!["/x".into(), code.into(), "/qb".into(), "/norestart".into()]
+}
+
+/// What `msiexec` ending with `code` means for an install or, with
+/// `cancelled` saying so, a removal.
+fn outcome(code: Option<i32>, cancelled: &str) -> Result<(), InstallError> {
     let failed = |why: String| Err(InstallError(why));
     match code {
         Some(0 | REBOOT_PENDING) => Ok(()),
-        Some(code) if CANCELLED.contains(&code) => failed("the installation was cancelled".into()),
+        Some(code) if CANCELLED.contains(&code) => failed(cancelled.into()),
         Some(BUSY) => failed("another installation is running; try again once it ends".into()),
         Some(code) => failed(format!("the installer failed with exit code {code}")),
         None => failed("the installer ended without an exit code".into()),
+    }
+}
+
+/// Whether an entry of the uninstall list is eco's: named `eco`, published by
+/// `This-Is-NPC` and installed by Windows Installer, as install.ps1 finds it.
+fn is_eco(name: Option<String>, publisher: Option<String>, windows_installer: Option<u32>) -> bool {
+    name.as_deref() == Some("eco")
+        && publisher.as_deref() == Some("This-Is-NPC")
+        && windows_installer == Some(1)
+}
+
+/// The product codes of every installed eco: more than one when an eco
+/// installed twice at the same version by an older package left both.
+fn products() -> Result<Vec<String>, InstallError> {
+    let list = LOCAL_MACHINE
+        .open(UNINSTALL_KEY)
+        .map_err(|error| InstallError(format!("cannot read the installed programs: {error}")))?;
+    let keys = list
+        .keys()
+        .map_err(|error| InstallError(format!("cannot read the installed programs: {error}")))?;
+    Ok(keys
+        .filter(|code| {
+            list.open(code).is_ok_and(|entry| {
+                is_eco(
+                    entry.get_string("DisplayName").ok(),
+                    entry.get_string("Publisher").ok(),
+                    entry.get_u32("WindowsInstaller").ok(),
+                )
+            })
+        })
+        .collect())
+}
+
+/// The programs of eco that hold its install's files open while they run,
+/// besides the daemon `lifecycle::shut` already waited for.
+const WINDOWS: [&str; 2] = ["eco-window.exe", "eco-launch.exe"];
+
+/// How long eco's windows are waited for to close before Windows Installer
+/// runs; one still open past it keeps its files until a restart.
+const WINDOWS_PATIENCE: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// `tasklist` listing every process by name, one CSV line each.
+fn tasklist() -> std::process::Command {
+    let mut command = std::process::Command::new("tasklist");
+    command
+        .args(["/FO", "CSV", "/NH"])
+        .stdin(Stdio::null())
+        .creation_flags(CREATE_NO_WINDOW);
+    command
+}
+
+/// Whether the `tasklist` listing `listing` holds one of eco's windows.
+fn windows_open(listing: &str) -> bool {
+    listing.lines().any(|line| {
+        WINDOWS
+            .iter()
+            .any(|name| line.starts_with(&format!("\"{name}\"")))
+    })
+}
+
+/// Wait, up to `WINDOWS_PATIENCE`, for eco's windows to close after its daemon
+/// stopped: Windows Installer cannot remove or replace a file one holds.
+async fn windows_closed() {
+    let until = tokio::time::Instant::now() + WINDOWS_PATIENCE;
+    while tokio::time::Instant::now() < until {
+        let listing = Command::from(tasklist()).output().await;
+        if listing.is_ok_and(|output| !windows_open(&String::from_utf8_lossy(&output.stdout))) {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    }
+}
+
+/// Run `msiexec` as the installer asks, removing the product `code`.
+async fn remove_product(msiexec: &Path, code: &str) -> Result<(), InstallError> {
+    let status = Command::new(msiexec)
+        .args(removal_arguments(code))
+        .stdin(Stdio::null())
+        .creation_flags(CREATE_NO_WINDOW)
+        .status()
+        .await
+        .map_err(|error| InstallError(format!("cannot run {}: {error}", msiexec.display())))?;
+    outcome(status.code(), "the removal was cancelled; nothing changed")
+}
+
+/// The path of `msiexec` in this Windows.
+fn msiexec_path() -> PathBuf {
+    let system = std::env::var_os("SystemRoot").unwrap_or_else(|| r"C:\Windows".into());
+    PathBuf::from(system).join(r"System32\msiexec.exe")
+}
+
+/// The parameters that run `eco apply-uninstall`.
+fn removal_parameters(everything: bool) -> &'static str {
+    match everything {
+        true => "apply-uninstall --everything",
+        false => "apply-uninstall",
+    }
+}
+
+/// A removal waiting for the daemon to stop.
+#[derive(Debug)]
+struct Removal {
+    everything: bool,
+    /// Where the copy of eco that removes it is put.
+    scratch: PathBuf,
+}
+
+impl Pending for Removal {
+    fn hand_off(&self) -> io::Result<()> {
+        let folder = Scratch::new(&self.scratch)
+            .map_err(|error| io::Error::other(error.0))?
+            .keep();
+        let copy = folder.join(COPY);
+        fs::copy(std::env::current_exe()?, &copy)?;
+        hidden(&copy, removal_parameters(self.everything)).map_err(io::Error::other)
     }
 }
 
@@ -202,6 +333,32 @@ impl Installer for Msi {
             })))
         })
     }
+
+    fn uninstall(&self, everything: bool) -> Box<dyn Pending> {
+        Box::new(Removal {
+            everything,
+            scratch: self.scratch.clone(),
+        })
+    }
+
+    fn remove(&self) -> BoxFuture<'static, Result<(), InstallError>> {
+        Box::pin(async {
+            let codes = products()?;
+            if codes.is_empty() {
+                return Err(InstallError(
+                    "eco is not installed with Windows Installer; nothing to remove".into(),
+                ));
+            }
+            windows_closed().await;
+            let msiexec = msiexec_path();
+            for code in codes {
+                remove_product(&msiexec, &code).await?;
+            }
+            // The toasts registered eco's name under the user's hive.
+            notify_windows::unregister(notify_windows::APP_ID);
+            Ok(())
+        })
+    }
 }
 
 /// The apply step on this machine: the daemon of the user, the installed eco,
@@ -217,12 +374,11 @@ struct Applying {
 
 impl Applying {
     fn new(sha256: [u8; 32]) -> Self {
-        let system = std::env::var_os("SystemRoot").unwrap_or_else(|| r"C:\Windows".into());
         Self {
             address: Address::user(),
             sha256,
             program: installed_program(),
-            msiexec: PathBuf::from(system).join(r"System32\msiexec.exe"),
+            msiexec: msiexec_path(),
             toasts: Toasts::default(),
         }
     }
@@ -242,6 +398,7 @@ impl Steps for Applying {
         Box::pin(async move {
             // Held until msiexec has ended: what it installs is what was checked.
             let _held = hold(&package, &self.sha256)?;
+            windows_closed().await;
             let status = Command::new(&self.msiexec)
                 .args(arguments(&package))
                 .stdin(Stdio::null())
@@ -251,7 +408,7 @@ impl Steps for Applying {
                 .map_err(|error| {
                     InstallError(format!("cannot run {}: {error}", self.msiexec.display()))
                 })?;
-            outcome(status.code())
+            outcome(status.code(), "the installation was cancelled")
         })
     }
 
@@ -317,8 +474,9 @@ mod tests {
 
     #[test]
     fn the_exit_code_tells_whether_it_installed() {
-        assert!(outcome(Some(0)).is_ok());
-        assert!(outcome(Some(3010)).is_ok());
+        let cancelled = "the installation was cancelled";
+        assert!(outcome(Some(0), cancelled).is_ok());
+        assert!(outcome(Some(3010), cancelled).is_ok());
         for (code, why) in [
             (1602, "the installation was cancelled"),
             (1223, "the installation was cancelled"),
@@ -328,12 +486,56 @@ mod tests {
             ),
             (1603, "the installer failed with exit code 1603"),
         ] {
-            assert_eq!(outcome(Some(code)).unwrap_err().0, why, "{code}");
+            assert_eq!(outcome(Some(code), cancelled).unwrap_err().0, why, "{code}");
         }
         assert_eq!(
-            outcome(None).unwrap_err().0,
+            outcome(None, cancelled).unwrap_err().0,
             "the installer ended without an exit code"
         );
+    }
+
+    #[test]
+    fn a_cancelled_removal_says_nothing_changed() {
+        let cancelled = "the removal was cancelled; nothing changed";
+        assert_eq!(outcome(Some(1602), cancelled).unwrap_err().0, cancelled);
+        assert!(outcome(Some(0), cancelled).is_ok());
+    }
+
+    #[test]
+    fn the_installer_removes_a_product_with_its_ui_and_no_restart() {
+        assert_eq!(
+            removal_arguments("{ABC}"),
+            ["/x", "{ABC}", "/qb", "/norestart"]
+        );
+    }
+
+    #[test]
+    fn only_eco_s_own_package_is_eco() {
+        let name = || Some("eco".to_string());
+        let publisher = || Some("This-Is-NPC".to_string());
+        assert!(is_eco(name(), publisher(), Some(1)));
+        assert!(!is_eco(Some("ecosystem".into()), publisher(), Some(1)));
+        assert!(!is_eco(name(), Some("Someone".into()), Some(1)));
+        assert!(!is_eco(name(), publisher(), Some(0)));
+        assert!(!is_eco(name(), publisher(), None));
+        assert!(!is_eco(None, None, None));
+    }
+
+    #[test]
+    fn the_removal_runs_apply_uninstall_with_or_without_the_data() {
+        assert_eq!(removal_parameters(false), "apply-uninstall");
+        assert_eq!(removal_parameters(true), "apply-uninstall --everything");
+    }
+
+    #[test]
+    fn msiexec_is_in_the_system_directory() {
+        assert!(msiexec_path().ends_with(r"System32\msiexec.exe"));
+    }
+
+    #[test]
+    fn a_removal_keeps_what_it_was_asked_to_delete() {
+        let pending = Msi::new("").uninstall(true);
+        assert!(format!("{pending:?}").contains("everything: true"));
     }
 
     #[test]
@@ -343,6 +545,24 @@ mod tests {
             parameters(Path::new(r"C:\Users\Zoe Lima\eco.msi"), &sha256),
             format!(r#"apply-update "C:\Users\Zoe Lima\eco.msi" {ABC}"#)
         );
+    }
+
+    #[test]
+    fn tasklist_lists_every_process_by_name() {
+        let built = tasklist();
+        let args: Vec<_> = built.get_args().collect();
+        assert_eq!(built.get_program(), "tasklist");
+        assert_eq!(args, ["/FO", "CSV", "/NH"]);
+    }
+
+    #[test]
+    fn a_window_of_eco_in_the_listing_is_one_still_open() {
+        let idle = "\"System\",\"4\",\"Services\",\"0\",\"144 K\"\r\n\"eco.exe\",\"7\",\"Console\",\"2\",\"9 K\"\r\n";
+        assert!(!windows_open(idle));
+        for name in WINDOWS {
+            let open = format!("{idle}\"{name}\",\"9\",\"Console\",\"2\",\"40 K\"\r\n");
+            assert!(windows_open(&open), "{name}");
+        }
     }
 
     #[test]
