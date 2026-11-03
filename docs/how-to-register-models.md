@@ -118,8 +118,8 @@ Credential Manager each time the list opens. Those outputs are read in the code,
 key, the only way into the machine eco was built on, has no Credential
 Manager ([on Windows](how-to-install-and-remove.md#on-windows)). On Linux and
 macOS, `eco key` says `the Windows Credential Manager is only on Windows; keep
-the key in an environment variable (api_key_env), or on Omarchy in omapass
-(api_key_omapass)`. eco does not use the macOS Keychain: it ties each key to
+the key in an environment variable (env), or on Omarchy in omapass
+(omapass)`. eco does not use the macOS Keychain: it ties each key to
 the program's signature, and eco is not signed, so every new build would ask
 for each key again.
 
@@ -280,21 +280,41 @@ model = "deepgram"                     # the default transcription model
 [llm]
 model = "gemini"                       # the default assistant
 
+[[secrets]]                            # where a key lives, never the key
+name = "openrouter"
+env = "OPENROUTER_API_KEY"             # or omapass = "openrouter", or credential = "openrouter"; one
+
+[[secrets]]
+name = "deepgram"
+omapass = "Deepgram"
+
+[[providers]]                          # an address and the secret it uses
+name = "openrouter"
+base_url = "https://openrouter.ai/api/v1"
+secret = "openrouter"                  # a server on the LAN has none
+
+[[providers]]
+name = "deepgram"
+base_url = "wss://api.deepgram.com/v1/listen"
+secret = "deepgram"
+
 [[models]]
 name = "gemini"
 type = "chat"
-base_url = "https://openrouter.ai/api/v1"
+provider = "openrouter"
 model = "google/gemini-3.5-flash-lite"
-api_key_env = "OPENROUTER_API_KEY"     # or api_key_omapass = "openrouter", or api_key_credential = "openrouter"; one
 reasoning = "off"
 
 [[models]]
 name = "deepgram"
 type = "transcription"
-base_url = "wss://api.deepgram.com/v1/listen"
+provider = "deepgram"
 model = "nova-3"
-api_key_omapass = "Deepgram"
 ```
+
+A config written by an older eco, whose models carry `base_url` and
+`api_key_*`, is converted when the daemon starts: one provider per address and
+key source, one secret per key source. The old file is kept as `config.toml.bak`.
 
 `kinds = ["idea"]` on a model makes it that kind's model of its type;
 `extra = { … }` is EXTRA (JSON). Every field: [`design.md` §9](design.md#9-configuration).
@@ -336,8 +356,9 @@ credentials; `eco key list` prints the same reason as `credential_error`. Over
 an ssh login by key there is no Credential Manager; run eco from the desktop.
 **TYPE A NAME…** still takes a credential's name.
 
-**Two sources for one key.** Refused, by the window and by the daemon at start:
-`a provider's key comes from one of api_key_env, api_key_omapass or api_key_credential`.
+**Two sources for one key.** A secret with none or more than one of `env`,
+`omapass` and `credential` is refused by the daemon at start:
+`a secret's key comes from exactly one of env, omapass or credential`.
 
 **No credential `eco:<name>` in the Credential Manager.** The window says
 `Model gemini unavailable: no key in the Windows Credential Manager. Run eco

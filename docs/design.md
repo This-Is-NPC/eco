@@ -970,43 +970,79 @@ model = "grok"
 verbose = false                             # true: show and keep the draft it rewrote
 # prompt = "…"                              # what it is asked; a default cuts unsupported facts
 
+# Where a key lives: a reference, never the key. Exactly one of `env`,
+# `omapass` or `credential` (Windows); a store added later gets its own field.
+[[secrets]]
+name = "deepgram"
+env = "DEEPGRAM_API_KEY"
+
+[[secrets]]
+name = "openrouter"
+env = "OPENROUTER_API_KEY"
+
+[[secrets]]
+name = "openrouter-omapass"
+omapass = "openrouter"                      # or credential = "<name>" on Windows
+
+# A provider: an address and the secret its requests carry. A server on the
+# LAN has no secret.
+[[providers]]
+name = "deepgram"
+base_url = "wss://api.deepgram.com/v1/listen" # streaming; or an OpenAI-compatible URL
+secret = "deepgram"
+
+[[providers]]
+name = "lan"
+base_url = "http://192.168.0.200:8081/v1"   # LAN whisper.cpp server
+
+[[providers]]
+name = "lan-llm"
+base_url = "http://192.168.0.200:8080/v1"   # LAN llama-server
+
+[[providers]]
+name = "openrouter"
+base_url = "https://openrouter.ai/api/v1"
+secret = "openrouter"
+
+[[providers]]
+name = "openrouter-2"
+base_url = "https://openrouter.ai/api/v1"   # the same address with another key
+secret = "openrouter-omapass"
+
 # A model, registered once: [stt] names a transcription one; [llm], [reviewer]
 # and actions name chat ones; `kinds` gives it the sessions of those kinds.
 [[models]]
 name = "deepgram"
 type = "transcription"
-base_url = "wss://api.deepgram.com/v1/listen" # streaming; or an OpenAI-compatible URL
+provider = "deepgram"
 model = "nova-3"
-api_key_env = "DEEPGRAM_API_KEY"
 # price_per_minute = 0.0077                 # optional: USD per minute, only where the provider reports no cost
 
 [[models]]
 name = "whisper-lan"
 type = "transcription"
-base_url = "http://192.168.0.200:8081/v1"   # LAN whisper.cpp server
+provider = "lan"
 model = "whisper-1"
 kinds = ["idea"]                            # idea sessions transcribe here
 
 [[models]]
 name = "qwen-lan"
 type = "chat"
-base_url = "http://192.168.0.200:8080/v1"   # LAN llama-server
+provider = "lan-llm"
 model = "qwen3-14b"
 kinds = ["idea"]                            # and answer here unless the action names a model
 
 [[models]]
 name = "gemini"
 type = "chat"
-base_url = "https://openrouter.ai/api/v1"
-api_key_env = "OPENROUTER_API_KEY"          # or api_key_omapass = "<account>", or api_key_credential = "<name>"; one
+provider = "openrouter"
 model = "google/gemini-3.5-flash-lite"      # the provider's id
 extra = { reasoning = { effort = "minimal" } }
 
 [[models]]
 name = "grok"
 type = "chat"
-base_url = "https://openrouter.ai/api/v1"
-api_key_omapass = "openrouter"
+provider = "openrouter-2"
 model = "x-ai/grok-4.20"
 extra = { reasoning = { enabled = false } }
 
@@ -1063,6 +1099,22 @@ hook = "~/bin/crm-push --board leads"       # run with ECO_SESSION and ECO_TITLE
 hook_auto = true                            # after every answer; else from its send button
 ```
 
+A model names its provider, and a provider its secret, so the key source of
+several models is kept once. A config whose models carry `base_url` and
+`api_key_env`, `api_key_omapass` or `api_key_credential` (eco before 0.14) is
+converted when read: one provider per distinct (base URL, key source), one
+secret per key source, named from the host and the source and numbered when a
+name is taken; the model's other fields stay, and a model naming several key
+sources takes the credential, then omapass, then the variable. Only the daemon
+writes: at start it keeps the old file as `config.toml.bak`, saves the new shape
+atomically, and when either fails it keeps the converted config in memory and
+tells every client `config.convert_failed` (`{detail}`). The CLI and `eco
+doctor` convert in memory and write nothing. Until the settings window edits
+providers and secrets, the `config` snapshot also gives each model its
+provider's `base_url` and its secret's `api_key_*` field, and a `config.set`
+whose models carry those fields points them at a provider and secret by the
+same rule, dropping the ones nothing uses any more.
+
 The config window saves one item or value at a time, sending the saved config with
 that item's change whole (§12.6); the daemon validates it, writes
 `config.toml` and restarts capture. A restart first stops the running pipeline
@@ -1070,12 +1122,12 @@ and its capture or monitor task completely, then starts the new one, so a save
 never leaves a second `pw-record` duplicating frames or transcribing twice.
 
 A hook runs a shell command, a context file is sent to a model, and a model's
-key is sent to its `base_url`, so only the user adds them. The daemon starts
+key is sent to its provider's `base_url`, so only the user adds them. The daemon starts
 every window with one random token per run in `ECO_TOKEN`, and the window's
 `config.set` carries it. A `config.set` from any other socket client that adds
 or changes an action's `hook`, adds a file to `[context]` or a `[[contexts]]`
-slot, or adds a model or changes a model's `base_url`, `api_key_env` or
-`api_key_omapass`, is not saved: the daemon holds it, announces
+slot, or adds a model or changes the address or key source of its provider,
+is not saved: the daemon holds it, announces
 `config_pending` with its `id` and each hook command, file path, and model's
 address and key source (a variable's or an omapass account's name, never a
 key), and answers the error `config.pending`. The window shows them in a
@@ -1112,8 +1164,8 @@ processes.
 
 Secrets come from environment variables: `OPENROUTER_API_KEY`,
 `DEEPGRAM_API_KEY`, `ELEVEN_LABS_API_KEY`, `GROQ_API_KEY` — or from omapass, the
-user's password plugin over gnome-keyring: `api_key_omapass = "<account>"`
-instead of `api_key_env` makes the daemon run `omapass get -- <account>` (piped,
+user's password plugin over gnome-keyring: `omapass = "<account>"` in
+a `[[secrets]]` entry instead of `env` makes the daemon run `omapass get -- <account>` (piped,
 never logged) each time it builds that provider. omapass is found on `PATH` or
 in `~/.config/omarchy/plugins/io.github.this-is-npc.omapass/bin/`, and is
 optional: the `config` event says whether it is there and where its install page
@@ -1126,7 +1178,7 @@ them. During development, mise loads them from `.env` at the project root
 (git-ignored).
 
 On Windows a key may come from the Windows Credential Manager instead:
-`api_key_credential = "<name>"` makes the daemon read the generic credential
+`credential = "<name>"` in a `[[secrets]]` entry makes the daemon read the generic credential
 whose target is `eco:<name>` each time it builds that provider
 (`src/adapters/credentials.rs`, through the `keyring-core` crate and its
 Windows store, `windows-native-keyring-store`; the

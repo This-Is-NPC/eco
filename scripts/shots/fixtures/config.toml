@@ -28,35 +28,54 @@ verbose = false
 [translation]
 model = "gemini-flash"
 
+[[secrets]]
+name = "DEEPGRAM_API_KEY"
+env = "DEEPGRAM_API_KEY"
+
+[[secrets]]
+name = "OPENROUTER_API_KEY"
+env = "OPENROUTER_API_KEY"
+
+[[providers]]
+name = "192.0.2.10"
+base_url = "http://192.0.2.10:8000/v1"
+
+[[providers]]
+name = "deepgram"
+base_url = "wss://api.deepgram.com/v1/listen"
+secret = "DEEPGRAM_API_KEY"
+
+[[providers]]
+name = "openrouter"
+base_url = "https://openrouter.ai/api/v1"
+secret = "OPENROUTER_API_KEY"
+
 [[models]]
 name = "whisper-lan"
 type = "transcription"
-base_url = "http://192.0.2.10:8000/v1"
+provider = "192.0.2.10"
 model = "whisper-large-v3-turbo"
 
 [[models]]
 name = "deepgram"
 type = "transcription"
-base_url = "wss://api.deepgram.com/v1/listen"
+provider = "deepgram"
 model = "nova-3"
-api_key_env = "DEEPGRAM_API_KEY"
 kinds = ["interview"]
 price_per_minute = 0.0077
 
 [[models]]
 name = "gemini-flash"
 type = "chat"
-base_url = "https://openrouter.ai/api/v1"
+provider = "openrouter"
 model = "google/gemini-2.5-flash"
-api_key_env = "OPENROUTER_API_KEY"
 reasoning = "off"
 
 [[models]]
 name = "claude-haiku"
 type = "chat"
-base_url = "https://openrouter.ai/api/v1"
+provider = "openrouter"
 model = "anthropic/claude-haiku-4.5"
-api_key_env = "OPENROUTER_API_KEY"
 reasoning = "off"
 
 [context]

@@ -328,7 +328,7 @@ the MSI by hand and the old install is still there; remove it with
    the machine eco was built on); what needs a model says
    `DEEPGRAM_API_KEY is not set` or `OPENROUTER_API_KEY is not set` (read in
    the code). omapass keeps its secrets in a keyring
-   Windows does not have, so a model with `api_key_omapass` says `omapass is
+   Windows does not have, so a secret with `omapass` says `omapass is
    not available on Windows`.
 
    **Keys in the Windows Credential Manager.** A model whose key source is
@@ -993,7 +993,7 @@ Error: the daemon was started, but did not open the socket; it said:
 and does not start:
 
 ```
-eco: a provider's key comes from one of api_key_env, api_key_omapass or api_key_credential
+eco: a secret's key comes from exactly one of env, omapass or credential
 ```
 
 **The window says OFFLINE.** Its start screen adds `Daemon disconnected · eco
