@@ -346,6 +346,13 @@ eco/
   meanwhile, and the device's frames go on from where they stopped, so its
   time never restarts. A file replayed is not opened again: its failure ends
   the capture, as `capture.stopped`.
+- **A transcriber that panics restarts the pipeline:** its input would
+  otherwise stop transcribing silently, and the voices it shares with the
+  diarizer may be poisoned. The run is dropped and built again, as when
+  recording starts again, and clients get an `error` event with
+  `"code":"transcription.restarted"`. The first restart waits 1 s, the wait
+  doubling up to 30 s while it keeps panicking, and resetting after a run that
+  lasts 30 s; every restart is told.
 
 ---
 

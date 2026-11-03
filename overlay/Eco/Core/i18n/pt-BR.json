@@ -590,6 +590,7 @@
   "error.input.disconnected": "{participant}: {device} não está conectado",
   "error.transcription.failed": "{who}: a transcrição falhou — {detail}",
   "error.capture.stopped": "A captura parou: {detail}",
+  "error.transcription.restarted": "A transcrição parou de forma inesperada e foi reiniciada: {detail}",
   "error.config.invalid": "Configuração inválida: {detail}",
   "error.config.pending": "Outro programa pediu para mudar hooks, arquivos de contexto ou modelos; aprove ou rejeite na janela do eco",
   "error.config.rejected": "A mudança de hooks, arquivos de contexto ou modelos foi rejeitada",

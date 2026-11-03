@@ -540,7 +540,68 @@ impl Work for Channels {
         &mut self,
         listening: Option<watch::Receiver<BTreeSet<Listening>>>,
     ) -> BoxFuture<'_, Result<(), AudioError>> {
-        Box::pin(async move {
+        Box::pin(self.restarting(listening))
+    }
+}
+
+/// How long a transcriber that panicked waits before the pipeline runs again,
+/// at first and at most; the wait doubles while it keeps panicking.
+const RESTART_FIRST: Duration = Duration::from_secs(1);
+const RESTART_LAST: Duration = Duration::from_secs(30);
+
+/// How one run of the channels ended.
+enum Ended {
+    /// The captures ended, or no session records any more.
+    Done,
+    /// A transcriber panicked, so the voices it shared may be poisoned.
+    Panicked(String),
+}
+
+impl Channels {
+    /// Run the channels again, after a backoff, each time a transcriber panics:
+    /// the capture, the echo cancellation, the diarizer and the voices are all
+    /// built anew, as when recording starts again, and clients are told.
+    async fn restarting(
+        &mut self,
+        listening: Option<watch::Receiver<BTreeSet<Listening>>>,
+    ) -> Result<(), AudioError> {
+        let Some(mut listening) = listening else {
+            return self.run_once(None).await.map(|_| ());
+        };
+        let mut wait = RESTART_FIRST;
+        loop {
+            let started = tokio::time::Instant::now();
+            let detail = match self.run_once(Some(&mut listening)).await? {
+                Ended::Done => return Ok(()),
+                Ended::Panicked(detail) => detail,
+            };
+            (self.emit)(error(
+                "transcription.restarted",
+                format!("transcription restarted: {detail}"),
+                json!({"detail": detail}),
+            ));
+            if started.elapsed() >= RESTART_LAST {
+                wait = RESTART_FIRST;
+            }
+            let waited = tokio::time::sleep(wait);
+            tokio::pin!(waited);
+            loop {
+                tokio::select! {
+                    () = &mut waited => break,
+                    changed = listening.changed() => if changed.is_err() {
+                        return Ok(());
+                    },
+                }
+            }
+            wait = (wait * 2).min(RESTART_LAST);
+        }
+    }
+
+    async fn run_once(
+        &mut self,
+        listening: Option<&mut watch::Receiver<BTreeSet<Listening>>>,
+    ) -> Result<Ended, AudioError> {
+        {
             let Channels {
                 inputs,
                 audio,
@@ -656,8 +717,8 @@ impl Work for Channels {
                 },
             );
             let mut captured = std::pin::pin!(try_join_all(channels));
-            let Some(mut listening) = listening else {
-                return captured.await.map(|_| ());
+            let Some(listening) = listening else {
+                return captured.await.map(|_| Ended::Done);
             };
             let mut transcribers = Transcribers::new(heard.keys().cloned().collect());
             loop {
@@ -681,14 +742,15 @@ impl Work for Channels {
                     ran = &mut captured => {
                         transcribers.finish().await;
                         drop(echo);
-                        return ran.map(|_| ());
+                        return ran.map(|_| Ended::Done);
                     }
+                    detail = transcribers.panicked() => return Ok(Ended::Panicked(detail)),
                     changed = listening.changed() => if changed.is_err() {
-                        return Ok(());
+                        return Ok(Ended::Done);
                     },
                 }
             }
-        })
+        }
     }
 }
 
@@ -5907,6 +5969,107 @@ mod tests {
         assert!(ran.is_ok());
         let unavailable = events.lock().unwrap()[0]["code"].clone();
         assert_eq!(unavailable, "stt.unavailable");
+    }
+
+    /// A source that gives one frame of silence, then waits.
+    struct Hushed;
+
+    impl AudioSource for Hushed {
+        fn frames(&mut self) -> stream::BoxStream<'_, Result<Frame, AudioError>> {
+            let frame: Frame = vec![0; FRAME_SAMPLES];
+            stream::iter([Ok(frame)]).chain(stream::pending()).boxed()
+        }
+    }
+
+    /// Panics in its first `panics` openings, then waits for audio.
+    struct Panics(Arc<std::sync::atomic::AtomicUsize>, usize);
+
+    impl StreamingSpeechToText for Panics {
+        fn transcribe<'a>(
+            &'a self,
+            frames: stream::BoxStream<'a, Frame>,
+        ) -> stream::BoxStream<'a, Result<Heard, TranscriptionError>> {
+            let opened = self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            assert!(opened >= self.1, "the model crashed");
+            frames.filter_map(|_| async { None }).boxed()
+        }
+    }
+
+    /// Channels recording on one input with a transcriber that panics in its
+    /// first `panics` openings; the openings are counted.
+    fn panicking(
+        panics: usize,
+    ) -> (
+        Channels,
+        Arc<std::sync::atomic::AtomicUsize>,
+        Arc<Mutex<Vec<Value>>>,
+    ) {
+        let dir = tempfile::tempdir().unwrap();
+        let (emit, events) = recorder();
+        let mic = Input {
+            id: "mic".into(),
+            label: "Mic".into(),
+            participant: "Eles".into(),
+            user: false,
+            color: None,
+            source: Box::new(Hushed),
+            reopens: true,
+            cancelled: None,
+        };
+        let opened = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let built = Built::default();
+        let wanted = listening(&["w"]).pop_first().unwrap();
+        let stt = Stt::Stream(Box::new(Panics(Arc::clone(&opened), panics)));
+        built.cell(&wanted).set(Ok(stt)).ok().unwrap();
+        let channels = Channels {
+            inputs: vec![mic],
+            audio: Arc::new(FakeAudio::default()),
+            models: Arc::default(),
+            built,
+            assistant: assistant(&emit, dir.path()),
+            emit,
+            vad: vad(),
+            diarizer: no_diarizer(),
+            outages: Outages::default(),
+        };
+        (channels, opened, events)
+    }
+
+    fn restarts(events: &[Value]) -> Vec<&Value> {
+        let restarted = |event: &&Value| event["code"] == "transcription.restarted";
+        events.iter().filter(restarted).collect()
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_transcriber_that_panics_is_told_and_runs_again_by_itself() {
+        let (mut channels, opened, events) = panicking(1);
+        let (recording, listening) = watch::channel(listening(&["w"]));
+        let sessions = async {
+            tokio::time::sleep(Duration::from_secs(5)).await;
+            drop(recording);
+        };
+        let (ran, ()) = tokio::join!(channels.run(Some(listening)), sessions);
+        assert!(ran.is_ok());
+        assert_eq!(opened.load(std::sync::atomic::Ordering::SeqCst), 2);
+        let events = events.lock().unwrap();
+        let restarts = restarts(&events);
+        assert_eq!(restarts.len(), 1);
+        assert_eq!(restarts[0]["params"]["detail"], "the model crashed");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_transcriber_that_keeps_panicking_is_restarted_with_backoff() {
+        let (mut channels, opened, events) = panicking(usize::MAX);
+        let (recording, listening) = watch::channel(listening(&["w"]));
+        let sessions = async {
+            // Runs start at 0 s, 1 s, 3 s and 7 s: the wait doubles.
+            tokio::time::sleep(Duration::from_millis(7500)).await;
+            drop(recording);
+        };
+        let (ran, ()) = tokio::join!(channels.run(Some(listening)), sessions);
+        assert!(ran.is_ok());
+        assert_eq!(opened.load(std::sync::atomic::Ordering::SeqCst), 4);
+        assert_eq!(restarts(&events.lock().unwrap()).len(), 4);
     }
 
     #[tokio::test]

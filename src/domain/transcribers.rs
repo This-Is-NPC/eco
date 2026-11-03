@@ -56,6 +56,26 @@ impl Transcribers {
         }
     }
 
+    /// Wait until a transcriber panics, and say how; never ends otherwise.
+    pub async fn panicked(&mut self) -> String {
+        loop {
+            match self.tasks.join_next().await {
+                Some(Err(ended)) if ended.is_panic() => {
+                    let payload = ended.into_panic();
+                    return match payload.downcast::<String>() {
+                        Ok(message) => *message,
+                        Err(payload) => payload
+                            .downcast_ref::<&str>()
+                            .map_or("panic", |message| message)
+                            .to_string(),
+                    };
+                }
+                Some(_) => {}
+                None => std::future::pending().await,
+            }
+        }
+    }
+
     /// Wait for every transcriber to end on its own, once their captures ended.
     pub async fn finish(&mut self) {
         while self.tasks.join_next().await.is_some() {}
@@ -147,5 +167,30 @@ mod tests {
             log.lock().unwrap().last().unwrap(),
             "stopped mic whisper en"
         );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_transcriber_that_panics_is_told_whatever_the_others_do() {
+        let mut transcribers =
+            Transcribers::new(vec!["mic".into(), "speakers".into(), "tv".into()]);
+        let wanted = BTreeSet::from([listening("deepgram", "pt")]);
+        let mut starts = 0;
+        transcribers.follow(&wanted, &mut |_, _| {
+            starts += 1;
+            match starts {
+                1 => async {}.boxed(),
+                2 => async { panic!("{}", String::from("formatted")) }.boxed(),
+                _ => async { std::panic::panic_any("plain") }.boxed(),
+            }
+        });
+        let mut told = vec![transcribers.panicked().await, transcribers.panicked().await];
+        told.sort();
+        assert_eq!(told, ["formatted", "plain"]);
+        // None is left running: nothing more is told.
+        let more = tokio::time::timeout(
+            std::time::Duration::from_millis(10),
+            transcribers.panicked(),
+        );
+        assert!(more.await.is_err());
     }
 }
