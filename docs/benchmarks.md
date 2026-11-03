@@ -105,13 +105,13 @@ with a reference RTTM (and UEM). Silero VAD and the segmenter cut speech
 regions as in a session; WeSpeaker CAM++ (Apache-2.0, through tract) embeds
 1.5 s windows every 0.75 s; average-linkage clustering on cosine distance
 stops at 0.65, and groups under 2% of the windows join the nearest larger
-one. DER follows pyansession.metrics: overlapped speech scored, collar split
+one. DER follows pyannote.metrics: overlapped speech scored, collar split
 half before and half after each reference boundary. On the four dev
-recordings below the harness agrees with pyansession.metrics 4.1 to 0.1 point
+recordings below the harness agrees with pyannote.metrics 4.1 to 0.1 point
 for every recording.
 
 Data: AMI Mix-Headset (CC BY 4.0), RTTMs and UEMs of
-`pyansession/AMI-diarization-setup` (`only_words`). The threshold and the
+`pyannote/AMI-diarization-setup` (`only_words`). The threshold and the
 model were chosen on four dev meetings (IS1008a, ES2011a, TS3004a, IB4001);
 the test meetings were run once with them.
 
@@ -124,16 +124,16 @@ ResNet34-LM is also half as fast (25–30× against 53–60× real time), so
 CAM++ is the model `eco setup` downloads.
 
 Test set, 16 meetings, 9 h, CAM++ at 0.65, against the published
-pyansession/speaker-diarization-3.1 run on the same set (same "full" setup:
+pyannote/speaker-diarization-3.1 run on the same set (same "full" setup:
 no collar, overlap scored):
 
 | | Missed | False alarm | Confusion | DER |
 |---|---|---|---|---|
 | eco, collar 0 | 21.7% | 2.5% | 2.6% | 26.7% |
-| pyansession 3.1, collar 0 | 9.5% | 3.6% | 5.7% | 18.8% |
+| pyannote 3.1, collar 0 | 9.5% | 3.6% | 5.7% | 18.8% |
 | eco, collar 0.5 s (±0.25 s) | 17.7% | 0.6% | 1.1% | 19.4% |
 
-eco confuses speakers less than pyansession; its gap is missed speech:
+eco confuses speakers less than pyannote; its gap is missed speech:
 overlapping speakers (one voice per moment in eco) and the edges the VAD
 trims. Speakers found matched the reference on 15 of 16 meetings (TS3003a:
 2 of 4). The 9 h took 11 min on 12 threads (~49× real time) with a 370 MB
@@ -522,14 +522,14 @@ is the average-linkage clustering at the end (0.65) over the same windows.
 | EN2002d | 4 | 4 | 32.4 | 1.6 | 3.4 | 37.4 | 67.7 | 67.7 | 0 | 12.7 | 729 | 4 / 37.3 |
 | **All** | | | 21.7 | 2.5 | 2.6 | 26.8 | 81.7 | 81.9 | 2 | 4.0 | 354 | 26.7 |
 
-Against the 2026-10-05 run and the published pyansession 3.1 run on the same
+Against the 2026-10-05 run and the published pyannote 3.1 run on the same
 set (collar 0, overlap scored):
 
 | | Missed | False alarm | Confusion | DER |
 |---|---|---|---|---|
 | eco, 2026-10-05 (average linkage at the end) | 21.7% | 2.5% | 2.6% | 26.7% |
 | eco, online with re-clustering | 21.7% | 2.5% | 2.6% | 26.8% |
-| pyansession 3.1 | 9.5% | 3.6% | 5.7% | 18.8% |
+| pyannote 3.1 | 9.5% | 3.6% | 5.7% | 18.8% |
 
 The live path now scores as the clustering at the end did: 0.1 point of DER
 apart, purity 81.7 and cover 81.9 against 81.8 and 81.9 for the offline

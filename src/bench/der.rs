@@ -1,4 +1,4 @@
-//! Diarization error rate as pyansession.metrics computes it: scored within the UEM
+//! Diarization error rate as pyannote.metrics computes it: scored within the UEM
 //! less a collar around every reference boundary (half before, half after),
 //! overlapping speech included, speakers mapped one to one to maximise overlap.
 
@@ -294,10 +294,10 @@ mod tests {
         assert_eq!(score.der(), 0.0);
     }
 
-    /// The components pyansession.metrics 4.1 gives for this pair
+    /// The components pyannote.metrics 4.1 gives for this pair
     /// (`DiarizationErrorRate(collar=…)` with the UEM 0–30 s).
     #[test]
-    fn agrees_with_pyansession_metrics() {
+    fn agrees_with_pyannote_metrics() {
         let reference = segments(&[
             (0.0, 10.0, "A"),
             (8.0, 15.0, "B"),
