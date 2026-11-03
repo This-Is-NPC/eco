@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use crate::adapters::credentials;
+use crate::adapters::devices::{DEFAULT_INPUT, DEFAULT_OUTPUT};
 use crate::domain::action::Action;
 use crate::domain::prompts::{self, DEFAULT_REVIEW, DEFAULT_RULES};
 use crate::paths;
@@ -962,7 +963,8 @@ fn system_language(locale: Option<&str>) -> &'static (&'static str, &'static str
 
 /// The empty config in the system language `locale` (`pt_BR.UTF-8`, `ja-JP`):
 /// its interface, its transcription language and its rules; English for a
-/// language eco has no pack for, or none.
+/// language eco has no pack for, or none. Its audio sources are `Me` on the
+/// default input, marked as the user, and `Them` on the default output.
 fn first_run(locale: Option<&str>) -> Config {
     let (pack, code) = system_language(locale);
     let languages = ["auto", code]
@@ -975,6 +977,18 @@ fn first_run(locale: Option<&str>) -> Config {
         )
         .collect();
     let raw = Raw {
+        participants: vec![
+            Participant {
+                name: "Me".into(),
+                devices: vec![DEFAULT_INPUT.into()],
+                user: true,
+            },
+            Participant {
+                name: "Them".into(),
+                devices: vec![DEFAULT_OUTPUT.into()],
+                user: false,
+            },
+        ],
         rules: prompts::default_rules(code).into(),
         stt: SttConfig {
             language: (*code).into(),
@@ -1579,7 +1593,7 @@ mod tests {
             .unwrap()
             .0;
         assert!(empty.models.is_empty());
-        assert!(empty.participants.is_empty() && empty.actions.is_empty());
+        assert!(empty.actions.is_empty());
         assert_eq!(
             (empty.stt.model.as_str(), empty.llm.model.as_str()),
             ("", "")
@@ -1588,9 +1602,40 @@ mod tests {
         assert_eq!(empty.transcriber("meeting"), None);
         assert_eq!(empty.translator("meeting"), None);
         let mut written_empty = Config::from_value(json!({})).unwrap();
+        written_empty.participants = empty.participants.clone();
         written_empty.ui_language = "pt-BR".into();
         assert_eq!(written_empty, empty);
         assert!(!directory.path().join("nope.toml").exists());
+    }
+
+    #[test]
+    fn a_fresh_install_hears_me_and_them_and_the_first_save_writes_them() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("config.toml");
+        let config = load(&path).unwrap();
+        let sources: Vec<_> = config
+            .participants
+            .iter()
+            .map(|p| (p.name.as_str(), p.devices.clone(), p.user))
+            .collect();
+        assert_eq!(
+            sources,
+            [
+                ("Me", vec!["@default-input".to_string()], true),
+                ("Them", vec!["@default-output".to_string()], false),
+            ]
+        );
+        assert_eq!(config.to_value()["participants"][1]["name"], "Them");
+        save(&config, &path).unwrap();
+        assert_eq!(load(&path).unwrap().participants, config.participants);
+    }
+
+    #[test]
+    fn a_config_without_participants_keeps_none() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("config.toml");
+        fs::write(&path, "kinds = [\"meeting\"]\n").unwrap();
+        assert!(load(&path).unwrap().participants.is_empty());
     }
 
     #[test]

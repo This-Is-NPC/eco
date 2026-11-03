@@ -81,10 +81,9 @@ Then, in the window:
 
 1. `SUPER+ALT+C` opens the settings, a section at a time down the left, each
    a table: a value in a row saves at once; an item opens, **EDIT**, **SAVE**.
-   **Audio** first: a row per device. On the default microphone, **HEARD AS**
-   › **New source…** names a source for you; under **AUDIO SOURCES**, light its
-   **YOU**. On the default output — what the laptop plays — **New source…**
-   names one for everybody else.
+   **Audio** first: a row per device. A fresh install already hears you on the
+   default microphone (`Me`) and everybody else on the default output
+   (`Them`); change them there if you want other sources.
 2. **Models**: a transcription model and, for answers and translation, a chat
    model, each named once; pick one and press **DEFAULT FOR TRANSCRIPTION**,
    or **DEFAULT FOR CHAT**. eco records and transcribes with no chat model. Their

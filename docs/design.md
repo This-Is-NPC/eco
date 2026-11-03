@@ -926,7 +926,8 @@ The index holds no line of what was said; it is as private as the logs.
 
 `~/.config/eco/config.toml` (written by the config window; hand edits work too,
 but comments are not kept). No file is the empty config: no model, no
-participant, no action, the defaults for the rest — in the system language
+action, the audio sources `Me` (`@default-input`, the user) and `Them`
+(`@default-output`) written at the first save, the defaults for the rest — in the system language
 (`sys-locale`: `LANGUAGE`, `LC_ALL`, `LC_MESSAGES`, `LANG` on Linux, the
 user's display language on Windows): `ui.language` its pack (`pt-BR`,
 `ja-JP`, `en-US`), `stt.language` its code, first after `auto` in
