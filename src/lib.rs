@@ -419,6 +419,9 @@ enum Bench {
         /// Windows of speech heard between two re-clusters, to compare.
         #[arg(long, value_delimiter = ',', default_value = "400")]
         every: Vec<usize>,
+        /// Hours of speech to measure the cost of re-clustering over, from the recordings repeated.
+        #[arg(long)]
+        stack: Option<f64>,
         /// Seconds forgiven around reference boundaries, half on each side.
         #[arg(long, default_value_t = 0.0)]
         collar: f64,
@@ -559,6 +562,7 @@ impl From<Command> for Run {
                         settle,
                         recluster,
                         every,
+                        stack,
                         collar,
                         output,
                         dump,
@@ -572,6 +576,7 @@ impl From<Command> for Run {
                         settles: settle,
                         reclusters: recluster,
                         everys: every,
+                        stack,
                         collar,
                         output,
                         dump,
@@ -1208,7 +1213,10 @@ mod tests {
             (options.merges, options.min_shares, options.settles),
             (vec![0.3], vec![0.02], vec![120])
         );
-        assert_eq!((options.reclusters, options.everys), (vec![0.5], vec![400]));
+        assert_eq!(
+            (options.reclusters, options.everys, options.stack),
+            (vec![0.5], vec![400], None)
+        );
         assert_eq!(options.collar, 0.0);
     }
 
@@ -1234,6 +1242,8 @@ mod tests {
             "0.6,0.7",
             "--every",
             "200,400",
+            "--stack",
+            "3",
             "--collar",
             "0.25",
             "--output",
@@ -1253,8 +1263,8 @@ mod tests {
             (vec![0.3, 0.4], vec![0.1], vec![60, 120])
         );
         assert_eq!(
-            (options.reclusters, options.everys),
-            (vec![0.6, 0.7], vec![200, 400])
+            (options.reclusters, options.everys, options.stack),
+            (vec![0.6, 0.7], vec![200, 400], Some(3.0))
         );
         assert_eq!(options.collar, 0.25);
         assert_eq!(

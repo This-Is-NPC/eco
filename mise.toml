@@ -182,6 +182,7 @@ flag "--min-share <values>" help="Smallest shares of the speech a speaker may ho
 flag "--settle <values>" help="Windows heard before a small speaker is folded, to compare, e.g. 60,120"
 flag "--recluster <values>" help="Distances at which the speech heard is clustered again, to compare, e.g. 0.6,0.65"
 flag "--every <values>" help="Windows of speech heard between two re-clusters, to compare, e.g. 200,400"
+flag "--stack <hours>" help="Measure the cost of re-clustering over this many hours of speech, the recordings repeated"
 flag "--collar <seconds>" help="Seconds forgiven around reference boundaries, half on each side"
 flag "--output <dir>" help="Write eco's turns there as <name>.rttm (first combination)"
 flag "--dump <dir>" help="Write each recording's window embeddings there as <name>.emb"

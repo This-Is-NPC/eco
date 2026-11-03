@@ -2,7 +2,8 @@
 //! reference: `<name>.wav` (16 kHz mono), `<name>.rttm` and optionally `<name>.uem`.
 
 use std::path::{Path, PathBuf};
-use std::time::Instant;
+use std::thread;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 
@@ -15,7 +16,9 @@ use crate::bench::clusters::{
 use crate::bench::der::{Score, Segment, parse_rttm, parse_uem, score};
 use crate::bench::{embeddings, linkage};
 use crate::domain::channel::segment_channel;
-use crate::domain::diarization::{Clustering, Region, Turn, region};
+use crate::domain::diarization::{
+    Clustering, Recluster, Reclustered, Region, Speakers, Turn, region,
+};
 use crate::domain::segmenter::SegmenterConfig;
 use crate::paths;
 use crate::ports::{AudioError, SAMPLE_RATE};
@@ -39,6 +42,9 @@ pub struct Options {
     pub reclusters: Vec<f32>,
     /// Windows of speech heard between two re-clusters, to compare.
     pub everys: Vec<usize>,
+    /// Hours of speech to measure the cost of re-clustering over, from the
+    /// recordings repeated one after the other.
+    pub stack: Option<f64>,
     /// Seconds forgiven around each reference boundary, half on each side.
     pub collar: f64,
     /// Where to write eco's turns as `<name>.rttm`, for the first threshold.
@@ -75,6 +81,12 @@ fn recordings(options: &Options) -> Result<Vec<String>> {
         bail!("no recordings with an RTTM in {}", options.dir.display());
     }
     Ok(names)
+}
+
+/// Start counting the peak resident memory of this process again, from what it
+/// holds now.
+fn reset_peak_rss() {
+    let _ = std::fs::write("/proc/self/clear_refs", "5");
 }
 
 /// The peak resident memory of this process so far, in MB.
@@ -156,6 +168,8 @@ struct Meeting {
     reference: Vec<Segment>,
     uem: Option<Vec<(f64, f64)>>,
     regions: Vec<Region>,
+    /// Seconds of audio.
+    length: f64,
     /// The middle of each window, in seconds.
     centres: Vec<f64>,
 }
@@ -291,6 +305,7 @@ pub async fn run(options: Options) -> Result<()> {
             reference,
             uem,
             regions,
+            length,
             centres,
         });
     }
@@ -390,8 +405,103 @@ pub async fn run(options: Options) -> Result<()> {
         }
         first = false;
     }
+    if let (Some(hours), Some(&clustering)) = (options.stack, combinations(&options).first()) {
+        cost(&meetings, hours, clustering);
+    }
     if let Some(peak) = peak_rss_mb() {
         println!("\npeak RSS {peak:.0} MB");
     }
     Ok(())
+}
+
+/// What re-clustering costs over `hours` of speech, the meetings repeated one
+/// after the other: the speech heard without it, then with it as the child
+/// runs it, each re-cluster on a thread of its own and applied between two
+/// regions. Peak memory is of this process, so the second figure over the
+/// first is what the stretches and the distances add.
+fn cost(meetings: &[Meeting], hours: f64, clustering: Clustering) {
+    let mut stacked: Vec<Region> = Vec::new();
+    let mut offset = 0.0;
+    'stack: loop {
+        for meeting in meetings {
+            if offset >= hours * 3600.0 {
+                break 'stack;
+            }
+            stacked.extend(meeting.regions.iter().map(|r| r.shifted(offset)));
+            offset += meeting.length;
+        }
+    }
+    let windows: usize = stacked.iter().map(|r| r.windows().count()).sum();
+    println!(
+        "\nstacked: {:.1} h of audio, {} regions, {windows} windows",
+        offset / 3600.0,
+        stacked.len()
+    );
+    reset_peak_rss();
+    let mut speakers = Speakers::new(clustering);
+    let started = Instant::now();
+    for region in &stacked {
+        speakers.hear(region);
+    }
+    let held = peak_rss_mb().unwrap_or(0.0);
+    println!(
+        "heard without re-clustering in {:.1} s; peak RSS {held:.0} MB",
+        started.elapsed().as_secs_f64(),
+    );
+    drop(speakers);
+
+    type Job = thread::JoinHandle<(Reclustered, Duration, usize)>;
+    let start = |job: Recluster| -> Job {
+        thread::spawn(move || {
+            let (stretches, started) = (job.stretches(), Instant::now());
+            (job.run(), started.elapsed(), stretches)
+        })
+    };
+    reset_peak_rss();
+    let mut speakers = Speakers::new(clustering);
+    let mut working: Option<Job> = None;
+    let mut times: Vec<(usize, Duration)> = Vec::new();
+    let (mut longest, mut moved) = (Duration::ZERO, 0);
+    let started = Instant::now();
+    for region in &stacked {
+        let step = Instant::now();
+        speakers.hear(region);
+        if working.as_ref().is_some_and(|job| job.is_finished()) {
+            let (found, took, stretches) = working.take().expect("finished").join().expect("ran");
+            times.push((stretches, took));
+            let update = speakers.regroup(&found);
+            moved += update.map_or(0, |u| u.moved.len());
+        }
+        if working.is_none() && speakers.due() {
+            working = speakers.snapshot().map(start);
+        }
+        longest = longest.max(step.elapsed());
+    }
+    if let Some(job) = working {
+        let (_, took, stretches) = job.join().expect("ran");
+        times.push((stretches, took));
+    }
+    if let Some(job) = speakers.snapshot() {
+        let (found, took, stretches) = start(job).join().expect("ran");
+        times.push((stretches, took));
+        moved += speakers.regroup(&found).map_or(0, |u| u.moved.len());
+    }
+    let slowest = times.iter().max_by_key(|t| t.1);
+    let peak = peak_rss_mb().unwrap_or(0.0);
+    println!(
+        "heard with re-clustering in {:.1} s; peak RSS {peak:.0} MB, {:+.0} MB",
+        started.elapsed().as_secs_f64(),
+        peak - held
+    );
+    println!(
+        "{} re-clusters; the slowest, over {} stretches, took {:.2} s; {moved} spans moved",
+        times.len(),
+        slowest.map_or(0, |t| t.0),
+        slowest.map_or(0.0, |t| t.1.as_secs_f64()),
+    );
+    let interval = offset / stacked.len() as f64;
+    println!(
+        "longest step on the hearing thread (a region, or applying a re-cluster) {:.0} ms; a region arrives every {interval:.1} s",
+        longest.as_secs_f64() * 1000.0
+    );
 }

@@ -115,6 +115,20 @@ impl Region {
         }
     }
 
+    /// The same region `by` seconds later in a recording.
+    pub fn shifted(&self, by: f64) -> Self {
+        let windows = self.windows.iter().map(|w| Window {
+            start: w.start + by,
+            end: w.end + by,
+            embedding: w.embedding.clone(),
+        });
+        Self {
+            start: self.start + by,
+            end: self.end + by,
+            windows: windows.collect(),
+        }
+    }
+
     pub fn span(&self) -> (f64, f64) {
         (self.start, self.end)
     }
@@ -282,6 +296,11 @@ pub struct Reclustered {
 }
 
 impl Recluster {
+    /// How many stretches are to be clustered.
+    pub fn stretches(&self) -> usize {
+        self.ids.len()
+    }
+
     pub fn run(self) -> Reclustered {
         let voices: Vec<&[f32]> = self.voices.iter().map(Vec::as_slice).collect();
         let groups = cluster(&voices, &self.weights, self.threshold, self.min_share);
@@ -1765,7 +1784,7 @@ mod tests {
         assert!(!speakers.due(), "counted since the last");
         speakers.hear(&windows(5.0, &[b; 2]));
         assert!(speakers.due());
-        assert!(speakers.snapshot().is_some());
+        assert_eq!(speakers.snapshot().unwrap().stretches(), 3);
         assert!(!speakers.due());
         speakers.hear(&windows(REACH + 100.0, &[b; 2]));
         assert_eq!(speakers.stretches.len(), 1);

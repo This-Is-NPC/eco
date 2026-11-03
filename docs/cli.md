@@ -224,6 +224,10 @@ Windows of speech heard between two re-clusters, to compare
 
 **Default:** `400`
 
+#### `--stack <STACK>`
+
+Hours of speech to measure the cost of re-clustering over, from the recordings repeated
+
 #### `--collar <COLLAR>`
 
 Seconds forgiven around reference boundaries, half on each side
