@@ -795,6 +795,7 @@
   "settings.action_hook_send": "HOOK · AO ENVIAR",
   "error.hook.failed": "O hook falhou — {detail}",
   "error.hook.none": "{action} não tem hook",
+  "error.tray.stopped": "O ícone da bandeja falhou {count} vezes seguidas e ficou desligado — salve as configurações ou rode `eco window` para tentar de novo",
   "error.answer.not_found": "Resposta não encontrada, ou ainda não terminou",
   "history.search": "Buscar no que foi dito, anotado ou respondido…  /",
   "history.no_match": "Nenhuma sessão corresponde a “{text}”.",

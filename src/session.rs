@@ -4,7 +4,6 @@ use std::collections::{BTreeSet, HashMap};
 use std::future::Future;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::process::ExitStatus;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -1273,8 +1272,10 @@ trait Overlay: Send {
     fn hide_from_share(&mut self, hidden: bool) -> BoxFuture<'_, ()>;
     /// Run the tray icon, which is no window, or end it.
     fn tray(&mut self, on: bool) -> BoxFuture<'_, ()>;
-    /// Resolves when a window exits; never, without one.
-    fn exited(&mut self) -> BoxFuture<'_, Option<ExitStatus>>;
+    /// Start the tray icon again if it was left alone after failing.
+    fn tray_again(&mut self);
+    /// Resolves when a window exits or the tray gives up; never, without one.
+    fn exited(&mut self) -> BoxFuture<'_, overlay::Exit>;
     /// Terminate every window and wait for them to exit.
     fn close(self: Box<Self>) -> BoxFuture<'static, ()>;
 }
@@ -1324,7 +1325,11 @@ impl Overlay for overlay::Windows {
         Box::pin(overlay::Windows::tray(self, on))
     }
 
-    fn exited(&mut self) -> BoxFuture<'_, Option<ExitStatus>> {
+    fn tray_again(&mut self) {
+        overlay::Windows::tray_again(self);
+    }
+
+    fn exited(&mut self) -> BoxFuture<'_, overlay::Exit> {
         Box::pin(overlay::Windows::exited(self))
     }
 
@@ -1566,15 +1571,25 @@ impl Session {
                 Some(line) = received.recv() => if !self.handle(&line).await {
                     break;
                 },
-                status = self.windows.exited() => {
-                    self.overlay_open.store(self.windows.is_open(), Ordering::Relaxed);
-                    self.notifications.windows_open(&self.windows.numbers());
-                    if let Some(status) = status.filter(|status| !status.success()) {
-                        eprintln!(
-                            "eco: an overlay window exited ({status}); check WAYLAND_DISPLAY, then `eco start`"
-                        );
+                exit = self.windows.exited() => match exit {
+                    overlay::Exit::Window(status) => {
+                        self.overlay_open.store(self.windows.is_open(), Ordering::Relaxed);
+                        self.notifications.windows_open(&self.windows.numbers());
+                        if let Some(status) = status.filter(|status| !status.success()) {
+                            eprintln!(
+                                "eco: an overlay window exited ({status}); check WAYLAND_DISPLAY, then `eco start`"
+                            );
+                        }
                     }
-                }
+                    overlay::Exit::TrayStopped => (self.emit)(error(
+                        "tray.stopped",
+                        format!(
+                            "the tray icon failed {n} times in a row and stays off; save the settings or run `eco window` to try again",
+                            n = overlay::TRAY_STARTS
+                        ),
+                        json!({"count": overlay::TRAY_STARTS}),
+                    )),
+                },
                 () = &mut shutdown => break,
             }
         }
@@ -1589,10 +1604,12 @@ impl Session {
     /// once the daemon should stop.
     async fn handle(&mut self, line: &str) -> bool {
         if line.trim() == "overlay.open" {
+            self.windows.tray_again();
             self.open_app().await;
         } else if let ("window.call", Some(payload)) = split(line)
             && let Some(call) = window_call(payload)
         {
+            self.windows.tray_again();
             match route_call(self.windows.newest(), call) {
                 CallTo::Window(number, event) => {
                     // Focused first, so a window the call opens (the
@@ -1704,6 +1721,7 @@ impl Session {
                 self.notifications
                     .configure(config.notifications, interface_texts(&config));
                 self.current = config;
+                self.windows.tray_again();
                 self.restart().await;
                 self.check_daily().await;
                 (self.emit)(json!({"type": "config_saved"}));
@@ -3587,12 +3605,14 @@ mod tests {
         refuse: bool,
         hidden: Option<bool>,
         tray: Option<bool>,
+        /// How many times the tray was allowed to start again.
+        tray_again: u32,
     }
 
     /// Windows on a `Desk`; one exits for each status sent to `exits`.
     struct FakeWindows {
         desk: Arc<Mutex<Desk>>,
-        exits: mpsc::UnboundedReceiver<ExitStatus>,
+        exits: mpsc::UnboundedReceiver<overlay::Exit>,
     }
 
     impl Overlay for FakeWindows {
@@ -3666,11 +3686,17 @@ mod tests {
             Box::pin(async {})
         }
 
-        fn exited(&mut self) -> BoxFuture<'_, Option<ExitStatus>> {
+        fn tray_again(&mut self) {
+            self.desk.lock().unwrap().tray_again += 1;
+        }
+
+        fn exited(&mut self) -> BoxFuture<'_, overlay::Exit> {
             Box::pin(async move {
-                let status = self.exits.recv().await.expect("the test holds the sender");
-                self.desk.lock().unwrap().open.remove(0);
-                Some(status)
+                let exit = self.exits.recv().await.expect("the test holds the sender");
+                if matches!(exit, overlay::Exit::Window(_)) {
+                    self.desk.lock().unwrap().open.remove(0);
+                }
+                exit
             })
         }
 
@@ -3685,7 +3711,7 @@ mod tests {
         session: Session,
         events: Arc<Mutex<Vec<Value>>>,
         desk: Arc<Mutex<Desk>>,
-        exits: mpsc::UnboundedSender<ExitStatus>,
+        exits: mpsc::UnboundedSender<overlay::Exit>,
         fakes: update::testing::Fakes,
         /// The notifications shown.
         shown: Arc<Shown>,
@@ -4537,7 +4563,9 @@ mod tests {
         let failed_exit = std::os::unix::process::ExitStatusExt::from_raw(256);
         #[cfg(windows)]
         let failed_exit = std::os::windows::process::ExitStatusExt::from_raw(1);
-        exits.send(failed_exit).unwrap();
+        exits
+            .send(overlay::Exit::Window(Some(failed_exit)))
+            .unwrap();
         eventually(|| {
             notifications.heard(&failed);
             !shown.taken().is_empty()
@@ -4545,6 +4573,44 @@ mod tests {
         .await;
         lines.send("stop".into()).unwrap();
         served.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_tray_that_gave_up_is_told_once_as_an_error_event() {
+        let Daemon {
+            session,
+            exits,
+            events,
+            ..
+        } = daemon(raw());
+        let (lines, received) = mpsc::unbounded_channel();
+        let served = tokio::spawn(session.serve(received, std::future::pending()));
+        exits.send(overlay::Exit::TrayStopped).unwrap();
+        eventually(|| !events.lock().unwrap().is_empty()).await;
+        lines.send("stop".into()).unwrap();
+        served.await.unwrap();
+        let told = events.lock().unwrap().clone();
+        assert_eq!(told.len(), 1);
+        assert_eq!(told[0]["code"], "tray.stopped");
+        assert_eq!(told[0]["params"], json!({"count": overlay::TRAY_STARTS}));
+        for code in ["en-US", "pt-BR", "ja-JP"] {
+            assert!(overlay::language_pack(code).contains_key("error.tray.stopped"));
+        }
+    }
+
+    #[tokio::test]
+    async fn a_window_command_or_a_config_save_lets_the_tray_start_again() {
+        let mut d = daemon(raw());
+        let again = |d: &Daemon| d.desk.lock().unwrap().tray_again;
+        d.line("overlay.open").await;
+        assert_eq!(again(&d), 1);
+        d.line(r#"window.call {"call": "config"}"#).await;
+        assert_eq!(again(&d), 2);
+        d.line(&format!("config.set {}", json!({"token": "secret"})))
+            .await;
+        assert_eq!(again(&d), 3);
+        d.line(r#"window.show {"window": 1, "session": ""}"#).await;
+        assert_eq!(again(&d), 3);
     }
 
     #[tokio::test]
@@ -4991,10 +5057,10 @@ mod tests {
         assert!(!windows.is_open());
         windows.open(Some("later"), None).await.unwrap();
         let exited = tokio::time::timeout(Duration::from_secs(10), windows.exited());
-        assert_eq!(
-            exited.await.unwrap().and_then(|status| status.code()),
-            Some(2)
-        );
+        let overlay::Exit::Window(status) = exited.await.unwrap() else {
+            panic!("the tray gave up")
+        };
+        assert_eq!(status.and_then(|status| status.code()), Some(2));
         windows.close().await;
     }
 
@@ -5112,7 +5178,7 @@ mod tests {
         let failed = std::os::unix::process::ExitStatusExt::from_raw(256);
         #[cfg(windows)]
         let failed = std::os::windows::process::ExitStatusExt::from_raw(1);
-        exits.send(failed).unwrap();
+        exits.send(overlay::Exit::Window(Some(failed))).unwrap();
         eventually(|| !opened()).await;
         lines.send("stop".into()).unwrap();
         served.await.unwrap();

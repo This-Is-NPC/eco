@@ -795,6 +795,7 @@
   "settings.action_hook_send": "HOOK · ON SEND",
   "error.hook.failed": "The hook failed — {detail}",
   "error.hook.none": "{action} has no hook",
+  "error.tray.stopped": "The tray icon failed {count} times in a row and stays off — save the settings or run `eco window` to try again",
   "error.answer.not_found": "Answer not found, or not finished",
   "history.search": "Search what was said, noted or answered…  /",
   "history.no_match": "No session matches “{text}”.",

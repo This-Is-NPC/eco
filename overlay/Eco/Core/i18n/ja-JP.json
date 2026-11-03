@@ -795,6 +795,7 @@
   "settings.action_hook_send": "フック・送信時",
   "error.hook.failed": "フックが失敗しました — {detail}",
   "error.hook.none": "{action} にはフックがありません",
+  "error.tray.stopped": "トレイアイコンが{count}回続けて失敗したため停止しました — 設定を保存するか `eco window` を実行すると再試行します",
   "error.answer.not_found": "回答が見つからないか、まだ完了していません",
   "history.search": "話した内容・メモ・回答を検索…  /",
   "history.no_match": "「{text}」に一致するセッションはありません。",

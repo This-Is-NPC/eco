@@ -2284,7 +2284,11 @@ and after any line that leaves it on, ends it (`SIGTERM`, terminated on
 Windows) after a line that turns it off, and ends it with the windows when it
 stops. A tray process that exits, or cannot start, starts again after 1 s,
 then a pause that doubles to at most 60 s; one that ran a minute starts the
-count again.
+count again. After 5 starts in a row that failed, it is not started again: the
+daemon sends one `tray.stopped` error event (the desktop notification comes
+from it, since the tray cannot show one), and the count starts over, with the
+tray started at once, on a config save, `overlay.open` or `window.call` (an
+`eco window` command).
 
 ---
 

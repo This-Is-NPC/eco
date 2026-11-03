@@ -99,7 +99,8 @@ impl Launch {
 }
 
 /// The tray icon's process while `[ui] tray` is on: started again, after a
-/// pause that doubles with each early end, whenever it exits or cannot start.
+/// pause that doubles with each early end, whenever it exits or cannot start,
+/// until `TRAY_STARTS` starts in a row failed.
 struct Tray {
     /// The process while it runs, and when it started.
     running: Option<(Child, Instant)>,
@@ -107,6 +108,19 @@ struct Tray {
     failures: u32,
     /// When it starts again, while it does not run.
     again: Instant,
+    /// It failed `TRAY_STARTS` times in a row and is not started again.
+    stopped: bool,
+}
+
+/// How many starts in a row may fail before the tray is left alone.
+pub const TRAY_STARTS: u32 = 5;
+
+/// What ended the wait in `Windows::exited`.
+pub enum Exit {
+    /// A window exited: its status, or `None` when it could not be read.
+    Window(Option<ExitStatus>),
+    /// The tray failed `TRAY_STARTS` times in a row and is not started again.
+    TrayStopped,
 }
 
 /// The first pause before the tray starts again, and the longest.
@@ -121,21 +135,35 @@ impl Tray {
             running: None,
             failures: 0,
             again: Instant::now(),
+            stopped: false,
         };
         tray.run(launch);
         tray
     }
 
-    /// Run the process, or wait to try again when it cannot start.
-    fn run(&mut self, launch: &Launch) {
+    /// Run the process, or wait to try again when it cannot start; true when
+    /// that was the last start allowed.
+    fn run(&mut self, launch: &Launch) -> bool {
         match launch.spawn("tray.qml", &[]) {
-            Ok(child) => self.running = Some((child, Instant::now())),
+            Ok(child) => {
+                self.running = Some((child, Instant::now()));
+                false
+            }
             Err(error) => self.retry(&format!("could not start ({error})")),
         }
     }
 
-    /// Start again after the next pause, saying why.
-    fn retry(&mut self, why: &str) {
+    /// Start again after the next pause, saying why; true when `TRAY_STARTS`
+    /// in a row failed, and it is not started again.
+    fn retry(&mut self, why: &str) -> bool {
+        if self.failures + 1 >= TRAY_STARTS {
+            eprintln!(
+                "eco: the tray icon {why}; it failed {TRAY_STARTS} times in a row, so it stays off"
+            );
+            self.failures = TRAY_STARTS;
+            self.stopped = true;
+            return true;
+        }
         let pause = RETRY
             .saturating_mul(2u32.saturating_pow(self.failures))
             .min(RETRY_MAX);
@@ -145,10 +173,24 @@ impl Tray {
         );
         self.failures += 1;
         self.again = Instant::now() + pause;
+        false
     }
 
-    /// Resolves once the process exited, or once it was started again.
-    async fn keep(&mut self, launch: &Launch) {
+    /// Allow the starts again, at once: the count starts over.
+    fn again(&mut self) {
+        self.failures = 0;
+        if self.stopped {
+            self.stopped = false;
+            self.again = Instant::now();
+        }
+    }
+
+    /// Resolves once the process exited, or once it was started again; true
+    /// when that ended the starts.
+    async fn keep(&mut self, launch: &Launch) -> bool {
+        if self.stopped {
+            return std::future::pending().await;
+        }
         match &mut self.running {
             Some((child, since)) => {
                 let status = child.wait().await.map(|status| status.to_string());
@@ -157,11 +199,11 @@ impl Tray {
                 }
                 self.running = None;
                 let status = status.unwrap_or_else(|error| error.to_string());
-                self.retry(&format!("exited ({status})"));
+                self.retry(&format!("exited ({status})"))
             }
             None => {
                 tokio::time::sleep_until(self.again).await;
-                self.run(launch);
+                self.run(launch)
             }
         }
     }
@@ -334,10 +376,18 @@ impl Windows {
         }
     }
 
-    /// Resolves when a window exits, which leaves the set; never, without one.
-    /// `None` when its status could not be read. Meanwhile it starts the tray
+    /// Let the tray icon start again after it was left alone: the count of
+    /// failed starts begins anew.
+    pub fn tray_again(&mut self) {
+        if let Some(tray) = &mut self.tray {
+            tray.again();
+        }
+    }
+
+    /// Resolves when a window exits, which leaves the set, or when the tray
+    /// icon gives up; never, without either. Meanwhile it starts the tray
     /// icon again when that exits.
-    pub async fn exited(&mut self) -> Option<ExitStatus> {
+    pub async fn exited(&mut self) -> Exit {
         loop {
             let exited = {
                 let open = &mut self.open;
@@ -358,7 +408,7 @@ impl Windows {
                 };
                 tokio::select! {
                     exited = windows => Some(exited),
-                    () = tray => None,
+                    stopped = tray => if stopped { return Exit::TrayStopped } else { None },
                 }
             };
             if let Some((status, at)) = exited {
@@ -366,7 +416,7 @@ impl Windows {
                 if self.hidden {
                     self.share().await;
                 }
-                return status;
+                return Exit::Window(status);
             }
         }
     }
@@ -482,7 +532,8 @@ pub(crate) mod programs {
     /// and then waits, or exits with 4 at once when told to show `exit`, or
     /// with 2 a moment after opening when told to show `later`. Run as the
     /// tray, it adds a line to `dir/tray` instead, and exits with 3 at once
-    /// when `dir/tray-dies` exists, which it removes.
+    /// when `dir/tray-dies` exists, which it removes, or while `dir/tray-fails`
+    /// exists.
     pub(crate) fn windows(dir: &Path, control: Arc<dyn WindowControl>, hidden: bool) -> Windows {
         let program = fake_program(
             dir,
@@ -492,6 +543,7 @@ pub(crate) mod programs {
 if [ "${{1##*/}}" = tray.qml ]; then
   echo "$1 [$ECO_WINDOW] $ECO_SOCKET $ECO_TOKEN" >> tray
   [ -e tray-dies ] && rm tray-dies && exit 3
+  [ -e tray-fails ] && exit 3
   exec sleep 30
 fi
 echo "$1 $ECO_WINDOW $ECO_SHOW $ECO_CALL $ECO_SOCKET $ECO_TOKEN" > window-$ECO_WINDOW
@@ -589,6 +641,49 @@ exec sleep 30"#,
         assert!(ended(pid));
     }
 
+    /// Wait, with the clock paused, until the tray gives up.
+    async fn until_tray_stops(windows: &mut Windows) {
+        loop {
+            if let Exit::TrayStopped = windows.exited().await {
+                return;
+            }
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_tray_that_fails_five_starts_in_a_row_is_not_started_again() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("tray-fails"), "").unwrap();
+        let mut windows = windows(dir.path(), Arc::new(Noted::default()), false);
+        windows.tray(true).await;
+        until_tray_stops(&mut windows).await;
+        let starts = || {
+            fs::read_to_string(dir.path().join("tray"))
+                .unwrap()
+                .lines()
+                .count()
+        };
+        assert_eq!(starts(), TRAY_STARTS as usize);
+        let waited = tokio::time::timeout(Duration::from_secs(3600), windows.exited()).await;
+        assert!(waited.is_err(), "told again");
+        assert_eq!(starts(), TRAY_STARTS as usize);
+        windows.close().await;
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_tray_left_alone_starts_again_once_allowed() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("tray-fails"), "").unwrap();
+        let mut windows = windows(dir.path(), Arc::new(Noted::default()), false);
+        windows.tray(true).await;
+        until_tray_stops(&mut windows).await;
+        fs::remove_file(dir.path().join("tray-fails")).unwrap();
+        windows.tray_again();
+        let started = tray_starts(dir.path(), &mut windows, TRAY_STARTS as usize + 1).await;
+        assert_eq!(started.len(), TRAY_STARTS as usize + 1);
+        windows.close().await;
+    }
+
     #[tokio::test]
     async fn a_tray_that_cannot_start_is_tried_again() {
         let dir = tempfile::tempdir().unwrap();
@@ -668,7 +763,10 @@ exec sleep 30"#,
         windows.open(Some("later"), None).await.unwrap();
         let first = pids(&windows)[0];
         control.take();
-        let status = windows.exited().await.unwrap();
+        let Exit::Window(status) = windows.exited().await else {
+            panic!("the tray gave up")
+        };
+        let status = status.unwrap();
         assert_eq!(status.code(), Some(2));
         assert_eq!(windows.newest(), Some(1));
         assert_eq!(control.take(), [format!("hide [{first}] true")]);
