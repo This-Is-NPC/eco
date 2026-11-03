@@ -1,8 +1,8 @@
 //! `~/.config/eco/config.toml`: its schema, validation, and atomic save.
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::fs;
 use std::path::Path;
-use std::{env, fs};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -19,10 +19,36 @@ pub struct ConfigError(pub String);
 
 /// The key held by the environment variable `name`.
 pub fn env_key(name: &str) -> Result<String, ConfigError> {
-    env::var(name)
-        .ok()
+    variable(name)
         .filter(|key| !key.is_empty())
         .ok_or_else(|| ConfigError(format!("{name} is not set")))
+}
+
+#[cfg(not(test))]
+fn variable(name: &str) -> Option<String> {
+    std::env::var(name).ok()
+}
+
+/// A test reads the variables it sets with `testing::set_env`, on its own
+/// thread, and none of the process's.
+#[cfg(test)]
+fn variable(name: &str) -> Option<String> {
+    testing::ENV.with_borrow(|vars| vars.get(name).cloned())
+}
+
+#[cfg(test)]
+pub mod testing {
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+
+    thread_local! {
+        pub(super) static ENV: RefCell<HashMap<String, String>> = RefCell::default();
+    }
+
+    /// Set `name` for the key lookups of the calling test only.
+    pub fn set_env(name: &str, value: &str) {
+        ENV.with_borrow_mut(|vars| vars.insert(name.into(), value.into()));
+    }
 }
 
 /// A language code the STT accepts: ISO 639-1/2 letters, or "auto" to detect it.
@@ -511,12 +537,15 @@ pub struct Config {
 }
 
 impl Raw {
-    /// An empty default model, or one that is no registered model of its type,
-    /// becomes the first registered model of that type, in registration order.
+    /// An empty default model, or one that is no registered model of its type
+    /// nor a preset, becomes the first registered model of that type, in
+    /// registration order.
     fn with_default_models(mut self) -> Self {
         let pick = |models: &[ModelConfig], kind: ModelType, current: &str| {
             let named = |m: &&ModelConfig| m.kind == kind;
-            if models.iter().filter(named).any(|m| m.name == current) {
+            if models.iter().filter(named).any(|m| m.name == current)
+                || crate::presets::names(kind).any(|name| name == current)
+            {
                 return current.to_string();
             }
             models
@@ -673,7 +702,7 @@ impl Config {
             update: raw.update,
             shortcuts: raw.shortcuts,
         };
-        config.validate()?;
+        crate::presets::overlay(&config).validate()?;
         Ok(config)
     }
 

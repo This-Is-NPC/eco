@@ -1116,6 +1116,25 @@ provider's `base_url` and its secret's `api_key_*` field, and a `config.set`
 whose models carry those fields points them at a provider and secret by the
 same rule, dropping the ones nothing uses any more.
 
+eco ships presets, in `src/presets.rs`: the providers OpenRouter, Deepgram,
+ElevenLabs and Groq, each with a secret of the same name that reads its
+variable (`OPENROUTER_API_KEY`, `DEEPGRAM_API_KEY`, `ELEVEN_LABS_API_KEY`,
+`GROQ_API_KEY`), and one model per provider and type, picked from
+[benchmarks](benchmarks.md) and reviewed each release: `gpt-6-luna` (chat),
+`scribe-v2`, `nova-3` and `whisper-turbo` (transcription). The daemon lays them
+under the user's config each time it builds the pipeline, imports a file or lists
+models (`presets::overlay`); an entry of the user's with the same name replaces
+the preset's, a secret or provider included. They are never in the `config`
+snapshot's `config` and never saved: the file keeps only what the user wrote,
+and a default may name a preset model. A default model of a type the user has not
+chosen is the first preset of that type whose variable is set, or else the first
+one. A preset whose variable is not set stays and is `disabled`: the snapshot's
+`disabled_models` is `{name: {code: "preset.key_missing", params: {name,
+variable}}}`, and when a default or a kind names it, building it tells
+`stt.preset_disabled` or `model.preset_disabled` (`{name, variable}`) with the
+setup and again on `session.start` (`session.resume` checks the defaults); the model is not replaced by another. The variable is read when the
+provider is built, so one set before the next build is used then.
+
 The config window saves one item or value at a time, sending the saved config with
 that item's change whole (§12.6); the daemon validates it, writes
 `config.toml` and restarts capture. A restart first stops the running pipeline
@@ -1208,8 +1227,7 @@ The window's KEY FROM picks a key by name from one list: the `keys` command
 key and of the Credential Manager's `eco:<name>` credentials, and the `omapass`
 command the accounts. Only names cross the socket; no value is kept or sent.
 A variable may hold a key when it is named `ECO_<NAME>` — the convention
-for a key of the user's own — or is one of the presets' variables (`PRESETS` in
-`src/session.rs`) and is set, even empty (the provider build then says it is
+for a key of the user's own — or is one of the presets' variables (`presets::variables`) and is set, even empty (the provider build then says it is
 empty). The `ECO_` variables eco itself sets or reads for its own work
 (`ECO_SOCKET`, `ECO_TOKEN`, `ECO_WINDOW`, `ECO_SESSION`, `ECO_TITLE`, …) are
 `OWN_VARIABLES` in `src/session.rs`, one list, and are never offered. The daemon
@@ -1221,11 +1239,11 @@ lists (§11).
 
 The `models` command (§10.2) lists a provider's models with a key, so it reads a
 key only where a saved provider would: the key source of a saved model, sent to
-that model's `base_url` (a trailing `/` aside), or one of the window's presets —
-`DEEPGRAM_API_KEY`, `ELEVEN_LABS_API_KEY`, `GROQ_API_KEY`, `OPENAI_API_KEY`,
-`OPENROUTER_API_KEY` — sent to that preset's own URL. The presets are `PRESETS`
-in `src/session.rs`, and the window gets them from the `config` event (§10.1),
-so the window and this rule read one table. Any other request
+that model's `base_url` (a trailing `/` aside); the preset models are among the
+saved ones, so `DEEPGRAM_API_KEY`, `ELEVEN_LABS_API_KEY`, `GROQ_API_KEY` and
+`OPENROUTER_API_KEY` go to their preset's own URL only. The window gets the
+presets from the `config` event (§10.1), so the window and this rule read one
+table. Any other request
 is refused before a key is read, so whatever can write to the socket, an agent
 included, cannot send a secret to a server of its choosing. A draft model with a
 custom URL and a key, or an omapass key, lists once it is saved.
@@ -1290,7 +1308,7 @@ A new client first receives `snapshot`; a window asks for the timeline of the
 session it shows:
 
 ```json
-{"type":"snapshot","session":{"id":"…","title":"Entrevista","kind":"meeting","source":"live","language":"pt","state":"recording","started_at":1791083833.3,"active_s":312.4,"running_since":1791084400.0,"counts":{"lines":40,"answers":2,"notes":1}},"kinds":["meeting","conversation","other","idea"],"kind_models":{"meeting":{"transcription":"deepgram","chat":"gemini","translation":"gemini","actions":["ask","probe"]},"idea":{"transcription":"whisper-lan","chat":"qwen-lan","translation":"gemini","actions":["ask","probe"]}},"default_models":{"transcription":"deepgram","chat":"gemini","translation":"gemini","actions":["ask","probe"]},"actions":["ask","probe"],"hooks":["probe"],"participants":[{"name":"Eu","user":true},{"name":"Eles","user":false}],"inputs":[{"id":"@default-input","label":"Default microphone","participant":"Eu","color":"#ffb000"}]}
+{"type":"snapshot","session":{"id":"…","title":"Entrevista","kind":"meeting","source":"live","language":"pt","state":"recording","started_at":1791083833.3,"active_s":312.4,"running_since":1791084400.0,"counts":{"lines":40,"answers":2,"notes":1}},"kinds":["meeting","conversation","other","idea"],"kind_models":{"meeting":{"transcription":"deepgram","chat":"gemini","translation":"gemini","actions":["ask","probe"]},"idea":{"transcription":"whisper-lan","chat":"qwen-lan","translation":"gemini","actions":["ask","probe"]}},"default_models":{"transcription":"deepgram","chat":"gemini","translation":"gemini","actions":["ask","probe"]},"disabled_models":{},"actions":["ask","probe"],"hooks":["probe"],"participants":[{"name":"Eu","user":true},{"name":"Eles","user":false}],"inputs":[{"id":"@default-input","label":"Default microphone","participant":"Eu","color":"#ffb000"}]}
 {"type":"signal","input":"@default-input","level":0.42,"speech":true}
 {"type":"session","session":{…} or null,"live":[{…} for each live session],"transcribers":[{"model":"deepgram","language":"pt","sessions":2}]}
 {"type":"session_opened","id":"…","window":2}
@@ -1334,7 +1352,7 @@ session it shows:
 {"type":"import_started","session":{…},"total_s":1834.2}
 {"type":"import_progress","id":"…","done_s":612.5,"total_s":1834.2}
 {"type":"import_done","id":"…","complete":true}
-{"type":"config","config":{...},"devices":[{"id":"@default-input","label":"...","kind":"input"}],"omapass":{"installed":false,"page":"https://plugins.omarchy.org/..."},"credential_manager":false,"presets":{"transcription":[{"name":"DEEPGRAM","values":{"base_url":"wss://api.deepgram.com/v1/listen","model":"nova-3","api_key_env":"DEEPGRAM_API_KEY"}},…],"chat":[{"name":"OPENROUTER","values":{"base_url":"https://openrouter.ai/api/v1","model":"…","api_key_env":"OPENROUTER_API_KEY","extra":{}}},…]},"echo_cancel":null}
+{"type":"config","config":{...},"devices":[{"id":"@default-input","label":"...","kind":"input"}],"omapass":{"installed":false,"page":"https://plugins.omarchy.org/..."},"credential_manager":false,"presets":{"transcription":[{"name":"ELEVENLABS","values":{"base_url":"wss://api.elevenlabs.io/v1/speech-to-text/realtime","model":"scribe_v2_realtime","api_key_env":"ELEVEN_LABS_API_KEY"}},…],"chat":[{"name":"OPENROUTER","values":{"base_url":"https://openrouter.ai/api/v1","model":"openai/gpt-6-luna","api_key_env":"OPENROUTER_API_KEY","extra":{}}}]},"echo_cancel":null}
 {"type":"config_saved"}
 {"type":"config_pending","id":"1","hooks":[{"action":"minutes","command":"~/bin/crm-push"}],"files":["~/notes/cv.md"],"models":[{"name":"fast","base_url":"http://192.0.2.10:8000/v1","api_key_env":null,"api_key_omapass":"openrouter","api_key_credential":null}]}
 {"type":"models","target":"llm","models":["..."],"error":"..."}

@@ -13,6 +13,7 @@ mod installer;
 mod lifecycle;
 mod paths;
 mod ports;
+mod presets;
 mod session;
 mod setup;
 mod shortcuts;

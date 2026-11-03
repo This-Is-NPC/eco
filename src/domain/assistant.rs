@@ -181,6 +181,8 @@ pub struct Setup {
     pub routes: Value,
     /// The same for a session of a kind no longer configured.
     pub default_route: Value,
+    /// The preset models that wait for a key, `{name: {code, params}}`.
+    pub disabled_models: Value,
     pub translation: Translating,
     pub actions: Vec<Action>,
     /// The rules every answer follows unless its request says otherwise.
@@ -3342,6 +3344,7 @@ impl Assistant {
             "kinds": setup.map(|s| s.kinds.clone()).unwrap_or_default(),
             "kind_models": setup.map_or(Value::Null, |s| s.routes.clone()),
             "default_models": setup.map_or(Value::Null, |s| s.default_route.clone()),
+            "disabled_models": setup.map_or(Value::Null, |s| s.disabled_models.clone()),
             "contexts": setup
                 .map(|s| s.slots.iter().map(|slot| json!({"name": slot.name, "kinds": slot.kinds})).collect::<Vec<_>>())
                 .unwrap_or_default(),
@@ -3671,6 +3674,7 @@ mod tests {
             },
             routes: json!({"meeting": {"transcription": "whisper", "chat": "default"}}),
             default_route: json!({"transcription": "whisper", "chat": "default"}),
+            disabled_models: json!({}),
             actions: vec![probe(), ask_action()],
             rules: crate::domain::prompts::DEFAULT_RULES.into(),
             reviewer: None,

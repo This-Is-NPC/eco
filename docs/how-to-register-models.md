@@ -38,6 +38,31 @@ server of your own.
 
 ---
 
+## Models eco ships
+
+With only keys set, eco already has models. It ships the providers OpenRouter,
+Deepgram, ElevenLabs and Groq, each reading its variable above, and one model
+per provider and type:
+
+| model | type | provider | why this one |
+|---|---|---|---|
+| `gpt-6-luna` | chat | OpenRouter | best answer score (4.34), 95% pass, $0.10 per 1000 answers |
+| `scribe-v2` | transcription | ElevenLabs | line latency p50 1.05 s, p90 1.45 s |
+| `nova-3` | transcription | Deepgram | line latency p50 1.58 s, p90 2.83 s |
+| `whisper-turbo` | transcription | Groq | not measured on Groq |
+
+The numbers are in [benchmarks](benchmarks.md); the choice is reviewed each
+release. These models are not in `config.toml`: eco adds them when it reads it,
+and a model, provider or secret of yours with the same name replaces the
+shipped one. When you have not chosen a default chat or transcription model, the
+first shipped one whose variable is set is the default, in the order of the table.
+
+A shipped model whose variable is not set is listed and disabled, never hidden.
+If a default names it, the daemon tells `Transcription unavailable: the preset
+scribe-v2 needs ELEVEN_LABS_API_KEY, which is not set. …` (for a chat model,
+`Model gpt-6-luna unavailable: …`) and does not switch to another. Set the
+variable, then `eco restart`.
+
 ## 1. Put the key where the daemon can read it
 
 Only the daemon reads keys. The window never holds one, and no key is ever
@@ -55,7 +80,7 @@ export DEEPGRAM_API_KEY=…
 ```
 
 The variables eco's presets name are `OPENROUTER_API_KEY`, `DEEPGRAM_API_KEY`,
-`ELEVEN_LABS_API_KEY`, `GROQ_API_KEY` and `OPENAI_API_KEY`. A new value reaches
+`ELEVEN_LABS_API_KEY` and `GROQ_API_KEY`. A new value reaches
 the daemon once the session has read the file again: log out and back in, then
 `eco restart`.
 
@@ -191,10 +216,9 @@ in use has no TYPE row.
 
 | preset | how it transcribes | key |
 |---|---|---|
-| **DEEPGRAM** (`nova-3`) | streaming: words appear as they are said | `DEEPGRAM_API_KEY` |
 | **ELEVENLABS** (`scribe_v2_realtime`) | streaming | `ELEVEN_LABS_API_KEY` |
+| **DEEPGRAM** (`nova-3`) | streaming: words appear as they are said | `DEEPGRAM_API_KEY` |
 | **GROQ** (`whisper-large-v3-turbo`) | one phrase at a time, once it ends | `GROQ_API_KEY` |
-| **OPENAI** (`whisper-1`) | one phrase at a time | `OPENAI_API_KEY` |
 
 The base URL decides how: a `wss://` URL streams, an `http(s)://` one is the
 OpenAI-compatible `/v1/audio/transcriptions`. How fast each is, measured, is in

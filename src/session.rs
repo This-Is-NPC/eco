@@ -52,6 +52,7 @@ use crate::ports::{
     AudioDevices, AudioError, AudioSource, Device, EchoError, LanguageModel, Notifier, PeopleStore,
     SessionLog, SpeechToText, StreamingSpeechToText, TranscriptionBilling, WindowControl,
 };
+use crate::presets;
 
 pub mod update;
 
@@ -274,11 +275,13 @@ pub enum Stt {
 
 /// Why a provider could not be built: what to say, and, when its key is a
 /// credential the Windows Credential Manager does not hold, that credential's
-/// name, so the window says how to add it.
+/// name, so the window says how to add it, or, for a preset model, the
+/// variable of its key that is not set.
 #[derive(Debug, Clone, PartialEq)]
 struct Unbuilt {
     detail: String,
     credential: Option<String>,
+    variable: Option<String>,
 }
 
 impl From<String> for Unbuilt {
@@ -286,6 +289,7 @@ impl From<String> for Unbuilt {
         Self {
             detail,
             credential: None,
+            variable: None,
         }
     }
 }
@@ -307,6 +311,13 @@ impl Unbuilt {
     /// told by; a missing credential is named, so the window says how to add it.
     fn stt_unavailable(&self, name: &str) -> Value {
         let message = format!("transcription: {self}");
+        if let Some(variable) = &self.variable {
+            return error(
+                "stt.preset_disabled",
+                message,
+                json!({"name": name, "variable": variable}),
+            );
+        }
         match &self.credential {
             Some(credential) => error(
                 "stt.credential_missing",
@@ -340,6 +351,13 @@ impl Unbuilt {
     /// The error the chat model `name` that could not be built is told by.
     fn model_unavailable(&self, name: &str) -> Value {
         let message = format!("model {name}: {self}");
+        if let Some(variable) = &self.variable {
+            return error(
+                "model.preset_disabled",
+                message,
+                json!({"name": name, "variable": variable}),
+            );
+        }
         match &self.credential {
             Some(credential) => error(
                 "model.credential_missing",
@@ -365,15 +383,24 @@ async fn api_key(key: Key<'_>) -> Result<Option<String>, Unbuilt> {
         Key::Credential(name) => credentials::read(name).map(Some).map_err(|e| Unbuilt {
             detail: e.to_string(),
             credential: matches!(e, CredentialError::Missing(_)).then(|| name.to_string()),
+            variable: None,
         }),
     }
+}
+
+/// The key of `model`'s provider; a preset model without its variable says so.
+async fn model_key(model: &Resolved) -> Result<Option<String>, Unbuilt> {
+    api_key(model.key()).await.map_err(|why| Unbuilt {
+        variable: presets::missing(model).map(String::from),
+        ..why
+    })
 }
 
 impl Stt {
     /// The transcriber for live audio, or for a `file` — Deepgram streams only
     /// as fast as the audio plays, so a file goes to it segment by segment.
     async fn build(stt: &Resolved, language: &str, file: bool) -> Result<Self, Unbuilt> {
-        let key = api_key(stt.key()).await?;
+        let key = model_key(stt).await?;
         let base = stt.base_url.trim_end_matches('/');
         if !(base.starts_with("ws://") || base.starts_with("wss://")) {
             let timeout = Duration::from_secs(30);
@@ -1147,6 +1174,7 @@ async fn pipeline(config: Config, assistant: Assistant, emit: Emit, rig: Rig) {
         appearance: serde_json::to_value(&config.appearance).expect("appearance serializes"),
         transcription: kind_transcribers.clone(),
         default_transcription: config.stt.model.clone(),
+        disabled_models: presets::disabled_value(&presets::disabled(&config)),
         transcription_prices: config
             .models
             .iter()
@@ -1183,7 +1211,7 @@ async fn pipeline(config: Config, assistant: Assistant, emit: Emit, rig: Rig) {
 /// A registered chat model, with its key; why not, when it cannot be had. A
 /// local one may read a long context for minutes before its first word.
 async fn chat_model(model: &Resolved) -> Result<OpenAIChat, Unbuilt> {
-    let key = api_key(model.key()).await?;
+    let key = model_key(model).await?;
     let endpoint = Endpoint::new(&model.base_url, key, LLM_SILENCE).map_err(|e| e.0)?;
     Ok(OpenAIChat::new(endpoint, model.request_fields()))
 }
@@ -1716,7 +1744,7 @@ impl Session {
     async fn restart(&mut self) {
         stop(self.pipeline.take()).await;
         self.pipeline = Some(tokio::spawn(pipeline(
-            self.current.clone(),
+            presets::overlay(&self.current),
             self.assistant.clone(),
             Arc::clone(&self.emit),
             self.rig.clone(),
@@ -1793,6 +1821,7 @@ impl Session {
         let id = self
             .assistant
             .start(&title, &kind, &code, contexts.as_deref());
+        self.tell_disabled(Some(&kind));
         for tag in &tags {
             self.assistant.tag(&id, tag, true);
         }
@@ -1802,6 +1831,34 @@ impl Session {
             .and_then(|request| request.get("window").and_then(Value::as_u64))
         {
             (self.emit)(json!({"type": "session_opened", "id": id, "window": window}));
+        }
+    }
+
+    /// Tell that the models a session of `kind` (the defaults when `None`) would
+    /// transcribe and answer with wait for a preset's key.
+    fn tell_disabled(&self, kind: Option<&str>) {
+        let config = presets::overlay(&self.current);
+        let waiting = presets::disabled(&config);
+        let (stt, chat) = match kind {
+            Some(kind) => (
+                config.transcriber(kind).map(|m| &m.name),
+                config
+                    .model_of_kind(ModelType::Chat, kind)
+                    .map_or(Some(&config.llm.model), |m| Some(&m.name)),
+            ),
+            None => (Some(&config.stt.model), Some(&config.llm.model)),
+        };
+        for wait in &waiting {
+            let why = Unbuilt {
+                detail: format!("{}: {} is not set", wait.name, wait.variable),
+                credential: None,
+                variable: Some(wait.variable.clone()),
+            };
+            if stt == Some(&wait.name) {
+                (self.emit)(why.stt_unavailable(&wait.name));
+            } else if chat == Some(&wait.name) {
+                (self.emit)(why.model_unavailable(&wait.name));
+            }
         }
     }
 
@@ -1935,7 +1992,7 @@ impl Session {
                 .filter(|value| !value.is_empty())
                 .map(String::from)
         };
-        let config = &self.current;
+        let config = &presets::overlay(&self.current);
         let Some(path) = text("path").map(PathBuf::from).filter(|p| p.is_file()) else {
             return (self.emit)(failed(format!(
                 "no file {:?}",
@@ -2016,7 +2073,7 @@ impl Session {
                 self.background.spawn(async move {
                     let devices = serde_json::to_value(listed.await).unwrap_or_default();
                     let omapass = json!({"installed": omapass::installed(), "page": omapass::PAGE});
-                    emit(json!({"type": "config", "config": config, "devices": devices, "omapass": omapass, "credential_manager": credentials::AVAILABLE, "presets": presets(), "echo_cancel": echo_cancel}));
+                    emit(json!({"type": "config", "config": config, "devices": devices, "omapass": omapass, "credential_manager": credentials::AVAILABLE, "presets": presets::listing(), "echo_cancel": echo_cancel}));
                 });
             }
             ("devices", None) => {
@@ -2093,7 +2150,10 @@ impl Session {
             }
             ("session.start", Some(payload)) => self.start_session(payload).await,
             ("session.pause", id) => self.assistant.pause(id.map(str::trim)),
-            ("session.resume", id) => self.assistant.resume(id.map(str::trim)),
+            ("session.resume", id) => {
+                self.assistant.resume(id.map(str::trim));
+                self.tell_disabled(None);
+            }
             ("session.toggle", None) => self.assistant.toggle(),
             ("sessions", None) => self.assistant.sessions(),
             ("sessions.search", Some(query)) => self.assistant.search(query),
@@ -2335,7 +2395,7 @@ impl Session {
             }
             ("models", Some(payload)) => {
                 let payload = payload.to_string();
-                let saved = self.current.resolved();
+                let saved = presets::overlay(&self.current).resolved();
                 self.background
                     .spawn(async move { emit(models(&payload, &saved).await) });
             }
@@ -2457,7 +2517,7 @@ fn keys_listed(
             .strip_prefix("ECO_")
             .is_some_and(|rest| !rest.is_empty())
             && !OWN_VARIABLES.contains(&name))
-            || PRESETS.iter().any(|p| p.api_key_env == name)
+            || presets::variables().any(|variable| variable == name)
     };
     let mut env: Vec<String> = variables
         .into_iter()
@@ -2474,92 +2534,12 @@ fn keys_listed(
     json!({"type": "keys", "env": env, "credentials": credentials, "credential_error": credential_error})
 }
 
-/// A provider the settings window offers by name: its official URL, a default
-/// model, and the variable its key comes from.
-struct Preset {
-    name: &'static str,
-    kind: ModelType,
-    base_url: &'static str,
-    model: &'static str,
-    api_key_env: &'static str,
-}
-
-/// Every preset, in the order the window shows them.
-const PRESETS: [Preset; 6] = [
-    Preset {
-        name: "DEEPGRAM",
-        kind: ModelType::Transcription,
-        base_url: "wss://api.deepgram.com/v1/listen",
-        model: "nova-3",
-        api_key_env: "DEEPGRAM_API_KEY",
-    },
-    Preset {
-        name: "ELEVENLABS",
-        kind: ModelType::Transcription,
-        base_url: "wss://api.elevenlabs.io/v1/speech-to-text/realtime",
-        model: "scribe_v2_realtime",
-        api_key_env: "ELEVEN_LABS_API_KEY",
-    },
-    Preset {
-        name: "GROQ",
-        kind: ModelType::Transcription,
-        base_url: "https://api.groq.com/openai/v1",
-        model: "whisper-large-v3-turbo",
-        api_key_env: "GROQ_API_KEY",
-    },
-    Preset {
-        name: "OPENAI",
-        kind: ModelType::Transcription,
-        base_url: "https://api.openai.com/v1",
-        model: "whisper-1",
-        api_key_env: "OPENAI_API_KEY",
-    },
-    Preset {
-        name: "OPENROUTER",
-        kind: ModelType::Chat,
-        base_url: "https://openrouter.ai/api/v1",
-        model: "google/gemini-3.5-flash-lite",
-        api_key_env: "OPENROUTER_API_KEY",
-    },
-    Preset {
-        name: "GROQ",
-        kind: ModelType::Chat,
-        base_url: "https://api.groq.com/openai/v1",
-        model: "llama-4-scout",
-        api_key_env: "GROQ_API_KEY",
-    },
-];
-
-/// The presets by model type, as the `config` event carries them: each a name and
-/// the model fields it sets; a chat preset also empties `extra`.
-fn presets() -> Value {
-    let of = |kind: ModelType| -> Vec<Value> {
-        PRESETS
-            .iter()
-            .filter(|p| p.kind == kind)
-            .map(|p| {
-                let mut values =
-                    json!({"base_url": p.base_url, "model": p.model, "api_key_env": p.api_key_env});
-                if kind == ModelType::Chat {
-                    values["extra"] = json!({});
-                }
-                json!({"name": p.name, "values": values})
-            })
-            .collect()
-    };
-    json!({"transcription": of(ModelType::Transcription), "chat": of(ModelType::Chat)})
-}
-
-/// Whether `key` may be read to list the models at `base_url`: no key, the key of
-/// a saved model at that URL, or a preset's variable at the preset's own URL.
-/// Any other pair would send any secret to any server.
+/// Whether `key` may be read to list the models at `base_url`: no key, or the key
+/// of a saved model, a preset among them, at that URL. Any other pair would send
+/// any secret to any server.
 fn key_allowed(key: Key<'_>, base_url: &str, saved: &[Resolved]) -> bool {
     let same = |url: &str| url.trim_end_matches('/') == base_url.trim_end_matches('/');
-    key == Key::None
-        || saved.iter().any(|m| same(&m.base_url) && m.key() == key)
-        || PRESETS
-            .iter()
-            .any(|p| same(p.base_url) && key == Key::Env(p.api_key_env))
+    key == Key::None || saved.iter().any(|m| same(&m.base_url) && m.key() == key)
 }
 
 /// The models a provider offers, for the config screen's picker; a key
@@ -2863,12 +2843,13 @@ mod tests {
     }
 
     fn saved_models() -> Vec<Resolved> {
-        resolved(json!([
+        let user = Config::from_value(json!({"models": [
             {"name": "lan", "type": "chat", "base_url": "http://10.0.0.5:8000/v1/", "model": "m",
              "api_key_env": "LAN_KEY"},
             {"name": "dg", "type": "transcription", "base_url": "wss://api.deepgram.com/v1/listen",
              "model": "nova-3", "api_key_omapass": "Deepgram"},
-        ]))
+        ]}));
+        presets::overlay(&user.unwrap()).resolved()
     }
 
     /// `models` in the old shape, as the models a config registers.
@@ -2926,24 +2907,6 @@ mod tests {
         assert_eq!(answer["models"], json!([]));
         assert_eq!(answer["code"], "models.key_refused");
         assert_eq!(answer["params"], json!({"base_url": "http://attacker"}));
-    }
-
-    #[test]
-    fn presets_go_to_the_window_by_model_type() {
-        let presets = presets();
-        assert_eq!(presets["transcription"].as_array().unwrap().len(), 4);
-        assert_eq!(
-            presets["chat"][1],
-            json!({"name": "GROQ", "values": {
-                "base_url": "https://api.groq.com/openai/v1", "model": "llama-4-scout",
-                "api_key_env": "GROQ_API_KEY", "extra": {},
-            }})
-        );
-        assert_eq!(
-            presets["transcription"][0]["values"],
-            json!({"base_url": "wss://api.deepgram.com/v1/listen", "model": "nova-3",
-                   "api_key_env": "DEEPGRAM_API_KEY"})
-        );
     }
 
     fn recorder() -> (Emit, Arc<Mutex<Vec<Value>>>) {
@@ -4339,7 +4302,7 @@ mod tests {
         let config = d.until(|event| event["type"] == "config").await;
         assert_eq!(config["config"], d.session.current.to_value());
         assert_eq!(config["devices"][2]["id"], "usb-mic");
-        assert_eq!(config["presets"], presets());
+        assert_eq!(config["presets"], presets::listing());
         assert_eq!(config["omapass"]["page"], omapass::PAGE);
         assert_eq!(config["credential_manager"], cfg!(windows));
         assert_eq!(config["echo_cancel"], Value::Null);
@@ -5412,39 +5375,28 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn without_a_config_file_the_daemon_runs_empty_and_a_save_writes_it() {
+    async fn without_a_config_file_the_daemon_runs_on_the_presets_and_a_save_writes_it() {
         let mut d = daemon(json!({"participants": raw()["participants"]}));
         assert!(!d.session.config_path.exists());
         let snapshot = d.configured().await;
-        let nothing = json!({"transcription": "", "chat": "", "translation": "", "actions": []});
-        assert_eq!(snapshot["kind_models"]["meeting"], nothing);
-        assert_eq!(snapshot["default_models"], nothing);
-        // Nothing is wrong yet: no part names a model it cannot have.
-        let problems = d.events.lock().unwrap().clone();
-        assert!(
-            !problems
-                .iter()
-                .any(|event| event["code"] == "stt.unavailable"
-                    || event["code"] == "model.unavailable"),
-            "{problems:?}"
+        // No key is set: the first preset of each type is the default, told as disabled.
+        assert_eq!(snapshot["default_models"]["transcription"], "scribe-v2");
+        assert_eq!(snapshot["default_models"]["chat"], "gpt-6-luna");
+        assert_eq!(
+            snapshot["kind_models"]["meeting"]["transcription"],
+            "scribe-v2"
         );
-        // What needs a model says that none is chosen.
-        let id = d.start("Retro").await;
-        let unheard = d.until(|event| event["code"] == "stt.unavailable").await;
-        assert_eq!(unheard["params"]["detail"], NO_TRANSCRIPTION_MODEL);
-        // What needs a chat model is refused before anything is asked.
-        let events = d.line("ask which queue?").await;
-        assert_eq!(said(&events), ["chat.none"]);
-        let translate = json!({"id": id, "language": "en"});
-        let events = d.line(&format!("session.translation {translate}")).await;
-        assert_eq!(said(&events), ["translation.none"]);
-        let path = d.dir.path().join("call.wav");
-        std::fs::write(&path, b"RIFF").unwrap();
-        let events = d
-            .line(&format!("session.import {}", json!({"path": path})))
+        assert_eq!(
+            snapshot["disabled_models"]["scribe-v2"]["params"],
+            json!({"name": "scribe-v2", "variable": "ELEVEN_LABS_API_KEY"})
+        );
+        let unheard = d
+            .until(|event| event["code"] == "stt.preset_disabled")
             .await;
-        assert_eq!(said(&events), ["import.failed"]);
-        assert_eq!(events[0]["params"]["detail"], NO_TRANSCRIPTION_MODEL);
+        assert_eq!(unheard["params"]["variable"], "ELEVEN_LABS_API_KEY");
+        // A session starts on the disabled model, and says which.
+        let started = d.line("session.start {\"language\": \"pt\"}").await;
+        assert_eq!(started[0]["transcribers"][0]["model"], "scribe-v2");
         // The first save writes the file.
         let mut saved = raw();
         saved["token"] = json!("secret");
@@ -5454,6 +5406,107 @@ mod tests {
             config::load(&d.session.config_path).unwrap(),
             d.session.current
         );
+    }
+
+    /// The codes of the events about a model that could not be had.
+    fn model_problems(d: &Daemon) -> Vec<String> {
+        let events = d.events.lock().unwrap();
+        events
+            .iter()
+            .filter_map(|event| event["code"].as_str())
+            .filter(|code| code.starts_with("stt.") || code.starts_with("model."))
+            .map(String::from)
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn two_keys_are_enough_for_a_session_on_the_presets() {
+        config::testing::set_env("OPENROUTER_API_KEY", "sk-or");
+        config::testing::set_env("DEEPGRAM_API_KEY", "dg");
+        let mut d = daemon(json!({"participants": raw()["participants"]}));
+        let snapshot = d.configured().await;
+        assert_eq!(snapshot["default_models"]["transcription"], "nova-3");
+        assert_eq!(snapshot["default_models"]["chat"], "gpt-6-luna");
+        // The others are there, disabled, and nothing was told as missing.
+        let waiting: Vec<&String> = snapshot["disabled_models"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .collect();
+        assert_eq!(waiting, ["scribe-v2", "whisper-turbo"]);
+        assert_eq!(model_problems(&d), Vec::<String>::new());
+        // Both build from the presets alone.
+        let config = presets::overlay(&d.session.current);
+        let resolve = |name| config.resolve(config.model(name).unwrap()).unwrap();
+        assert!(matches!(
+            Stt::build(&resolve("nova-3"), "pt", false).await,
+            Ok(Stt::Stream(_))
+        ));
+        assert!(chat_model(&resolve("gpt-6-luna")).await.is_ok());
+        d.start("Retro").await;
+        assert_eq!(model_problems(&d), Vec::<String>::new());
+    }
+
+    #[tokio::test]
+    async fn without_a_transcription_key_the_preset_is_disabled_and_told() {
+        config::testing::set_env("OPENROUTER_API_KEY", "sk-or");
+        let mut d = daemon(json!({"participants": raw()["participants"]}));
+        let snapshot = d.configured().await;
+        assert_eq!(snapshot["default_models"]["chat"], "gpt-6-luna");
+        assert_eq!(snapshot["default_models"]["transcription"], "scribe-v2");
+        let waiting: Vec<&String> = snapshot["disabled_models"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .collect();
+        assert_eq!(waiting, ["nova-3", "scribe-v2", "whisper-turbo"]);
+        d.events.lock().unwrap().clear();
+        let started = d.line("session.start {\"language\": \"pt\"}").await;
+        let told = started
+            .iter()
+            .find(|event| event["code"] == "stt.preset_disabled")
+            .expect("told at the start");
+        assert_eq!(
+            told["params"],
+            json!({"name": "scribe-v2", "variable": "ELEVEN_LABS_API_KEY"})
+        );
+        assert_eq!(
+            told["message"],
+            "transcription: scribe-v2: ELEVEN_LABS_API_KEY is not set"
+        );
+        assert_eq!(model_problems(&d), ["stt.preset_disabled"]);
+    }
+
+    #[tokio::test]
+    async fn a_default_no_preset_can_take_is_told_as_none_chosen() {
+        // Every transcription preset's name is taken by a chat model.
+        let taken: Vec<Value> = ["scribe-v2", "nova-3", "whisper-turbo"]
+            .iter()
+            .map(|name| json!({"name": name, "type": "chat", "base_url": "http://llm", "model": "m"}))
+            .collect();
+        let mut d = daemon(json!({"models": taken, "participants": raw()["participants"]}));
+        d.configured().await;
+        d.start("Retro").await;
+        let unheard = d.until(|event| event["code"] == "stt.unavailable").await;
+        assert_eq!(unheard["params"]["detail"], NO_TRANSCRIPTION_MODEL);
+        let path = d.dir.path().join("call.wav");
+        std::fs::write(&path, b"RIFF").unwrap();
+        let events = d
+            .line(&format!("session.import {}", json!({"path": path})))
+            .await;
+        assert_eq!(said(&events), ["import.failed"]);
+        assert_eq!(events[0]["params"]["detail"], NO_TRANSCRIPTION_MODEL);
+
+        // The chat preset's name is taken by a transcription model.
+        let taken = json!([{"name": "gpt-6-luna", "type": "transcription", "base_url": "http://stt", "model": "w"}]);
+        let mut d = daemon(json!({"models": taken, "participants": raw()["participants"]}));
+        d.configured().await;
+        let id = d.start("Retro").await;
+        let events = d.line("ask which queue?").await;
+        assert_eq!(said(&events), ["chat.none"]);
+        let translate = json!({"id": id, "language": "en"});
+        let events = d.line(&format!("session.translation {translate}")).await;
+        assert_eq!(said(&events), ["translation.none"]);
     }
 
     #[tokio::test]
@@ -5962,6 +6015,7 @@ mod tests {
         let missing = Unbuilt {
             detail: "deepgram: no key".into(),
             credential: Some("dg".into()),
+            variable: None,
         };
         assert_eq!(
             missing.stt_unavailable("deepgram"),
