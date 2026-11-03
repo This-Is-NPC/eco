@@ -75,7 +75,9 @@ Manager on Windows.
 
 **From the environment.** The daemon is a systemd user service, so an `export`
 in a shell never reaches it. Put one `NAME=value` line per key, with no
-`export`, in `~/.config/environment.d/eco.conf`, then run `eco restart`:
+`export`, in `~/.config/environment.d/eco.conf`, which the user manager reads at
+login. To use a new value now, run `systemctl --user set-environment
+NAME=value`, then `eco restart`:
 
 ```
 OPENROUTER_API_KEY=sk-or-…
@@ -95,8 +97,9 @@ variables (`ECO_SOCKET`, `ECO_TOKEN`, `ECO_WINDOW` and the others it sets for
 its windows and hooks) are never listed. The daemon reads its environment when
 it starts, so a new variable is listed after `eco restart`:
 
-- **On Linux,** add `ECO_LAN_KEY=…` to `~/.config/environment.d/eco.conf`,
-  then `eco restart`.
+- **On Linux,** add `ECO_LAN_KEY=…` to `~/.config/environment.d/eco.conf`
+  (read at login), or `systemctl --user set-environment ECO_LAN_KEY=…` to use it
+  now, then `eco restart`.
 - **On Windows,** add it under **Settings › System › About › Advanced system
   settings › Environment Variables › User variables** (or run
   `setx ECO_LAN_KEY "…"` in a terminal), then restart eco from a new terminal

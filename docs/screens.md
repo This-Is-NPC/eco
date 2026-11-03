@@ -710,7 +710,7 @@ you any more. Dropping echoes and echo cancellation are under General.
 an environment variable, an omapass account or, on Windows, a Credential
 Manager name. It is never the key: eco does not create, store or show one.
 
-![Settings, 02 SECRETS: the bar with ADD SECRET, VIEW, EDIT, CHECK and a dimmed DELETE; "Where each key comes from…"; a table NAME · SOURCE · REFERENCE · STATE with DEEPGRAM_API_KEY and OPENROUTER_API_KEY (picked), each ENVIRONMENT and "resolves, a key is read", then, dim, the presets OPENROUTER, ELEVENLABS, DEEPGRAM and GROQ, ELEVENLABS and GROQ saying their variable "is not set in the daemon's environment".](img/41-settings-secrets.png)
+![Settings, 02 SECRETS: the bar with ADD SECRET, VIEW, EDIT, CHECK and a dimmed DELETE; "Where each key comes from…"; a table NAME · SOURCE · REFERENCE · STATE with DEEPGRAM_API_KEY and OPENROUTER_API_KEY (picked), each ENVIRONMENT and "resolves, a key is read", then, dim, the presets ELEVENLABS and GROQ, each saying its variable "is not set in the daemon's environment"; OPENROUTER and DEEPGRAM are not listed, the user's secrets reading the same variables.](img/41-settings-secrets.png)
 
 STATE tells whether the daemon reads a key from the reference now: "resolves,
 a key is read", or why not (the variable is not set, omapass is missing or
@@ -719,8 +719,10 @@ the key. CHECK reads every secret again, for omapass and the Credential
 Manager can change while eco runs; a variable cannot, since the daemon reads
 its environment once, when it starts. The secrets eco ships follow the user's,
 dim and read only, each satisfied by setting its variable: OPENROUTER,
-ELEVENLABS, DEEPGRAM and GROQ. A secret of your own with a preset's name
-replaces it. A secret a provider uses is not deleted: DELETE is dimmed, with
+ELEVENLABS, DEEPGRAM and GROQ. A secret of your own with a preset's name, or
+reading its variable, replaces it, and the preset providers name yours. A
+config of an earlier eco is converted so: a key read from a preset's variable
+is the preset's secret. A secret a provider uses is not deleted: DELETE is dimmed, with
 the providers in its hint.
 
 ![The secret OPENROUTER_API_KEY, read: the bar with BACK, EDIT and a dimmed DELETE; ABOUT with SOURCE ENVIRONMENT, REFERENCE OPENROUTER_API_KEY, STATE "resolves, a key is read"; RELATED with PROVIDERS › openrouter.](img/42-settings-secret.png)
@@ -739,8 +741,9 @@ environment variable, a line says how to set it so the daemon sees it, on the
 system eco runs on:
 
 - Linux: the daemon is a systemd user service, so an `export` in a shell does
-  not reach it; add the line `NAME=value` to `~/.config/environment.d/eco.conf`,
-  then run `eco restart`.
+  not reach it; add the line `NAME=value` to `~/.config/environment.d/eco.conf`
+  (kept across logins). To use it now, run
+  `systemctl --user set-environment NAME=value`, then `eco restart`.
 - Windows: run `setx NAME "value"` in a terminal, then restart eco.
 - macOS: run `launchctl setenv NAME "value"` in a terminal, then restart eco.
 

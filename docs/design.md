@@ -1122,7 +1122,7 @@ A model names its provider, and a provider its secret, so the key source of
 several models is kept once. A config whose models carry `base_url` and
 `api_key_env`, `api_key_omapass` or `api_key_credential` (eco before 0.14) is
 converted when read: one provider per distinct (base URL, key source), one
-secret per key source, named from the host and the source and numbered when a
+secret per key source, named after the preset with the same variable or base URL, else from the host and the source, and numbered when a
 name is taken; the model's other fields stay, and a model naming several key
 sources takes the credential, then omapass, then the variable. Only the daemon
 writes: at start it keeps the old file as `config.toml.bak`, saves the new shape
@@ -1140,7 +1140,8 @@ variable (`OPENROUTER_API_KEY`, `DEEPGRAM_API_KEY`, `ELEVEN_LABS_API_KEY`,
 `scribe-v2`, `nova-3` and `whisper-turbo` (transcription). The daemon lays them
 under the user's config each time it builds the pipeline, imports a file or lists
 models (`presets::overlay`); an entry of the user's with the same name replaces
-the preset's, a secret or provider included. They are never in the `config`
+the preset's, a secret or provider included, and a secret of the user's that
+reads a preset secret's variable takes its place, the preset providers naming it. They are never in the `config`
 snapshot's `config` and never saved: the file keeps only what the user wrote,
 and a default may name a preset model. A default model of a type the user has not
 chosen is the first preset of that type whose variable is set, or else the first
@@ -1248,7 +1249,8 @@ empty). The `ECO_` variables eco itself sets or reads for its own work
 (`ECO_SOCKET`, `ECO_TOKEN`, `ECO_WINDOW`, `ECO_SESSION`, `ECO_TITLE`, …) are
 `OWN_VARIABLES` in `src/session.rs`, one list, and are never offered. The daemon
 reads its environment when it starts, so a new `ECO_` variable is listed after
-`eco restart`: on Linux set it in `~/.config/environment.d/eco.conf`, on Windows
+`eco restart`: on Linux set it in `~/.config/environment.d/eco.conf` (read at
+login; `systemctl --user set-environment` for now), on Windows
 with `setx` or among the user's environment variables, on macOS with
 `launchctl setenv`. A credential added on Windows is listed at once,
 since the store is searched on each request. `eco key list` prints the three

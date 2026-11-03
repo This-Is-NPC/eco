@@ -108,7 +108,7 @@ QtObject {
       root.check("a secret opens to be written", view.openPage !== null && view.openPage.key === "mine" && view.openPage.editing)
       const hint = platform => I18n.t(platform, { name: "MINE_KEY" })
       const shown = text => root.find(view, item => item.visible && item.text === text) !== null
-      root.check("on Linux the hint is environment.d and eco restart", shown(hint("secrets.set_linux")) && hint("secrets.set_linux").includes("environment.d/eco.conf") && hint("secrets.set_linux").includes("eco restart"))
+      root.check("on Linux the hint is environment.d, set-environment and eco restart", shown(hint("secrets.set_linux")) && hint("secrets.set_linux").includes("environment.d/eco.conf") && hint("secrets.set_linux").includes("set-environment") && hint("secrets.set_linux").includes("eco restart"))
       Eco.handle({ type: "config", devices: [], omapass: { installed: true, page: "" }, credential_manager: true, platform: "windows",
         presets: Eco.presets, config: Eco.config })
     },

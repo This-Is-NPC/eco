@@ -1016,7 +1016,7 @@
   "secrets.remove_title": "Apagar segredo",
   "secrets.remove_question": "Apagar o segredo {name}?",
   "secrets.remove_note": "Só a referência some; o eco nunca toca na chave.",
-  "secrets.set_linux": "O daemon é um serviço de usuário do systemd, então um export no shell não chega a ele. Adicione a linha {name}=valor em ~/.config/environment.d/eco.conf e rode eco restart.",
+  "secrets.set_linux": "Adicione {name}=valor a ~/.config/environment.d/eco.conf (vale em todos os logins). Para usar agora: systemctl --user set-environment {name}=valor e depois eco restart.",
   "secrets.set_windows": "Em um terminal, rode setx {name} \"valor\" e reinicie o eco.",
   "secrets.set_macos": "Em um terminal, rode launchctl setenv {name} \"valor\" e reinicie o eco.",
   "secrets.alternative_omapass": "Ou guarde a chave no omapass e escolha a conta: troque a origem acima para OMAPASS.",

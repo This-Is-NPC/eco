@@ -1016,7 +1016,7 @@
   "secrets.remove_title": "シークレットを削除",
   "secrets.remove_question": "シークレット {name} を削除しますか？",
   "secrets.remove_note": "消えるのは参照だけです。eco がキー自体に触れることはありません。",
-  "secrets.set_linux": "デーモンは systemd のユーザーサービスなので、シェルの export は届きません。~/.config/environment.d/eco.conf に {name}=値 の行を追加し、eco restart を実行してください。",
+  "secrets.set_linux": "~/.config/environment.d/eco.conf に {name}=値 を追加します（ログインをまたいで保持されます）。すぐ使うには systemctl --user set-environment {name}=値 を実行し、eco restart を実行してください。",
   "secrets.set_windows": "ターミナルで setx {name} \"値\" を実行し、eco を再起動してください。",
   "secrets.set_macos": "ターミナルで launchctl setenv {name} \"値\" を実行し、eco を再起動してください。",
   "secrets.alternative_omapass": "または、キーを omapass に保存してアカウントを選びます。上の種類を OMAPASS に切り替えてください。",

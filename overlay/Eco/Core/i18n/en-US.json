@@ -1016,7 +1016,7 @@
   "secrets.remove_title": "Delete secret",
   "secrets.remove_question": "Delete the secret {name}?",
   "secrets.remove_note": "Only the reference goes; eco never touches the key itself.",
-  "secrets.set_linux": "The daemon is a systemd user service, so an export in a shell does not reach it. Add the line {name}=value to ~/.config/environment.d/eco.conf, then run eco restart.",
+  "secrets.set_linux": "Add {name}=value to ~/.config/environment.d/eco.conf (kept across logins). To use it now: systemctl --user set-environment {name}=value, then eco restart.",
   "secrets.set_windows": "In a terminal run setx {name} \"value\", then restart eco.",
   "secrets.set_macos": "In a terminal run launchctl setenv {name} \"value\", then restart eco.",
   "secrets.alternative_omapass": "Or keep the key in omapass and pick its account: switch the source above to OMAPASS.",
