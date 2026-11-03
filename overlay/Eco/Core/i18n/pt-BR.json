@@ -618,7 +618,6 @@
   "pending.reject": "REJEITAR",
   "error.command.unknown": "Comando desconhecido: {command}",
   "error.command.failed": "{command} falhou: {detail}",
-  "error.models.key_refused": "salve o modelo antes; a chave só é lida para um modelo salvo ou uma predefinição ({base_url})",
   "error.models.credential_missing": "sem chave no Gerenciador de Credenciais do Windows em eco:{credential}; rode eco key set {credential}",
   "attendees.short": "PESSOAS",
   "attendees.none": "Ninguém ainda",
@@ -992,5 +991,11 @@
   "appearance.reset": "Restaurar cores",
   "appearance.choose_color": "Escolher uma cor",
   "appearance.hex": "#rrggbb",
-  "appearance.invalid_color": "Use seis dígitos hexadecimais, como #39ff14."
+  "appearance.invalid_color": "Use seis dígitos hexadecimais, como #39ff14.",
+  "error.models.provider_unknown": "provedor {provider} desconhecido; salve-o antes de listar seus modelos",
+  "error.secret.env_unset": "{variable} não está definida no ambiente do daemon",
+  "error.secret.omapass_missing": "o omapass não está instalado, então {account} não pode ser lida",
+  "error.secret.omapass_failed": "o omapass não conseguiu entregar {account}: {detail}",
+  "error.secret.credential_missing": "sem chave no Gerenciador de Credenciais do Windows em eco:{credential}",
+  "error.secret.unreadable": "não foi possível ler a chave: {detail}"
 }

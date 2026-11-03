@@ -208,29 +208,23 @@ pub fn variables() -> impl Iterator<Item = &'static str> {
     PROVIDERS.iter().map(|p| p.variable)
 }
 
-/// The presets by model type, as the `config` event carries them for the
-/// settings window to fill a model from: each a provider's name and the model
-/// fields it sets; a chat preset also empties `extra`.
+/// The presets the `config` event lists, for the settings window to show them
+/// as presets: `{secrets: [{name, env}], providers: [{name, base_url, secret}],
+/// models: [{name, type, provider, model, reasoning?}]}`, in the order shown.
 pub fn listing() -> Value {
-    let of = |kind: ModelType| -> Vec<Value> {
-        MODELS
-            .iter()
-            .filter(|m| m.kind == kind)
-            .filter_map(|m| {
-                let provider = PROVIDERS.iter().find(|p| p.name == m.provider)?;
-                let mut values = json!({
-                    "base_url": provider.base_url,
-                    "model": m.model,
-                    "api_key_env": provider.variable,
-                });
-                if kind == ModelType::Chat {
-                    values["extra"] = json!({});
-                }
-                Some(json!({"name": provider.name, "values": values}))
-            })
-            .collect()
-    };
-    json!({"transcription": of(ModelType::Transcription), "chat": of(ModelType::Chat)})
+    let secrets: Vec<Value> = PROVIDERS
+        .iter()
+        .map(|p| json!({"name": p.name, "env": p.variable}))
+        .collect();
+    let providers: Vec<Value> = PROVIDERS
+        .iter()
+        .map(|p| json!({"name": p.name, "base_url": p.base_url, "secret": p.name}))
+        .collect();
+    let models: Vec<Value> = MODELS
+        .iter()
+        .map(|m| serde_json::to_value(m.config()).expect("a model always serializes"))
+        .collect();
+    json!({"secrets": secrets, "providers": providers, "models": models})
 }
 
 /// What a snapshot says of the preset models that wait for a key:
@@ -306,8 +300,13 @@ mod tests {
     #[test]
     fn a_user_entry_with_a_preset_name_wins() {
         let lan = json!({"name": "nova-3", "type": "transcription",
-                         "base_url": "http://lan:9000", "model": "w"});
-        let config = overlay(&user(json!([lan])));
+                         "provider": "lan", "model": "w"});
+        let own = Config::from_value(json!({
+            "providers": [{"name": "lan", "base_url": "http://lan:9000"}],
+            "models": [lan],
+        }))
+        .unwrap();
+        let config = overlay(&own);
         assert_eq!(names(&config).iter().filter(|n| **n == "nova-3").count(), 1);
         let nova = config.resolve(config.model("nova-3").unwrap()).unwrap();
         assert_eq!(
@@ -356,20 +355,22 @@ mod tests {
     }
 
     #[test]
-    fn the_window_gets_each_type_filled_from_the_presets() {
+    fn the_window_gets_the_presets_to_show_them_as_presets() {
         let listing = listing();
-        assert_eq!(listing["transcription"].as_array().unwrap().len(), 3);
         assert_eq!(
-            listing["chat"],
-            json!([{"name": "OPENROUTER", "values": {
-                "base_url": "https://openrouter.ai/api/v1", "model": "openai/gpt-6-luna",
-                "api_key_env": "OPENROUTER_API_KEY", "extra": {},
-            }}])
+            listing["secrets"][2],
+            json!({"name": "DEEPGRAM", "env": "DEEPGRAM_API_KEY"})
         );
         assert_eq!(
-            listing["transcription"][1]["values"],
-            json!({"base_url": "wss://api.deepgram.com/v1/listen", "model": "nova-3",
-                   "api_key_env": "DEEPGRAM_API_KEY"})
+            listing["providers"][0],
+            json!({"name": "OPENROUTER", "base_url": "https://openrouter.ai/api/v1",
+                   "secret": "OPENROUTER"})
         );
+        assert_eq!(
+            listing["models"][0],
+            json!({"name": "gpt-6-luna", "type": "chat", "provider": "OPENROUTER",
+                   "model": "openai/gpt-6-luna", "reasoning": "off"})
+        );
+        assert_eq!(listing["models"].as_array().unwrap().len(), 4);
     }
 }

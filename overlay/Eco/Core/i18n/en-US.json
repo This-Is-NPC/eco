@@ -618,7 +618,6 @@
   "pending.reject": "REJECT",
   "error.command.unknown": "Unknown command: {command}",
   "error.command.failed": "{command} failed: {detail}",
-  "error.models.key_refused": "save the model first; its key is read only for a saved model or a preset ({base_url})",
   "error.models.credential_missing": "no key in the Windows Credential Manager under eco:{credential}; run eco key set {credential}",
   "attendees.short": "PEOPLE",
   "attendees.none": "No one yet",
@@ -992,5 +991,11 @@
   "appearance.reset": "Reset colors",
   "appearance.choose_color": "Choose a color",
   "appearance.hex": "#rrggbb",
-  "appearance.invalid_color": "Use six hexadecimal digits, such as #39ff14."
+  "appearance.invalid_color": "Use six hexadecimal digits, such as #39ff14.",
+  "error.models.provider_unknown": "unknown provider {provider}; save it before listing its models",
+  "error.secret.env_unset": "{variable} is not set in the daemon's environment",
+  "error.secret.omapass_missing": "omapass is not installed, so {account} cannot be read",
+  "error.secret.omapass_failed": "omapass could not give {account}: {detail}",
+  "error.secret.credential_missing": "no key in the Windows Credential Manager under eco:{credential}",
+  "error.secret.unreadable": "the key could not be read: {detail}"
 }

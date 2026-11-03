@@ -618,58 +618,36 @@ impl Config {
 
     /// Build a Config from its JSON shape (what the overlay sends), where an empty
     /// default model, or one that is no registered model of its type, becomes the
-    /// first registered model of that type; validate it. A model that carries a
-    /// `base_url` and `api_key_*` fields is pointed at the provider and secret
-    /// they name (see `convert`).
-    pub fn from_value(mut value: Value) -> Result<Self, ConfigError> {
-        convert(&mut value);
+    /// first registered model of that type; validate it.
+    pub fn from_value(value: Value) -> Result<Self, ConfigError> {
         let raw: Raw = serde_json::from_value(value)
             .map_err(|error| ConfigError(format!("invalid config: {error}")))?;
         Self::from_raw(raw.with_default_models())
     }
 
     /// The JSON shape of this Config; `Config::from_value(c.to_value())` gives `c` back.
-    /// Each model also carries its provider's `base_url` and its secret's
-    /// `api_key_*` field, which the settings window edits until it edits
-    /// providers and secrets themselves.
     pub fn to_value(&self) -> Value {
-        let mut value = serde_json::to_value(self.to_raw()).expect("a config always serializes");
-        for (entry, model) in value["models"]
-            .as_array_mut()
-            .into_iter()
-            .flatten()
-            .zip(&self.models)
-        {
-            let Some(resolved) = self.resolve(model) else {
-                continue;
-            };
-            entry["base_url"] = resolved.base_url.clone().into();
-            let (env, omapass, credential) = resolved.key().fields();
-            for (field, name) in [
-                ("api_key_env", env),
-                ("api_key_omapass", omapass),
-                ("api_key_credential", credential),
-            ] {
-                if let Some(name) = name {
-                    entry[field] = name.into();
-                }
-            }
-        }
-        value
+        serde_json::to_value(self.to_raw()).expect("a config always serializes")
     }
 
     /// `model` with its provider's address and its secret; `None` when its provider is unknown.
     pub fn resolve(&self, model: &ModelConfig) -> Option<Resolved> {
-        let provider = self.providers.iter().find(|p| p.name == model.provider)?;
-        let secret = provider
-            .secret
-            .as_ref()
-            .and_then(|name| self.secrets.iter().find(|s| &s.name == name));
+        let (provider, secret) = self.provider(&model.provider)?;
         Some(Resolved {
             entry: model.clone(),
             base_url: provider.base_url.clone(),
             secret: secret.cloned(),
         })
+    }
+
+    /// The provider called `name` and its secret, if it has one.
+    pub fn provider(&self, name: &str) -> Option<(&ProviderConfig, Option<&SecretConfig>)> {
+        let provider = self.providers.iter().find(|p| p.name == name)?;
+        let secret = provider
+            .secret
+            .as_ref()
+            .and_then(|name| self.secrets.iter().find(|s| &s.name == name));
+        Some((provider, secret))
     }
 
     /// Every model resolved, in registration order.
@@ -1348,6 +1326,12 @@ mod tests {
 
     use super::*;
 
+    /// A config in the shape before providers and secrets, or in the new one, as the file is read.
+    fn from_old(mut value: Value) -> Result<Config, ConfigError> {
+        convert(&mut value);
+        Config::from_value(value)
+    }
+
     #[test]
     fn context_slots_are_read_and_their_names_must_differ() {
         let directory = tempfile::tempdir().unwrap();
@@ -1358,34 +1342,34 @@ mod tests {
             {"name": "entrevista", "files": [cv.to_string_lossy()], "kinds": ["meeting"]},
             {"name": "faltando", "files": [directory.path().join("nada.md").to_string_lossy()]},
         ]);
-        let config = Config::from_value(value.clone()).unwrap();
+        let config = from_old(value.clone()).unwrap();
         let texts = config.slot_texts();
         assert_eq!(texts[0].0.kinds, ["meeting"]);
         assert_eq!(texts[0].1.as_ref().unwrap(), "Currículo");
         assert!(texts[1].1.is_err());
-        assert_eq!(Config::from_value(config.to_value()).unwrap(), config);
+        assert_eq!(from_old(config.to_value()).unwrap(), config);
         value["contexts"][1]["name"] = json!("entrevista");
-        assert!(Config::from_value(value).is_err());
+        assert!(from_old(value).is_err());
     }
 
     #[test]
     fn a_reviewer_is_optional_and_names_a_model_when_on() {
-        assert_eq!(Config::from_value(raw()).unwrap().reviewer, None);
+        assert_eq!(from_old(raw()).unwrap().reviewer, None);
         let reviewer = json!({"enabled": true, "model": "grok"});
-        let config = Config::from_value(with("reviewer", reviewer.clone())).unwrap();
+        let config = from_old(with("reviewer", reviewer.clone())).unwrap();
         let on = config.reviewer.as_ref().unwrap();
         assert_eq!((on.prompt.as_str(), on.verbose), (DEFAULT_REVIEW, false));
-        assert_eq!(Config::from_value(config.to_value()).unwrap(), config);
+        assert_eq!(from_old(config.to_value()).unwrap(), config);
         let mut unnamed = reviewer;
         unnamed["model"] = json!("");
         assert!(error_of(with("reviewer", unnamed.clone())).contains("reviewer"));
         unnamed["enabled"] = json!(false);
-        assert!(Config::from_value(with("reviewer", unnamed)).is_ok());
+        assert!(from_old(with("reviewer", unnamed)).is_ok());
     }
 
     #[test]
     fn roles_and_actions_name_registered_models() {
-        let config = Config::from_value(raw()).unwrap();
+        let config = from_old(raw()).unwrap();
         assert_eq!(config.model("grok").unwrap().model, "x-ai/grok-4.20");
         let mut value = raw();
         value["actions"][0]["model"] = json!("nenhum");
@@ -1412,12 +1396,12 @@ mod tests {
     fn only_a_transcription_model_takes_a_price_per_minute_of_at_least_zero() {
         let mut value = raw();
         value["models"][0]["price_per_minute"] = json!(0.0077);
-        let config = Config::from_value(value.clone()).unwrap();
+        let config = from_old(value.clone()).unwrap();
         assert_eq!(
             config.model("whisper").unwrap().price_per_minute,
             Some(0.0077)
         );
-        assert_eq!(Config::from_value(config.to_value()).unwrap(), config);
+        assert_eq!(from_old(config.to_value()).unwrap(), config);
         value["models"][0]["price_per_minute"] = json!(-0.01);
         assert!(error_of(value).contains("price"));
         let mut value = raw();
@@ -1433,7 +1417,7 @@ mod tests {
             .unwrap()
             .push(json!({"name": "local", "type": "transcription", "base_url": "http://lan:8000/v1", "model": "whisper-large-v3", "kinds": ["idea"]}));
         value["models"][2]["kinds"] = json!(["idea"]);
-        let config = Config::from_value(value.clone()).unwrap();
+        let config = from_old(value.clone()).unwrap();
         assert_eq!(config.transcriber("idea").unwrap().name, "local");
         assert_eq!(config.transcriber("meeting").unwrap().name, "whisper");
         assert_eq!(
@@ -1441,7 +1425,7 @@ mod tests {
             "grok"
         );
         assert!(config.model_of_kind(ModelType::Chat, "meeting").is_none());
-        assert_eq!(Config::from_value(config.to_value()).unwrap(), config);
+        assert_eq!(from_old(config.to_value()).unwrap(), config);
         let mut twice = value.clone();
         twice["models"][1]["kinds"] = json!(["idea"]);
         assert!(error_of(twice).contains("at most one"));
@@ -1452,15 +1436,15 @@ mod tests {
 
     #[test]
     fn translation_names_a_chat_model_only() {
-        let config = Config::from_value(raw()).unwrap();
+        let config = from_old(raw()).unwrap();
         assert_eq!(config.translator("meeting").unwrap().name, "gemini");
         let mut value = with("translation", json!({"model": "grok"}));
-        let config = Config::from_value(value.clone()).unwrap();
+        let config = from_old(value.clone()).unwrap();
         assert_eq!(config.translator("meeting").unwrap().name, "grok");
-        assert_eq!(Config::from_value(config.to_value()).unwrap(), config);
+        assert_eq!(from_old(config.to_value()).unwrap(), config);
         value["models"][1]["translates"] = json!(["idea"]);
         assert_eq!(
-            Config::from_value(value.clone())
+            from_old(value.clone())
                 .unwrap()
                 .translator("idea")
                 .unwrap()
@@ -1475,7 +1459,7 @@ mod tests {
 
     #[test]
     fn answers_at_once_default_to_eight_and_are_at_least_one() {
-        assert_eq!(Config::from_value(raw()).unwrap().llm.concurrency, 8);
+        assert_eq!(from_old(raw()).unwrap().llm.concurrency, 8);
         let mut value = raw();
         value["llm"]["concurrency"] = json!(0);
         assert!(error_of(value).contains("concurrency"));
@@ -1486,7 +1470,7 @@ mod tests {
         let mut value = raw();
         value["models"][1]["reasoning"] = json!("off");
         value["models"][2]["reasoning"] = json!("low");
-        let config = Config::from_value(value.clone()).unwrap();
+        let config = from_old(value.clone()).unwrap();
         assert_eq!(
             config.models[1].request_fields()["reasoning"],
             json!({"enabled": false})
@@ -1495,13 +1479,13 @@ mod tests {
             config.models[2].request_fields()["reasoning"],
             json!({"effort": "low"})
         );
-        let unchosen = Config::from_value(raw()).unwrap();
+        let unchosen = from_old(raw()).unwrap();
         assert_eq!(
             unchosen.models[1].request_fields()["reasoning"],
             json!({"effort": "minimal"}),
             "extra is sent as written"
         );
-        assert_eq!(Config::from_value(config.to_value()).unwrap(), config);
+        assert_eq!(from_old(config.to_value()).unwrap(), config);
         value["models"][2]["reasoning"] = json!("max");
         assert!(error_of(value.clone()).contains("reasoning"));
         value["models"][2]["reasoning"] = json!("low");
@@ -1511,11 +1495,11 @@ mod tests {
 
     #[test]
     fn rules_start_as_the_defaults_and_keep_what_the_user_writes() {
-        let config = Config::from_value(raw()).unwrap();
+        let config = from_old(raw()).unwrap();
         assert_eq!(config.rules, DEFAULT_RULES);
-        let config = Config::from_value(with("rules", json!("- Fale como eu."))).unwrap();
+        let config = from_old(with("rules", json!("- Fale como eu."))).unwrap();
         assert_eq!(config.rules, "- Fale como eu.");
-        assert_eq!(Config::from_value(config.to_value()).unwrap(), config);
+        assert_eq!(from_old(config.to_value()).unwrap(), config);
     }
 
     fn raw() -> Value {
@@ -1559,17 +1543,17 @@ mod tests {
     }
 
     fn error_of(value: Value) -> String {
-        Config::from_value(value).expect_err("must be rejected").0
+        from_old(value).expect_err("must be rejected").0
     }
 
     #[test]
     fn round_trips_through_toml() {
-        let config = Config::from_value(raw()).unwrap();
+        let config = from_old(raw()).unwrap();
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("eco").join("config.toml");
         save(&config, &path).unwrap();
         assert_eq!(load(&path).unwrap(), config);
-        assert_eq!(Config::from_value(config.to_value()).unwrap(), config);
+        assert_eq!(from_old(config.to_value()).unwrap(), config);
         let written: toml::Table = toml::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(
             written["participants"][1]["devices"][1].as_str(),
@@ -1580,7 +1564,7 @@ mod tests {
 
     #[test]
     fn participants_keep_their_devices() {
-        let config = Config::from_value(raw()).unwrap();
+        let config = from_old(raw()).unwrap();
         assert_eq!(
             config.participants[1],
             Participant {
@@ -1630,7 +1614,7 @@ mod tests {
         assert_eq!(empty.kinds, default_kinds());
         assert_eq!(empty.transcriber("meeting"), None);
         assert_eq!(empty.translator("meeting"), None);
-        let mut written_empty = Config::from_value(json!({})).unwrap();
+        let mut written_empty = from_old(json!({})).unwrap();
         written_empty.participants = empty.participants.clone();
         written_empty.ui_language = "pt-BR".into();
         assert_eq!(written_empty, empty);
@@ -1731,7 +1715,7 @@ mod tests {
     }
 
     fn defaults_of(value: Value) -> (String, String) {
-        let config = Config::from_value(value).unwrap();
+        let config = from_old(value).unwrap();
         (config.llm.model, config.stt.model)
     }
 
@@ -1802,7 +1786,7 @@ mod tests {
         fs::write(&cv, "Currículo").unwrap();
         fs::write(&notes, "Notas").unwrap();
         let files = json!([cv.to_string_lossy(), notes.to_string_lossy()]);
-        let config = Config::from_value(with("context", json!({"files": files}))).unwrap();
+        let config = from_old(with("context", json!({"files": files}))).unwrap();
         assert_eq!(config.context().unwrap(), "Currículo\n\nNotas");
         fs::remove_file(&notes).unwrap();
         assert!(config.context().is_err());
@@ -1825,7 +1809,7 @@ mod tests {
 
     #[test]
     fn languages_default_when_absent() {
-        let config = Config::from_value(with("stt", json!({"model": "whisper"}))).unwrap();
+        let config = from_old(with("stt", json!({"model": "whisper"}))).unwrap();
         assert_eq!(config.stt.languages, ["auto", "pt", "en", "es"]);
         assert_eq!(config.stt.language, "pt");
     }
@@ -1862,7 +1846,7 @@ mod tests {
     #[test]
     fn appearance_defaults_to_system_and_preserves_custom_colors_in_every_preset() {
         assert_eq!(
-            Config::from_value(raw()).unwrap().appearance,
+            from_old(raw()).unwrap().appearance,
             AppearanceConfig::default()
         );
         let dir = tempfile::tempdir().unwrap();
@@ -1870,7 +1854,7 @@ mod tests {
         for preset in ["system", "dark", "light", "custom"] {
             let appearance =
                 json!({"preset": preset, "colors": {"background": "#102030", "accent": "#AbCdEf"}});
-            let config = Config::from_value(with("ui", json!({"appearance": appearance}))).unwrap();
+            let config = from_old(with("ui", json!({"appearance": appearance}))).unwrap();
             assert_eq!(config.to_value()["ui"]["appearance"], appearance);
             save(&config, &path).unwrap();
             assert_eq!(load(&path).unwrap(), config);
@@ -1890,52 +1874,45 @@ mod tests {
 
     #[test]
     fn ui_language_defaults_to_auto_and_round_trips() {
-        assert_eq!(Config::from_value(raw()).unwrap().ui_language, "auto");
-        let config = Config::from_value(with("ui", json!({"language": "ja-JP"}))).unwrap();
-        assert_eq!(
-            Config::from_value(config.to_value()).unwrap().ui_language,
-            "ja-JP"
-        );
+        assert_eq!(from_old(raw()).unwrap().ui_language, "auto");
+        let config = from_old(with("ui", json!({"language": "ja-JP"}))).unwrap();
+        assert_eq!(from_old(config.to_value()).unwrap().ui_language, "ja-JP");
         assert!(error_of(with("ui", json!({"language": "japanese"}))).contains("ui language"));
     }
 
     #[test]
     fn hide_from_share_defaults_to_off_and_round_trips() {
-        assert!(!Config::from_value(raw()).unwrap().hide_from_share);
-        let config = Config::from_value(with("ui", json!({"hide_from_share": true}))).unwrap();
+        assert!(!from_old(raw()).unwrap().hide_from_share);
+        let config = from_old(with("ui", json!({"hide_from_share": true}))).unwrap();
         assert!(config.hide_from_share);
         assert_eq!(config.ui_language, "auto");
-        assert!(
-            Config::from_value(config.to_value())
-                .unwrap()
-                .hide_from_share
-        );
+        assert!(from_old(config.to_value()).unwrap().hide_from_share);
         assert!(error_of(with("ui", json!({"hide_from_share": "yes"}))).contains("invalid config"));
     }
 
     #[test]
     fn the_tray_defaults_to_off_and_round_trips() {
-        assert!(!Config::from_value(raw()).unwrap().tray);
-        let config = Config::from_value(with("ui", json!({"tray": true}))).unwrap();
+        assert!(!from_old(raw()).unwrap().tray);
+        let config = from_old(with("ui", json!({"tray": true}))).unwrap();
         assert!(config.tray);
         assert!(!config.hide_from_share);
-        assert!(Config::from_value(config.to_value()).unwrap().tray);
+        assert!(from_old(config.to_value()).unwrap().tray);
         assert!(error_of(with("ui", json!({"tray": "yes"}))).contains("invalid config"));
     }
 
     #[test]
     fn notifications_default_to_off_and_round_trip() {
-        assert!(!Config::from_value(raw()).unwrap().notifications);
-        let config = Config::from_value(with("ui", json!({"notifications": true}))).unwrap();
+        assert!(!from_old(raw()).unwrap().notifications);
+        let config = from_old(with("ui", json!({"notifications": true}))).unwrap();
         assert!(config.notifications);
         assert!(!config.tray);
-        assert!(Config::from_value(config.to_value()).unwrap().notifications);
+        assert!(from_old(config.to_value()).unwrap().notifications);
         assert!(error_of(with("ui", json!({"notifications": "yes"}))).contains("invalid config"));
     }
 
     #[test]
     fn the_interface_pack_is_the_chosen_one_or_the_system_s_on_auto() {
-        let mut config = Config::from_value(raw()).unwrap();
+        let mut config = from_old(raw()).unwrap();
         assert_eq!(config.interface_pack(Some("pt_BR.UTF-8")), "pt-BR");
         assert_eq!(config.interface_pack(Some("ja-JP")), "ja-JP");
         assert_eq!(config.interface_pack(Some("de_DE")), "en-US");
@@ -1946,16 +1923,11 @@ mod tests {
 
     #[test]
     fn the_update_check_defaults_to_on_and_round_trips() {
-        assert!(Config::from_value(raw()).unwrap().update.check);
-        assert!(
-            Config::from_value(with("update", json!({})))
-                .unwrap()
-                .update
-                .check
-        );
-        let config = Config::from_value(with("update", json!({"check": false}))).unwrap();
+        assert!(from_old(raw()).unwrap().update.check);
+        assert!(from_old(with("update", json!({}))).unwrap().update.check);
+        let config = from_old(with("update", json!({"check": false}))).unwrap();
         assert!(!config.update.check);
-        assert!(!Config::from_value(config.to_value()).unwrap().update.check);
+        assert!(!from_old(config.to_value()).unwrap().update.check);
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("config.toml");
         save(&config, &path).unwrap();
@@ -1970,16 +1942,15 @@ mod tests {
 
     #[test]
     fn shortcuts_keep_the_defaults_until_written_and_must_be_valid() {
-        let config = Config::from_value(raw()).unwrap();
+        let config = from_old(raw()).unwrap();
         assert_eq!(config.shortcuts, None);
         assert!(config.to_value().get("shortcuts").is_none());
-        let config =
-            Config::from_value(with("shortcuts", json!({"Ctrl+Alt+M": "sessions"}))).unwrap();
+        let config = from_old(with("shortcuts", json!({"Ctrl+Alt+M": "sessions"}))).unwrap();
         assert_eq!(
             config.shortcuts,
             Some(BTreeMap::from([("Ctrl+Alt+M".into(), "sessions".into())]))
         );
-        assert_eq!(Config::from_value(config.to_value()).unwrap(), config);
+        assert_eq!(from_old(config.to_value()).unwrap(), config);
         assert_eq!(
             error_of(with("shortcuts", json!({"M": "sessions"}))),
             "shortcut \"M\": needs Ctrl, Alt, Shift or Win with the key"
@@ -2009,7 +1980,7 @@ mod tests {
 
     #[test]
     fn secrets_providers_and_models_are_linked_by_name() {
-        let config = Config::from_value(shaped()).unwrap();
+        let config = from_old(shaped()).unwrap();
         let resolved = config.resolved();
         assert_eq!(resolved[0].base_url, "http://lan:8081/v1");
         assert_eq!(resolved[0].key(), Key::None);
@@ -2095,7 +2066,7 @@ mod tests {
     fn a_secret_may_be_a_windows_credential() {
         let mut value = shaped();
         value["secrets"][0] = json!({"name": "openrouter", "credential": "openrouter"});
-        let config = Config::from_value(value).unwrap();
+        let config = from_old(value).unwrap();
         assert_eq!(config.resolved()[2].key(), Key::Credential("openrouter"));
         let written = toml::to_string(&config.to_raw()).unwrap();
         assert!(written.contains("credential = \"openrouter\""), "{written}");
@@ -2245,17 +2216,6 @@ translates = ["meeting"]
     }
 
     #[test]
-    fn a_new_key_on_a_model_keeps_the_address_of_its_provider() {
-        let mut value = shaped();
-        value["models"][2]["api_key_env"] = json!("OTHER_KEY");
-        let config = Config::from_value(value).unwrap();
-        let fast = &config.resolved()[2];
-        assert_eq!(fast.base_url, "https://openrouter.ai/api/v1");
-        assert_eq!(fast.key(), Key::Env("OTHER_KEY"));
-        assert_eq!(fast.provider, "openrouter-2");
-    }
-
-    #[test]
     fn reading_converts_in_memory_and_the_daemon_saves_with_a_backup() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("config.toml");
@@ -2306,26 +2266,25 @@ translates = ["meeting"]
     }
 
     #[test]
-    fn the_snapshot_shows_each_model_its_address_and_key_for_the_window_to_edit() {
+    fn the_snapshot_carries_the_three_lists_and_no_per_model_address_or_key() {
         let config = Config::from_value(shaped()).unwrap();
-        let mut snapshot = config.to_value();
-        let models = &snapshot["models"];
-        assert_eq!(models[0]["base_url"], "http://lan:8081/v1");
-        assert!(models[0].get("api_key_env").is_none());
-        assert_eq!(models[1]["api_key_env"], "DEEPGRAM_API_KEY");
-        assert_eq!(models[2]["api_key_omapass"], "openrouter");
-        assert_eq!(Config::from_value(snapshot.clone()).unwrap(), config);
-        // The window moves a model to another address and key: a new provider
-        // and secret appear, and what nothing uses any more goes.
-        snapshot["models"][1]["base_url"] = json!("wss://api.deepgram.com/v2/listen");
-        snapshot["models"][1]["api_key_env"] = json!("OTHER_KEY");
-        let edited = Config::from_value(snapshot).unwrap();
-        let resolved = edited.resolved();
-        assert_eq!(resolved[1].base_url, "wss://api.deepgram.com/v2/listen");
-        assert_eq!(resolved[1].key(), Key::Env("OTHER_KEY"));
-        assert_eq!(edited.providers.len(), 3);
-        assert_eq!(edited.secrets.len(), 2);
-        assert!(edited.secrets.iter().all(|s| s.name != "deepgram"));
+        let snapshot = config.to_value();
+        assert_eq!(snapshot["secrets"].as_array().unwrap().len(), 2);
+        assert_eq!(snapshot["providers"].as_array().unwrap().len(), 3);
+        for model in snapshot["models"].as_array().unwrap() {
+            for field in OLD_FIELDS {
+                assert!(model.get(field).is_none(), "{model}");
+            }
+        }
+        assert_eq!(Config::from_value(snapshot).unwrap(), config);
+    }
+
+    #[test]
+    fn a_draft_with_a_model_in_the_old_shape_is_refused() {
+        let mut value = shaped();
+        value["models"][2]["api_key_env"] = json!("OTHER_KEY");
+        let refused = Config::from_value(value).unwrap_err();
+        assert!(refused.0.contains("api_key_env"), "{}", refused.0);
     }
 
     #[test]

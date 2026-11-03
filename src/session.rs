@@ -32,7 +32,7 @@ use crate::adapters::stt_openai::OpenAITranscriber;
 use crate::adapters::terminal::{Terminal, terminal};
 use crate::adapters::vad_silero::{SileroModel, SileroVad};
 use crate::adapters::webvtt;
-use crate::config::{self, Config, ConfigError, Key, ModelType, Resolved};
+use crate::config::{self, Config, ConfigError, Key, ModelType, Resolved, SecretConfig};
 use crate::domain::assistant::{Assistant, ContextSlot, Emit, Model, Reviewer, Setup, Translating};
 use crate::domain::channel::{
     Captured, CapturedStream, Listeners, Reopen, Transcriber, Trouble, Utterance, capture_channel,
@@ -2094,7 +2094,7 @@ impl Session {
                 self.background.spawn(async move {
                     let devices = serde_json::to_value(listed.await).unwrap_or_default();
                     let omapass = json!({"installed": omapass::installed(), "page": omapass::PAGE});
-                    emit(json!({"type": "config", "config": config, "devices": devices, "omapass": omapass, "credential_manager": credentials::AVAILABLE, "presets": presets::listing(), "echo_cancel": echo_cancel}));
+                    emit(json!({"type": "config", "config": config, "devices": devices, "omapass": omapass, "credential_manager": credentials::AVAILABLE, "platform": std::env::consts::OS, "presets": presets::listing(), "echo_cancel": echo_cancel}));
                 });
             }
             ("devices", None) => {
@@ -2416,9 +2416,14 @@ impl Session {
             }
             ("models", Some(payload)) => {
                 let payload = payload.to_string();
-                let saved = presets::overlay(&self.current).resolved();
+                let composed = presets::overlay(&self.current);
                 self.background
-                    .spawn(async move { emit(models(&payload, &saved).await) });
+                    .spawn(async move { emit(models(&payload, &composed).await) });
+            }
+            ("secrets", None) => {
+                let composed = presets::overlay(&self.current);
+                self.background
+                    .spawn(async move { emit(secrets_resolved(&composed).await) });
             }
             ("omapass", None) => {
                 self.background.spawn(async move {
@@ -2555,46 +2560,38 @@ fn keys_listed(
     json!({"type": "keys", "env": env, "credentials": credentials, "credential_error": credential_error})
 }
 
-/// Whether `key` may be read to list the models at `base_url`: no key, or the key
-/// of a saved model, a preset among them, at that URL. Any other pair would send
-/// any secret to any server.
-fn key_allowed(key: Key<'_>, base_url: &str, saved: &[Resolved]) -> bool {
-    let same = |url: &str| url.trim_end_matches('/') == base_url.trim_end_matches('/');
-    key == Key::None || saved.iter().any(|m| same(&m.base_url) && m.key() == key)
-}
-
-/// The models a provider offers, for the config screen's picker; a key
-/// `key_allowed` refuses is not read.
-async fn models(payload: &str, saved: &[Resolved]) -> Value {
+/// The models the provider named in `payload` (`{target, provider}`) offers, for
+/// the config screen's picker: a saved provider or a preset, with its secret.
+async fn models(payload: &str, config: &Config) -> Value {
     let request: Value = serde_json::from_str(payload).unwrap_or_default();
     let target = request.get("target").cloned().unwrap_or(json!(""));
-    let field = |key: &str| request.get(key).and_then(Value::as_str);
-    let key = Key::of(
-        field("api_key_env"),
-        field("api_key_omapass"),
-        field("api_key_credential"),
-    );
-    let base_url = field("base_url").unwrap_or_default();
-    if !key_allowed(key, base_url, saved) {
-        let refused = error(
-            "models.key_refused",
-            format!("save the model before listing {base_url} with this key"),
-            json!({"base_url": base_url}),
-        );
-        return json!({
-            "type": "models", "target": target, "models": [],
-            "error": refused["message"], "code": refused["code"], "params": refused["params"],
-        });
-    }
+    let name = request.get("provider").and_then(Value::as_str);
+    let Some((provider, secret)) = name.and_then(|name| config.provider(name)) else {
+        let message = match name {
+            Some(name) => format!("unknown provider {name}; save it before listing its models"),
+            None => "missing provider".into(),
+        };
+        let mut event = json!({"type": "models", "target": target, "models": [], "error": message});
+        if let Some(name) = name {
+            let unknown = error(
+                "models.provider_unknown",
+                message,
+                json!({"provider": name}),
+            );
+            event["code"] = unknown["code"].clone();
+            event["params"] = unknown["params"].clone();
+        }
+        return event;
+    };
     let found = async {
-        let base_url = field("base_url").ok_or("missing base_url")?;
         if request.get("target").is_none() {
             return Err("missing target".into());
         }
+        let base_url = provider.base_url.as_str();
         if base_url.contains("elevenlabs.io") {
             return Ok(stt_elevenlabs::MODELS.map(String::from).to_vec());
         }
-        let key = api_key(key).await?;
+        let key = api_key(secret.map_or(Key::None, SecretConfig::key)).await?;
         if base_url.contains("deepgram.com") {
             return Ok(stt_deepgram::models(base_url, key).await?);
         }
@@ -2605,6 +2602,47 @@ async fn models(payload: &str, saved: &[Resolved]) -> Value {
         Ok(models) => json!({"type": "models", "target": target, "models": models}),
         Err(why) => why.unlisted(target),
     }
+}
+
+/// Whether `key` resolves now, as the `secrets` event tells it: `{resolved}`,
+/// and when it does not, why, as a `code` and its `params`. The key is read
+/// and dropped, never sent.
+async fn secret_status(key: Key<'_>) -> Value {
+    match api_key(key).await {
+        Ok(_) => json!({"resolved": true}),
+        Err(why) => {
+            let (code, params) = secret_problem(key, &why);
+            json!({"resolved": false, "code": code, "params": params})
+        }
+    }
+}
+
+/// The code and params that tell why `key` does not resolve.
+fn secret_problem(key: Key<'_>, why: &Unbuilt) -> (&'static str, Value) {
+    match key {
+        Key::Env(variable) => ("secret.env_unset", json!({"variable": variable})),
+        Key::Omapass(account) if !omapass::installed() => {
+            ("secret.omapass_missing", json!({"account": account}))
+        }
+        Key::Omapass(account) => (
+            "secret.omapass_failed",
+            json!({"account": account, "detail": why.detail}),
+        ),
+        Key::Credential(name) if why.credential.is_some() => {
+            ("secret.credential_missing", json!({"credential": name}))
+        }
+        Key::Credential(_) | Key::None => ("secret.unreadable", json!({"detail": why.detail})),
+    }
+}
+
+/// The `secrets` event: for each secret of `config`, presets among them,
+/// whether it resolves now.
+async fn secrets_resolved(config: &Config) -> Value {
+    let mut status = serde_json::Map::new();
+    for secret in &config.secrets {
+        status.insert(secret.name.clone(), secret_status(secret.key()).await);
+    }
+    json!({"type": "secrets", "status": status})
 }
 
 /// Serve the session until `stop` arrives on the socket or a signal does; saving a
@@ -2852,9 +2890,13 @@ mod tests {
         json!({
             "stt": {"model": "w"},
             "llm": {"model": "m"},
+            "providers": [
+                {"name": "stt", "base_url": "http://stt"},
+                {"name": "llm", "base_url": "http://llm"},
+            ],
             "models": [
-                {"name": "w", "type": "transcription", "base_url": "http://stt", "model": "whisper-1"},
-                {"name": "m", "type": "chat", "base_url": "http://llm", "model": "m"},
+                {"name": "w", "type": "transcription", "provider": "stt", "model": "whisper-1"},
+                {"name": "m", "type": "chat", "provider": "llm", "model": "m"},
             ],
             "participants": [
                 {"name": "Eu", "devices": ["@default-input"], "user": true},
@@ -2863,71 +2905,106 @@ mod tests {
         })
     }
 
-    fn saved_models() -> Vec<Resolved> {
-        let user = Config::from_value(json!({"models": [
-            {"name": "lan", "type": "chat", "base_url": "http://10.0.0.5:8000/v1/", "model": "m",
-             "api_key_env": "LAN_KEY"},
-            {"name": "dg", "type": "transcription", "base_url": "wss://api.deepgram.com/v1/listen",
-             "model": "nova-3", "api_key_omapass": "Deepgram"},
-        ]}));
-        presets::overlay(&user.unwrap()).resolved()
+    /// The config of a provider called `p` at `base_url`, keyed by the variable `key`, if any.
+    fn provider_at(base_url: &str, key: Option<&str>) -> Config {
+        let secrets: Vec<Value> = key
+            .map(|variable| json!({"name": "key", "env": variable}))
+            .into_iter()
+            .collect();
+        let secret = key.map(|_| "key");
+        Config::from_value(json!({
+            "secrets": secrets,
+            "providers": [{"name": "p", "base_url": base_url, "secret": secret}],
+        }))
+        .unwrap()
     }
 
-    /// `models` in the old shape, as the models a config registers.
-    fn resolved(models: Value) -> Vec<Resolved> {
-        Config::from_value(json!({"models": models}))
-            .unwrap()
-            .resolved()
-    }
-
-    #[test]
-    fn lists_with_the_key_of_a_saved_model_or_a_preset() {
-        let saved = saved_models();
-        let allowed = |key, url| key_allowed(key, url, &saved);
-        assert!(allowed(Key::Env("LAN_KEY"), "http://10.0.0.5:8000/v1"));
-        assert!(allowed(
-            Key::Omapass("Deepgram"),
-            "wss://api.deepgram.com/v1/listen"
-        ));
-        assert!(allowed(
-            Key::Env("GROQ_API_KEY"),
-            "https://api.groq.com/openai/v1/"
-        ));
-        assert!(allowed(
-            Key::Env("OPENROUTER_API_KEY"),
-            "https://openrouter.ai/api/v1"
-        ));
-        assert!(allowed(Key::None, "http://anywhere"));
-    }
-
-    #[test]
-    fn refuses_a_key_away_from_its_saved_model_or_preset() {
-        let saved = saved_models();
-        let allowed = |key, url| key_allowed(key, url, &saved);
-        assert!(!allowed(Key::Env("GROQ_API_KEY"), "http://attacker"));
-        assert!(!allowed(
-            Key::Env("GROQ_API_KEY"),
-            "https://openrouter.ai/api/v1"
-        ));
-        assert!(!allowed(Key::Env("LAN_KEY"), "http://attacker"));
-        assert!(!allowed(Key::Env("HOME"), "http://10.0.0.5:8000/v1"));
-        assert!(!allowed(Key::Omapass("Deepgram"), "http://attacker"));
-        assert!(!allowed(
-            Key::Omapass("bank"),
-            "https://api.groq.com/openai/v1"
-        ));
+    /// A transcription model "t" served at `base_url`, keyed by the variable `key`, if any.
+    fn resolved_at(base_url: &str, key: Option<&str>) -> Resolved {
+        let mut config = provider_at(base_url, key);
+        config.models.push(
+            serde_json::from_value(json!({
+                "name": "t", "type": "transcription", "provider": "p", "model": "x"
+            }))
+            .unwrap(),
+        );
+        config.resolved().remove(0)
     }
 
     #[tokio::test]
-    async fn a_refused_key_is_answered_with_a_code() {
-        let request =
-            json!({"target": "llm", "base_url": "http://attacker", "api_key_env": "PATH"});
-        let answer = models(&request.to_string(), &saved_models()).await;
+    async fn an_unknown_provider_is_answered_with_a_code() {
+        let config = presets::overlay(&provider_at("http://lan", None));
+        let request = json!({"target": "llm", "provider": "attacker"});
+        let answer = models(&request.to_string(), &config).await;
         assert_eq!(answer["type"], "models");
         assert_eq!(answer["target"], "llm");
         assert_eq!(answer["models"], json!([]));
-        assert_eq!(answer["code"], "models.key_refused");
-        assert_eq!(answer["params"], json!({"base_url": "http://attacker"}));
+        assert_eq!(answer["code"], "models.provider_unknown");
+        assert_eq!(answer["params"], json!({"provider": "attacker"}));
+    }
+
+    #[tokio::test]
+    async fn a_resolved_secret_says_so_and_an_unset_one_says_why_without_the_key() {
+        config::testing::set_env("ECO_TEST_SET_KEY", "sk-secret");
+        let config = Config::from_value(json!({"secrets": [
+            {"name": "set", "env": "ECO_TEST_SET_KEY"},
+            {"name": "unset", "env": "ECO_TEST_UNSET_KEY"},
+            {"name": "windows", "credential": "deepgram"},
+        ]}))
+        .unwrap();
+        let event = secrets_resolved(&config).await;
+        assert_eq!(event["status"]["set"], json!({"resolved": true}));
+        assert_eq!(
+            event["status"]["unset"],
+            json!({"resolved": false, "code": "secret.env_unset",
+                   "params": {"variable": "ECO_TEST_UNSET_KEY"}})
+        );
+        assert!(!event.to_string().contains("sk-secret"));
+        #[cfg(unix)]
+        assert_eq!(event["status"]["windows"]["code"], "secret.unreadable",);
+    }
+
+    #[test]
+    fn why_an_omapass_or_credential_secret_does_not_resolve_is_coded() {
+        let why = |detail: &str, credential: Option<&str>| Unbuilt {
+            detail: detail.into(),
+            credential: credential.map(String::from),
+            variable: None,
+        };
+        let (code, params) = secret_problem(Key::Credential("dg"), &why("missing", Some("dg")));
+        assert_eq!(
+            (code, params),
+            ("secret.credential_missing", json!({"credential": "dg"}))
+        );
+        let (code, params) = secret_problem(Key::Credential("dg"), &why("locked", None));
+        assert_eq!(
+            (code, params),
+            ("secret.unreadable", json!({"detail": "locked"}))
+        );
+        let (code, params) = secret_problem(Key::Omapass("bank"), &why("omapass: locked", None));
+        if omapass::installed() {
+            assert_eq!(
+                (code, params),
+                (
+                    "secret.omapass_failed",
+                    json!({"account": "bank", "detail": "omapass: locked"})
+                )
+            );
+        } else {
+            assert_eq!(
+                (code, params),
+                ("secret.omapass_missing", json!({"account": "bank"}))
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn the_secrets_are_resolved_on_demand_presets_included() {
+        let mut d = daemon(raw());
+        d.line("secrets").await;
+        let event = d.until(|event| event["type"] == "secrets").await;
+        assert_eq!(event["status"]["OPENROUTER"]["resolved"], false);
+        assert_eq!(event["status"]["OPENROUTER"]["code"], "secret.env_unset");
     }
 
     fn recorder() -> (Emit, Arc<Mutex<Vec<Value>>>) {
@@ -3288,10 +3365,10 @@ mod tests {
 
     #[tokio::test]
     async fn models_report_a_bad_request_to_its_target() {
-        let event = models(r#"{"target": "llm"}"#, &[]).await;
+        let event = models(r#"{"target": "llm"}"#, &provider_at("http://x", None)).await;
         assert_eq!(
             event,
-            json!({"type": "models", "target": "llm", "models": [], "error": "missing base_url"})
+            json!({"type": "models", "target": "llm", "models": [], "error": "missing provider"})
         );
     }
 
@@ -3370,24 +3447,30 @@ mod tests {
     fn another_client_adding_a_model_or_moving_its_key_is_held_naming_where() {
         let current = Config::from_value(raw()).unwrap();
         let mut added = raw();
-        added["models"].as_array_mut().unwrap().push(json!({
-            "name": "x", "type": "chat", "base_url": "http://attacker", "model": "m",
-            "api_key_env": "OPENROUTER_API_KEY",
-        }));
+        added["secrets"] = json!([{"name": "open", "env": "OPENROUTER_API_KEY"}]);
+        added["providers"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"name": "attacker", "base_url": "http://attacker", "secret": "open"}));
+        added["models"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"name": "x", "type": "chat", "provider": "attacker", "model": "m"}));
         let event = held(config_change(&current, "secret", &added.to_string()));
         let x = json!({"name": "x", "base_url": "http://attacker", "api_key_env": "OPENROUTER_API_KEY", "api_key_omapass": null, "api_key_credential": null});
         assert_eq!(event["models"], json!([x]));
         let mut moved = raw();
-        moved["models"][1]["base_url"] = json!("http://attacker");
+        moved["providers"][1]["base_url"] = json!("http://attacker");
         let event = held(config_change(&current, "secret", &moved.to_string()));
         assert_eq!(event["models"][0]["name"], "m");
         let mut keyed = raw();
-        keyed["models"][1]["api_key_omapass"] = json!("openrouter");
+        keyed["secrets"] = json!([{"name": "bank", "omapass": "openrouter"}]);
+        keyed["providers"][1]["secret"] = json!("bank");
         let event = held(config_change(&current, "secret", &keyed.to_string()));
         assert_eq!(event["models"][0]["api_key_omapass"], "openrouter");
         let mut credential = raw();
-        credential["models"][1]["api_key_env"] = Value::Null;
-        credential["models"][1]["api_key_credential"] = json!("openrouter");
+        credential["secrets"] = json!([{"name": "bank", "credential": "openrouter"}]);
+        credential["providers"][1]["secret"] = json!("bank");
         let event = held(config_change(&current, "secret", &credential.to_string()));
         assert_eq!(event["models"][0]["api_key_credential"], "openrouter");
         // The provider's id for a known model is the user's to change from anywhere.
@@ -4386,6 +4469,7 @@ mod tests {
         assert_eq!(config["presets"], presets::listing());
         assert_eq!(config["omapass"]["page"], omapass::PAGE);
         assert_eq!(config["credential_manager"], cfg!(windows));
+        assert_eq!(config["platform"], std::env::consts::OS);
         assert_eq!(config["echo_cancel"], Value::Null);
         d.line("devices").await;
         let devices = d.until(|event| event["type"] == "devices").await;
@@ -4797,7 +4881,7 @@ mod tests {
     #[tokio::test]
     async fn an_import_that_cannot_start_says_why() {
         let mut raw = raw();
-        raw["models"][0]["base_url"] = json!("ws://127.0.0.1:1/listen");
+        raw["providers"][0]["base_url"] = json!("ws://127.0.0.1:1/listen");
         let mut d = daemon(raw);
         let path = transcript_file(d.dir.path());
         for (import, code, detail) in [
@@ -5323,8 +5407,8 @@ mod tests {
     async fn models_list_what_a_provider_offers() {
         let listed = br#"{"data": [{"id": "m2"}, {"id": "m1"}]}"#.to_vec();
         let (base, seen) = http::testing::serve_once(200, listed).await;
-        let request = json!({"target": "llm", "base_url": base});
-        let answer = models(&request.to_string(), &[]).await;
+        let request = json!({"target": "llm", "provider": "p"});
+        let answer = models(&request.to_string(), &provider_at(&base, None)).await;
         assert_eq!(
             answer,
             json!({"type": "models", "target": "llm", "models": ["m1", "m2"]})
@@ -5335,8 +5419,8 @@ mod tests {
                                   {"canonical_name": "whisper", "streaming": false}]}"#;
         let (base, seen) = http::testing::serve_once(200, listed.to_vec()).await;
         let deepgram = base.replace("http://", "ws://") + "/deepgram.com/listen";
-        let request = json!({"target": "stt", "base_url": deepgram});
-        let answer = models(&request.to_string(), &[]).await;
+        let request = json!({"target": "stt", "provider": "p"});
+        let answer = models(&request.to_string(), &provider_at(&deepgram, None)).await;
         assert_eq!(answer["models"], json!(["nova-3"]));
         assert!(
             seen.lock()
@@ -5345,34 +5429,35 @@ mod tests {
                 .starts_with("GET /v1/deepgram.com/models ")
         );
         // ElevenLabs lists none: its models are known.
-        let request = json!({"target": "stt", "base_url": "wss://api.elevenlabs.io/v1/speech-to-text/realtime"});
-        let answer = models(&request.to_string(), &[]).await;
+        let request = json!({"target": "stt", "provider": "ELEVENLABS"});
+        let answer = models(
+            &request.to_string(),
+            &presets::overlay(&provider_at("http://x", None)),
+        )
+        .await;
         assert_eq!(answer["models"], json!(stt_elevenlabs::MODELS));
     }
 
     #[tokio::test]
     async fn models_say_why_they_cannot_be_listed() {
-        let request = json!({"base_url": "http://10.0.0.5:8000/v1"});
-        let answer = models(&request.to_string(), &[]).await;
+        let lan = provider_at("http://10.0.0.5:8000/v1", Some("LAN_KEY"));
+        let request = json!({"provider": "p"});
+        let answer = models(&request.to_string(), &lan).await;
         assert_eq!(answer["error"], "missing target");
         assert_eq!(answer["target"], "");
-        let request = json!({"target": "llm", "base_url": "http://10.0.0.5:8000/v1", "api_key_env": "LAN_KEY"});
-        let answer = models(&request.to_string(), &saved_models()).await;
+        let request = json!({"target": "llm", "provider": "p"});
+        let answer = models(&request.to_string(), &lan).await;
         assert_eq!(answer["error"], "LAN_KEY is not set");
         let mut d = daemon(raw());
         d.line(&format!("models {}", json!({"target": "chat"})))
             .await;
         let answer = d.until(|event| event["type"] == "models").await;
-        assert_eq!(answer["error"], "missing base_url");
+        assert_eq!(answer["error"], "missing provider");
     }
 
     #[tokio::test]
     async fn every_kind_of_transcription_model_is_built_for_live_audio_or_a_file() {
-        let model = |base_url: &str, key: Option<&str>| -> Resolved {
-            resolved(json!([{"name": "t", "type": "transcription",
-                "base_url": base_url, "model": "x", "api_key_env": key}]))
-            .remove(0)
-        };
+        let model = resolved_at;
         let built = |stt: Result<Stt, Unbuilt>| match stt {
             Ok(Stt::Segments(_)) => "segments".to_string(),
             Ok(Stt::Stream(_)) => "stream".to_string(),
@@ -5416,10 +5501,14 @@ mod tests {
     #[tokio::test]
     async fn the_setup_tells_each_part_that_cannot_be_had_and_the_rest_works() {
         let mut raw = raw();
+        raw["secrets"] = json!([{"name": "unset", "env": "ECO_TEST_UNSET_KEY"}]);
+        raw["providers"] = json!([
+            {"name": "stt", "base_url": "ws://127.0.0.1:1/listen"},
+            {"name": "llm", "base_url": "http://127.0.0.1:1/v1", "secret": "unset"},
+        ]);
         raw["models"] = json!([
-            {"name": "w", "type": "transcription", "base_url": "ws://127.0.0.1:1/listen", "model": "x"},
-            {"name": "m", "type": "chat", "base_url": "http://127.0.0.1:1/v1", "model": "m",
-             "api_key_env": "ECO_TEST_UNSET_KEY"},
+            {"name": "w", "type": "transcription", "provider": "stt", "model": "x"},
+            {"name": "m", "type": "chat", "provider": "llm", "model": "m"},
         ]);
         raw["context"] = json!({"files": ["/nowhere/eco/cv.md"]});
         raw["contexts"] = json!([{"name": "notes", "files": ["/nowhere/eco/notes.md"]}]);
@@ -5563,9 +5652,11 @@ mod tests {
         // Every transcription preset's name is taken by a chat model.
         let taken: Vec<Value> = ["scribe-v2", "nova-3", "whisper-turbo"]
             .iter()
-            .map(|name| json!({"name": name, "type": "chat", "base_url": "http://llm", "model": "m"}))
+            .map(|name| json!({"name": name, "type": "chat", "provider": "llm", "model": "m"}))
             .collect();
-        let mut d = daemon(json!({"models": taken, "participants": raw()["participants"]}));
+        let mut d = daemon(
+            json!({"providers": raw()["providers"], "models": taken, "participants": raw()["participants"]}),
+        );
         d.configured().await;
         d.start("Retro").await;
         let unheard = d.until(|event| event["code"] == "stt.unavailable").await;
@@ -5579,8 +5670,10 @@ mod tests {
         assert_eq!(events[0]["params"]["detail"], NO_TRANSCRIPTION_MODEL);
 
         // The chat preset's name is taken by a transcription model.
-        let taken = json!([{"name": "gpt-6-luna", "type": "transcription", "base_url": "http://stt", "model": "w"}]);
-        let mut d = daemon(json!({"models": taken, "participants": raw()["participants"]}));
+        let taken = json!([{"name": "gpt-6-luna", "type": "transcription", "provider": "stt", "model": "w"}]);
+        let mut d = daemon(
+            json!({"providers": raw()["providers"], "models": taken, "participants": raw()["participants"]}),
+        );
         d.configured().await;
         let id = d.start("Retro").await;
         let events = d.line("ask which queue?").await;
@@ -5593,13 +5686,18 @@ mod tests {
     #[tokio::test]
     async fn each_kind_runs_on_its_models() {
         let mut raw = raw();
+        raw["secrets"] = json!([{"name": "present", "env": "CARGO_PKG_NAME"}]);
+        raw["providers"].as_array_mut().unwrap().extend([
+            json!({"name": "deepgram", "base_url": "wss://api.deepgram.com/v1/listen", "secret": "present"}),
+            json!({"name": "near", "base_url": "http://127.0.0.1:1/v1"}),
+        ]);
         let models = raw["models"].as_array_mut().unwrap();
-        models.push(json!({"name": "dg", "type": "transcription", "base_url": "wss://api.deepgram.com/v1/listen",
-                           "model": "nova-3", "api_key_env": "CARGO_PKG_NAME", "kinds": ["idea"]}));
         models.push(
-            json!({"name": "fast", "type": "chat", "base_url": "http://127.0.0.1:1/v1",
-                           "model": "f", "kinds": ["idea"], "translates": ["idea"]}),
+            json!({"name": "dg", "type": "transcription", "provider": "deepgram",
+                           "model": "nova-3", "kinds": ["idea"]}),
         );
+        models.push(json!({"name": "fast", "type": "chat", "provider": "near",
+                           "model": "f", "kinds": ["idea"], "translates": ["idea"]}));
         raw["reviewer"] = json!({"enabled": true, "model": "fast"});
         raw["actions"] = json!([{"name": "probe", "prompt": "p", "format": "f", "model": "fast"}]);
         let mut d = daemon(raw);
@@ -5622,7 +5720,7 @@ mod tests {
         let (base, seen) =
             http::testing::serve_once_as(200, Some("text/event-stream"), reply.into_bytes()).await;
         let mut raw = raw();
-        raw["models"][1]["base_url"] = json!(base);
+        raw["providers"][1]["base_url"] = json!(base);
         let mut d = daemon(raw);
         d.configured().await;
         d.start("Retro").await;
@@ -5696,7 +5794,7 @@ mod tests {
     async fn a_recording_cancels_echo_and_tells_the_voices_of_the_others_apart() {
         let mut raw = raw();
         raw["audio"] = json!({"echo_cancel": true});
-        raw["models"][0]["base_url"] = json!("ws://127.0.0.1:1/listen");
+        raw["providers"][0]["base_url"] = json!("ws://127.0.0.1:1/listen");
         let audio = Arc::new(FakeAudio {
             speech: true,
             ..FakeAudio::default()
@@ -5729,7 +5827,7 @@ mod tests {
         let reply = (200, None, br#"{"text": "bom dia"}"#.to_vec());
         let (base, _) = http::testing::serve(vec![reply; 8]).await;
         let mut raw = raw();
-        raw["models"][0]["base_url"] = json!(base);
+        raw["providers"][0]["base_url"] = json!(base);
         let audio = Arc::new(FakeAudio {
             speech: true,
             unopened: Some("@default-input"),
@@ -5996,7 +6094,7 @@ mod tests {
         let replies = vec![(200, Some("text/event-stream"), reply); 3];
         let (base, _) = http::testing::serve(replies).await;
         let mut raw = raw();
-        raw["models"][1]["base_url"] = json!(base);
+        raw["providers"][1]["base_url"] = json!(base);
         let mut d = daemon(raw);
         d.configured().await;
         let id = d.start("Retro").await;
@@ -6145,12 +6243,13 @@ mod tests {
             return;
         }
         let name = format!("test-list-{}", uuid::Uuid::new_v4().simple());
-        let saved: ModelConfig = serde_json::from_value(json!({"name": "t", "type": "chat",
-            "base_url": "http://lan:9000/v1", "model": "x", "api_key_credential": name}))
+        let config = Config::from_value(json!({
+            "secrets": [{"name": "key", "credential": name}],
+            "providers": [{"name": "p", "base_url": "http://lan:9000/v1", "secret": "key"}],
+        }))
         .unwrap();
-        let payload =
-            json!({"target": "llm", "base_url": "http://lan:9000/v1", "api_key_credential": name});
-        let answer = models(&payload.to_string(), &[saved]).await;
+        let payload = json!({"target": "llm", "provider": "p"});
+        let answer = models(&payload.to_string(), &config).await;
         assert_eq!(answer["code"], "models.credential_missing");
         assert_eq!(answer["params"], json!({"credential": name}));
         assert_eq!(answer["models"], json!([]));
@@ -6164,10 +6263,13 @@ mod tests {
         }
         use keyring_core::api::CredentialStoreApi;
         let name = format!("test-build-{}", uuid::Uuid::new_v4().simple());
-        let model: ModelConfig =
-            serde_json::from_value(json!({"name": "t", "type": "transcription",
-            "base_url": "http://lan:9000/v1", "model": "x", "api_key_credential": name}))
-            .unwrap();
+        let config = Config::from_value(json!({
+            "secrets": [{"name": "key", "credential": name}],
+            "providers": [{"name": "p", "base_url": "http://lan:9000/v1", "secret": "key"}],
+            "models": [{"name": "t", "type": "transcription", "provider": "p", "model": "x"}],
+        }))
+        .unwrap();
+        let model = config.resolved().remove(0);
         let missing = Stt::build(&model, "pt", false).await.err().unwrap();
         assert_eq!(missing.credential.as_deref(), Some(name.as_str()));
         let target = format!("eco:{name}");

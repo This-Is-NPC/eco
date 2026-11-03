@@ -618,7 +618,6 @@
   "pending.reject": "拒否",
   "error.command.unknown": "不明なコマンド：{command}",
   "error.command.failed": "{command} に失敗しました：{detail}",
-  "error.models.key_refused": "先にモデルを保存してください。キーは保存済みのモデルかプリセットにだけ使われます（{base_url}）",
   "error.models.credential_missing": "Windows 資格情報マネージャーの eco:{credential} にキーがありません。eco key set {credential} を実行してください",
   "attendees.short": "人物",
   "attendees.none": "まだいません",
@@ -992,5 +991,11 @@
   "appearance.reset": "色をリセット",
   "appearance.choose_color": "色を選択",
   "appearance.hex": "#rrggbb",
-  "appearance.invalid_color": "#39ff14 のように16進数6桁で入力してください。"
+  "appearance.invalid_color": "#39ff14 のように16進数6桁で入力してください。",
+  "error.models.provider_unknown": "プロバイダー {provider} が見つかりません。モデル一覧の前に保存してください",
+  "error.secret.env_unset": "{variable} がデーモンの環境に設定されていません",
+  "error.secret.omapass_missing": "omapass がインストールされていないため {account} を読めません",
+  "error.secret.omapass_failed": "omapass が {account} を返せませんでした：{detail}",
+  "error.secret.credential_missing": "Windows 資格情報マネージャーの eco:{credential} にキーがありません",
+  "error.secret.unreadable": "キーを読めませんでした：{detail}"
 }
