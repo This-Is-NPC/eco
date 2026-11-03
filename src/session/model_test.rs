@@ -222,6 +222,48 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_chat_model_that_reports_usage_first_is_still_tested() {
+        let body = b"data: {\"choices\":[],\"usage\":{\"prompt_tokens\":1}}\n\n\
+                     data: {\"choices\":[{\"delta\":{\"content\":\"o\"}}]}\n\n";
+        let (url, _) = serve(vec![(200, Some("text/event-stream"), body.to_vec())]).await;
+        let reply = test(&config_at(&url, true), "c").await;
+        assert_eq!(reply["ok"], true);
+    }
+
+    #[tokio::test]
+    async fn a_streaming_model_is_tested_by_opening_and_closing_a_stream() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("ws://{}/elevenlabs.io/stt", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.unwrap();
+            let mut socket = tokio_tungstenite::accept_async(socket).await.unwrap();
+            let message = socket.next().await.unwrap().unwrap();
+            socket.close(None).await.unwrap();
+            message.into_text().unwrap().to_string()
+        });
+        let reply = test(&config_at(&url, true), "t").await;
+        assert_eq!(reply["ok"], true, "{reply}");
+        // The last, empty chunk of audio is what the stream sends before it ends.
+        assert!(server.await.unwrap().contains("audio_base_64"));
+    }
+
+    #[tokio::test]
+    async fn a_streaming_model_that_refuses_the_key_names_its_secret() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("ws://{}/elevenlabs.io/stt", listener.local_addr().unwrap());
+        tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let _ = socket.read(&mut [0; 2048]).await.unwrap();
+            let reply = "HTTP/1.1 401 No\r\nContent-Length: 0\r\n\r\n";
+            socket.write_all(reply.as_bytes()).await.unwrap();
+        });
+        let reply = test(&config_at(&url, true), "t").await;
+        assert_eq!(reply["code"], "model_test.credential");
+        assert_eq!(reply["params"], json!({"name": "t", "secret": "key"}));
+    }
+
+    #[tokio::test]
     async fn a_rejected_key_names_its_secret() {
         let (url, _) = serve(vec![(
             401,
