@@ -385,6 +385,8 @@ enum WindowCommand {
     Toggle,
 }
 
+// One value is parsed per run, so the size of its largest variant costs nothing.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Subcommand)]
 enum Bench {
     /// Time to first token of candidate models on OpenRouter (needs OPENROUTER_API_KEY).
@@ -402,15 +404,33 @@ enum Bench {
         /// New-speaker thresholds to compare, e.g. 0.4,0.5,0.6.
         #[arg(long, value_delimiter = ',', default_value = "0.7")]
         threshold: Vec<f32>,
-        /// Smallest share of the speech a speaker may hold.
-        #[arg(long, default_value_t = 0.02)]
-        min_share: f32,
+        /// Merge distances to compare, e.g. 0.3,0.4.
+        #[arg(long, value_delimiter = ',', default_value = "0.3")]
+        merge: Vec<f32>,
+        /// Smallest shares of the speech a speaker may hold, to compare, e.g. 0.01,0.02.
+        #[arg(long, value_delimiter = ',', default_value = "0.02")]
+        min_share: Vec<f32>,
+        /// Windows heard before a small speaker is folded into a larger one, to compare.
+        #[arg(long, value_delimiter = ',', default_value = "120")]
+        settle: Vec<usize>,
+        /// Distances at which the speech heard is clustered again, to compare.
+        #[arg(long, value_delimiter = ',', default_value = "0.5")]
+        recluster: Vec<f32>,
+        /// Windows of speech heard between two re-clusters, to compare.
+        #[arg(long, value_delimiter = ',', default_value = "400")]
+        every: Vec<usize>,
+        /// Hours of speech to measure the cost of re-clustering over, from the recordings repeated.
+        #[arg(long)]
+        stack: Option<f64>,
         /// Seconds forgiven around reference boundaries, half on each side.
         #[arg(long, default_value_t = 0.0)]
         collar: f64,
-        /// Directory to write eco's turns to as `<name>.rttm` (first threshold).
+        /// Directory to write eco's turns to as `<name>.rttm` (first combination).
         #[arg(long)]
         output: Option<PathBuf>,
+        /// Directory to write each recording's window embeddings to as `<name>.emb`.
+        #[arg(long)]
+        dump: Option<PathBuf>,
     },
     /// How safely people are named by voice across AMI meeting series.
     People {
@@ -537,17 +557,29 @@ impl From<Command> for Run {
                         list,
                         model,
                         threshold,
+                        merge,
                         min_share,
+                        settle,
+                        recluster,
+                        every,
+                        stack,
                         collar,
                         output,
+                        dump,
                     } => Run::BenchDiarization(bench::diarization::Options {
                         dir,
                         list,
                         model,
                         thresholds: threshold,
-                        min_share,
+                        merges: merge,
+                        min_shares: min_share,
+                        settles: settle,
+                        reclusters: recluster,
+                        everys: every,
+                        stack,
                         collar,
                         output,
+                        dump,
                     }),
                     Bench::People { dir, series } => Run::BenchPeople { dir, series },
                 };
@@ -1175,8 +1207,17 @@ mod tests {
             (options.list, options.model, options.output),
             (None, None, None)
         );
+        assert_eq!(options.dump, None);
         assert_eq!(options.thresholds, [0.7]);
-        assert_eq!((options.min_share, options.collar), (0.02, 0.0));
+        assert_eq!(
+            (options.merges, options.min_shares, options.settles),
+            (vec![0.3], vec![0.02], vec![120])
+        );
+        assert_eq!(
+            (options.reclusters, options.everys, options.stack),
+            (vec![0.5], vec![400], None)
+        );
+        assert_eq!(options.collar, 0.0);
     }
 
     #[test]
@@ -1191,12 +1232,24 @@ mod tests {
             "embed.onnx",
             "--threshold",
             "0.5,0.7",
+            "--merge",
+            "0.3,0.4",
             "--min-share",
             "0.1",
+            "--settle",
+            "60,120",
+            "--recluster",
+            "0.6,0.7",
+            "--every",
+            "200,400",
+            "--stack",
+            "3",
             "--collar",
             "0.25",
             "--output",
             "out",
+            "--dump",
+            "emb",
         ]) else {
             panic!("expected bench diarization")
         };
@@ -1204,7 +1257,16 @@ mod tests {
         assert_eq!(options.model, Some(PathBuf::from("embed.onnx")));
         assert_eq!(options.output, Some(PathBuf::from("out")));
         assert_eq!(options.thresholds, [0.5, 0.7]);
-        assert_eq!((options.min_share, options.collar), (0.1, 0.25));
+        assert_eq!(options.dump, Some(PathBuf::from("emb")));
+        assert_eq!(
+            (options.merges, options.min_shares, options.settles),
+            (vec![0.3, 0.4], vec![0.1], vec![60, 120])
+        );
+        assert_eq!(
+            (options.reclusters, options.everys, options.stack),
+            (vec![0.6, 0.7], vec![200, 400], Some(3.0))
+        );
+        assert_eq!(options.collar, 0.25);
         assert_eq!(
             rejected(&["bench", "diarization", "ami", "--threshold", "high"]),
             ErrorKind::ValueValidation

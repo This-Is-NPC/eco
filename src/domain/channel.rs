@@ -14,7 +14,7 @@ use crate::domain::loudness::loudness;
 use crate::domain::segmenter::{Segment, Segmenter, SegmenterConfig};
 use crate::ports::{
     AudioError, AudioSource, FRAME_SAMPLES, Frame, Heard, Phrase, SAMPLE_RATE, SpeechToText,
-    StreamingSpeechToText, Transcript, TranscriptionError,
+    StreamingSpeechToText, Transcript, TranscriptionError, Word,
 };
 
 /// How a channel's speech becomes text: segment by segment, or as one stream
@@ -59,6 +59,15 @@ impl Utterance {
     pub fn text(&self) -> String {
         let texts: Vec<&str> = self.phrases.iter().map(|p| p.text.as_str()).collect();
         texts.join(" ")
+    }
+
+    /// The timed words of every phrase, or none when a phrase has none.
+    pub fn words(&self) -> Vec<Word> {
+        let words = self.phrases.iter().map(|p| p.words.as_slice());
+        if words.clone().any(<[Word]>::is_empty) {
+            return Vec::new();
+        }
+        words.flatten().cloned().collect()
     }
 
     /// Where the speech ends in the source, in seconds.
@@ -326,14 +335,7 @@ async fn by_segment(
         match result.map(|transcript| transcript.phrases) {
             Ok(phrases) if !phrases.is_empty() => {
                 let start = seconds(segment.start);
-                let phrases = phrases
-                    .into_iter()
-                    .map(|p| Phrase {
-                        start: start + p.start,
-                        end: start + p.end,
-                        text: p.text,
-                    })
-                    .collect();
+                let phrases = phrases.into_iter().map(|p| p.shifted(start)).collect();
                 (listeners.utterance)(Utterance {
                     who: who.into(),
                     phrases,
@@ -494,16 +496,12 @@ async fn streamed(
                     Ok(Heard::Phrase(phrase)) => {
                         spoke = true;
                         let offset = seconds(first.load(Ordering::Relaxed) * FRAME_SAMPLES);
-                        let (start, end) = (offset + phrase.start, offset + phrase.end);
-                        let spoken = Duration::from_secs_f64(end.max(0.0));
+                        let phrase = phrase.shifted(offset);
+                        let spoken = Duration::from_secs_f64(phrase.end.max(0.0));
                         let since = origin.get().map_or(Duration::ZERO, Instant::elapsed);
                         (listeners.utterance)(Utterance {
                             who: who.into(),
-                            phrases: vec![Phrase {
-                                start,
-                                end,
-                                text: phrase.text,
-                            }],
+                            phrases: vec![phrase],
                             latency: since.saturating_sub(spoken),
                         });
                     }
@@ -659,6 +657,11 @@ mod tests {
                     start,
                     end,
                     text: format!("{text} {calls}"),
+                    words: vec![Word {
+                        start,
+                        end,
+                        text: text.into(),
+                    }],
                 };
                 Ok(Transcript {
                     phrases: vec![
@@ -790,6 +793,18 @@ mod tests {
         let texts: Vec<String> = run.utterances.iter().map(Utterance::text).collect();
         assert_eq!(texts, ["segment 1 part 1", "segment 2 part 2"]);
         assert!(run.utterances.iter().all(|u| u.who == "them"));
+        // The words of a segment's phrases are timed in the source as they are.
+        for utterance in &run.utterances {
+            let words: Vec<(f64, f64)> =
+                utterance.words().iter().map(|w| (w.start, w.end)).collect();
+            let phrases: Vec<(f64, f64)> =
+                utterance.phrases.iter().map(|p| (p.start, p.end)).collect();
+            assert_eq!(words, phrases);
+        }
+        // A phrase without word times leaves the utterance without any.
+        let mut untimed = run.utterances[0].clone();
+        untimed.phrases[1].words.clear();
+        assert!(untimed.words().is_empty());
         // Speech spans frames 30–50 and 80–100 (32 ms each), padded by 96 ms.
         let millis = |t: f64| (t * 1000.0).round() as u64;
         let spans: Vec<(u64, u64, u64)> = run
@@ -1027,6 +1042,11 @@ mod tests {
                         start: end - 0.8,
                         end,
                         text: format!("phrase at {end:.1}"),
+                        words: vec![Word {
+                            start: end - 0.8,
+                            end,
+                            text: "phrase".into(),
+                        }],
                     }))),
                     13 => Some(Ok(Heard::Partial("phrase at".into()))),
                     _ => None,
@@ -1097,6 +1117,8 @@ mod tests {
             .map(|u| format!("{:.1}", u.end()))
             .collect();
         assert_eq!(ends, ["0.8", "1.6", "2.4", "3.2", "4.0"]);
+        // Each word is timed in the source, like its phrase.
+        assert!(run.utterances.iter().all(|u| u.words()[0].end == u.end()));
         assert_eq!(run.partials, 5);
         assert!(run.errors.is_empty());
         assert_eq!(run.segments, 2);

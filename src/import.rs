@@ -437,6 +437,7 @@ mod tests {
                         start: 0.0,
                         end: pcm.len() as f64 / RATE as f64,
                         text: format!("line {call}"),
+                        words: Vec::new(),
                     }],
                     request: Some(format!("request {call}")),
                 })
@@ -477,6 +478,7 @@ mod tests {
                     start: 1.0,
                     end: self.0,
                     text: "all of it".into(),
+                    words: Vec::new(),
                 };
                 let heard = [
                     Heard::Request("stream 1".into()),
@@ -677,12 +679,14 @@ mod tests {
             turns: vec![turn(0.0, 2.0, 4)],
             voices: vec![(4, vec![1.0, 0.0])],
             merged: Vec::new(),
+            moved: Vec::new(),
         }));
         heard(Diarized::Update(Update {
             end: 5.0,
             turns: vec![turn(3.0, 5.0, 6)],
             voices: vec![(6, vec![0.0, 1.0])],
             merged: Vec::new(),
+            moved: Vec::new(),
         }));
         heard(Diarized::Done);
         heard(Diarized::Failed("told once".into()));

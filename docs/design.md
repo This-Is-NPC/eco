@@ -255,21 +255,59 @@ eco/
   nearest, or starts a new speaker when every voice is at a cosine distance of
   0.7 or more. After each region, two speakers closer than 0.3 become one, and
   a speaker heard for less than 2% of the windows, once 120 more windows came
-  after their first, joins the nearest larger one. It keeps the running
-  voices (at most 32 speakers) and nothing else, so a region costs the same
-  at the third hour as at the first minute, and pausing or stopping only ends
-  it. The 0.7 was measured on the AMI dev meetings
+  after their first, joins the nearest larger one. The 0.7 was measured on
+  the AMI dev meetings
   ([benchmarks](benchmarks.md#online-clustering-2026-10-14)). For each region
   it prints the turns, the voices that changed and the speakers joined.
-  The daemon keeps the last 5 minutes of turns and up to 256 lines that wait
-  for the child to hear past their end; each line then goes to the voice that
-  said most of it. The first time a voice says a line it gets a label: that of
+  What the first minutes got wrong is not left to stand. Besides the running
+  voices (at most 32 speakers) the child keeps, in memory only, the **stretches**
+  of the last 4 hours: each run of consecutive windows one speaker said in a
+  region, as the sum of their voices, their count and their span; a stretch
+  older than that stays in its speaker's voice. Every 400 windows of speech
+  (about five minutes) and when its input ends, it clusters the stretches
+  again as a whole — average linkage on cosine distance weighted by the windows,
+  stopped at 0.5, a group under 2% of the windows folded into the nearest
+  larger one, so a speaker who never settled goes without waiting for 120
+  windows and one who spoke for a minute stays. The work runs on a thread of its
+  own while the child goes on hearing, and its result is applied between two
+  regions, to the stretches as they were: each group keeps the speaker most of
+  it was already said by, one speaker to a group, and the others are new
+  speakers with numbers not used before. A speaker whose stretches all went to
+  one other is told as joined; the rest as one more line,
+  `{"end": s, "turns": [], "voices": […], "merged": […], "moved": [[start, end, from, to], …]}`,
+  the spans that went from a speaker to another. Without a re-cluster the cost
+  of a region is the same at the third hour as at the first minute; a
+  re-cluster costs memory and time by the square of the stretches. Measured on
+  3.1 h of AMI audio, 2,575 stretches: 0.25 s for the slowest re-cluster (on the
+  thread of its own), 12 MB more at the peak, and 20 ms the longest the child
+  was kept from a region ([benchmarks](benchmarks.md#re-clustering-2026-11-03)).
+  The daemon keeps the turns of the last 4 hours, the lines of the same
+  stretch and up to 256 lines that wait for the child to hear past their end;
+  each line then goes to the voice that said most of it. A line from a transcriber that times words (Deepgram,
+  ElevenLabs) goes by its words instead: each word to the voice that talks
+  most over it, the line cut before the first word of each change of voice
+  into one line per voice, except where a voice talks less than 0.5 s, which
+  stays with the longer neighbouring part. The cuts are a function of the
+  words' times and the turns alone: each region the child tells moves the
+  turns of the last 5 minutes again, and a re-cluster moves again the turns of
+  any span it moved, however old (up to 4 hours) — the parts merge and split
+  anew, or into one line when one voice said it all. A line without word times
+  is followed the same way when a span moves. The words and their times stay in memory and are never written to the
+  log, which holds the `split` and `merged` records (§7) and the `voiced` ones;
+  clients get `line_split`, `line_merged` and `transcript_reassigned` (§10.1),
+  as for the user's own edits. A line the user changed, or whose text does not
+  hold the words, is left as it is. A transcriber without word times keeps the
+  whole line with the voice that said most of it.
+  The first time a voice says a line it gets a label: that of
   a voice the session keeps close to it (≥ 0.70), else the audio source's for
   the input's first voice, else `Speaker N`. Its lines move to that label as
   they are known — a `voiced` record, and `transcript_reassigned` to clients.
   Two speakers joined share a label: the lines of the one without a person
   move to the other's, and two the user named as different people stay
-  apart. A voice is kept (§7.3) when it first comes and again whenever it
+  apart. A moved span follows the same rule: a line of a speaker the user
+  named never goes to another the user named, while it may go to one nobody
+  named. The child does not know the names, so what it moved stays moved in
+  its turns, and later speech goes where the child puts it. A voice is kept (§7.3) when it first comes and again whenever it
   moved (cosine below 0.98 to the one kept), and the session's speakers are
   told again, so guesses come during the meeting. At most 32 regions wait for
   the child; past that, regions go without diarization and the daemon's log
@@ -583,7 +621,8 @@ any other label shows as written.
   character: a `split` record, `{"of":{"who","at"},"text","new":{"who","at","text"}}`,
   the left part kept and the right part a new line of the same speaker whose
   `at` is the line's plus 1 ms, or half the way to the next entry when that is
-  closer, so it lands right below. Restoring a log replays both; the lines they
+  closer, so it lands right below. Diarization of a live line writes the same
+  records (§4). Restoring a log replays both; the lines they
   rewrite lose their translations, translated again when the session
   translates, and later answers carry the corrected lines.
 - **Delete:** an interrupted or ended session can be deleted; deletion removes

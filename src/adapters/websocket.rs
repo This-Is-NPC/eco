@@ -233,6 +233,7 @@ mod tests {
             start: 0.0,
             end: 1.0,
             text: text.into(),
+            words: Vec::new(),
         }]))
     }
 

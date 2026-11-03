@@ -53,7 +53,12 @@ fn phrases(body: &Value, clip: f64) -> Result<Vec<Phrase>, String> {
                     let text = collapse(segment.get("text")?.as_str()?);
                     let start = time("start")?.clamp(0.0, clip);
                     let end = time("end")?.clamp(start, clip);
-                    (!text.is_empty()).then_some(Phrase { start, end, text })
+                    (!text.is_empty()).then_some(Phrase {
+                        start,
+                        end,
+                        text,
+                        words: Vec::new(),
+                    })
                 })
                 .collect::<Vec<_>>()
         });
@@ -72,6 +77,7 @@ fn phrases(body: &Value, clip: f64) -> Result<Vec<Phrase>, String> {
             start: 0.0,
             end: clip,
             text,
+            words: Vec::new(),
         }]
     })
 }
@@ -171,6 +177,7 @@ mod tests {
             start: 0.0,
             end: 1.0,
             text: "olá, tudo bem?".into(),
+            words: Vec::new(),
         };
         assert_eq!(result.unwrap(), [whole]);
         assert!(contains(&body, b"name=\"language\"\r\n\r\npt"));
@@ -219,6 +226,7 @@ mod tests {
             start,
             end,
             text: text.into(),
+            words: Vec::new(),
         };
         assert_eq!(
             result.unwrap(),

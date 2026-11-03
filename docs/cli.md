@@ -194,11 +194,39 @@ New-speaker thresholds to compare, e.g. 0.4,0.5,0.6
 
 **Default:** `0.7`
 
-#### `--min-share <MIN_SHARE>`
+#### `--merge… <MERGE>`
 
-Smallest share of the speech a speaker may hold
+Merge distances to compare, e.g. 0.3,0.4
+
+**Default:** `0.3`
+
+#### `--min-share… <MIN_SHARE>`
+
+Smallest shares of the speech a speaker may hold, to compare, e.g. 0.01,0.02
 
 **Default:** `0.02`
+
+#### `--settle… <SETTLE>`
+
+Windows heard before a small speaker is folded into a larger one, to compare
+
+**Default:** `120`
+
+#### `--recluster… <RECLUSTER>`
+
+Distances at which the speech heard is clustered again, to compare
+
+**Default:** `0.5`
+
+#### `--every… <EVERY>`
+
+Windows of speech heard between two re-clusters, to compare
+
+**Default:** `400`
+
+#### `--stack <STACK>`
+
+Hours of speech to measure the cost of re-clustering over, from the recordings repeated
 
 #### `--collar <COLLAR>`
 
@@ -208,7 +236,11 @@ Seconds forgiven around reference boundaries, half on each side
 
 #### `--output <OUTPUT>`
 
-Directory to write eco's turns to as `<name>.rttm` (first threshold)
+Directory to write eco's turns to as `<name>.rttm` (first combination)
+
+#### `--dump <DUMP>`
+
+Directory to write each recording's window embeddings to as `<name>.emb`
 
 ## `eco bench people`
 

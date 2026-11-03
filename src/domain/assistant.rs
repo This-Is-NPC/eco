@@ -24,7 +24,7 @@ use crate::domain::prompts::{
 };
 use crate::domain::session::{
     ENDED, Entry, HeardBy, INTERRUPTED, LIVE, LineError, LogError, Note, PAUSED, Page, RECORDING,
-    Rate, Session, Source, Speech, Suggestion, Unclosed, folded, now, same_tag, summarize,
+    Rate, Recut, Session, Source, Speech, Suggestion, Unclosed, folded, now, same_tag, summarize,
     tag_counts, tag_name,
 };
 use crate::domain::transcribers::Listening;
@@ -332,6 +332,31 @@ fn removed_event(session: &Session, entry: Option<&Entry>, id: &str) -> Event {
 
 /// `event`, about an entry added to or gone from `session`, with the session's
 /// counts after it.
+/// Whether the user named both speakers `a` and `b` of a session: a line of
+/// one is never given to the other by diarization.
+fn told_apart(session: &Session, a: &str, b: &str) -> bool {
+    let named = |label: &str| session.person_of(label).is_some() || session.name_of(label) != label;
+    named(a) && named(b)
+}
+
+/// Move lines to the labels diarization found for them, as events.
+fn reassigned(
+    session: &mut Session,
+    session_id: &str,
+    moves: Vec<(String, f64, String)>,
+) -> Vec<Event> {
+    let moved = session.voice_lines(&moves);
+    moved
+        .into_iter()
+        .map(|(was, at, label)| {
+            json!({
+                "type": "transcript_reassigned", "session": session_id,
+                "who": was, "at": at, "name": session.name_of(&label), "label": label,
+            })
+        })
+        .collect()
+}
+
 fn counted(mut event: Event, session: &Session) -> Event {
     event["counts"] = session.counts();
     event
@@ -1112,6 +1137,7 @@ impl Assistant {
         let mut kept: Option<BTreeMap<String, Vec<f32>>> = None;
         let (mut changed, mut fresh) = (false, false);
         let mut state = self.state();
+        let setup = state.setup.clone();
         let heard = self.edit_session(&mut state, session_id, |session| {
             let mut moves: Vec<(String, f64, String)> = Vec::new();
             for &(gone, into) in &said.merged {
@@ -1149,26 +1175,65 @@ impl Assistant {
                     .remove(&left)
                     .is_some();
             }
-            for &(at, speaker) in &said.lines {
-                let label = match labels.get(&speaker) {
-                    Some(labelled) => labelled.label.clone(),
-                    None => {
-                        let voices = voices_of(&mut kept, people, session_id);
-                        let labelled = label_for(
-                            session,
-                            who,
-                            said.voices.get(&speaker).map(Vec::as_slice),
-                            voices,
-                            labels,
-                        );
-                        let label = labelled.label.clone();
-                        labels.insert(speaker, labelled);
-                        fresh = true;
-                        label
+            let mut told = reassigned(session, session_id, std::mem::take(&mut moves));
+            let mut rewritten: Vec<Speech> = Vec::new();
+            for placed in &said.lines {
+                let mut targets: Vec<String> = Vec::new();
+                for part in &placed.parts {
+                    let speaker = part.speaker;
+                    let label = match labels.get(&speaker) {
+                        Some(labelled) => labelled.label.clone(),
+                        None => {
+                            let voices = voices_of(&mut kept, people, session_id);
+                            let labelled = label_for(
+                                session,
+                                who,
+                                said.voices.get(&speaker).map(Vec::as_slice),
+                                voices,
+                                labels,
+                            );
+                            let label = labelled.label.clone();
+                            labels.insert(speaker, labelled);
+                            fresh = true;
+                            label
+                        }
+                    };
+                    targets.push(label);
+                }
+                let firsts: Vec<usize> = placed.parts.iter().map(|part| part.first).collect();
+                let (cuts, pieces) = session.recut(placed.at, &placed.words, &firsts);
+                for cut in cuts {
+                    let (event, lines) = match cut {
+                        Recut::Merged { kept, gone } => (
+                            json!({
+                                "type": "line_merged", "session": session_id,
+                                "into": {"who": kept.who, "at": kept.at},
+                                "from": {"who": gone.who, "at": gone.at}, "text": kept.text,
+                            }),
+                            vec![kept],
+                        ),
+                        Recut::Split { kept, new } => (
+                            json!({
+                                "type": "line_split", "session": session_id,
+                                "of": {"who": kept.who, "at": kept.at}, "text": kept.text,
+                                "new": {
+                                    "who": new.who, "name": session.name_of(&new.who),
+                                    "at": new.at, "text": new.text,
+                                },
+                            }),
+                            vec![kept, new],
+                        ),
+                    };
+                    told.push(counted(event, session));
+                    for line in lines {
+                        rewritten.retain(|s| s.at != line.at);
+                        rewritten.push(line);
                     }
-                };
-                if label != who {
-                    moves.push((who.to_string(), at, label));
+                }
+                for ((was, at), label) in pieces.into_iter().zip(targets) {
+                    if label != was && !told_apart(session, &was, &label) {
+                        moves.push((was, at, label));
+                    }
                 }
             }
             let mut enrolled: Vec<(String, String, Vec<f32>)> = Vec::new();
@@ -1185,19 +1250,13 @@ impl Assistant {
                     enrolled.push((person.to_string(), labelled.label.clone(), current));
                 }
             }
-            let told: Vec<Event> = session
-                .voice_lines(&moves)
-                .into_iter()
-                .map(|(was, at, label)| {
-                    json!({
-                        "type": "transcript_reassigned", "session": session_id,
-                        "who": was, "at": at, "name": session.name_of(&label), "label": label,
-                    })
-                })
-                .collect();
-            (told, enrolled)
+            told.extend(reassigned(session, session_id, moves));
+            let again = setup
+                .zip(session.translation())
+                .map(|(setup, language)| (setup, session.kind.clone(), language.to_string()));
+            (told, enrolled, again, rewritten)
         });
-        let Some((told, enrolled)) = heard else {
+        let Some((told, enrolled, again, rewritten)) = heard else {
             return;
         };
         if let Some(voices) = kept.filter(|_| changed)
@@ -1215,6 +1274,7 @@ impl Assistant {
         for event in told {
             self.emit(event);
         }
+        self.retranslate(session_id, again, &rewritten.iter().collect::<Vec<_>>());
         if changed || fresh {
             self.announce_speakers(session_id);
         }
@@ -3462,6 +3522,7 @@ mod tests {
     use super::*;
     use crate::adapters::people_files::PeopleFiles;
     use crate::adapters::session_files::{NoSessionFiles, SessionFiles};
+    use crate::domain::diarization::{Part, Placed};
     use crate::domain::session::IMPORT;
     use crate::ports::{CompletionError, Message, Phrase};
 
@@ -3695,6 +3756,7 @@ mod tests {
                 start: 0.0,
                 end: 1.0,
                 text: text.into(),
+                words: Vec::new(),
             }],
             latency: Duration::from_millis(500),
         }
@@ -6038,7 +6100,7 @@ mod tests {
         let mut labels = Labels::default();
         let first = normalized(vec![0.99, 0.1, 0.0]);
         let said = Said {
-            lines: vec![(10.0, 0), (12.0, 1), (14.0, 0)],
+            lines: lines(&[(10.0, 0), (12.0, 1), (14.0, 0)]),
             merged: Vec::new(),
             voices: BTreeMap::from([(0, first.clone()), (1, vec![0.0, 0.0, 1.0])]),
         };
@@ -6133,6 +6195,76 @@ mod tests {
     }
 
     #[test]
+    fn a_live_line_over_two_speakers_is_cut_and_rejoined_for_clients_and_the_log() {
+        let directory = tempfile::tempdir().unwrap();
+        let (assistant, events, log) = stored_with(directory.path(), people_in(directory.path()));
+        assistant.start("Call", "meeting", "pt", None);
+        let said = "Tudo bem? Sim e voce";
+        let (id, at) = assistant.hear(&heard(), &utterance("Eles", said)).remove(0);
+        assistant.hear(&heard(), &utterance("Eles", "Outra."));
+        let last = |kind: &str| last_of(&events, kind);
+        let words: Vec<String> = said.split(' ').map(String::from).collect();
+        let by = |parts: &[(usize, usize)]| Said {
+            lines: vec![Placed {
+                at,
+                words: words.clone(),
+                parts: parts
+                    .iter()
+                    .map(|&(first, speaker)| Part { first, speaker })
+                    .collect(),
+            }],
+            merged: Vec::new(),
+            voices: BTreeMap::from([(0, vec![1.0, 0.0, 0.0]), (1, vec![0.0, 1.0, 0.0])]),
+        };
+        let mut labels = Labels::default();
+
+        // Two turns: the line splits, the right part goes to the second voice.
+        assistant.voices_heard(&id, "Eles", &by(&[(0, 0), (2, 1)]), &mut labels);
+        let split = last("line_split");
+        assert_eq!(split["of"], json!({"who": "Eles", "at": at}));
+        assert_eq!(split["text"], "Tudo bem?");
+        assert_eq!(split["new"]["text"], "Sim e voce");
+        let new_at = split["new"]["at"].as_f64().unwrap();
+        assert_eq!(
+            last("transcript_reassigned"),
+            json!({"type": "transcript_reassigned", "session": id, "who": "Eles", "at": new_at,
+                   "label": "Speaker 1", "name": "Speaker 1"})
+        );
+        let events_before = events.lock().unwrap().len();
+
+        // The same turns again tell clients nothing.
+        assistant.voices_heard(&id, "Eles", &by(&[(0, 0), (2, 1)]), &mut labels);
+        assert_eq!(events.lock().unwrap().len(), events_before);
+
+        // The change moves: merged and split again, the new part to the second voice.
+        assistant.voices_heard(&id, "Eles", &by(&[(0, 0), (3, 1)]), &mut labels);
+        assert_eq!(last("line_split")["new"]["text"], "e voce");
+        assert_eq!(
+            last("line_merged")["into"],
+            json!({"who": "Eles", "at": at})
+        );
+        assert_eq!(last("transcript_reassigned")["label"], "Speaker 1");
+
+        // One speaker said it all: the parts rejoin, in the first line.
+        assistant.voices_heard(&id, "Eles", &by(&[(0, 0)]), &mut labels);
+        let merged = last("line_merged");
+        assert_eq!(merged["into"], json!({"who": "Eles", "at": at}));
+        assert_eq!(merged["text"], said);
+        assert_eq!(merged["counts"]["lines"], 2);
+
+        let records = log.read(&id).unwrap();
+        let kinds: Vec<&str> = records
+            .iter()
+            .filter_map(|r| r["type"].as_str())
+            .filter(|kind| ["split", "merged", "voiced"].contains(kind))
+            .collect();
+        assert_eq!(
+            kinds,
+            ["split", "voiced", "merged", "split", "voiced", "merged"]
+        );
+    }
+
+    #[test]
     fn live_speakers_found_to_be_one_keep_the_person_named() {
         let directory = tempfile::tempdir().unwrap();
         let people = people_in(directory.path());
@@ -6143,7 +6275,7 @@ mod tests {
         call.hear_at("Eles", "Vamos.", 14.0);
         let mut labels = Labels::default();
         let said = Said {
-            lines: vec![(10.0, 0), (12.0, 1), (14.0, 2)],
+            lines: lines(&[(10.0, 0), (12.0, 1), (14.0, 2)]),
             merged: Vec::new(),
             voices: BTreeMap::from([
                 (0, vec![1.0, 0.0, 0.0]),
@@ -6195,7 +6327,7 @@ mod tests {
         // its label; a joined speaker never labelled changes nothing.
         call.hear_at("Eles", "Até já.", 16.0);
         let lent = Said {
-            lines: vec![(16.0, 5)],
+            lines: lines(&[(16.0, 5)]),
             merged: vec![(7, 8), (0, 5)],
             voices: BTreeMap::from([(5, vec![0.0, 0.0, 1.0])]),
         };
@@ -6207,6 +6339,84 @@ mod tests {
         let caio = everyone.iter().find(|p| p.name == "Caio").unwrap();
         assert_eq!(caio.voiceprints.len(), 1);
         assert_eq!(caio.voiceprints[0].voice, [0.0, 0.0, 1.0]);
+
+        // Two speakers that already share a label have nothing to move.
+        for speaker in [6, 7] {
+            let shared = Labelled {
+                label: "Eles".into(),
+                ..Labelled::default()
+            };
+            labels.insert(speaker, shared);
+        }
+        let same = Said {
+            merged: vec![(7, 6)],
+            ..Said::default()
+        };
+        let before = count(&events, "transcript_reassigned");
+        assistant.voices_heard(&call.id, "Eles", &same, &mut labels);
+        assert!(!labels.contains_key(&7));
+        assert_eq!(labels[&6].label, "Eles");
+        assert_eq!(count(&events, "transcript_reassigned"), before);
+    }
+
+    #[test]
+    fn lines_a_recluster_moved_change_speaker_unless_both_are_named() {
+        let directory = tempfile::tempdir().unwrap();
+        let (assistant, events, log) = stored_with(directory.path(), people_in(directory.path()));
+        let mut call = Session::begin("Call", "meeting", LIVE, "pt", log.writer());
+        for (at, text) in [
+            (10.0, "Oi."),
+            (12.0, "Tudo bem?"),
+            (14.0, "Vamos."),
+            (16.0, "Já."),
+        ] {
+            call.hear_at("Eles", text, at);
+        }
+        let voices = BTreeMap::from([
+            (0, vec![1.0, 0.0, 0.0]),
+            (1, vec![0.0, 1.0, 0.0]),
+            (2, vec![0.0, 0.0, 1.0]),
+            (3, vec![0.0, 0.0, 0.0, 1.0]),
+        ]);
+        let mut labels = Labels::default();
+        let first = Said {
+            lines: lines(&[(10.0, 0), (12.0, 1), (14.0, 2), (16.0, 1)]),
+            voices: voices.clone(),
+            ..Said::default()
+        };
+        assistant.voices_heard(&call.id, "Eles", &first, &mut labels);
+        let moves = |told: &[(f64, usize)]| Said {
+            lines: lines(told),
+            voices: voices.clone(),
+            ..Said::default()
+        };
+
+        // A line said long ago, heard as speaker 1 and now speaker 0, changes label.
+        assistant.voices_heard(&call.id, "Eles", &moves(&[(12.0, 0)]), &mut labels);
+        let moved = last_of(&events, "transcript_reassigned");
+        assert_eq!(
+            (&moved["who"], &moved["at"], &moved["label"]),
+            (&json!("Speaker 1"), &json!(12.0), &json!("Eles"))
+        );
+
+        // Two speakers the user named: the line stays, and so does each label.
+        assistant.assign_person(&call.id, "Eles", None, "Caio", None);
+        assistant.assign_person(&call.id, "Speaker 2", None, "Bia", None);
+        let before = count(&events, "transcript_reassigned");
+        assistant.voices_heard(&call.id, "Eles", &moves(&[(14.0, 0)]), &mut labels);
+        assert_eq!(count(&events, "transcript_reassigned"), before);
+        assert_eq!(
+            (&labels[&0].label[..], &labels[&2].label[..]),
+            ("Eles", "Speaker 2")
+        );
+
+        // A named speaker's line may go to one nobody named, new to the session.
+        assistant.voices_heard(&call.id, "Eles", &moves(&[(14.0, 3)]), &mut labels);
+        let moved = last_of(&events, "transcript_reassigned");
+        assert_eq!(
+            (&moved["who"], &moved["at"], &moved["label"]),
+            (&json!("Speaker 2"), &json!(14.0), &json!("Speaker 3"))
+        );
     }
 
     #[test]
@@ -6892,6 +7102,16 @@ mod tests {
         }
     }
 
+    /// Lines said whole, each as (time, speaker).
+    fn lines(said: &[(f64, usize)]) -> Vec<Placed> {
+        let whole = |&(at, speaker)| Placed {
+            at,
+            words: Vec::new(),
+            parts: vec![Part { first: 0, speaker }],
+        };
+        said.iter().map(whole).collect()
+    }
+
     fn voice(of: &[f32]) -> BTreeMap<String, Vec<f32>> {
         BTreeMap::from([("Eles".to_string(), of.to_vec())])
     }
@@ -6899,7 +7119,7 @@ mod tests {
     /// One line at `at`, said by a live input's only speaker, with `voice`.
     fn alone(at: f64, voice: &[f32]) -> Said {
         Said {
-            lines: vec![(at, 0)],
+            lines: lines(&[(at, 0)]),
             merged: Vec::new(),
             voices: BTreeMap::from([(0, voice.to_vec())]),
         }

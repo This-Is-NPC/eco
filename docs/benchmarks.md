@@ -105,13 +105,13 @@ with a reference RTTM (and UEM). Silero VAD and the segmenter cut speech
 regions as in a session; WeSpeaker CAM++ (Apache-2.0, through tract) embeds
 1.5 s windows every 0.75 s; average-linkage clustering on cosine distance
 stops at 0.65, and groups under 2% of the windows join the nearest larger
-one. DER follows pyansession.metrics: overlapped speech scored, collar split
+one. DER follows pyannote.metrics: overlapped speech scored, collar split
 half before and half after each reference boundary. On the four dev
-recordings below the harness agrees with pyansession.metrics 4.1 to 0.1 point
+recordings below the harness agrees with pyannote.metrics 4.1 to 0.1 point
 for every recording.
 
 Data: AMI Mix-Headset (CC BY 4.0), RTTMs and UEMs of
-`pyansession/AMI-diarization-setup` (`only_words`). The threshold and the
+`pyannote/AMI-diarization-setup` (`only_words`). The threshold and the
 model were chosen on four dev meetings (IS1008a, ES2011a, TS3004a, IB4001);
 the test meetings were run once with them.
 
@@ -124,16 +124,16 @@ ResNet34-LM is also half as fast (25–30× against 53–60× real time), so
 CAM++ is the model `eco setup` downloads.
 
 Test set, 16 meetings, 9 h, CAM++ at 0.65, against the published
-pyansession/speaker-diarization-3.1 run on the same set (same "full" setup:
+pyannote/speaker-diarization-3.1 run on the same set (same "full" setup:
 no collar, overlap scored):
 
 | | Missed | False alarm | Confusion | DER |
 |---|---|---|---|---|
 | eco, collar 0 | 21.7% | 2.5% | 2.6% | 26.7% |
-| pyansession 3.1, collar 0 | 9.5% | 3.6% | 5.7% | 18.8% |
+| pyannote 3.1, collar 0 | 9.5% | 3.6% | 5.7% | 18.8% |
 | eco, collar 0.5 s (±0.25 s) | 17.7% | 0.6% | 1.1% | 19.4% |
 
-eco confuses speakers less than pyansession; its gap is missed speech:
+eco confuses speakers less than pyannote; its gap is missed speech:
 overlapping speakers (one voice per moment in eco) and the edges the VAD
 trims. Speakers found matched the reference on 15 of 16 meetings (TS3003a:
 2 of 4). The 9 h took 11 min on 12 threads (~49× real time) with a 370 MB
@@ -186,6 +186,362 @@ clear, and suggests people from 0.40. The six left unnamed all scored below
 End to end through the daemon: ES2004a imported, its four speakers named by
 hand after the reference; ES2004b imported next had all four named without
 asking, and 670 of its 713 lines (94%) carry the right person.
+
+## Baseline and diagnosis (2026-11-03)
+
+The online clustering as it stands (commit `df2cab8`), measured before
+anything changes, so a later change is judged against these numbers.
+`mise run bench:diarization`, release build, CAM++ (`wespeaker_campplus.onnx`,
+sha256 `b50810498b5bcf5773d086f6993d344476bd0c88b566a41e8d801aaf8461efad`),
+collar 0, threshold 0.7, merge 0.3, min share 2%, settle 120 windows.
+The dev set is IS1008a, ES2011a, TS3004a and IB4001. The held-out set is
+IS1009b, ES2004b, TS3003b and EN2002b, picked once from the test meetings
+(`heldout.txt`, not used to choose anything). Data: AMI Mix-Headset
+(CC BY 4.0).
+
+How each column is read:
+
+- **purity**: of the time found speakers share with the reference, the part
+  in each one's main reference speaker. **cover**: the same from the reference
+  side. Both count only speech the reference and eco both hold, so missed
+  speech and false alarm do not move them.
+- **<5%**: found speakers holding under 5% of the found speech. A real but
+  quiet speaker counts too.
+- **churn %**: speech eco told as one speaker and later moved to another (the
+  speakers joined), over all speech told. **stayed**: seconds of recording, on
+  average, until the move.
+- **offline**: the average-linkage clustering eco ran when the recording ended
+  (threshold 0.65, min share 2%), over the same windows.
+
+| Dev | Speakers | Found | Missed | F. alarm | Confusion | DER | Purity | Cover | <5% | Churn % | Stayed s | Offline found / DER / purity |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| IS1008a | 4 | 4 | 7.7 | 3.9 | 1.9 | 13.5 | 94.1 | 94.1 | 0 | 1.6 | 279 | 4 / 12.7 / 94.9 |
+| ES2011a | 4 | 4 | 25.6 | 1.6 | 4.1 | 31.3 | 80.5 | 82.0 | 1 | 1.3 | 176 | 4 / 31.5 / 80.4 |
+| TS3004a | 4 | 8 | 21.2 | 4.7 | 12.7 | 38.5 | 72.6 | 82.3 | 5 | 3.3 | 265 | 4 / 29.8 / 81.7 |
+| IB4001 | 4 | 7 | 20.8 | 4.1 | 4.0 | 29.0 | 80.0 | 79.6 | 4 | 4.1 | 106 | 4 / 28.2 / 80.3 |
+| **All** | | | 19.5 | 3.7 | 5.7 | 28.9 | 81.1 | 83.5 | 10 | 2.8 | 175 | 26.5 / 83.4 |
+
+| Held-out | Speakers | Found | Missed | F. alarm | Confusion | DER | Purity | Cover | <5% | Churn % | Stayed s | Offline found / DER / purity |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| IS1009b | 4 | 8 | 12.2 | 1.8 | 1.8 | 15.9 | 87.9 | 87.6 | 4 | 1.4 | 112 | 4 / 15.6 / 87.9 |
+| ES2004b | 4 | 5 | 17.6 | 1.8 | 1.5 | 20.8 | 88.0 | 88.0 | 1 | 1.1 | 124 | 4 / 20.9 / 87.9 |
+| TS3003b | 4 | 5 | 16.5 | 3.1 | 1.9 | 21.4 | 92.9 | 92.9 | 1 | 0.7 | 123 | 4 / 20.8 / 93.7 |
+| EN2002b | 4 | 8 | 28.5 | 2.0 | 7.8 | 38.3 | 70.5 | 66.9 | 3 | 1.2 | 114 | 4 / 34.6 / 70.8 |
+| **All** | | | 18.6 | 2.1 | 3.2 | 24.0 | 84.7 | 83.7 | 9 | 1.1 | 118 | 22.9 / 84.9 |
+
+Online against offline: 2.4 points of DER on the dev set (28.9 against 26.5)
+and 1.1 on the held-out set (24.0 against 22.9); offline always finds the 4
+speakers. The whole gap is confusion, on three meetings: TS3004a (8.7
+points), EN2002b (3.7) and IB4001 (0.8). Elsewhere online and offline agree
+within 0.8.
+
+### Found speakers over time
+
+Of the 19 found speakers under 5% of the speech (10 dev, 9 held-out), 18 lived
+1 to 8 seconds, and 17 were born in the last 2 minutes of the meeting. Born
+in the last minutes, they cannot settle: the fold into a larger speaker waits
+for 120 windows (about 90 s of speech) after the birth. Examples, in seconds
+(speech, born, meeting end): TS3004a five extras of 1 to 2 s born from 1293
+to 1309 (end 1329); IS1009b 5, 1, 1, 1 s born at 1927, 2011, 2024, 2027 (end
+2028); EN2002b 8, 1, 1 s born at 1730, 1767, 1771 (end 1786). The other two:
+a real fourth speaker of IB4001 (FIO093, 65 s, 80% pure) that the share
+threshold counts as small, and one extra of ES2011a born 123 s before the
+end. The extras cost little: a few seconds
+of speech each. What they cost is the speaker count (4 reference speakers,
+5 to 8 found in 6 of 8 meetings).
+
+The bigger error is long-lived: TS3004a's first speaker holds 249 s of which
+48% is MTD015UID and the rest others; EN2002b's second speaker holds 110 s of
+which 31% is MEE073 and 69% others. Purity is 70% to
+80% on TS3004a, IB4001 and EN2002b (ES2011a 80.5%) against 88% to 94% on the
+other four. The offline
+result separates most of them (TS3004a purity 81.7%).
+
+### Margin between the two nearest voices
+
+Per window, cosine similarity to the nearest final voice minus the second
+nearest. Share of windows under 0.05 / 0.1 / 0.2, and the median:
+
+| Meeting | under 0.05 | under 0.1 | under 0.2 | median |
+|---|---|---|---|---|
+| IS1008a | 0.4% | 0.9% | 1.6% | 0.628 |
+| ES2011a | 3.9% | 6.7% | 18.1% | 0.337 |
+| TS3004a | 2.9% | 5.7% | 13.2% | 0.435 |
+| IB4001 | 2.9% | 6.0% | 12.0% | 0.423 |
+| IS1009b | 2.4% | 4.1% | 8.5% | 0.482 |
+| ES2004b | 0.9% | 1.8% | 4.7% | 0.493 |
+| TS3003b | 0.8% | 2.1% | 6.8% | 0.431 |
+| EN2002b | 4.2% | 9.6% | 21.9% | 0.358 |
+
+At most 10% of the windows are within 0.1 of a second voice. The margin is
+measured against the voices at the end, not the ones the online path had when
+it decided; how many wrong windows are among the ambiguous ones was not
+measured.
+
+### Churn
+
+The online path never reassigns a window; the only change after a speaker is
+told is a join. On the dev set 102 s of 3622 s (2.8%) moved to another speaker
+after being told, and they stayed with the old one for 175 s on average and up
+to 594 s. On the held-out set 74 s of 6663 s (1.1%), 118 s on average, up to
+225 s. A name or an answer built on such speech meanwhile has the wrong
+speaker.
+
+### Existing constants
+
+Merge 0.3 / 0.4, min share 0.01 / 0.02 / 0.05 and settle 60 / 120, from the
+same embeddings (offline unchanged, 26.5 dev and 22.9 held-out):
+
+| Merge | Min share | Settle | Dev DER / conf. | purity / cover | <5% | churn % | Held-out DER / conf. | purity / cover | <5% | churn % |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 0.3 | 0.02 | 120 | 28.9 / 5.7 | 81.1 / 83.5 | 10 | 2.8 | 24.0 / 3.2 | 84.7 / 83.7 | 9 | 1.1 |
+| 0.3 | 0.02 | 60 | 28.9 / 5.7 | 81.0 / 83.5 | 7 | 2.7 | 24.0 / 3.2 | 84.7 / 83.7 | 8 | 1.2 |
+| 0.3 | 0.01 | 120 | 29.8 / 6.6 | 81.1 / 82.4 | 11 | 1.3 | 24.0 / 3.2 | 84.7 / 83.7 | 9 | 1.1 |
+| 0.3 | 0.01 | 60 | 29.7 / 6.5 | 81.1 / 82.5 | 8 | 1.4 | 24.0 / 3.2 | 84.7 / 83.7 | 8 | 1.2 |
+| 0.3 | 0.05 | 120 | 32.2 / 9.0 | 77.4 / 85.4 | 8 | 5.1 | 24.9 / 4.1 | 83.7 / 82.8 | 9 | 1.9 |
+| 0.3 | 0.05 | 60 | 35.6 / 12.4 | 73.7 / 86.4 | 6 | 5.0 | 27.7 / 6.9 | 80.6 / 83.9 | 8 | 4.1 |
+| 0.4 | 0.02 | 120 | 28.9 / 5.7 | 81.1 / 83.5 | 10 | 2.8 | 23.9 / 3.1 | 84.7 / 83.8 | 8 | 1.2 |
+| 0.4 | 0.02 | 60 | 28.9 / 5.7 | 81.0 / 83.5 | 7 | 2.7 | 23.9 / 3.1 | 84.7 / 83.8 | 7 | 1.3 |
+| 0.4 | 0.01 | 120 | 29.8 / 6.6 | 81.1 / 82.4 | 11 | 1.3 | 23.9 / 3.1 | 84.7 / 83.8 | 8 | 1.2 |
+| 0.4 | 0.01 | 60 | 29.7 / 6.5 | 81.1 / 82.5 | 8 | 1.4 | 23.9 / 3.1 | 84.7 / 83.8 | 7 | 1.3 |
+| 0.4 | 0.05 | 120 | 32.2 / 9.0 | 77.4 / 85.4 | 8 | 5.1 | 24.8 / 4.0 | 83.7 / 82.9 | 8 | 2.0 |
+| 0.4 | 0.05 | 60 | 35.6 / 12.4 | 73.7 / 86.4 | 6 | 5.0 | 27.6 / 6.8 | 80.6 / 83.9 | 7 | 4.0 |
+
+No combination beats the default by more than 0.1 point of DER. Merge 0.4
+changes nothing on the dev set and 0.1 point on the held-out set. A share of
+5% folds real speakers (confusion up 1 to 7 points); settle 60 removes one to
+three extras but not the confusion. The constants are at their best already,
+so the remaining gap is not theirs.
+
+### What points where
+
+- Short-lived extras are real but cheap in DER; they are born too late to
+  settle. A fold of unsettled small speakers when the recording ends, or a
+  speaker that is not told as new until it has been heard a few windows,
+  removes the speaker-count error.
+- The DER gap to offline is the long-lived mixing in three meetings, not the
+  extras and not the low-margin windows: under 10% of windows are
+  ambiguous. What offline has that online lacks is the chance to revisit
+  early windows with the later voices, so re-clustering the settled speakers
+  (a second pass over the windows kept in memory) is the lever for it.
+- The fixture `tests/fixtures/ami-TS3004a-tail.emb` holds the CAM++
+  embeddings of the last 433 windows of TS3004a with the reference turns of
+  that stretch (`.rttm`), AMI (CC BY 4.0). It reproduces the 8 speakers, the
+  5 late extras and 64% purity, and is read by `bench::embeddings` tests.
+
+## Speaker embedding choice (2026-11-03)
+
+Does a stronger embedding beat the current CAM++ on the same clustering?
+`mise run bench:diarization` on the four dev meetings, release build, collar
+0, merge 0.3, min share 2%, settle 120, thresholds 0.5 to 0.8. All models
+take the 80-dim Kaldi fbank with the clip mean removed that `TractEmbedder`
+feeds, and all load in tract unchanged. Models come from the sherpa-onnx
+`speaker-recongition-models` release (sha256 from its `checksum.txt`, checked). Licenses are those of the WeSpeaker and 3D-Speaker repositories; the weights carry no separate notice that was read.
+
+| Model | License | Size | Speed (x real time) |
+|---|---|---|---|
+| CAM++ (WeSpeaker, current) | Apache-2.0 | 29.3 MB | 18-44 |
+| CAM++ LM (WeSpeaker) | Apache-2.0 | 29.3 MB | 23-35 |
+| CAM++ en VoxCeleb (3D-Speaker) | Apache-2.0 | 29.6 MB | 19-35 |
+| ERes2Net en VoxCeleb (3D-Speaker) | Apache-2.0 | 26.5 MB | 7-9 |
+| ResNet293 LM (WeSpeaker) | Apache-2.0 | 114.3 MB | 2 (stopped after IS1008a) |
+
+ERes2NetV2 is published only for Mandarin (`zh-cn`) as ONNX, so it was not
+tried; the English ERes2Net is its predecessor. The machine ran other builds
+at the same time, so speed varies between runs of the same model (CAM++ ran
+18x to 44x across the four meetings); read the ratio between models, not the
+figure. Over the whole grid ERes2Net took 621 s against 161 s for CAM++.
+
+Dev set totals (all four meetings; missed 19.5 and false alarm 3.7 are the
+same for every model). <5%: found speakers under 5% of the speech.
+
+| Model | Threshold | Confusion | DER | Purity | Cover | <5% | Churn % |
+|---|---|---|---|---|---|---|---|
+| CAM++ | 0.5 | 6.7 | 29.9 | 81.1 | 82.4 | 64 | 12.5 |
+| CAM++ | 0.6 | 5.9 | 29.1 | 81.1 | 83.2 | 26 | 6.4 |
+| **CAM++** | **0.7** | **5.7** | **28.9** | **81.1** | **83.5** | **10** | **2.8** |
+| CAM++ | 0.8 | 11.2 | 34.4 | 75.0 | 85.5 | 3 | 0.9 |
+| CAM++ LM | 0.5 | 7.4 | 30.6 | 80.7 | 81.7 | 62 | 12.4 |
+| CAM++ LM | 0.6 | 6.3 | 29.5 | 80.7 | 82.8 | 29 | 6.2 |
+| CAM++ LM | 0.7 | 6.1 | 29.3 | 80.7 | 83.0 | 11 | 2.3 |
+| CAM++ LM | 0.8 | 8.2 | 31.4 | 78.2 | 83.9 | 5 | 1.1 |
+| CAM++ 3D | 0.5 | 4.8 | 28.0 | 83.3 | 82.0 | 72 | 15.3 |
+| CAM++ 3D | 0.6 | 6.0 | 29.2 | 81.3 | 83.1 | 33 | 7.3 |
+| CAM++ 3D | 0.7 | 6.0 | 29.2 | 81.2 | 83.0 | 13 | 2.9 |
+| CAM++ 3D | 0.8 | 7.5 | 30.7 | 78.9 | 84.7 | 2 | 1.1 |
+| ERes2Net | 0.5 | 5.2 | 28.4 | 83.3 | 81.6 | 75 | 16.6 |
+| ERes2Net | 0.6 | 7.3 | 30.5 | 81.2 | 81.7 | 39 | 8.4 |
+| ERes2Net | 0.7 | 6.6 | 29.8 | 81.1 | 82.2 | 18 | 3.2 |
+| ERes2Net | 0.8 | 8.0 | 31.2 | 78.6 | 84.1 | 7 | 1.6 |
+
+Result: no change of model. No candidate beats CAM++ at its best threshold
+(0.7, DER 28.9) with purity and cover kept. The nearest are the 3D-Speaker
+CAM++ and ERes2Net at 0.5 (DER 28.0 and 28.4, confusion 4.8 and 5.2), but
+at 0.5 they leave 72 and 75 short-lived speakers, churn above 15%, and
+cover 82.0 and 81.6 against 83.5. Their gain is the lower threshold
+splitting speakers more, which the clustering has to undo. At 0.7 neither
+is better than CAM++ (DER 29.2 and 29.8). ERes2Net also runs at about a
+quarter of CAM++'s speed (7x to 9x real time, under the 25x floor), and
+ResNet293 at 2x. The held-out set was not run: the dev set decided.
+
+## Re-clustering (2026-11-03)
+
+The speech a session heard, clustered again as a whole every 400 windows
+(about five minutes of speech) and when the recording ends
+(`Speakers::recluster`, see [design.md §4](design.md#4-audio)). Same setup as
+the [baseline](#baseline-and-diagnosis-2026-11-03): `mise run
+bench:diarization`, release build, CAM++, collar 0, threshold 0.7, merge 0.3,
+min share 2%, settle 120 windows, and now re-cluster distance 0.5 every 400
+windows. The numbers are the replay of the same child logic without the
+thread: the result is applied before the next region, so the live child, which
+applies it between two regions, can differ by what it hears meanwhile.
+
+The re-cluster distance is lower than the offline 0.65 because it runs on the
+mean of a run of windows, whose unit vector is closer to its neighbours than a
+single window is. It was chosen on the dev set only, over 0.4 to 0.75 and 200
+to 800 windows. Totals for the four dev meetings:
+
+| Distance | Every | Confusion | DER | Purity | Cover | Churn % |
+|---|---|---|---|---|---|---|
+| 0.40 | 200 / 400 / 800 | 3.4 / 3.7 / 3.5 | 26.6 / 26.9 / 26.7 | 83.3 / 83.0 / 83.2 | 83.6 / 83.3 / 83.6 | 7.6 / 10.3 / 5.7 |
+| 0.45 | 200 / 400 / 800 | 3.4 / 3.7 / 3.4 | 26.6 / 26.9 / 26.6 | 83.3 / 83.0 / 83.2 | 83.6 / 83.3 / 83.5 | 7.1 / 9.9 / 5.7 |
+| **0.50** | 200 / **400** / 800 | 3.4 / **3.4** / 3.5 | 26.6 / **26.6** / 26.7 | 83.3 / **83.3** / 83.2 | 83.7 / **83.6** / 83.6 | 4.3 / **4.2** / 5.7 |
+| 0.55 | 200 / 400 / 800 | 3.4 / 3.4 / 3.5 | 26.6 / 26.6 / 26.7 | 83.3 / 83.3 / 83.2 | 83.7 / 83.6 / 83.5 | 4.7 / 4.3 / 6.4 |
+| 0.60 | 200 / 400 / 800 | 5.2 / 5.2 / 5.2 | 28.4 | 81.3 | 84.0 | 6.2 / 4.0 / 3.7 |
+| 0.65 | 400 | 8.6 | 31.8 | 77.6 | 85.0 | 8.3 |
+| 0.75 | 400 | 14.1 | 37.3 | 71.7 | 88.4 | 11.9 |
+
+From 0.4 to 0.55 the end of the recording decides: the figures hardly move,
+and the choice is the lowest churn (0.5, 400). From 0.6 the groups start to
+join two people.
+
+| Dev | Speakers | Found | Missed | F. alarm | Confusion | DER | Purity | Cover | <5% | Churn % | Stayed s | Offline found / DER / purity |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| IS1008a | 4 | 4 | 7.7 | 3.9 | 1.1 | 12.7 | 94.9 | 94.9 | 0 | 1.6 | 446 | 4 / 12.7 / 94.9 |
+| ES2011a | 4 | 3 | 25.6 | 1.6 | 4.1 | 31.3 | 80.5 | 82.1 | 0 | 2.2 | 313 | 4 / 31.5 / 80.4 |
+| TS3004a | 4 | 4 | 21.2 | 4.7 | 4.1 | 29.9 | 81.6 | 81.6 | 0 | 6.6 | 409 | 4 / 29.8 / 81.7 |
+| IB4001 | 4 | 4 | 20.8 | 4.1 | 3.6 | 28.6 | 80.0 | 80.0 | 0 | 5.2 | 182 | 4 / 28.2 / 80.3 |
+| **All** | | | 19.5 | 3.7 | 3.4 | 26.6 | 83.3 | 83.6 | 0 | 4.2 | 299 | 26.5 / 83.4 |
+
+| Held-out | Speakers | Found | Missed | F. alarm | Confusion | DER | Purity | Cover | <5% | Churn % | Stayed s | Offline found / DER / purity |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| IS1009b | 4 | 4 | 12.2 | 1.8 | 1.5 | 15.6 | 87.9 | 87.9 | 0 | 1.7 | 117 | 4 / 15.6 / 87.9 |
+| ES2004b | 4 | 4 | 17.6 | 1.8 | 1.5 | 20.8 | 88.0 | 88.0 | 0 | 1.2 | 187 | 4 / 20.9 / 87.9 |
+| TS3003b | 4 | 4 | 16.5 | 3.1 | 1.6 | 21.1 | 93.3 | 93.3 | 0 | 3.0 | 185 | 4 / 20.8 / 93.7 |
+| EN2002b | 4 | 5 | 28.5 | 2.0 | 4.3 | 34.8 | 70.6 | 70.6 | 1 | 7.1 | 365 | 4 / 34.6 / 70.8 |
+| **All** | | | 18.6 | 2.1 | 2.2 | 23.0 | 84.8 | 84.8 | 1 | 3.0 | 265 | 22.9 / 84.9 |
+
+Against the baseline and the bars (the held-out set was run once, after the
+choice):
+
+| | Baseline | Now | Bar | |
+|---|---|---|---|---|
+| Dev DER | 28.9 | 26.6 | at most 29.2 | met |
+| Dev confusion | 5.7 | 3.4 | not above 5.7; within 0.5 of offline (3.3) | met |
+| Dev purity / cover | 81.1 / 83.5 | 83.3 / 83.6 | not below 80.1 / 82.5 | met |
+| Dev found | 4, 4, 8, 7 | 4, 3, 4, 4 | TS3004a and IB4001 at most 5 | met |
+| Held-out DER | 24.0 | 23.0 | at most 24.3 | met |
+| Held-out confusion | 3.2 | 2.2 | not above 3.2 | met |
+| Held-out purity / cover | 84.7 / 83.7 | 84.8 / 84.8 | not below 83.7 / 82.7 | met |
+| Held-out found | 8, 5, 5, 8 | 4, 4, 4, 5 | | |
+
+Speakers born in the last minutes are gone: 10 dev and 9 held-out found
+speakers under 5% became 0 and 1. The fourth speaker of IB4001 (about 65 s)
+stays. ES2011a finds 3 of its 4 speakers, where the baseline and the offline
+clustering found 4. The missing one is FEE042, who speaks 24.6 s of the
+meeting's 938 s (2.6%). It is not the 2% fold: with the minimum share at 1% the
+result is the same, and at 0 the meeting splits into 82 speakers. It is the
+linkage: FEE042's stretches sit within 0.5 of another group on average, and
+only a distance of 0.25 separates them, at which confusion goes from 4.1 to
+12.8 and DER from 31.3 to 40.0. Offline linkage over single windows finds a
+fourth group but scores the same DER (31.5), so nothing measurable is lost; no
+guard on the fold fixes it, and none was added. The
+`Speakers::recluster` tests pin both sides of the fold on synthetic data: 20
+windows of 720 (2.8%) stay, 5 of 725 (0.7%) fold. The recorded tail of TS3004a (`tests/fixtures`), which the
+online path split into 8 speakers, comes out as the 4 who spoke.
+
+Churn rose from 2.8% to 4.2% on the dev set and from 1.1% to 3.0% on the
+held-out set: what is told live is corrected later. The longest a corrected
+stretch stayed wrong was 1,214 s on the dev set.
+
+### Cost over 3 hours
+
+`mise run bench:diarization <dir> --list <dev> --stack 3` repeats the four dev
+meetings to 3.1 h of audio (1,814 regions, 9,827 windows) and hears them
+without, then with, re-clustering as the child does: each re-cluster on its own
+thread, applied between two regions. This is the algorithm in the bench
+process, not the `eco diarize` child; memory is the peak of the process with
+the figure reset before each pass, so the difference is what the stretches and
+the distances add. The machine has 12 cores.
+
+| | Budget | Measured |
+|---|---|---|
+| Slowest re-cluster, 2,575 stretches | 2 s | 0.25 s |
+| Peak memory added | 50 MB | 12 MB (265 MB without, 277 MB with) |
+| Longest step of the hearing thread (a region, or applying a result) | | 20 ms, against a region every 6.1 s |
+| Regions waiting | under 32 | none: a re-cluster never blocks `hear` |
+
+The real child, `eco diarize` from the release build, fed 3.00 h of the same
+meetings through its stdin as 10 s regions (all of it as speech, so more
+windows than the VAD would keep), its peak RSS read from `/proc` while it ran,
+including the clustering at the end of the input: 216 MB, against 191 MB for
+the same run on the commit before re-clustering (58eeb19), 25 MB more.
+
+Before the distances were computed on all cores the slowest re-cluster took
+2.31 s over 3,476 stretches (4.3 h); on one core the 3 h figure would be about 1.3 s,
+scaled by the square of the stretches and not measured. A fourth hour holds about 3,500
+stretches, which the first figure already covers.
+
+## Test set with re-clustering (2026-11-03)
+
+The 16 test meetings of the [2026-10-05 table](#average-linkage-at-the-end-2026-10-05)
+(9.0 h), run once on the final settings: `mise run bench:diarization <dir>
+--list test.txt`, release build, CAM++, collar 0, threshold 0.7, merge 0.3, min
+share 2%, settle 120 windows, re-cluster distance 0.5 every 400 windows (see
+[Re-clustering](#re-clustering-2026-11-03)). IS1009b, ES2004b, TS3003b and
+EN2002b are the held-out four of that section; their rows are the same. Offline
+is the average-linkage clustering at the end (0.65) over the same windows.
+
+| Test | Speakers | Found | Missed | F. alarm | Confusion | DER | Purity | Cover | <5% | Churn % | Stayed s | Offline found / DER |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| IS1009a | 4 | 4 | 16.5 | 5.5 | 3.7 | 25.6 | 82.7 | 83.5 | 0 | 6.6 | 262 | 4 / 25.3 |
+| IS1009b | 4 | 4 | 12.2 | 1.8 | 1.5 | 15.6 | 87.9 | 87.9 | 0 | 1.7 | 117 | 4 / 15.6 |
+| IS1009c | 4 | 4 | 7.5 | 2.9 | 1.6 | 12.0 | 93.1 | 93.1 | 0 | 2.8 | 186 | 4 / 12.1 |
+| IS1009d | 4 | 4 | 14.1 | 4.0 | 3.7 | 21.8 | 84.9 | 84.9 | 0 | 5.6 | 229 | 4 / 21.3 |
+| ES2004a | 4 | 4 | 24.6 | 2.0 | 2.5 | 29.1 | 81.3 | 81.3 | 0 | 4.7 | 214 | 4 / 29.0 |
+| ES2004b | 4 | 4 | 17.6 | 1.8 | 1.5 | 20.8 | 88.0 | 88.0 | 0 | 1.2 | 187 | 4 / 20.9 |
+| ES2004c | 4 | 4 | 17.4 | 2.0 | 1.4 | 20.9 | 87.6 | 87.6 | 0 | 1.4 | 355 | 4 / 21.0 |
+| ES2004d | 4 | 4 | 22.0 | 3.2 | 2.5 | 27.7 | 82.1 | 82.1 | 0 | 1.9 | 258 | 4 / 27.8 |
+| TS3003a | 4 | 3 | 24.9 | 2.4 | 3.7 | 31.1 | 90.2 | 94.1 | 1 | 4.7 | 375 | 2 / 31.1 |
+| TS3003b | 4 | 4 | 16.5 | 3.1 | 1.6 | 21.1 | 93.3 | 93.3 | 0 | 3.0 | 185 | 4 / 20.8 |
+| TS3003c | 4 | 4 | 18.9 | 3.0 | 1.7 | 23.5 | 92.5 | 92.5 | 0 | 1.1 | 251 | 4 / 23.5 |
+| TS3003d | 4 | 4 | 23.1 | 3.9 | 3.2 | 30.3 | 84.4 | 84.4 | 0 | 2.0 | 296 | 4 / 30.2 |
+| EN2002a | 4 | 4 | 29.3 | 2.1 | 4.3 | 35.7 | 69.4 | 69.4 | 0 | 5.5 | 191 | 4 / 35.9 |
+| EN2002b | 4 | 5 | 28.5 | 2.0 | 4.3 | 34.8 | 70.6 | 70.6 | 1 | 7.1 | 365 | 4 / 34.6 |
+| EN2002c | 3 | 3 | 27.9 | 1.3 | 2.2 | 31.4 | 74.5 | 74.5 | 0 | 4.0 | 132 | 3 / 31.2 |
+| EN2002d | 4 | 4 | 32.4 | 1.6 | 3.4 | 37.4 | 67.7 | 67.7 | 0 | 12.7 | 729 | 4 / 37.3 |
+| **All** | | | 21.7 | 2.5 | 2.6 | 26.8 | 81.7 | 81.9 | 2 | 4.0 | 354 | 26.7 |
+
+Against the 2026-10-05 run and the published pyannote 3.1 run on the same
+set (collar 0, overlap scored):
+
+| | Missed | False alarm | Confusion | DER |
+|---|---|---|---|---|
+| eco, 2026-10-05 (average linkage at the end) | 21.7% | 2.5% | 2.6% | 26.7% |
+| eco, online with re-clustering | 21.7% | 2.5% | 2.6% | 26.8% |
+| pyannote 3.1 | 9.5% | 3.6% | 5.7% | 18.8% |
+
+The live path now scores as the clustering at the end did: 0.1 point of DER
+apart, purity 81.7 and cover 81.9 against 81.8 and 81.9 for the offline
+clustering on the same windows. Speakers found match the reference on 14 of 16
+meetings: TS3003a finds 3 of 4 (the offline clustering 2), one of them under
+5% of the speech, and EN2002b finds 5 for 4, the fifth holding no window at the
+end (under 5%). Speech told live and
+moved later (churn) is 4.0% (986 s of 24,805 s), 354 s on average until the
+move, the longest 2,215 s (EN2002d, 12.7%). The 9 h took 19 min on 12 threads
+(28x real time, 21x to 41x per meeting) with a 367 MB peak, the whole WAV held
+in memory by the harness; the run of 2026-10-05, offline only, took 11 min.
+The collar 0.5 s row was not measured again.
 
 ## Streaming transcription (2026-10-05)
 
@@ -634,3 +990,29 @@ Measured as above after the macOS installer replaced `Unsupported` for
 | `src/adapters/installer_macos.rs` | 88.02% (26 of 217) | `Folder::new` (30–36), which reads the user's real home; the old folder that cannot be moved aside (68); a home with no parent or an `~/Applications` that cannot be made (99–100); tar that cannot run or fails (120–128), which the system's `/usr/bin/tar` does not on a well-formed archive. A release that installs, an archive without eco and a folder that cannot move in are tested. |
 | `src/adapters/unsupported.rs` | 100.00% | now only `eco setup`'s desktop step, tested. |
 
+
+## Diarization coverage (2026-11-03)
+
+Measured on Linux with `mise run coverage` on the tree that measures, splits
+and re-clusters live diarization, against a checkout of master measured the
+same way. Whole crate: 96.84% of lines (1,175 of 37,158 without a test), against
+97.20% (974 of 34,781) on master, the new `src/bench/` (exempt) counting
+for 363 of the lines without a test in `src/bench/diarization.rs` alone. No file of `src/`
+outside `src/bench/` has a lower percentage than on master.
+
+| File | Master | This tree | Left without a test, and why |
+|---|---|---|---|
+| `src/adapters/diarizer_process.rs` | 97.61% (9 of 376) | 98.31% (9 of 534) | `spawn` and `serve`, which start and serve the real `eco diarize` process on the real executable and stdin (`spawn_program` and `serve_on` are tested with a fake model and pipes); a panic arm that only runs when a test already failed. |
+| `src/adapters/stt_deepgram.rs` | 99.68% (2 of 625) | 99.71% (2 of 679) | as on master. |
+| `src/adapters/stt_elevenlabs.rs` | 100.00% | 100.00% | |
+| `src/adapters/stt_openai.rs` | 99.04% (2 of 209) | 99.08% (2 of 217) | as on master. |
+| `src/adapters/websocket.rs` | 99.16% (3 of 356) | 99.16% (3 of 357) | as on master. |
+| `src/domain/assistant.rs` | 99.72% (19 of 6748) | 99.73% (19 of 6931) | as on master. |
+| `src/domain/channel.rs` | 99.74% (3 of 1140) | 99.74% (3 of 1161) | as on master. |
+| `src/domain/diarization.rs` | 99.86% (1 of 702) | 99.93% (1 of 1442) | the line view shows no line at zero; the summary counts one. |
+| `src/domain/linkage.rs` | new | 100.00% | |
+| `src/domain/session.rs` | 98.24% (46 of 2610) | 98.35% (47 of 2841) | the `unreachable!` arm of `as_record`, which the type of the records cannot reach; the summary counts one more line than the line view shows. |
+| `src/import.rs` | 97.59% (23 of 956) | 97.60% (23 of 960) | as on master. |
+| `src/lib.rs` | 88.66% (87 of 767) | 89.19% (87 of 805) | as in the daemon section. |
+| `src/ports.rs` | 78.57% (3 of 14) | 90.00% (3 of 30) | as on master. |
+| `src/session.rs` | 96.93% (145 of 4725) | 96.93% (145 of 4729) | as in the daemon section. |

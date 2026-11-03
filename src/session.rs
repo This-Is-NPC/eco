@@ -511,6 +511,7 @@ fn transcriber(
                         at,
                         start,
                         end,
+                        words: utterance.words(),
                     };
                     let mut heard = heard.lock().expect("not poisoned");
                     let known = heard.live.line(line);
@@ -5490,6 +5491,7 @@ mod tests {
                 start: 0.0,
                 end,
                 text: self.0.into(),
+                words: Vec::new(),
             }];
             let request = Some("r1".to_string());
             Box::pin(async move { Ok(crate::ports::Transcript { phrases, request }) })
@@ -5508,6 +5510,7 @@ mod tests {
                 start: 0.0,
                 end: 1.0,
                 text: "bom dia".into(),
+                words: Vec::new(),
             };
             let heard = [
                 Heard::Request("r2".into()),
@@ -5575,6 +5578,7 @@ mod tests {
             }],
             voices: vec![(0, vec![1.0; 4])],
             merged: Vec::new(),
+            moved: Vec::new(),
         });
         let (diarizer, counted) = diarizer(vec![heard], vec![Diarized::Done]);
         let voices = voices(&assistant, &emit, "Eles", &diarizer).unwrap();

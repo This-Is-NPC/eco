@@ -78,12 +78,40 @@ pub trait AudioDevices: Send + Sync {
 #[error("{0}")]
 pub struct TranscriptionError(pub String);
 
-/// Words said over `[start, end)`, in seconds.
+/// A word said over `[start, end)`, in seconds, as the provider writes it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Word {
+    pub start: f64,
+    pub end: f64,
+    pub text: String,
+}
+
+/// Words said over `[start, end)`, in seconds, and each of them timed when the
+/// provider times words.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Phrase {
     pub start: f64,
     pub end: f64,
     pub text: String,
+    pub words: Vec<Word>,
+}
+
+impl Phrase {
+    /// The phrase `by` seconds later.
+    pub fn shifted(self, by: f64) -> Self {
+        let later = |start: f64, end: f64| (by + start, by + end);
+        let words = self.words.into_iter().map(|word| {
+            let (start, end) = later(word.start, word.end);
+            Word { start, end, ..word }
+        });
+        let (start, end) = later(self.start, self.end);
+        Self {
+            start,
+            end,
+            text: self.text,
+            words: words.collect(),
+        }
+    }
 }
 
 /// What a provider heard in one clip.
