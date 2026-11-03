@@ -492,6 +492,57 @@ Before the distances were computed on all cores the slowest re-cluster took
 scaled by the square of the stretches and not measured. A fourth hour holds about 3,500
 stretches, which the first figure already covers.
 
+## Test set with re-clustering (2026-11-03)
+
+The 16 test meetings of the [2026-10-05 table](#average-linkage-at-the-end-2026-10-05)
+(9.0 h), run once on the final settings: `mise run bench:diarization <dir>
+--list test.txt`, release build, CAM++, collar 0, threshold 0.7, merge 0.3, min
+share 2%, settle 120 windows, re-cluster distance 0.5 every 400 windows (see
+[Re-clustering](#re-clustering-2026-11-03)). IS1009b, ES2004b, TS3003b and
+EN2002b are the held-out four of that section; their rows are the same. Offline
+is the average-linkage clustering at the end (0.65) over the same windows.
+
+| Test | Speakers | Found | Missed | F. alarm | Confusion | DER | Purity | Cover | <5% | Churn % | Stayed s | Offline found / DER |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| IS1009a | 4 | 4 | 16.5 | 5.5 | 3.7 | 25.6 | 82.7 | 83.5 | 0 | 6.6 | 262 | 4 / 25.3 |
+| IS1009b | 4 | 4 | 12.2 | 1.8 | 1.5 | 15.6 | 87.9 | 87.9 | 0 | 1.7 | 117 | 4 / 15.6 |
+| IS1009c | 4 | 4 | 7.5 | 2.9 | 1.6 | 12.0 | 93.1 | 93.1 | 0 | 2.8 | 186 | 4 / 12.1 |
+| IS1009d | 4 | 4 | 14.1 | 4.0 | 3.7 | 21.8 | 84.9 | 84.9 | 0 | 5.6 | 229 | 4 / 21.3 |
+| ES2004a | 4 | 4 | 24.6 | 2.0 | 2.5 | 29.1 | 81.3 | 81.3 | 0 | 4.7 | 214 | 4 / 29.0 |
+| ES2004b | 4 | 4 | 17.6 | 1.8 | 1.5 | 20.8 | 88.0 | 88.0 | 0 | 1.2 | 187 | 4 / 20.9 |
+| ES2004c | 4 | 4 | 17.4 | 2.0 | 1.4 | 20.9 | 87.6 | 87.6 | 0 | 1.4 | 355 | 4 / 21.0 |
+| ES2004d | 4 | 4 | 22.0 | 3.2 | 2.5 | 27.7 | 82.1 | 82.1 | 0 | 1.9 | 258 | 4 / 27.8 |
+| TS3003a | 4 | 3 | 24.9 | 2.4 | 3.7 | 31.1 | 90.2 | 94.1 | 1 | 4.7 | 375 | 2 / 31.1 |
+| TS3003b | 4 | 4 | 16.5 | 3.1 | 1.6 | 21.1 | 93.3 | 93.3 | 0 | 3.0 | 185 | 4 / 20.8 |
+| TS3003c | 4 | 4 | 18.9 | 3.0 | 1.7 | 23.5 | 92.5 | 92.5 | 0 | 1.1 | 251 | 4 / 23.5 |
+| TS3003d | 4 | 4 | 23.1 | 3.9 | 3.2 | 30.3 | 84.4 | 84.4 | 0 | 2.0 | 296 | 4 / 30.2 |
+| EN2002a | 4 | 4 | 29.3 | 2.1 | 4.3 | 35.7 | 69.4 | 69.4 | 0 | 5.5 | 191 | 4 / 35.9 |
+| EN2002b | 4 | 5 | 28.5 | 2.0 | 4.3 | 34.8 | 70.6 | 70.6 | 1 | 7.1 | 365 | 4 / 34.6 |
+| EN2002c | 3 | 3 | 27.9 | 1.3 | 2.2 | 31.4 | 74.5 | 74.5 | 0 | 4.0 | 132 | 3 / 31.2 |
+| EN2002d | 4 | 4 | 32.4 | 1.6 | 3.4 | 37.4 | 67.7 | 67.7 | 0 | 12.7 | 729 | 4 / 37.3 |
+| **All** | | | 21.7 | 2.5 | 2.6 | 26.8 | 81.7 | 81.9 | 2 | 4.0 | 354 | 26.7 |
+
+Against the 2026-10-05 run and the published pyansession 3.1 run on the same
+set (collar 0, overlap scored):
+
+| | Missed | False alarm | Confusion | DER |
+|---|---|---|---|---|
+| eco, 2026-10-05 (average linkage at the end) | 21.7% | 2.5% | 2.6% | 26.7% |
+| eco, online with re-clustering | 21.7% | 2.5% | 2.6% | 26.8% |
+| pyansession 3.1 | 9.5% | 3.6% | 5.7% | 18.8% |
+
+The live path now scores as the clustering at the end did: 0.1 point of DER
+apart, purity 81.7 and cover 81.9 against 81.8 and 81.9 for the offline
+clustering on the same windows. Speakers found match the reference on 14 of 16
+meetings: TS3003a finds 3 of 4 (the offline clustering 2), one of them under
+5% of the speech, and EN2002b finds 5 for 4, the fifth holding no window at the
+end (under 5%). Speech told live and
+moved later (churn) is 4.0% (986 s of 24,805 s), 354 s on average until the
+move, the longest 2,215 s (EN2002d, 12.7%). The 9 h took 19 min on 12 threads
+(28x real time, 21x to 41x per meeting) with a 367 MB peak, the whole WAV held
+in memory by the harness; the run of 2026-10-05, offline only, took 11 min.
+The collar 0.5 s row was not measured again.
+
 ## Streaming transcription (2026-10-05)
 
 The first 2 minutes of AMI ES2004a (English, four people in a room) replayed
@@ -939,3 +990,29 @@ Measured as above after the macOS installer replaced `Unsupported` for
 | `src/adapters/installer_macos.rs` | 88.02% (26 of 217) | `Folder::new` (30–36), which reads the user's real home; the old folder that cannot be moved aside (68); a home with no parent or an `~/Applications` that cannot be made (99–100); tar that cannot run or fails (120–128), which the system's `/usr/bin/tar` does not on a well-formed archive. A release that installs, an archive without eco and a folder that cannot move in are tested. |
 | `src/adapters/unsupported.rs` | 100.00% | now only `eco setup`'s desktop step, tested. |
 
+
+## Diarization coverage (2026-11-03)
+
+Measured on Linux with `mise run coverage` on the tree that measures, splits
+and re-clusters live diarization, against a checkout of master measured the
+same way. Whole crate: 96.84% of lines (1,175 of 37,158 without a test), against
+97.20% (974 of 34,781) on master, the new `src/bench/` (exempt) counting
+for 363 of the lines without a test in `src/bench/diarization.rs` alone. No file of `src/`
+outside `src/bench/` has a lower percentage than on master.
+
+| File | Master | This tree | Left without a test, and why |
+|---|---|---|---|
+| `src/adapters/diarizer_process.rs` | 97.61% (9 of 376) | 98.31% (9 of 534) | `spawn` and `serve`, which start and serve the real `eco diarize` process on the real executable and stdin (`spawn_program` and `serve_on` are tested with a fake model and pipes); a panic arm that only runs when a test already failed. |
+| `src/adapters/stt_deepgram.rs` | 99.68% (2 of 625) | 99.71% (2 of 679) | as on master. |
+| `src/adapters/stt_elevenlabs.rs` | 100.00% | 100.00% | |
+| `src/adapters/stt_openai.rs` | 99.04% (2 of 209) | 99.08% (2 of 217) | as on master. |
+| `src/adapters/websocket.rs` | 99.16% (3 of 356) | 99.16% (3 of 357) | as on master. |
+| `src/domain/assistant.rs` | 99.72% (19 of 6748) | 99.73% (19 of 6931) | as on master. |
+| `src/domain/channel.rs` | 99.74% (3 of 1140) | 99.74% (3 of 1161) | as on master. |
+| `src/domain/diarization.rs` | 99.86% (1 of 702) | 99.93% (1 of 1442) | the line view shows no line at zero; the summary counts one. |
+| `src/domain/linkage.rs` | new | 100.00% | |
+| `src/domain/session.rs` | 98.24% (46 of 2610) | 98.35% (47 of 2841) | the `unreachable!` arm of `as_record`, which the type of the records cannot reach; the summary counts one more line than the line view shows. |
+| `src/import.rs` | 97.59% (23 of 956) | 97.60% (23 of 960) | as on master. |
+| `src/lib.rs` | 88.66% (87 of 767) | 89.19% (87 of 805) | as in the daemon section. |
+| `src/ports.rs` | 78.57% (3 of 14) | 90.00% (3 of 30) | as on master. |
+| `src/session.rs` | 96.93% (145 of 4725) | 96.93% (145 of 4729) | as in the daemon section. |
