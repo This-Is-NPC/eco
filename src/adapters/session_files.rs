@@ -542,6 +542,27 @@ pub(crate) mod tests {
         assert_eq!(state_of(&imported.id), "ended");
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn a_session_file_that_cannot_be_written_is_left_as_it_was() {
+        use std::os::unix::fs::PermissionsExt;
+        let directory = tempfile::tempdir().unwrap();
+        let files = SessionFiles::new(directory.path().into());
+        let mut open = Session::begin("Call", "meeting", LIVE, "pt", files.writer(quiet()));
+        open.hear_at("Eles", "Oi.", now());
+        let path = fs::read_dir(directory.path())
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o444)).unwrap();
+        files.pause_unfinished();
+        let records = files.read(&open.id).unwrap();
+        let state = records.iter().rev().find(|r| r["type"] == "state").unwrap();
+        assert_eq!(state["state"], "recording");
+    }
+
     #[test]
     fn same_title_sessions_in_one_second_keep_their_own_files() {
         let directory = tempfile::tempdir().unwrap();
