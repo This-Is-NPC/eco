@@ -2618,17 +2618,18 @@ async fn secret_status(key: Key<'_>) -> Value {
     match api_key(key).await {
         Ok(_) => json!({"resolved": true}),
         Err(why) => {
-            let (code, params) = secret_problem(key, &why);
+            let (code, params) = secret_problem(key, &why, omapass::installed());
             json!({"resolved": false, "code": code, "params": params})
         }
     }
 }
 
-/// The code and params that tell why `key` does not resolve.
-fn secret_problem(key: Key<'_>, why: &Unbuilt) -> (&'static str, Value) {
+/// The code and params that tell why `key` does not resolve, `omapass_found`
+/// saying whether the omapass CLI is installed.
+fn secret_problem(key: Key<'_>, why: &Unbuilt, omapass_found: bool) -> (&'static str, Value) {
     match key {
         Key::Env(variable) => ("secret.env_unset", json!({"variable": variable})),
-        Key::Omapass(account) if !omapass::installed() => {
+        Key::Omapass(account) if !omapass_found => {
             ("secret.omapass_missing", json!({"account": account}))
         }
         Key::Omapass(account) => (
@@ -2978,31 +2979,26 @@ mod tests {
             credential: credential.map(String::from),
             variable: None,
         };
-        let (code, params) = secret_problem(Key::Credential("dg"), &why("missing", Some("dg")));
+        let problem = |key, detail| secret_problem(key, &detail, true);
         assert_eq!(
-            (code, params),
+            problem(Key::Credential("dg"), why("missing", Some("dg"))),
             ("secret.credential_missing", json!({"credential": "dg"}))
         );
-        let (code, params) = secret_problem(Key::Credential("dg"), &why("locked", None));
         assert_eq!(
-            (code, params),
+            problem(Key::Credential("dg"), why("locked", None)),
             ("secret.unreadable", json!({"detail": "locked"}))
         );
-        let (code, params) = secret_problem(Key::Omapass("bank"), &why("omapass: locked", None));
-        if omapass::installed() {
-            assert_eq!(
-                (code, params),
-                (
-                    "secret.omapass_failed",
-                    json!({"account": "bank", "detail": "omapass: locked"})
-                )
-            );
-        } else {
-            assert_eq!(
-                (code, params),
-                ("secret.omapass_missing", json!({"account": "bank"}))
-            );
-        }
+        assert_eq!(
+            problem(Key::Omapass("bank"), why("omapass: locked", None)),
+            (
+                "secret.omapass_failed",
+                json!({"account": "bank", "detail": "omapass: locked"})
+            )
+        );
+        assert_eq!(
+            secret_problem(Key::Omapass("bank"), &why("", None), false),
+            ("secret.omapass_missing", json!({"account": "bank"}))
+        );
     }
 
     #[tokio::test]
@@ -3012,6 +3008,15 @@ mod tests {
         let event = d.until(|event| event["type"] == "secrets").await;
         assert_eq!(event["status"]["OPENROUTER"]["resolved"], false);
         assert_eq!(event["status"]["OPENROUTER"]["code"], "secret.env_unset");
+    }
+
+    #[tokio::test]
+    async fn a_model_test_is_answered_with_its_own_event() {
+        let mut d = daemon(raw());
+        d.line(r#"model.test {"name": "nobody"}"#).await;
+        let event = d.until(|event| event["type"] == "model_test").await;
+        assert_eq!(event["name"], "nobody");
+        assert_eq!(event["code"], "model_test.unknown");
     }
 
     fn recorder() -> (Emit, Arc<Mutex<Vec<Value>>>) {
@@ -5247,14 +5252,16 @@ mod tests {
         windows.focus(1).await.unwrap();
         windows.hide_from_share(true).await;
         windows.tray(false).await;
+        windows.tray_again();
         windows.closed(1);
         assert!(!windows.is_open());
         windows.open(Some("later"), None).await.unwrap();
         let exited = tokio::time::timeout(Duration::from_secs(10), windows.exited());
-        let overlay::Exit::Window(status) = exited.await.unwrap() else {
-            panic!("the tray gave up")
-        };
-        assert_eq!(status.and_then(|status| status.code()), Some(2));
+        let exit = exited.await.unwrap();
+        assert!(
+            matches!(exit, overlay::Exit::Window(Some(status)) if status.code() == Some(2)),
+            "the tray did not exit with its window"
+        );
         windows.close().await;
     }
 
@@ -6350,8 +6357,9 @@ mod tests {
         }
     }
 
-    /// Panics in its first `panics` openings, then waits for audio.
-    struct Panics(Arc<std::sync::atomic::AtomicUsize>, usize);
+    /// Panics in its first `panics` openings, then waits for audio: at once in
+    /// the first, and after the time in the third field in the others.
+    struct Panics(Arc<std::sync::atomic::AtomicUsize>, usize, Duration);
 
     impl StreamingSpeechToText for Panics {
         fn transcribe<'a>(
@@ -6359,6 +6367,14 @@ mod tests {
             frames: stream::BoxStream<'a, Frame>,
         ) -> stream::BoxStream<'a, Result<Heard, TranscriptionError>> {
             let opened = self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            if opened > 0 && opened < self.1 {
+                let lasting = self.2;
+                return stream::once(async move {
+                    tokio::time::sleep(lasting).await;
+                    panic!("the model crashed");
+                })
+                .boxed();
+            }
             assert!(opened >= self.1, "the model crashed");
             frames.filter_map(|_| async { None }).boxed()
         }
@@ -6368,6 +6384,7 @@ mod tests {
     /// first `panics` openings; the openings are counted.
     fn panicking(
         panics: usize,
+        lasting: Duration,
     ) -> (
         Channels,
         Arc<std::sync::atomic::AtomicUsize>,
@@ -6388,7 +6405,7 @@ mod tests {
         let opened = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let built = Built::default();
         let wanted = listening(&["w"]).pop_first().unwrap();
-        let stt = Stt::Stream(Box::new(Panics(Arc::clone(&opened), panics)));
+        let stt = Stt::Stream(Box::new(Panics(Arc::clone(&opened), panics, lasting)));
         built.cell(&wanted).set(Ok(stt)).ok().unwrap();
         let channels = Channels {
             inputs: vec![mic],
@@ -6411,7 +6428,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn a_transcriber_that_panics_is_told_and_runs_again_by_itself() {
-        let (mut channels, opened, events) = panicking(1);
+        let (mut channels, opened, events) = panicking(1, Duration::ZERO);
         let (recording, listening) = watch::channel(listening(&["w"]));
         let sessions = async {
             tokio::time::sleep(Duration::from_secs(5)).await;
@@ -6428,7 +6445,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn a_transcriber_that_keeps_panicking_is_restarted_with_backoff() {
-        let (mut channels, opened, events) = panicking(usize::MAX);
+        let (mut channels, opened, events) = panicking(usize::MAX, Duration::ZERO);
         let (recording, listening) = watch::channel(listening(&["w"]));
         let sessions = async {
             // Runs start at 0 s, 1 s, 3 s and 7 s: the wait doubles.
@@ -6439,6 +6456,38 @@ mod tests {
         assert!(ran.is_ok());
         assert_eq!(opened.load(std::sync::atomic::Ordering::SeqCst), 4);
         assert_eq!(restarts(&events.lock().unwrap()).len(), 4);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_transcriber_that_ran_long_before_panicking_restarts_at_the_first_wait() {
+        // Opening 0 panics at 0 s and the second run waits 1 s; the second runs
+        // 31 s and panics, so the wait starts again at 1 s instead of 2 s.
+        let (mut channels, opened, events) = panicking(2, Duration::from_secs(31));
+        let (recording, listening) = watch::channel(listening(&["w"]));
+        let sessions = async {
+            tokio::time::sleep(Duration::from_millis(33500)).await;
+            drop(recording);
+        };
+        let (ran, ()) = tokio::join!(channels.run(Some(listening)), sessions);
+        assert!(ran.is_ok());
+        assert_eq!(opened.load(std::sync::atomic::Ordering::SeqCst), 3);
+        assert_eq!(restarts(&events.lock().unwrap()).len(), 2);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn the_sessions_ending_while_a_transcriber_waits_to_restart_ends_the_channels() {
+        let (mut channels, opened, _) = panicking(usize::MAX, Duration::ZERO);
+        let (recording, listening) = watch::channel(listening(&["w"]));
+        let sessions = async {
+            // A change that leaves the wait running, then the end.
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            recording.send_replace(self::listening(&["w", "v"]));
+            tokio::time::sleep(Duration::from_millis(200)).await;
+            drop(recording);
+        };
+        let (ran, ()) = tokio::join!(channels.run(Some(listening)), sessions);
+        assert!(ran.is_ok());
+        assert_eq!(opened.load(std::sync::atomic::Ordering::SeqCst), 1);
     }
 
     #[tokio::test]
