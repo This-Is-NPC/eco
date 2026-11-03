@@ -179,6 +179,22 @@ TestCase {
     compare(Draft.users(d, "m")[2], { role: "reviewer" })
   }
 
+  // The roles left empty show the model the daemon picked, marked automatic;
+  // a role the user chose keeps its own, and the draft itself stays empty.
+  function test_the_automatic_defaults_are_shown_not_saved() {
+    const d = draft(JSON.parse(JSON.stringify(registered)), "", "")
+    d.llm.model = "m"
+    const picked = { transcription: "w", chat: "m", translation: "m", review: "m",
+      automatic: ["transcription", "translation", "review"] }
+    const shown = Draft.resolved(d, picked)
+    compare(shown.automatic, ["transcription", "translation", "review"])
+    compare([shown.draft.stt.model, shown.draft.translation.model, shown.draft.reviewer.model, shown.draft.reviewer.enabled], ["w", "m", "m", false])
+    compare(Draft.defaults(shown.draft, "m").map(entry => entry.use), ["chat", "translation", "review"])
+    compare([d.stt.model, d.translation, d.reviewer], ["", undefined, undefined])
+    d.translation = { model: "m" }
+    compare(Draft.resolved(d, picked).automatic, ["transcription", "review"])
+  }
+
   // A model's defaults are what it answers when nothing more specific picks a
   // model; translation follows the chat default until one of its own is set.
   function test_a_model_is_made_the_default_for_each_use() {

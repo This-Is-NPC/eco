@@ -957,7 +957,9 @@ struct Rig {
 }
 
 /// Capture, transcribe and serve actions with one configuration until dropped.
-async fn pipeline(config: Config, assistant: Assistant, emit: Emit, rig: Rig) {
+async fn pipeline(current: Config, assistant: Assistant, emit: Emit, rig: Rig) {
+    let automatic = presets::automatic(&current);
+    let config = presets::overlay(&current);
     let Rig {
         replay,
         audio,
@@ -1106,7 +1108,11 @@ async fn pipeline(config: Config, assistant: Assistant, emit: Emit, rig: Rig) {
         .iter()
         .map(|kind| (kind.clone(), route(Some(kind))))
         .collect();
-    let default_route = route(None);
+    // The default route also names the reviewer's model and the roles the
+    // user chose no model for, which took the first usable one.
+    let mut default_route = route(None);
+    default_route["review"] = json!(config.reviewer.as_ref().map_or("", |r| &r.model));
+    default_route["automatic"] = json!(automatic);
     let reviewer = reviewer.and_then(|on| {
         Some(Reviewer {
             model: models.get(&on.model)?.clone(),
@@ -1779,7 +1785,7 @@ impl Session {
             (self.emit)(event);
         }
         self.pipeline = Some(tokio::spawn(pipeline(
-            presets::overlay(&self.current),
+            self.current.clone(),
             self.assistant.clone(),
             Arc::clone(&self.emit),
             self.rig.clone(),
@@ -5736,6 +5742,72 @@ esac"#;
         assert!(chat_model(&resolve("gpt-6-luna")).await.is_ok());
         d.start("Retro").await;
         assert_eq!(model_problems(&d), Vec::<String>::new());
+    }
+
+    #[tokio::test]
+    async fn the_only_usable_chat_model_is_the_default_of_every_chat_role() {
+        config::testing::set_env("OPENROUTER_API_KEY", "sk-or");
+        let mut d = daemon(json!({"participants": raw()["participants"]}));
+        let snapshot = d.configured().await;
+        let defaults = &snapshot["default_models"];
+        for role in ["chat", "translation", "review"] {
+            assert_eq!(defaults[role], "gpt-6-luna", "{role}");
+        }
+        assert_eq!(
+            defaults["automatic"],
+            json!(["transcription", "chat", "translation", "review"])
+        );
+        // The reviewer stays off, and a save keeps every role automatic.
+        assert!(
+            !d.session
+                .current
+                .reviewer
+                .as_ref()
+                .is_some_and(|r| r.enabled)
+        );
+        let mut saved = json!({"participants": raw()["participants"]});
+        saved["token"] = json!("automatic");
+        let events = d.line(&format!("config.set {saved}")).await;
+        assert_eq!(said(&events), ["config_saved"]);
+        let written = std::fs::read_to_string(&d.session.config_path).unwrap();
+        assert!(!written.contains("gpt-6-luna"), "{written}");
+        assert!(!written.contains("reviewer"), "{written}");
+    }
+
+    #[tokio::test]
+    async fn the_only_usable_transcription_model_is_its_default() {
+        config::testing::set_env("DEEPGRAM_API_KEY", "dg");
+        let mut d = daemon(json!({"participants": raw()["participants"]}));
+        let snapshot = d.configured().await;
+        assert_eq!(snapshot["default_models"]["transcription"], "nova-3");
+        assert_eq!(
+            snapshot["kind_models"]["meeting"]["transcription"],
+            "nova-3"
+        );
+        assert!(
+            snapshot["default_models"]["automatic"]
+                .as_array()
+                .unwrap()
+                .contains(&json!("transcription"))
+        );
+    }
+
+    #[tokio::test]
+    async fn a_role_the_user_chose_keeps_its_model() {
+        config::testing::set_env("OPENROUTER_API_KEY", "sk-or");
+        let own = json!({"name": "mine", "type": "chat", "provider": "llm", "model": "m"});
+        let mut d = daemon(json!({
+            "providers": raw()["providers"], "models": [own],
+            "translation": {"model": "gpt-6-luna"},
+            "participants": raw()["participants"]}));
+        let snapshot = d.configured().await;
+        let defaults = &snapshot["default_models"];
+        assert_eq!(defaults["translation"], "gpt-6-luna");
+        assert_eq!(defaults["chat"], "mine");
+        assert_eq!(
+            defaults["automatic"],
+            json!(["transcription", "chat", "review"])
+        );
     }
 
     #[tokio::test]

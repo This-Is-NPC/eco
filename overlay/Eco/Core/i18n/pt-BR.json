@@ -850,6 +850,7 @@
   "settings.model_type": "TIPO",
   "settings.skills": "skills",
   "settings.default_model": "padrão · {name}",
+  "settings.automatic": "(automático)",
   "settings.context": "contexto",
   "context.note": "Arquivos enviados com as respostas: o Global com toda resposta, um slot só nas sessões em que está ligado.",
   "context.global": "Global",

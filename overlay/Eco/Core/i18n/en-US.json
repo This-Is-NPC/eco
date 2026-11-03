@@ -850,6 +850,7 @@
   "settings.model_type": "TYPE",
   "settings.skills": "skills",
   "settings.default_model": "default · {name}",
+  "settings.automatic": "(automatic)",
   "settings.context": "context",
   "context.note": "Files sent with answers: Global with every answer, a slot only in sessions where it is on.",
   "context.global": "Global",

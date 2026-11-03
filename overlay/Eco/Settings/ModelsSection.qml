@@ -107,9 +107,10 @@ SettingsSection {
 
   // What the model `name` of `config` is the default for, as read: "" for nothing.
   function defaultsText(config, name) {
-    return Draft.defaults(config, name).map(entry => entry.inherited ? I18n.t("settings.translation_inherited")
+    const shown = Draft.resolved(config, Eco.defaultModels)
+    return Draft.defaults(shown.draft, name).map(entry => (entry.inherited ? I18n.t("settings.translation_inherited")
       : I18n.t(({ chat: "settings.type_chat", transcription: "settings.type_transcription", translation: "settings.translation",
-        review: "settings.use_review" })[entry.use])).join(" · ")
+        review: "settings.use_review" })[entry.use])) + (shown.automatic.includes(entry.use) ? " " + I18n.t("settings.automatic") : "")).join(" · ")
   }
   function typeName(type) {
     return I18n.t(type === "chat" ? "settings.type_chat" : "settings.type_transcription")

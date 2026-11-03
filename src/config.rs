@@ -82,7 +82,7 @@ fn default_languages() -> Vec<String> {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SttConfig {
-    /// The name of a registered transcription model; empty when none is chosen.
+    /// The name of a registered transcription model; empty takes the first usable one.
     #[serde(default)]
     pub model: String,
     /// Code from `languages` used now; "auto" lets the server detect it.
@@ -268,7 +268,7 @@ impl ModelConfig {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LlmConfig {
-    /// The name of a registered chat model; empty when none is chosen.
+    /// The name of a registered chat model; empty takes the first usable one.
     #[serde(default)]
     pub model: String,
     /// Characters of transcript and earlier answers a request may carry (~4 per token).
@@ -304,7 +304,7 @@ impl Default for LlmConfig {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TranslationConfig {
-    /// The name of a registered chat model; the assistant's when empty.
+    /// The name of a registered chat model; empty takes the first usable one.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub model: String,
 }
@@ -315,7 +315,7 @@ pub struct TranslationConfig {
 pub struct ReviewerConfig {
     #[serde(default)]
     pub enabled: bool,
-    /// The name of a registered model; may be empty while the reviewer is off.
+    /// The name of a registered chat model; empty takes the first usable one.
     #[serde(default)]
     pub model: String,
     /// What the reviewer is asked after the draft.
@@ -329,6 +329,17 @@ pub struct ReviewerConfig {
 impl ReviewerConfig {
     fn default_prompt() -> String {
         DEFAULT_REVIEW.into()
+    }
+}
+
+impl Default for ReviewerConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            model: String::new(),
+            prompt: Self::default_prompt(),
+            verbose: false,
+        }
     }
 }
 
@@ -541,30 +552,6 @@ pub struct Config {
     pub shortcuts: Option<BTreeMap<String, String>>,
 }
 
-impl Raw {
-    /// An empty default model, or one that is no registered model of its type
-    /// nor a preset, becomes the first registered model of that type, in
-    /// registration order.
-    fn with_default_models(mut self) -> Self {
-        let pick = |models: &[ModelConfig], kind: ModelType, current: &str| {
-            let named = |m: &&ModelConfig| m.kind == kind;
-            if models.iter().filter(named).any(|m| m.name == current)
-                || crate::presets::names(kind).any(|name| name == current)
-            {
-                return current.to_string();
-            }
-            models
-                .iter()
-                .find(named)
-                .map(|m| m.name.clone())
-                .unwrap_or_default()
-        };
-        self.llm.model = pick(&self.models, ModelType::Chat, &self.llm.model);
-        self.stt.model = pick(&self.models, ModelType::Transcription, &self.stt.model);
-        self
-    }
-}
-
 impl Config {
     /// The user's global context files, joined, `~` expanded.
     pub fn context(&self) -> std::io::Result<String> {
@@ -621,13 +608,12 @@ impl Config {
             .or_else(|| self.model(&self.stt.model))
     }
 
-    /// Build a Config from its JSON shape (what the overlay sends), where an empty
-    /// default model, or one that is no registered model of its type, becomes the
-    /// first registered model of that type; validate it.
+    /// Build a Config from its JSON shape (what the overlay sends); validate it.
+    /// An empty default model stays empty: it is automatic (see `presets::overlay`).
     pub fn from_value(value: Value) -> Result<Self, ConfigError> {
         let raw: Raw = serde_json::from_value(value)
             .map_err(|error| ConfigError(format!("invalid config: {error}")))?;
-        Self::from_raw(raw.with_default_models())
+        Self::from_raw(raw)
     }
 
     /// The JSON shape of this Config; `Config::from_value(c.to_value())` gives `c` back.
@@ -1368,10 +1354,11 @@ mod tests {
         let on = config.reviewer.as_ref().unwrap();
         assert_eq!((on.prompt.as_str(), on.verbose), (DEFAULT_REVIEW, false));
         assert_eq!(from_old(config.to_value()).unwrap(), config);
-        let mut unnamed = reviewer;
-        unnamed["model"] = json!("");
-        assert!(error_of(with("reviewer", unnamed.clone())).contains("reviewer"));
-        unnamed["enabled"] = json!(false);
+        let mut other = reviewer;
+        other["model"] = json!("whisper");
+        assert!(error_of(with("reviewer", other)).contains("reviewer"));
+        // A reviewer with no model takes the first usable one, on or off.
+        let unnamed = json!({"enabled": true, "model": ""});
         assert!(from_old(with("reviewer", unnamed)).is_ok());
     }
 
@@ -1728,28 +1715,25 @@ mod tests {
     }
 
     #[test]
-    fn the_first_model_of_each_type_becomes_its_default() {
-        assert_eq!(defaults_of(models_of(&[])), (String::new(), String::new()));
-        let chat = models_of(&[("m", "chat")]);
-        assert_eq!(defaults_of(chat), ("m".into(), String::new()));
-        let stt = models_of(&[("w", "transcription")]);
-        assert_eq!(defaults_of(stt), (String::new(), "w".into()));
+    fn an_empty_default_stays_empty_so_it_stays_automatic() {
         let both = models_of(&[("w", "transcription"), ("m", "chat"), ("n", "chat")]);
-        assert_eq!(defaults_of(both), ("m".into(), "w".into()));
+        assert_eq!(defaults_of(both), (String::new(), String::new()));
     }
 
     #[test]
-    fn a_chosen_default_is_kept_and_a_lost_one_is_replaced() {
+    fn a_chosen_default_is_kept_and_a_lost_one_is_refused() {
         let mut value = models_of(&[("w", "transcription"), ("m", "chat"), ("n", "chat")]);
         value["llm"] = json!({"model": "n"});
+        value["stt"] = json!({"model": "w"});
         assert_eq!(defaults_of(value.clone()), ("n".into(), "w".into()));
+        value["translation"] = json!({"model": "gone"});
+        assert!(error_of(value.clone()).contains("translation must name a registered chat model"));
+        value["translation"] = json!({});
         value["models"].as_array_mut().unwrap().remove(2);
-        assert_eq!(defaults_of(value.clone()), ("m".into(), "w".into()));
-        value["models"] = json!([]);
-        assert_eq!(defaults_of(value.clone()), (String::new(), String::new()));
-        value["stt"] = json!({"model": "m"});
-        value["models"] = models_of(&[("m", "chat"), ("w", "transcription")])["models"].clone();
-        assert_eq!(defaults_of(value), ("m".into(), "w".into()));
+        assert!(error_of(value.clone()).contains("the assistant must name"));
+        value["llm"] = json!({});
+        value["models"].as_array_mut().unwrap().remove(0);
+        assert!(error_of(value).contains("transcription must name"));
     }
 
     #[test]

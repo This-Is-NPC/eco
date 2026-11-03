@@ -850,6 +850,7 @@
   "settings.model_type": "タイプ",
   "settings.skills": "スキル",
   "settings.default_model": "既定 · {name}",
+  "settings.automatic": "（自動）",
   "settings.context": "コンテキスト",
   "context.note": "回答と一緒に送るファイル：グローバルはすべての回答に、スロットはオンにしたセッションでだけ。",
   "context.global": "グローバル",

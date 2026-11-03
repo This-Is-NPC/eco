@@ -8,7 +8,8 @@ use std::collections::BTreeMap;
 use serde_json::{Value, json};
 
 use crate::config::{
-    Config, Key, ModelConfig, ModelType, ProviderConfig, Resolved, SecretConfig, env_key,
+    Config, Key, ModelConfig, ModelType, ProviderConfig, Resolved, ReviewerConfig, SecretConfig,
+    env_key,
 };
 
 /// A preset provider and the variable its key is read from; its secret and
@@ -158,6 +159,34 @@ pub fn missing(model: &Resolved) -> Option<&str> {
     (same && env_key(variable).is_err()).then_some(variable)
 }
 
+/// Whether `model` can be used now: it needs no key, or its key resolves.
+/// A key in the keyring or the credential manager is read when the model is
+/// built, so it counts as usable.
+fn is_usable(model: &Resolved) -> bool {
+    match model.key() {
+        Key::Env(variable) => env_key(variable).is_ok(),
+        Key::None | Key::Omapass(_) | Key::Credential(_) => true,
+    }
+}
+
+/// The roles whose model the user chose none for, so `overlay` fills them:
+/// "transcription", "chat", "translation" and "review".
+pub fn automatic(config: &Config) -> Vec<&'static str> {
+    let empty = |model: &str| model.is_empty();
+    [
+        ("transcription", empty(&config.stt.model)),
+        ("chat", empty(&config.llm.model)),
+        ("translation", empty(&config.translation.model)),
+        (
+            "review",
+            config.reviewer.as_ref().is_none_or(|r| empty(&r.model)),
+        ),
+    ]
+    .into_iter()
+    .filter_map(|(role, left)| left.then_some(role))
+    .collect()
+}
+
 /// The preset models of `config` that wait for a key, in the order they are shown.
 pub fn disabled(config: &Config) -> Vec<Disabled> {
     config
@@ -197,36 +226,38 @@ pub fn overlay(config: &Config) -> Config {
             config.providers.push(entry);
         }
     }
-    let added: Vec<ModelConfig> = MODELS
-        .iter()
-        .filter(|p| !old.models.iter().any(|m| m.name == p.name))
-        .map(Model::config)
-        .collect();
-    config.models.extend(added.iter().cloned());
-    let usable = |model: &ModelConfig| {
-        config
-            .resolve(model)
-            .is_some_and(|resolved| missing(&resolved).is_none())
-    };
+    config.models.extend(
+        MODELS
+            .iter()
+            .filter(|p| !old.models.iter().any(|m| m.name == p.name))
+            .map(Model::config),
+    );
+    let usable = |model: &ModelConfig| config.resolve(model).is_some_and(|r| is_usable(&r));
+    // The user's models come first, then the presets, so the first usable one
+    // is the user's when it works; with none usable, the first of the type.
     let first = |kind: ModelType| {
-        let of = || added.iter().filter(move |m| m.kind == kind);
+        let of = || config.models.iter().filter(move |m| m.kind == kind);
         of().find(|m| usable(m))
             .or_else(|| of().next())
             .map(|m| m.name.clone())
     };
-    let chat = first(ModelType::Chat).filter(|_| config.llm.model.is_empty());
-    let stt = first(ModelType::Transcription).filter(|_| config.stt.model.is_empty());
-    config.llm.model = chat.unwrap_or(config.llm.model);
-    config.stt.model = stt.unwrap_or(config.stt.model);
+    let (chat, stt) = (first(ModelType::Chat), first(ModelType::Transcription));
+    let fill = |model: &mut String, pick: &Option<String>| {
+        if let Some(pick) = pick.as_ref().filter(|_| model.is_empty()) {
+            model.clone_from(pick);
+        }
+    };
+    fill(&mut config.llm.model, &chat);
+    fill(&mut config.stt.model, &stt);
+    fill(&mut config.translation.model, &chat);
+    fill(
+        &mut config
+            .reviewer
+            .get_or_insert_with(ReviewerConfig::default)
+            .model,
+        &chat,
+    );
     config
-}
-
-/// The names of the preset models of `kind`.
-pub fn names(kind: ModelType) -> impl Iterator<Item = &'static str> {
-    MODELS
-        .iter()
-        .filter(move |m| m.kind == kind)
-        .map(|m| m.name)
 }
 
 /// The variables the presets' keys are read from.
@@ -300,6 +331,44 @@ mod tests {
         );
         let waiting: Vec<_> = disabled(&config).into_iter().map(|d| d.name).collect();
         assert_eq!(waiting, ["gpt-6-luna", "scribe-v2", "whisper-turbo"]);
+    }
+
+    #[test]
+    fn every_role_takes_the_first_usable_model_of_its_type() {
+        set_env("OPENROUTER_API_KEY", "or");
+        let config = overlay(&user(json!([])));
+        assert_eq!(config.llm.model, "gpt-6-luna");
+        assert_eq!(config.translation.model, "gpt-6-luna");
+        let reviewer = config.reviewer.unwrap();
+        assert_eq!(
+            (reviewer.model.as_str(), reviewer.enabled),
+            ("gpt-6-luna", false)
+        );
+        assert_eq!(
+            automatic(&user(json!([]))),
+            ["transcription", "chat", "translation", "review"]
+        );
+    }
+
+    #[test]
+    fn a_chosen_role_is_kept_and_a_reviewer_stays_as_set() {
+        set_env("OPENROUTER_API_KEY", "or");
+        let lan = json!([{"name": "mine", "type": "chat", "provider": "lan", "model": "m"}]);
+        let mut own = Config::from_value(json!({
+            "models": lan,
+            "providers": [{"name": "lan", "base_url": "http://lan"}],
+            "translation": {"model": "gpt-6-luna"},
+            "reviewer": {"enabled": true},
+        }))
+        .unwrap();
+        own.stt.model = "whisper-turbo".into();
+        let config = overlay(&own);
+        assert_eq!(config.translation.model, "gpt-6-luna");
+        assert_eq!(config.stt.model, "whisper-turbo");
+        assert_eq!(config.llm.model, "mine");
+        let reviewer = config.reviewer.unwrap();
+        assert_eq!((reviewer.model.as_str(), reviewer.enabled), ("mine", true));
+        assert_eq!(automatic(&own), ["chat", "review"]);
     }
 
     #[test]

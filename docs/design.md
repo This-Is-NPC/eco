@@ -509,11 +509,15 @@ matters.
   up fails answers with that reason until it is fixed or turned off.
   In the window, Models' DEFAULT FOR REVIEW picks `model`, General turns
   `enabled` and `verbose` on, and Prompts holds `prompt`.
-- **Default model:** `[llm] model` names the assistant's, and `[stt] model` the
-  transcription model; saving a config whose default is empty, or names no
-  registered model of its type, sets it to the first registered model of that
-  type, in registration order (empty while there is none; a file read at
-  startup is not changed). An action's `model`
+- **Default model:** `[llm] model` names the assistant's, `[stt] model` the
+  transcription model, `[translation] model` the translator and
+  `[reviewer] model` the reviewer's. A role left empty is automatic: it takes
+  the first usable model of its type, the user's in registration order and
+  then the presets (usable: it needs no key, or its key resolves), or else
+  the first one of the type. The choice is made when the daemon composes the
+  config and is never saved; a default naming no registered model of its type
+  is dropped when saved and is automatic again. The reviewer's `enabled`
+  stays as the user set it. An action's `model`
   names another (e.g. a slower, better model for a deep action). Only the models
   something uses are set up. Latency measurements: [benchmarks.md](benchmarks.md).
 - **Prompt, built for the provider's cache:** a request is a conversation that
@@ -1144,8 +1148,7 @@ the preset's, a secret or provider included, and a secret of the user's that
 reads a preset secret's variable takes its place, the preset providers naming it. They are never in the `config`
 snapshot's `config` and never saved: the file keeps only what the user wrote,
 and a default may name a preset model. A default model of a type the user has not
-chosen is the first preset of that type whose variable is set, or else the first
-one. A preset whose variable is not set stays and is `disabled`: the snapshot's
+chosen is the first usable model of that type, a preset or the user's (§9). A preset whose variable is not set stays and is `disabled`: the snapshot's
 `disabled_models` is `{name: {code: "preset.key_missing", params: {name,
 variable}}}`, and when a default or a kind names it, building it tells
 `stt.preset_disabled` or `model.preset_disabled` (`{name, variable}`) with the
@@ -1890,7 +1893,11 @@ reconnects to the socket on its own.
   says which models a kind runs on once it is picked (`kind_models` in the
   snapshot: `{kind: {"transcription", "chat", "translation", "actions"}}`, each
   model by name or `""` for none, and the actions a model answers there;
-  `default_models` the same for a kind no longer configured; `actions` lists
+  `default_models` the same for a kind no longer configured, with `review`
+  (the reviewer's model, on or off) and `automatic`, the roles among
+  `"transcription"`, `"chat"`, `"translation"` and `"review"` whose model the
+  user did not choose and eco picked; the settings window marks those
+  "(automatic)"; `actions` lists
   every skill, those no model answers too), scrolls in a short window with
   its buttons kept below, and without an input it cannot start: it says so and
   offers the Audio settings.
@@ -2249,10 +2256,10 @@ title until the item changes again; a refused DELETE or quick change shows as an
 error toast (§12.2). The default models are not required, as the daemon does not
 require them (§9): a config with no model registered saves, and a default it
 names must be a registered model of its type (`overlay/Eco/Core/draft.js`,
-`problems`). The daemon makes the first registered model of a type the default
-of that type when a saved config leaves it empty or names no model of that
-type, so a new model is a default only when it is the first of its type; the
-others are set on the Models table.
+`problems`). A default left empty is automatic: the daemon takes the first
+usable model of its type for it (§9), the window shows it marked
+"(automatic)" and a save leaves it empty; the Models table makes a model the
+default of a role.
 
 Closing the window with an item unsaved asks first: SAVE AND CLOSE saves
 each changed item in turn, the one on screen first, and closes once none is

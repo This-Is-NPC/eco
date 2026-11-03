@@ -99,6 +99,26 @@ function serves(draft, entry, use, kind, action) {
   return !!entry.name && answering(draft, use, kind, action).name === entry.name
 }
 
+// The draft with the model the daemon picked (`defaults`, its default_models)
+// in each role left empty that the daemon lists as automatic, and those roles:
+// {draft, automatic} among "transcription", "chat", "translation", "review".
+function resolved(draft, defaults) {
+  const next = JSON.parse(JSON.stringify(draft))
+  const automatic = []
+  const fill = (role, current, set) => {
+    const picked = (defaults.automatic || []).includes(role) ? defaults[role] : ""
+    if (!current && picked) {
+      set(picked)
+      automatic.push(role)
+    }
+  }
+  fill("transcription", draft.stt.model, name => { next.stt.model = name })
+  fill("chat", draft.llm.model, name => { next.llm.model = name })
+  fill("translation", draft.translation && draft.translation.model, name => { next.translation = { model: name } })
+  fill("review", draft.reviewer && draft.reviewer.model, name => { next.reviewer = Object.assign({ enabled: false }, next.reviewer, { model: name }) })
+  return { draft: next, automatic: automatic }
+}
+
 // What the model `name` of `draft` is the default for, as the daemon picks
 // it: [{use, inherited}], `use` "chat", "translation", "review" (the
 // reviewer's model, on or off) or "transcription"; translation `inherited`
