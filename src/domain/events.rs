@@ -75,6 +75,21 @@ pub fn transcription(who: &str, trouble: &Trouble) -> Event {
     }
 }
 
+/// `who`'s speech goes without a speaker while the diarizer is behind: `down`
+/// until it catches up, then `back` with how many regions went without one.
+pub fn diarization(who: &str, caught_up: Option<usize>) -> Event {
+    match caught_up {
+        None => json!({
+            "type": "transcription", "who": who, "state": "down",
+            "code": "diarization.behind", "detail": "",
+        }),
+        Some(count) => json!({
+            "type": "transcription", "who": who, "state": "back",
+            "code": "diarization.caught_up", "count": count,
+        }),
+    }
+}
+
 /// The sources whose streaming transcription is down now, each with the
 /// `transcription` event that said so, for the clients that connect later.
 #[derive(Clone, Default)]
@@ -97,6 +112,17 @@ impl Outages {
         event
     }
 
+    /// The event for `who`'s diarizer: behind holds until it catches up.
+    pub fn diarizing(&self, who: &str, caught_up: Option<usize>) -> Event {
+        let event = diarization(who, caught_up);
+        let mut down = self.0.lock().expect("not poisoned");
+        match caught_up {
+            None => down.insert(diarizing(who), event.clone()),
+            Some(_) => down.remove(&diarizing(who)),
+        };
+        event
+    }
+
     /// The `transcription` down event of every source down now.
     pub fn events(&self) -> Vec<Event> {
         let down = self.0.lock().expect("not poisoned");
@@ -110,12 +136,19 @@ impl Outages {
     }
 }
 
+/// The key of `who`'s diarizer in the outages, apart from its transcription.
+fn diarizing(who: &str) -> String {
+    format!("{who}\0diarization")
+}
+
 /// Forgets a source's outage when dropped.
 pub struct Stopped<'a>(&'a Outages, &'a str);
 
 impl Drop for Stopped<'_> {
     fn drop(&mut self) {
-        self.0.0.lock().expect("not poisoned").remove(self.1);
+        let mut down = self.0.0.lock().expect("not poisoned");
+        down.remove(self.1);
+        down.remove(&diarizing(self.1));
     }
 }
 
@@ -124,6 +157,26 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
+
+    #[test]
+    fn a_diarizer_behind_is_replayed_until_it_catches_up_apart_from_the_transcription() {
+        let outages = Outages::default();
+        let down = outages.note("Eles", &Trouble::Down("reset".into()));
+        let behind = outages.diarizing("Eles", None);
+        assert_eq!(
+            behind.to_string(),
+            r#"{"type":"transcription","who":"Eles","state":"down","code":"diarization.behind","detail":""}"#
+        );
+        assert_eq!(outages.events(), [down.clone(), behind]);
+        assert_eq!(
+            outages.diarizing("Eles", Some(3)).to_string(),
+            r#"{"type":"transcription","who":"Eles","state":"back","code":"diarization.caught_up","count":3}"#
+        );
+        assert_eq!(outages.events(), [down]);
+        outages.diarizing("Eles", None);
+        drop(outages.until_stopped("Eles"));
+        assert_eq!(outages.events(), [] as [Value; 0]);
+    }
 
     #[test]
     fn a_transcription_reads_lost_as_an_error_down_with_its_code_and_back_with_its_seconds() {

@@ -17,7 +17,7 @@ use tokio::task::{JoinHandle, JoinSet};
 use crate::adapters::audio_file::WavFileSource;
 use crate::adapters::control_socket::{Address, Clients, ControlSocket, Greeting};
 use crate::adapters::credentials::{self, CredentialError};
-use crate::adapters::diarizer_process::{self, Diarized, Regions};
+use crate::adapters::diarizer_process::{self, Backlog, Diarized, Regions};
 use crate::adapters::hook_shell::ShellHooks;
 use crate::adapters::http::Endpoint;
 use crate::adapters::llm_openai::{OpenAIChat, Unavailable, list_models};
@@ -653,7 +653,7 @@ impl Channels {
                 .map(|input| {
                     let others = !input.user && recording;
                     others
-                        .then(|| voices(assistant, emit, &input.participant, diarizer))
+                        .then(|| voices(assistant, (emit, outages), &input.participant, diarizer))
                         .flatten()
                 })
                 .collect();
@@ -799,11 +799,18 @@ type Diarizer = Arc<dyn Fn(Found) -> Option<Regions> + Send + Sync>;
 /// Start telling the voices heard as `who` apart, when `diarizer` can: each
 /// line gets its speaker as the child tells them, and once the input stops
 /// recording, the lines left get the speakers the child found.
-fn voices(assistant: &Assistant, emit: &Emit, who: &str, diarizer: &Diarizer) -> Option<Voices> {
+fn voices(
+    assistant: &Assistant,
+    (emit, outages): (&Emit, &Outages),
+    who: &str,
+    diarizer: &Diarizer,
+) -> Option<Voices> {
     let heard: Arc<Mutex<InputVoices>> = Arc::default();
     let (assistant, emit, who) = (assistant.clone(), Arc::clone(emit), who.to_string());
     let told = Arc::clone(&heard);
     let runtime = tokio::runtime::Handle::current();
+    let said = Arc::clone(&emit);
+    let (input, outages) = (who.clone(), outages.clone());
     let regions = diarizer(Box::new(move |diarized| {
         // The child's reader is a plain thread; what the sessions spawn from
         // here needs the runtime.
@@ -823,6 +830,16 @@ fn voices(assistant: &Assistant, emit: &Emit, who: &str, diarizer: &Diarizer) ->
         };
         heard.tell(&assistant, &who, known);
     }))?;
+    // Told on the thread that offers the speech: an event needs no runtime.
+    regions.tell(move |backlog| {
+        said(outages.diarizing(
+            &input,
+            match backlog {
+                Backlog::Behind => None,
+                Backlog::CaughtUp(count) => Some(count),
+            },
+        ))
+    });
     Some(Voices { regions, heard })
 }
 
@@ -5756,7 +5773,7 @@ mod tests {
             moved: Vec::new(),
         });
         let (diarizer, counted) = diarizer(vec![heard], vec![Diarized::Done]);
-        let voices = voices(&assistant, &emit, "Eles", &diarizer).unwrap();
+        let voices = voices(&assistant, (&emit, &Outages::default()), "Eles", &diarizer).unwrap();
         let mut hub = Hub::default();
         let capture = hub.input("mic");
         let cell: Ready = Arc::new(OnceCell::new_with(Some(Ok(Stt::Segments(Box::new(Says(
@@ -5835,7 +5852,7 @@ mod tests {
             });
             Some(regions)
         });
-        let voices = voices(&assistant, &emit, "Eles", &diarizer).unwrap();
+        let voices = voices(&assistant, (&emit, &Outages::default()), "Eles", &diarizer).unwrap();
         let mut hub = Hub::default();
         let capture = hub.input("mic");
         let cell: Ready = Arc::new(OnceCell::new_with(Some(Ok(Stt::Segments(Box::new(

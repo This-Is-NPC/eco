@@ -310,8 +310,10 @@ eco/
   its turns, and later speech goes where the child puts it. A voice is kept (§7.3) when it first comes and again whenever it
   moved (cosine below 0.98 to the one kept), and the session's speakers are
   told again, so guesses come during the meeting. At most 32 regions wait for
-  the child; past that, regions go without diarization and the daemon's log
-  says so. The child's stderr is read as it comes, and its last 4 kB are the
+  the child; past that, regions go without diarization and clients are told
+  with a `transcription` event of the source: `down` with the code
+  `diarization.behind` (replayed to clients that connect later), then `back`
+  with `diarization.caught_up` and the count of regions that went without. The child's stderr is read as it comes, and its last 4 kB are the
   error when it fails.
 - **Echoes:** without headphones, or with headphones loud, the user's
   microphone hears the call and duplicates "their" speech as "me". Headphones

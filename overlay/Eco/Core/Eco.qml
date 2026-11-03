@@ -162,15 +162,15 @@ Singleton {
   // What each speaker of the open session is saying right now, not yet a line:
   // [{who, name, text}], from a streaming STT.
   property var partials: []
-  // Who -> its streaming transcription while down or just back: {state, code,
-  // detail, dropped_s, at}. Back goes with its next line, or ten seconds on.
+  // Who -> its streaming transcription (and "who · diarization" -> its diarizer)
+  // while down or just back: {who, state, code, detail, dropped_s, count, at}. Back goes with its next line, or ten seconds on.
   property var links: ({})
   // The sources to tell about, for TranscriptionStrip: {who, color, state, …}.
   readonly property var outages: Object.keys(links)
-    .filter(who => links[who].state === "down" || clock - links[who].at < 10)
-    .map(who => {
-      const input = inputs.find(item => item.participant === who)
-      return Object.assign({ who: who, color: input ? inputColor(input.id) : Theme.dim }, links[who])
+    .filter(key => links[key].state === "down" || clock - links[key].at < 10)
+    .map(key => {
+      const input = inputs.find(item => item.participant === links[key].who)
+      return Object.assign({ color: input ? inputColor(input.id) : Theme.dim }, links[key])
     })
   // Session id -> its speakers as the daemon last said: {label, name, person, voice, suggestions, guess, lines}.
   property var sessionSpeakers: ({})
@@ -1286,12 +1286,15 @@ Singleton {
       }
       break
     }
-    case "transcription":
-      links = Object.assign({}, links, { [event.who]: {
-        state: event.state, code: event.code || "", detail: event.detail || "",
-        dropped_s: event.dropped_s || 0, at: Date.now() / 1000
+    case "transcription": {
+      // A diarizer behind is its own outage of the source, apart from its transcription.
+      const diarizing = (event.code || "").startsWith("diarization.")
+      links = Object.assign({}, links, { [diarizing ? event.who + " · diarization" : event.who]: {
+        who: event.who, state: event.state, code: event.code || "", detail: event.detail || "",
+        dropped_s: event.dropped_s || 0, count: event.count || 0, at: Date.now() / 1000
       } })
       break
+    }
     case "transcript_partial":
       if (session !== null && event.session === session.id)
         speaking(event.who, event.name, event.text)
