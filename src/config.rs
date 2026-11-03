@@ -1,6 +1,6 @@
 //! `~/.config/eco/config.toml`: its schema, validation, and atomic save.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::Path;
 use std::{env, fs};
 
@@ -84,6 +84,16 @@ impl<'a> Key<'a> {
             (None, None, None) => Self::None,
         }
     }
+
+    /// The `(env, omapass, credential)` names `of` takes this key from.
+    pub fn fields(self) -> (Option<&'a str>, Option<&'a str>, Option<&'a str>) {
+        match self {
+            Self::None => (None, None, None),
+            Self::Env(name) => (Some(name), None, None),
+            Self::Omapass(account) => (None, Some(account), None),
+            Self::Credential(name) => (None, None, Some(name)),
+        }
+    }
 }
 
 impl SttConfig {
@@ -113,6 +123,45 @@ pub enum ModelType {
     Transcription,
 }
 
+/// Where a key lives: a reference only, eco never stores or creates a key.
+/// Exactly one of `env`, `omapass` and `credential` is set.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SecretConfig {
+    pub name: String,
+    /// The environment variable holding the key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub env: Option<String>,
+    /// The omapass account holding the key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub omapass: Option<String>,
+    /// The name of the Windows Credential Manager's credential `eco:<name>`
+    /// holding the key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential: Option<String>,
+}
+
+impl SecretConfig {
+    pub fn key(&self) -> Key<'_> {
+        Key::of(
+            self.env.as_deref(),
+            self.omapass.as_deref(),
+            self.credential.as_deref(),
+        )
+    }
+}
+
+/// A service eco reaches: an address, and the secret its requests carry, if any.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProviderConfig {
+    pub name: String,
+    pub base_url: String,
+    /// The name of its secret; a server on the LAN has none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub secret: Option<String>,
+}
+
 /// A model the user registered once, named so roles, actions and session kinds pick it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -120,18 +169,10 @@ pub struct ModelConfig {
     pub name: String,
     #[serde(rename = "type")]
     pub kind: ModelType,
-    pub base_url: String,
+    /// The name of the provider that serves it.
+    pub provider: String,
     /// The provider's id for it.
     pub model: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub api_key_env: Option<String>,
-    /// The omapass account holding the key, instead of a variable.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub api_key_omapass: Option<String>,
-    /// The name of the Windows Credential Manager's credential `eco:<name>`
-    /// holding the key, instead of a variable.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub api_key_credential: Option<String>,
     /// Provider-specific request fields, sent as-is; chat models only.
     #[serde(default, skip_serializing_if = "Map::is_empty")]
     pub extra: Map<String, Value>,
@@ -151,15 +192,29 @@ pub struct ModelConfig {
     pub price_per_minute: Option<f64>,
 }
 
-impl ModelConfig {
-    pub fn key(&self) -> Key<'_> {
-        Key::of(
-            self.api_key_env.as_deref(),
-            self.api_key_omapass.as_deref(),
-            self.api_key_credential.as_deref(),
-        )
-    }
+/// A model with the address and key source of its provider, what building it needs.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Resolved {
+    pub entry: ModelConfig,
+    pub base_url: String,
+    pub secret: Option<SecretConfig>,
+}
 
+impl std::ops::Deref for Resolved {
+    type Target = ModelConfig;
+
+    fn deref(&self) -> &ModelConfig {
+        &self.entry
+    }
+}
+
+impl Resolved {
+    pub fn key(&self) -> Key<'_> {
+        self.secret.as_ref().map_or(Key::None, SecretConfig::key)
+    }
+}
+
+impl ModelConfig {
     /// The fields sent with every request: `extra`, with the reasoning chosen in
     /// OpenRouter's form, which wins over a `reasoning` written in `extra`.
     pub fn request_fields(&self) -> Map<String, Value> {
@@ -389,6 +444,10 @@ struct Raw {
     #[serde(default)]
     translation: TranslationConfig,
     #[serde(default)]
+    secrets: Vec<SecretConfig>,
+    #[serde(default)]
+    providers: Vec<ProviderConfig>,
+    #[serde(default)]
     models: Vec<ModelConfig>,
     #[serde(default)]
     context: ContextTable,
@@ -420,6 +479,10 @@ pub struct Config {
     pub llm: LlmConfig,
     pub reviewer: Option<ReviewerConfig>,
     pub translation: TranslationConfig,
+    /// Where the keys live.
+    pub secrets: Vec<SecretConfig>,
+    /// The services models are served by.
+    pub providers: Vec<ProviderConfig>,
     /// The chat and transcription models roles, actions and kinds name.
     pub models: Vec<ModelConfig>,
     pub participants: Vec<Participant>,
@@ -525,16 +588,63 @@ impl Config {
 
     /// Build a Config from its JSON shape (what the overlay sends), where an empty
     /// default model, or one that is no registered model of its type, becomes the
-    /// first registered model of that type; validate it.
-    pub fn from_value(value: Value) -> Result<Self, ConfigError> {
+    /// first registered model of that type; validate it. A model that carries a
+    /// `base_url` and `api_key_*` fields is pointed at the provider and secret
+    /// they name (see `convert`).
+    pub fn from_value(mut value: Value) -> Result<Self, ConfigError> {
+        convert(&mut value);
         let raw: Raw = serde_json::from_value(value)
             .map_err(|error| ConfigError(format!("invalid config: {error}")))?;
         Self::from_raw(raw.with_default_models())
     }
 
     /// The JSON shape of this Config; `Config::from_value(c.to_value())` gives `c` back.
+    /// Each model also carries its provider's `base_url` and its secret's
+    /// `api_key_*` field, which the settings window edits until it edits
+    /// providers and secrets themselves.
     pub fn to_value(&self) -> Value {
-        serde_json::to_value(self.to_raw()).expect("a config always serializes")
+        let mut value = serde_json::to_value(self.to_raw()).expect("a config always serializes");
+        for (entry, model) in value["models"]
+            .as_array_mut()
+            .into_iter()
+            .flatten()
+            .zip(&self.models)
+        {
+            let Some(resolved) = self.resolve(model) else {
+                continue;
+            };
+            entry["base_url"] = resolved.base_url.clone().into();
+            let (env, omapass, credential) = resolved.key().fields();
+            for (field, name) in [
+                ("api_key_env", env),
+                ("api_key_omapass", omapass),
+                ("api_key_credential", credential),
+            ] {
+                if let Some(name) = name {
+                    entry[field] = name.into();
+                }
+            }
+        }
+        value
+    }
+
+    /// `model` with its provider's address and its secret; `None` when its provider is unknown.
+    pub fn resolve(&self, model: &ModelConfig) -> Option<Resolved> {
+        let provider = self.providers.iter().find(|p| p.name == model.provider)?;
+        let secret = provider
+            .secret
+            .as_ref()
+            .and_then(|name| self.secrets.iter().find(|s| &s.name == name));
+        Some(Resolved {
+            entry: model.clone(),
+            base_url: provider.base_url.clone(),
+            secret: secret.cloned(),
+        })
+    }
+
+    /// Every model resolved, in registration order.
+    pub fn resolved(&self) -> Vec<Resolved> {
+        self.models.iter().filter_map(|m| self.resolve(m)).collect()
     }
 
     fn from_raw(raw: Raw) -> Result<Self, ConfigError> {
@@ -545,6 +655,8 @@ impl Config {
             llm: raw.llm,
             reviewer: raw.reviewer,
             translation: raw.translation,
+            secrets: raw.secrets,
+            providers: raw.providers,
             models: raw.models,
             participants: raw.participants,
             actions: raw.actions,
@@ -572,6 +684,8 @@ impl Config {
             llm: self.llm.clone(),
             reviewer: self.reviewer.clone(),
             translation: self.translation.clone(),
+            secrets: self.secrets.clone(),
+            providers: self.providers.clone(),
             models: self.models.clone(),
             context: ContextTable {
                 files: self.context_files.clone(),
@@ -609,26 +723,38 @@ impl Config {
         if !distinct(&slots) || slots.iter().any(|n| n.trim() != n || n.is_empty()) {
             return fail("context names must be unique, trimmed and not empty");
         }
+        let secrets: Vec<&String> = self.secrets.iter().map(|s| &s.name).collect();
+        if !distinct(&secrets) || secrets.iter().any(|n| n.trim() != *n || n.is_empty()) {
+            return fail("secret names must be unique, trimmed and not empty");
+        }
         let set = |value: &Option<String>| value.as_ref().is_some_and(|v| !v.trim().is_empty());
-        let sources = |m: &ModelConfig| {
-            [&m.api_key_env, &m.api_key_omapass, &m.api_key_credential]
+        if self.secrets.iter().any(|s| {
+            [&s.env, &s.omapass, &s.credential]
                 .into_iter()
                 .filter(|source| set(source))
                 .count()
-        };
-        if self.models.iter().any(|m| sources(m) > 1) {
-            return fail(
-                "a provider's key comes from one of api_key_env, api_key_omapass or api_key_credential",
-            );
-        }
-        if self.models.iter().any(|m| {
-            set(&m.api_key_credential)
-                && !m
-                    .api_key_credential
-                    .as_deref()
-                    .is_some_and(credentials::valid_name)
+                != 1
         }) {
-            return fail("api_key_credential is a word with no spaces, like deepgram");
+            return fail("a secret's key comes from exactly one of env, omapass or credential");
+        }
+        if self.secrets.iter().any(|s| {
+            set(&s.credential) && !s.credential.as_deref().is_some_and(credentials::valid_name)
+        }) {
+            return fail("a secret's credential is a word with no spaces, like deepgram");
+        }
+        let providers: Vec<&String> = self.providers.iter().map(|p| &p.name).collect();
+        if !distinct(&providers) || providers.iter().any(|n| n.trim() != *n || n.is_empty()) {
+            return fail("provider names must be unique, trimmed and not empty");
+        }
+        if self.providers.iter().any(|p| p.base_url.trim().is_empty()) {
+            return fail("a provider needs a base URL");
+        }
+        if self.providers.iter().any(|p| {
+            p.secret
+                .as_ref()
+                .is_some_and(|name| !secrets.contains(&name))
+        }) {
+            return fail("a provider's secret must be a registered secret");
         }
         let models: Vec<&String> = self.models.iter().map(|m| &m.name).collect();
         if !distinct(&models) || models.iter().any(|n| n.trim() != *n || n.is_empty()) {
@@ -637,9 +763,9 @@ impl Config {
         if self
             .models
             .iter()
-            .any(|m| m.base_url.trim().is_empty() || m.model.trim().is_empty())
+            .any(|m| m.model.trim().is_empty() || !providers.contains(&&m.provider))
         {
-            return fail("a model needs a base URL and the provider's model id");
+            return fail("a model needs a registered provider and the provider's model id");
         }
         if self.models.iter().any(|m| {
             m.kind == ModelType::Transcription && (!m.extra.is_empty() || m.reasoning.is_some())
@@ -865,29 +991,213 @@ fn first_run(locale: Option<&str>) -> Config {
 }
 
 /// The config at `path`; no file there is the empty config in the system
-/// language, which registers no model, until the first save writes it.
+/// language, which registers no model, until the first save writes it. An old
+/// file is converted in memory only (see `convert`).
 pub fn load(path: &Path) -> Result<Config, ConfigError> {
-    load_in(path, sys_locale::get_locale().as_deref())
+    read(path, sys_locale::get_locale().as_deref()).map(|(config, _)| config)
 }
 
-/// `load`, with `locale` as the system language.
-fn load_in(path: &Path, locale: Option<&str>) -> Result<Config, ConfigError> {
+/// `load` for the daemon, which alone writes the config: an old file is
+/// converted, kept beside itself as `config.toml.bak` and saved in the new
+/// shape. When that fails the converted config is still returned, with why.
+pub fn load_converting(path: &Path) -> Result<(Config, Option<ConfigError>), ConfigError> {
+    let (config, old) = read(path, sys_locale::get_locale().as_deref())?;
+    let failure = old.and_then(|old| {
+        let mut name = path.file_name().unwrap_or_default().to_os_string();
+        name.push(".bak");
+        write_atomically(&path.with_file_name(name), old.as_bytes())
+            .map_err(|error| ConfigError(format!("{}.bak: {error}", path.display())))
+            .and_then(|()| save(&config, path))
+            .err()
+    });
+    Ok((config, failure))
+}
+
+/// The config at `path` and, when it was in the old shape, its text.
+fn read(path: &Path, locale: Option<&str>) -> Result<(Config, Option<String>), ConfigError> {
     let text = match fs::read_to_string(path) {
         Ok(text) => text,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return Ok(first_run(locale));
+            return Ok((first_run(locale), None));
         }
         Err(error) => return Err(ConfigError(format!("{}: {error}", path.display()))),
     };
-    let raw: Raw = toml::from_str(&text).map_err(|error| {
-        let message = error.to_string();
-        if message.contains("missing field") || message.contains("unknown field") {
-            ConfigError(format!("invalid config: {}", message.trim()))
-        } else {
-            ConfigError(format!("{}: {}", path.display(), message.trim()))
-        }
+    let mut value: Value = toml::from_str(&text).map_err(|error| {
+        ConfigError(format!("{}: {}", path.display(), error.to_string().trim()))
     })?;
-    Config::from_raw(raw)
+    let converted = convert(&mut value);
+    let raw: Raw = serde_json::from_value(value)
+        .map_err(|error| ConfigError(format!("invalid config: {error}")))?;
+    Ok((Config::from_raw(raw)?, converted.then_some(text)))
+}
+
+/// The fields a model had before providers and secrets: its address and its key source.
+const OLD_FIELDS: [&str; 4] = [
+    "base_url",
+    "api_key_env",
+    "api_key_omapass",
+    "api_key_credential",
+];
+
+/// Point every model that still carries `base_url` or `api_key_*` fields at a
+/// provider and a secret, in `value`'s `providers` and `secrets` lists: one
+/// provider per distinct (base URL, key source), one secret per distinct key
+/// source, reused when the list already has them, named from the host and the
+/// source and numbered when the name is taken. Every other field of the model
+/// stays. Where an old model names several key sources, the credential wins,
+/// then omapass, then the variable. A provider or secret the conversion left
+/// unused is dropped. Whether any model was converted.
+fn convert(value: &mut Value) -> bool {
+    let Some(root) = value.as_object_mut() else {
+        return false;
+    };
+    let old = root
+        .get("models")
+        .and_then(Value::as_array)
+        .is_some_and(|models| {
+            models
+                .iter()
+                .any(|model| OLD_FIELDS.iter().any(|field| model.get(field).is_some()))
+        });
+    if !old {
+        return false;
+    }
+    let mut take = |name: &str| match root.remove(name) {
+        Some(Value::Array(items)) => items,
+        _ => Vec::new(),
+    };
+    let (mut secrets, mut providers, mut models) =
+        (take("secrets"), take("providers"), take("models"));
+    let text =
+        |item: &Value, field: &str| item.get(field).and_then(Value::as_str).map(String::from);
+    let providers_used = |models: &[Value]| -> BTreeSet<String> {
+        models.iter().filter_map(|m| text(m, "provider")).collect()
+    };
+    let before = providers_used(&models);
+    for model in &mut models {
+        let Some(fields) = model.as_object_mut() else {
+            continue;
+        };
+        if !OLD_FIELDS.iter().any(|field| fields.contains_key(*field)) {
+            continue;
+        }
+        let mut old = |field: &str| match fields.remove(field) {
+            Some(Value::String(text)) => Some(text),
+            _ => None,
+        };
+        let (url, env, omapass, credential) = (
+            old("base_url"),
+            old("api_key_env"),
+            old("api_key_omapass"),
+            old("api_key_credential"),
+        );
+        let named = fields.get("provider").and_then(Value::as_str);
+        let url = url
+            .or_else(|| {
+                let provider = providers
+                    .iter()
+                    .find(|p| text(p, "name").as_deref() == named)?;
+                text(provider, "base_url")
+            })
+            .unwrap_or_default();
+        let secret = match Key::of(env.as_deref(), omapass.as_deref(), credential.as_deref()) {
+            Key::None => None,
+            key => {
+                let (env, omapass, credential) = key.fields();
+                let (field, source) = match (env, omapass, credential) {
+                    (Some(name), ..) => ("env", name),
+                    (_, Some(name), _) => ("omapass", name),
+                    (.., Some(name)) => ("credential", name),
+                    _ => unreachable!("a key with a source names one"),
+                };
+                let found = secrets
+                    .iter()
+                    .find(|s| text(s, field).as_deref() == Some(source));
+                Some(match found.and_then(|s| text(s, "name")) {
+                    Some(name) => name,
+                    None => {
+                        let name = unique(&secrets, source);
+                        secrets.push(serde_json::json!({"name": name, field: source}));
+                        name
+                    }
+                })
+            }
+        };
+        let found = providers.iter().find(|p| {
+            text(p, "base_url").as_deref() == Some(url.as_str()) && text(p, "secret") == secret
+        });
+        let provider = match found.and_then(|p| text(p, "name")) {
+            Some(name) => name,
+            None => {
+                let name = unique(&providers, &host_label(&url));
+                let mut provider = serde_json::json!({"name": name, "base_url": url});
+                if let Some(secret) = &secret {
+                    provider["secret"] = secret.clone().into();
+                }
+                providers.push(provider);
+                name
+            }
+        };
+        fields.insert("provider".into(), provider.into());
+    }
+    let after = providers_used(&models);
+    let dropped: Vec<Value> = providers
+        .extract_if(.., |p| {
+            text(p, "name").is_some_and(|name| before.contains(&name) && !after.contains(&name))
+        })
+        .collect();
+    for gone in dropped.iter().filter_map(|p| text(p, "secret")) {
+        if !providers
+            .iter()
+            .any(|p| text(p, "secret").as_deref() == Some(gone.as_str()))
+        {
+            secrets.retain(|s| text(s, "name").as_deref() != Some(gone.as_str()));
+        }
+    }
+    root.insert("models".into(), models.into());
+    for (name, list) in [("secrets", secrets), ("providers", providers)] {
+        if !list.is_empty() {
+            root.insert(name.into(), list.into());
+        }
+    }
+    true
+}
+
+/// `name`, or `name-2`, `name-3`… when an item of `items` already has that name.
+fn unique(items: &[Value], name: &str) -> String {
+    let taken = |candidate: &str| {
+        items
+            .iter()
+            .any(|item| item.get("name").and_then(Value::as_str) == Some(candidate))
+    };
+    (1..)
+        .map(|n| {
+            if n == 1 {
+                name.to_string()
+            } else {
+                format!("{name}-{n}")
+            }
+        })
+        .find(|candidate| !taken(candidate))
+        .expect("an unbounded count finds a free name")
+}
+
+/// What names the provider at `base_url`: its host without `api.` and the
+/// top-level domain (`openrouter` for https://openrouter.ai/api/v1); an IP
+/// address or a bare host stays whole.
+fn host_label(base_url: &str) -> String {
+    let rest = base_url
+        .split_once("://")
+        .map_or(base_url, |(_, rest)| rest);
+    let host = rest.split(['/', ':', '?']).next().unwrap_or_default();
+    let host = host.strip_prefix("api.").unwrap_or(host);
+    let labels: Vec<&str> = host.split('.').collect();
+    let address = labels.iter().all(|l| l.chars().all(|c| c.is_ascii_digit()));
+    match labels.as_slice() {
+        [.., name, _] if !address && !name.is_empty() => (*name).into(),
+        _ if host.is_empty() => "provider".into(),
+        _ => host.into(),
+    }
 }
 
 /// Options that create a file only its owner may read or write (0600).
@@ -1265,7 +1575,9 @@ mod tests {
     #[test]
     fn a_missing_file_is_the_empty_config() {
         let directory = tempfile::tempdir().unwrap();
-        let empty = load_in(&directory.path().join("nope.toml"), Some("pt_BR.UTF-8")).unwrap();
+        let empty = read(&directory.path().join("nope.toml"), Some("pt_BR.UTF-8"))
+            .unwrap()
+            .0;
         assert!(empty.models.is_empty());
         assert!(empty.participants.is_empty() && empty.actions.is_empty());
         assert_eq!(
@@ -1286,7 +1598,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let missing = directory.path().join("config.toml");
         let first = |locale: Option<&str>| {
-            let config = load_in(&missing, locale).unwrap();
+            let config = read(&missing, locale).unwrap().0;
             (
                 config.ui_language,
                 config.stt.language,
@@ -1324,7 +1636,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("config.toml");
         fs::write(&path, "kinds = [\"meeting\"]\n").unwrap();
-        let config = load_in(&path, Some("ja_JP.UTF-8")).unwrap();
+        let config = read(&path, Some("ja_JP.UTF-8")).unwrap().0;
         assert_eq!(config.ui_language, "auto");
         assert_eq!(config.stt.language, "pt");
         assert_eq!(config.rules, DEFAULT_RULES);
@@ -1600,36 +1912,346 @@ mod tests {
         );
     }
 
+    /// A config in the new shape: one secret in each store, a keyless LAN
+    /// provider, and three models.
+    fn shaped() -> Value {
+        json!({
+            "secrets": [
+                {"name": "openrouter", "omapass": "openrouter"},
+                {"name": "deepgram", "env": "DEEPGRAM_API_KEY"},
+            ],
+            "providers": [
+                {"name": "lan", "base_url": "http://lan:8081/v1"},
+                {"name": "openrouter", "base_url": "https://openrouter.ai/api/v1", "secret": "openrouter"},
+                {"name": "deepgram", "base_url": "wss://api.deepgram.com/v1/listen", "secret": "deepgram"},
+            ],
+            "models": [
+                {"name": "whisper", "type": "transcription", "provider": "lan", "model": "whisper-1"},
+                {"name": "dg", "type": "transcription", "provider": "deepgram", "model": "nova-3"},
+                {"name": "fast", "type": "chat", "provider": "openrouter", "model": "x/fast"},
+            ],
+        })
+    }
+
     #[test]
-    fn a_key_comes_from_one_place() {
-        let mut value = raw();
-        let config = Config::from_value(value.clone()).unwrap();
-        assert_eq!(config.models[2].key(), Key::Omapass("openrouter"));
-        assert_eq!(config.models[0].key(), Key::None);
-        value["models"][2]["api_key_env"] = json!("OPENROUTER_API_KEY");
-        assert!(error_of(value.clone()).contains("one of api_key_env, api_key_omapass"));
+    fn secrets_providers_and_models_are_linked_by_name() {
+        let config = Config::from_value(shaped()).unwrap();
+        let resolved = config.resolved();
+        assert_eq!(resolved[0].base_url, "http://lan:8081/v1");
+        assert_eq!(resolved[0].key(), Key::None);
+        assert_eq!(resolved[1].key(), Key::Env("DEEPGRAM_API_KEY"));
+        assert_eq!(resolved[2].base_url, "https://openrouter.ai/api/v1");
+        assert_eq!(resolved[2].key(), Key::Omapass("openrouter"));
+        let written = toml::to_string_pretty(&config.to_raw()).unwrap();
+        for text in [
+            "[[secrets]]",
+            "[[providers]]",
+            "provider = \"lan\"",
+            "secret = \"openrouter\"",
+        ] {
+            assert!(written.contains(text), "{text} missing from\n{written}");
+        }
+        assert!(!written.contains("api_key"), "{written}");
+        let again: Raw = toml::from_str(&written).unwrap();
+        assert_eq!(Config::from_raw(again).unwrap(), config);
+    }
+
+    #[test]
+    fn links_and_names_must_hold() {
+        type Change = fn(&mut Value);
+        let cases: [(&str, Change, &str); 8] = [
+            (
+                "two sources",
+                |v| v["secrets"][1]["omapass"] = json!("dg"),
+                "exactly one of env",
+            ),
+            (
+                "no source",
+                |v| v["secrets"][1] = json!({"name": "deepgram"}),
+                "exactly one of env",
+            ),
+            (
+                "same secret",
+                |v| v["secrets"][1]["name"] = json!("openrouter"),
+                "secret names",
+            ),
+            (
+                "credential word",
+                |v| v["secrets"][1] = json!({"name": "deepgram", "credential": "a b"}),
+                "a word with no spaces",
+            ),
+            (
+                "same provider",
+                |v| v["providers"][1]["name"] = json!("lan"),
+                "provider names",
+            ),
+            (
+                "no url",
+                |v| v["providers"][0]["base_url"] = json!(" "),
+                "needs a base URL",
+            ),
+            (
+                "lost secret",
+                |v| v["providers"][1]["secret"] = json!("gone"),
+                "must be a registered secret",
+            ),
+            (
+                "lost provider",
+                |v| v["models"][2]["provider"] = json!("gone"),
+                "registered provider",
+            ),
+        ];
+        for (what, change, message) in cases {
+            let mut value = shaped();
+            change(&mut value);
+            let error = error_of(value);
+            assert!(
+                error.contains(message),
+                "{what}: {error:?} lacks {message:?}"
+            );
+        }
+        let mut value = shaped();
+        value["models"][2]["model"] = json!("");
+        assert!(error_of(value).contains("model id"));
         assert_eq!(Key::of(Some("X"), Some(" "), None), Key::Env("X"));
         assert_eq!(Key::of(None, None, Some(" ")), Key::None);
     }
 
     #[test]
-    fn a_key_may_come_from_the_windows_credential_manager() {
-        let mut value = raw();
-        value["models"][2]["api_key_omapass"] = Value::Null;
-        value["models"][2]["api_key_credential"] = json!("openrouter");
-        let config = Config::from_value(value.clone()).unwrap();
-        assert_eq!(config.models[2].key(), Key::Credential("openrouter"));
-        assert_eq!(Config::from_value(config.to_value()).unwrap(), config);
+    fn a_secret_may_be_a_windows_credential() {
+        let mut value = shaped();
+        value["secrets"][0] = json!({"name": "openrouter", "credential": "openrouter"});
+        let config = Config::from_value(value).unwrap();
+        assert_eq!(config.resolved()[2].key(), Key::Credential("openrouter"));
         let written = toml::to_string(&config.to_raw()).unwrap();
-        assert!(
-            written.contains("api_key_credential = \"openrouter\""),
-            "{written}"
+        assert!(written.contains("credential = \"openrouter\""), "{written}");
+    }
+
+    /// A synthetic config shaped like a 0.13.0 one: every model carries its
+    /// address and key source. Two models share an address with different
+    /// keys, one is on the LAN with no key, one keeps its key in omapass and
+    /// two share a provider and a key.
+    const OLD: &str = r#"
+kinds = ["meeting", "idea"]
+
+[stt]
+model = "lan"
+language = "pt"
+
+[llm]
+model = "fast"
+
+[[models]]
+name = "lan"
+type = "transcription"
+base_url = "http://192.0.2.10:8000/v1"
+model = "whisper-large-v3"
+price_per_minute = 0.0
+
+[[models]]
+name = "dg"
+type = "transcription"
+base_url = "wss://api.deepgram.com/v1/listen"
+model = "nova-3"
+api_key_env = "DEEPGRAM_API_KEY"
+
+[[models]]
+name = "fast"
+type = "chat"
+base_url = "https://openrouter.ai/api/v1"
+model = "google/gemini-3.5-flash-lite"
+api_key_env = "OPENROUTER_API_KEY"
+reasoning = "low"
+kinds = ["idea"]
+
+[[models]]
+name = "deep"
+type = "chat"
+base_url = "https://openrouter.ai/api/v1"
+model = "anthropic/claude"
+api_key_omapass = "openrouter"
+extra = { temperature = 0.2 }
+
+[[models]]
+name = "second"
+type = "chat"
+base_url = "https://openrouter.ai/api/v1"
+model = "other/model"
+api_key_env = "OPENROUTER_API_KEY"
+translates = ["meeting"]
+"#;
+
+    #[test]
+    fn an_old_config_becomes_providers_and_secrets() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("config.toml");
+        fs::write(&path, OLD).unwrap();
+        let (config, old) = read(&path, Some("en_US.UTF-8")).unwrap();
+        assert_eq!(old.as_deref(), Some(OLD));
+        let names = |items: Vec<(&str, &str)>| -> Vec<String> {
+            items.iter().map(|(a, b)| format!("{a}={b}")).collect()
+        };
+        assert_eq!(
+            names(
+                config
+                    .secrets
+                    .iter()
+                    .map(|s| (
+                        s.name.as_str(),
+                        s.env.as_deref().or(s.omapass.as_deref()).unwrap()
+                    ))
+                    .collect()
+            ),
+            [
+                "DEEPGRAM_API_KEY=DEEPGRAM_API_KEY",
+                "OPENROUTER_API_KEY=OPENROUTER_API_KEY",
+                "openrouter=openrouter"
+            ]
         );
-        value["models"][2]["api_key_omapass"] = json!("openrouter");
-        assert!(error_of(value.clone()).contains("one of api_key_env"));
-        value["models"][2]["api_key_omapass"] = Value::Null;
-        value["models"][2]["api_key_credential"] = json!("open router");
-        assert!(error_of(value).contains("api_key_credential is a word"));
+        let providers: Vec<_> = config
+            .providers
+            .iter()
+            .map(|p| (p.name.as_str(), p.base_url.as_str(), p.secret.as_deref()))
+            .collect();
+        assert_eq!(
+            providers,
+            [
+                ("192.0.2.10", "http://192.0.2.10:8000/v1", None),
+                (
+                    "deepgram",
+                    "wss://api.deepgram.com/v1/listen",
+                    Some("DEEPGRAM_API_KEY")
+                ),
+                (
+                    "openrouter",
+                    "https://openrouter.ai/api/v1",
+                    Some("OPENROUTER_API_KEY")
+                ),
+                (
+                    "openrouter-2",
+                    "https://openrouter.ai/api/v1",
+                    Some("openrouter")
+                ),
+            ]
+        );
+        let used: Vec<&str> = config.models.iter().map(|m| m.provider.as_str()).collect();
+        assert_eq!(
+            used,
+            [
+                "192.0.2.10",
+                "deepgram",
+                "openrouter",
+                "openrouter-2",
+                "openrouter"
+            ]
+        );
+        let deep = &config.models[3];
+        assert_eq!(deep.extra["temperature"], 0.2);
+        assert_eq!(config.models[2].reasoning.as_deref(), Some("low"));
+        assert_eq!(config.models[2].kinds, ["idea"]);
+        assert_eq!(config.models[4].translates, ["meeting"]);
+        assert_eq!(config.models[0].price_per_minute, Some(0.0));
+        let resolved = config.resolved();
+        assert_eq!(resolved[0].key(), Key::None);
+        assert_eq!(resolved[3].key(), Key::Omapass("openrouter"));
+        assert_eq!(resolved[4].key(), Key::Env("OPENROUTER_API_KEY"));
+    }
+
+    #[test]
+    fn several_key_sources_of_an_old_model_do_not_reject_the_file() {
+        let old = OLD.replace(
+            "api_key_omapass = \"openrouter\"",
+            "api_key_omapass = \"openrouter\"\napi_key_env = \"OPENROUTER_API_KEY\"",
+        );
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("config.toml");
+        fs::write(&path, old).unwrap();
+        let config = read(&path, None).unwrap().0;
+        assert_eq!(config.resolved()[3].key(), Key::Omapass("openrouter"));
+    }
+
+    #[test]
+    fn a_new_key_on_a_model_keeps_the_address_of_its_provider() {
+        let mut value = shaped();
+        value["models"][2]["api_key_env"] = json!("OTHER_KEY");
+        let config = Config::from_value(value).unwrap();
+        let fast = &config.resolved()[2];
+        assert_eq!(fast.base_url, "https://openrouter.ai/api/v1");
+        assert_eq!(fast.key(), Key::Env("OTHER_KEY"));
+        assert_eq!(fast.provider, "openrouter-2");
+    }
+
+    #[test]
+    fn reading_converts_in_memory_and_the_daemon_saves_with_a_backup() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("config.toml");
+        fs::write(&path, OLD).unwrap();
+        let memory = load(&path).unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), OLD);
+        assert!(!directory.path().join("config.toml.bak").exists());
+        let (config, failure) = load_converting(&path).unwrap();
+        assert!(failure.is_none());
+        assert_eq!(config, memory);
+        assert_eq!(
+            fs::read_to_string(directory.path().join("config.toml.bak")).unwrap(),
+            OLD
+        );
+        let saved = fs::read_to_string(&path).unwrap();
+        assert!(
+            saved.contains("[[providers]]") && !saved.contains("api_key"),
+            "{saved}"
+        );
+        assert_eq!(load(&path).unwrap(), config);
+        let (again, failure) = load_converting(&path).unwrap();
+        assert!(failure.is_none());
+        assert_eq!(again, config);
+        assert_eq!(
+            fs::read_to_string(directory.path().join("config.toml.bak")).unwrap(),
+            OLD
+        );
+    }
+
+    #[test]
+    fn a_conversion_that_cannot_be_saved_is_told_and_kept_in_memory() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("config.toml");
+        fs::write(&path, OLD).unwrap();
+        // A directory where the temporary file goes makes the save fail.
+        fs::create_dir(directory.path().join("config.toml.tmp")).unwrap();
+        let (config, failure) = load_converting(&path).unwrap();
+        assert!(failure.unwrap().0.contains("config.toml"));
+        assert_eq!(config.providers.len(), 4);
+        assert_eq!(fs::read_to_string(&path).unwrap(), OLD);
+        fs::remove_dir(directory.path().join("config.toml.tmp")).unwrap();
+        // Without a backup the old file is left alone.
+        fs::remove_file(directory.path().join("config.toml.bak")).unwrap();
+        fs::create_dir(directory.path().join("config.toml.bak")).unwrap();
+        let (_, failure) = load_converting(&path).unwrap();
+        assert!(failure.unwrap().0.contains("config.toml.bak"));
+        assert_eq!(fs::read_to_string(&path).unwrap(), OLD);
+    }
+
+    #[test]
+    fn the_snapshot_shows_each_model_its_address_and_key_for_the_window_to_edit() {
+        let config = Config::from_value(shaped()).unwrap();
+        let mut snapshot = config.to_value();
+        let models = &snapshot["models"];
+        assert_eq!(models[0]["base_url"], "http://lan:8081/v1");
+        assert!(models[0].get("api_key_env").is_none());
+        assert_eq!(models[1]["api_key_env"], "DEEPGRAM_API_KEY");
+        assert_eq!(models[2]["api_key_omapass"], "openrouter");
+        assert_eq!(Config::from_value(snapshot.clone()).unwrap(), config);
+        // The window moves a model to another address and key: a new provider
+        // and secret appear, and what nothing uses any more goes.
+        snapshot["models"][1]["base_url"] = json!("wss://api.deepgram.com/v2/listen");
+        snapshot["models"][1]["api_key_env"] = json!("OTHER_KEY");
+        let edited = Config::from_value(snapshot).unwrap();
+        let resolved = edited.resolved();
+        assert_eq!(resolved[1].base_url, "wss://api.deepgram.com/v2/listen");
+        assert_eq!(resolved[1].key(), Key::Env("OTHER_KEY"));
+        assert_eq!(edited.providers.len(), 3);
+        assert_eq!(edited.secrets.len(), 2);
+        assert!(edited.secrets.iter().all(|s| s.name != "deepgram"));
     }
 
     #[test]

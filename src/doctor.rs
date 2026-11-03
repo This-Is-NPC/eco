@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 use crate::adapters::control_socket::Address;
 use crate::adapters::{credentials, omapass};
 use crate::cli::{self, Failure};
-use crate::config::{self, Config, ConfigError, Key, ModelConfig};
+use crate::config::{self, Config, ConfigError, Key};
 use crate::paths;
 
 /// This eco's version.
@@ -108,7 +108,12 @@ async fn checks(address: &Address, places: &Places) -> Vec<Check> {
     ];
     if let Ok(config) = &config {
         let sources = sources(config, address).await;
-        checks.extend(config.models.iter().map(|model| key(model, &sources)));
+        checks.extend(
+            config
+                .resolved()
+                .iter()
+                .map(|model| key(&model.name, model.key(), &sources)),
+        );
     }
     checks.push(daemon(&greeting));
     checks.push(shortcuts(&greeting, places));
@@ -182,7 +187,8 @@ struct Sources {
 /// listed by the daemon at `address`; omapass and the Credential Manager
 /// only asked when a model names them.
 async fn sources(config: &Config, address: &Address) -> Sources {
-    let keys: Vec<Key> = config.models.iter().map(ModelConfig::key).collect();
+    let resolved = config.resolved();
+    let keys: Vec<Key> = resolved.iter().map(|model| model.key()).collect();
     let listed = cli::key_names(address).await.ok().flatten();
     let mut env: Vec<String> = listed
         .as_ref()
@@ -215,12 +221,12 @@ async fn sources(config: &Config, address: &Address) -> Sources {
     }
 }
 
-/// Whether the key `model` names can be had, by its name alone.
-fn key(model: &ModelConfig, sources: &Sources) -> Check {
-    let check = format!("key:{}", model.name);
+/// Whether the key of the model `name` can be had, by its name alone.
+fn key(name: &str, key: Key<'_>, sources: &Sources) -> Check {
+    let check = format!("key:{name}");
     let has = |names: &[String], name: &str| names.iter().any(|found| found == name);
-    let another = format!("or choose another key for {} in eco's settings", model.name);
-    match model.key() {
+    let another = format!("or choose another key for {name} in eco's settings");
+    match key {
         Key::None => pass(&check, "needs no key"),
         Key::Env(name) if has(&sources.env, name) => pass(&check, format!("{name} is set")),
         Key::Env(name) => fail(
@@ -356,13 +362,6 @@ fn shortcuts(greeting: &Result<Option<Vec<Value>>, Failure>, _: &Places) -> Chec
 mod tests {
     use super::*;
 
-    fn model(toml: &str) -> ModelConfig {
-        toml::from_str(&format!(
-            "name = \"m\"\ntype = \"chat\"\nbase_url = \"https://x/v1\"\nmodel = \"x\"\n{toml}"
-        ))
-        .unwrap()
-    }
-
     fn sources() -> Sources {
         Sources {
             env: vec!["OPENROUTER_API_KEY".into()],
@@ -391,18 +390,30 @@ model = "lan"
 [llm]
 model = "chat"
 
+[[secrets]]
+name = "openrouter"
+env = "ECO_DOCTOR_NEVER_SET"
+
+[[providers]]
+name = "lan"
+base_url = "http://lan:8081/v1"
+
+[[providers]]
+name = "openrouter"
+base_url = "https://openrouter.ai/api/v1"
+secret = "openrouter"
+
 [[models]]
 name = "lan"
 type = "transcription"
-base_url = "http://lan:8081/v1"
+provider = "lan"
 model = "whisper-1"
 
 [[models]]
 name = "chat"
 type = "chat"
-base_url = "https://openrouter.ai/api/v1"
+provider = "openrouter"
 model = "x"
-api_key_env = "ECO_DOCTOR_NEVER_SET"
 "#;
 
     fn names(checks: &[Check]) -> Vec<(&str, bool)> {
@@ -453,8 +464,8 @@ api_key_env = "ECO_DOCTOR_NEVER_SET"
         let directory = tempfile::tempdir().unwrap();
         let places = places(directory.path());
         let credential = CONFIG.replace(
-            "api_key_env = \"ECO_DOCTOR_NEVER_SET\"",
-            "api_key_credential = \"openrouter\"",
+            "env = \"ECO_DOCTOR_NEVER_SET\"",
+            "credential = \"openrouter\"",
         );
         std::fs::write(&places.config, credential).unwrap();
         let checks = checks(&Address::scratch(directory.path()), &places).await;
@@ -490,16 +501,16 @@ api_key_env = "ECO_DOCTOR_NEVER_SET"
     fn a_key_is_found_by_the_name_of_its_source() {
         let sources = sources();
         for found in [
-            "",
-            "api_key_env = \"OPENROUTER_API_KEY\"",
-            "api_key_omapass = \"openrouter\"",
-            "api_key_credential = \"deepgram\"",
+            Key::None,
+            Key::Env("OPENROUTER_API_KEY"),
+            Key::Omapass("openrouter"),
+            Key::Credential("deepgram"),
         ] {
-            let check = key(&model(found), &sources);
-            assert!(check.ok, "{found}: {check:?}");
+            let check = key("m", found, &sources);
+            assert!(check.ok, "{found:?}: {check:?}");
             assert_eq!(check.check, "key:m");
         }
-        let missing = key(&model("api_key_env = \"GROQ_API_KEY\""), &sources);
+        let missing = key("m", Key::Env("GROQ_API_KEY"), &sources);
         assert_eq!(
             missing,
             fail(
@@ -508,9 +519,9 @@ api_key_env = "ECO_DOCTOR_NEVER_SET"
                 "set GROQ_API_KEY where eco runs (docs/how-to-register-models.md), then run eco restart"
             )
         );
-        let account = key(&model("api_key_omapass = \"groq\""), &sources);
+        let account = key("m", Key::Omapass("groq"), &sources);
         assert_eq!(account.detail, "omapass has no account groq");
-        let credential = key(&model("api_key_credential = \"groq\""), &sources);
+        let credential = key("m", Key::Credential("groq"), &sources);
         assert_eq!(credential.fix, "run eco key set groq");
     }
 
@@ -521,12 +532,12 @@ api_key_env = "ECO_DOCTOR_NEVER_SET"
             omapass: Err("omapass is not installed".into()),
             credentials: None,
         };
-        let account = key(&model("api_key_omapass = \"openrouter\""), &lacking);
+        let account = key("m", Key::Omapass("openrouter"), &lacking);
         assert_eq!(
             (account.ok, account.detail.as_str()),
             (false, "omapass is not installed")
         );
-        let credential = key(&model("api_key_credential = \"deepgram\""), &lacking);
+        let credential = key("m", Key::Credential("deepgram"), &lacking);
         assert!(!credential.ok);
         assert_eq!(
             credential.detail,

@@ -596,6 +596,7 @@
   "error.capture.stopped": "Capture stopped: {detail}",
   "error.transcription.restarted": "Transcription stopped unexpectedly and was restarted: {detail}",
   "error.config.invalid": "Invalid settings: {detail}",
+  "error.config.convert_failed": "The config was converted to the new shape but not saved: {detail}",
   "error.config.pending": "Another program asked to change hooks, context files or models; approve or reject it in the eco window",
   "error.config.rejected": "The change to hooks, context files or models was rejected",
   "error.config.not_window": "Only the eco window can approve or reject a held change",

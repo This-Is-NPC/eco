@@ -32,7 +32,7 @@ use crate::adapters::stt_openai::OpenAITranscriber;
 use crate::adapters::terminal::{Terminal, terminal};
 use crate::adapters::vad_silero::{SileroModel, SileroVad};
 use crate::adapters::webvtt;
-use crate::config::{self, Config, ConfigError, Key, ModelConfig, ModelType};
+use crate::config::{self, Config, ConfigError, Key, ModelType, Resolved};
 use crate::domain::assistant::{Assistant, ContextSlot, Emit, Model, Reviewer, Setup, Translating};
 use crate::domain::channel::{
     Captured, CapturedStream, Listeners, Reopen, Transcriber, Trouble, Utterance, capture_channel,
@@ -372,7 +372,7 @@ async fn api_key(key: Key<'_>) -> Result<Option<String>, Unbuilt> {
 impl Stt {
     /// The transcriber for live audio, or for a `file` — Deepgram streams only
     /// as fast as the audio plays, so a file goes to it segment by segment.
-    async fn build(stt: &ModelConfig, language: &str, file: bool) -> Result<Self, Unbuilt> {
+    async fn build(stt: &Resolved, language: &str, file: bool) -> Result<Self, Unbuilt> {
         let key = api_key(stt.key()).await?;
         let base = stt.base_url.trim_end_matches('/');
         if !(base.starts_with("ws://") || base.starts_with("wss://")) {
@@ -406,7 +406,7 @@ impl Stt {
 
 /// What tells the cost of a transcription model's requests, when its provider
 /// reports it and its key can be had: Deepgram's.
-async fn billing(stt: &ModelConfig) -> Option<Arc<dyn TranscriptionBilling>> {
+async fn billing(stt: &Resolved) -> Option<Arc<dyn TranscriptionBilling>> {
     if !stt.base_url.contains("deepgram.com") {
         return None;
     }
@@ -432,7 +432,7 @@ impl Built {
 }
 
 /// The registered transcription models, by name.
-type Models = Arc<HashMap<String, ModelConfig>>;
+type Models = Arc<HashMap<String, Resolved>>;
 
 /// What a session that needs a model is told while the config names none.
 const NO_TRANSCRIPTION_MODEL: &str = "no transcription model is chosen";
@@ -957,11 +957,11 @@ async fn pipeline(config: Config, assistant: Assistant, emit: Emit, rig: Rig) {
             )
         })
         .collect();
-    let transcription_models: HashMap<String, ModelConfig> = config
-        .models
-        .iter()
+    let transcription_models: HashMap<String, Resolved> = config
+        .resolved()
+        .into_iter()
         .filter(|model| model.kind == ModelType::Transcription)
-        .map(|model| (model.name.clone(), model.clone()))
+        .map(|model| (model.name.clone(), model))
         .collect();
     let transcription_models = Arc::new(transcription_models);
     let built = Built::default();
@@ -1004,10 +1004,14 @@ async fn pipeline(config: Config, assistant: Assistant, emit: Emit, rig: Rig) {
         .chain(config.translator("").map(|model| &model.name));
     let mut models: HashMap<String, Model> = HashMap::new();
     for name in used {
-        let Some(registered) = config.model(name).filter(|_| !models.contains_key(name)) else {
+        let Some(registered) = config
+            .model(name)
+            .filter(|_| !models.contains_key(name))
+            .and_then(|model| config.resolve(model))
+        else {
             continue;
         };
-        let llm: Arc<dyn LanguageModel> = match chat_model(registered).await {
+        let llm: Arc<dyn LanguageModel> = match chat_model(&registered).await {
             Ok(chat) => Arc::new(chat),
             Err(why) => {
                 problems.push(why.model_unavailable(name));
@@ -1016,12 +1020,13 @@ async fn pipeline(config: Config, assistant: Assistant, emit: Emit, rig: Rig) {
         };
         let id = registered.model.clone();
         // The fields that make requests what they are; a change cancels the answers streaming on it.
+        let (env, omapass, credential) = registered.key().fields();
         let settings = json!([
             registered.base_url,
             registered.model,
-            registered.api_key_env,
-            registered.api_key_omapass,
-            registered.api_key_credential,
+            env,
+            omapass,
+            credential,
             registered.request_fields()
         ]);
         let settings = settings.to_string();
@@ -1177,7 +1182,7 @@ async fn pipeline(config: Config, assistant: Assistant, emit: Emit, rig: Rig) {
 
 /// A registered chat model, with its key; why not, when it cannot be had. A
 /// local one may read a long context for minutes before its first word.
-async fn chat_model(model: &ModelConfig) -> Result<OpenAIChat, Unbuilt> {
+async fn chat_model(model: &Resolved) -> Result<OpenAIChat, Unbuilt> {
     let key = api_key(model.key()).await?;
     let endpoint = Endpoint::new(&model.base_url, key, LLM_SILENCE).map_err(|e| e.0)?;
     Ok(OpenAIChat::new(endpoint, model.request_fields()))
@@ -1424,23 +1429,19 @@ fn config_change(current: &Config, token: &str, payload: &str) -> ConfigChange {
     }
     // A model's key is sent to its base_url: a new model, or a known one at
     // another address or with another key, is the user's to approve.
+    let before = current.resolved();
     let models: Vec<Value> = config
-        .models
+        .resolved()
         .iter()
         .filter(|model| {
-            !current.models.iter().any(|known| {
+            !before.iter().any(|known| {
                 known.name == model.name
                     && known.base_url == model.base_url
                     && known.key() == model.key()
             })
         })
         .map(|model| {
-            let (env, omapass, credential) = match model.key() {
-                Key::None => (None, None, None),
-                Key::Env(name) => (Some(name), None, None),
-                Key::Omapass(account) => (None, Some(account), None),
-                Key::Credential(name) => (None, None, Some(name)),
-            };
+            let (env, omapass, credential) = model.key().fields();
             json!({
                 "name": model.name,
                 "base_url": model.base_url,
@@ -1515,14 +1516,15 @@ impl Pending {
 /// What a client that connects is told first: the daemon, the snapshot, what
 /// is known of a newer eco, the sources whose transcription is down, the
 /// change held for the user, if any, what the windows' `control` tells them
-/// and the shortcut keys another program holds, if any.
+/// the notices of the start: the shortcut keys another program holds, if any,
+/// and why the converted config was not saved, if it was not.
 fn greeting(
     assistant: Assistant,
     overlay_open: Arc<AtomicBool>,
     outages: Outages,
     pending: Arc<Mutex<Pending>>,
     control: Arc<dyn WindowControl>,
-    unavailable: Vec<String>,
+    notices: Vec<Value>,
     updates: Updates,
 ) -> Greeting {
     Arc::new(move || {
@@ -1538,9 +1540,7 @@ fn greeting(
         events.extend(outages.events());
         events.extend(pending.lock().expect("not poisoned").event());
         events.extend(control.greeting());
-        if !unavailable.is_empty() {
-            events.push(json!({"type": "shortcuts", "unavailable": unavailable}));
-        }
+        events.extend(notices.clone());
         events
     })
 }
@@ -1963,7 +1963,10 @@ impl Session {
                 .to_string_lossy()
                 .into_owned()
         });
-        let Some(stt_config) = config.transcriber(&kind).cloned() else {
+        let Some(stt_config) = config
+            .transcriber(&kind)
+            .and_then(|model| config.resolve(model))
+        else {
             return (self.emit)(failed(NO_TRANSCRIPTION_MODEL.into()));
         };
         let request = import::Request {
@@ -2332,7 +2335,7 @@ impl Session {
             }
             ("models", Some(payload)) => {
                 let payload = payload.to_string();
-                let saved = self.current.models.clone();
+                let saved = self.current.resolved();
                 self.background
                     .spawn(async move { emit(models(&payload, &saved).await) });
             }
@@ -2550,7 +2553,7 @@ fn presets() -> Value {
 /// Whether `key` may be read to list the models at `base_url`: no key, the key of
 /// a saved model at that URL, or a preset's variable at the preset's own URL.
 /// Any other pair would send any secret to any server.
-fn key_allowed(key: Key<'_>, base_url: &str, saved: &[ModelConfig]) -> bool {
+fn key_allowed(key: Key<'_>, base_url: &str, saved: &[Resolved]) -> bool {
     let same = |url: &str| url.trim_end_matches('/') == base_url.trim_end_matches('/');
     key == Key::None
         || saved.iter().any(|m| same(&m.base_url) && m.key() == key)
@@ -2561,7 +2564,7 @@ fn key_allowed(key: Key<'_>, base_url: &str, saved: &[ModelConfig]) -> bool {
 
 /// The models a provider offers, for the config screen's picker; a key
 /// `key_allowed` refuses is not read.
-async fn models(payload: &str, saved: &[ModelConfig]) -> Value {
+async fn models(payload: &str, saved: &[Resolved]) -> Value {
     let request: Value = serde_json::from_str(payload).unwrap_or_default();
     let target = request.get("target").cloned().unwrap_or(json!(""));
     let field = |key: &str| request.get(key).and_then(Value::as_str);
@@ -2619,7 +2622,7 @@ pub async fn run(
         )));
     }
     let vad = SileroModel::load(&vad_model)?;
-    let current = config::load(config_path)?;
+    let (current, conversion) = config::load_converting(config_path)?;
     let log: Arc<dyn SessionLog> = if save_sessions {
         let files = SessionFiles::new(paths::sessions_dir());
         files.pause_unfinished();
@@ -2652,6 +2655,17 @@ pub async fn run(
     let outages = Outages::default();
     let control = window_control(&emit);
     let unavailable = shortcuts(&current, &commands);
+    let notices: Vec<Value> = (!unavailable.is_empty())
+        .then(|| json!({"type": "shortcuts", "unavailable": unavailable}))
+        .into_iter()
+        .chain(conversion.map(|failure| {
+            error(
+                "config.convert_failed",
+                format!("the config was converted but not saved: {failure}"),
+                json!({"detail": failure.0}),
+            )
+        }))
+        .collect();
     let updates = Updates::new(
         Parts {
             releases: Arc::new(GitHub::new()?),
@@ -2673,7 +2687,7 @@ pub async fn run(
         outages.clone(),
         Arc::clone(&pending),
         Arc::clone(&control),
-        unavailable,
+        notices,
         updates.clone(),
     );
     let token = uuid::Uuid::new_v4().simple().to_string();
@@ -2848,14 +2862,20 @@ mod tests {
         })
     }
 
-    fn saved_models() -> Vec<ModelConfig> {
-        serde_json::from_value(json!([
+    fn saved_models() -> Vec<Resolved> {
+        resolved(json!([
             {"name": "lan", "type": "chat", "base_url": "http://10.0.0.5:8000/v1/", "model": "m",
              "api_key_env": "LAN_KEY"},
             {"name": "dg", "type": "transcription", "base_url": "wss://api.deepgram.com/v1/listen",
              "model": "nova-3", "api_key_omapass": "Deepgram"},
         ]))
-        .unwrap()
+    }
+
+    /// `models` in the old shape, as the models a config registers.
+    fn resolved(models: Value) -> Vec<Resolved> {
+        Config::from_value(json!({"models": models}))
+            .unwrap()
+            .resolved()
     }
 
     #[test]
@@ -4923,6 +4943,28 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_client_is_told_why_the_converted_config_was_not_saved() {
+        let d = daemon(raw());
+        let greeting = greeting(
+            d.session.assistant.clone(),
+            Arc::clone(&d.session.overlay_open),
+            Outages::default(),
+            Arc::clone(&d.session.pending),
+            windows_told(),
+            vec![error(
+                "config.convert_failed",
+                "disk full",
+                json!({"detail": "disk full"}),
+            )],
+            d.session.updates.clone(),
+        );
+        let events = greeting();
+        let told = events.last().unwrap();
+        assert_eq!(told["code"], "config.convert_failed");
+        assert_eq!(told["params"]["detail"], "disk full");
+    }
+
+    #[tokio::test]
     async fn the_daemon_greets_a_client_with_what_it_needs_first() {
         let d = daemon(raw());
         d.session.overlay_open.store(true, Ordering::Relaxed);
@@ -4933,7 +4975,7 @@ mod tests {
             Outages::default(),
             Arc::clone(&d.session.pending),
             windows.clone(),
-            vec!["Win+Alt+A".to_string()],
+            vec![json!({"type": "shortcuts", "unavailable": ["Win+Alt+A"]})],
             d.session.updates.clone(),
         );
         let events = greeting();
@@ -5282,10 +5324,10 @@ mod tests {
 
     #[tokio::test]
     async fn every_kind_of_transcription_model_is_built_for_live_audio_or_a_file() {
-        let model = |base_url: &str, key: Option<&str>| -> ModelConfig {
-            serde_json::from_value(json!({"name": "t", "type": "transcription",
-                "base_url": base_url, "model": "x", "api_key_env": key}))
-            .unwrap()
+        let model = |base_url: &str, key: Option<&str>| -> Resolved {
+            resolved(json!([{"name": "t", "type": "transcription",
+                "base_url": base_url, "model": "x", "api_key_env": key}]))
+            .remove(0)
         };
         let built = |stt: Result<Stt, Unbuilt>| match stt {
             Ok(Stt::Segments(_)) => "segments".to_string(),

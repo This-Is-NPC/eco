@@ -596,6 +596,7 @@
   "error.capture.stopped": "キャプチャが停止しました：{detail}",
   "error.transcription.restarted": "文字起こしが予期せず停止したため、再開しました：{detail}",
   "error.config.invalid": "設定が不正です：{detail}",
+  "error.config.convert_failed": "設定は新しい形式に変換されましたが、保存できませんでした：{detail}",
   "error.config.pending": "別のプログラムがフック・コンテキストファイル・モデルの変更を求めています。eco のウィンドウで承認または拒否してください",
   "error.config.rejected": "フック・コンテキストファイル・モデルの変更は拒否されました",
   "error.config.not_window": "保留中の変更を承認・拒否できるのは eco のウィンドウだけです",

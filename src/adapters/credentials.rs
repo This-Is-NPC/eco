@@ -43,7 +43,7 @@ pub enum CredentialError {
         expect(dead_code, reason = "Windows has the Credential Manager")
     )]
     #[error(
-        "the Windows Credential Manager is only on Windows; keep the key in an environment variable (api_key_env), or on Omarchy in omapass (api_key_omapass)"
+        "the Windows Credential Manager is only on Windows; keep the key in an environment variable (env), or on Omarchy in omapass (omapass)"
     )]
     Unavailable,
     #[cfg_attr(unix, expect(dead_code, reason = "only the Windows store names one"))]
@@ -405,7 +405,7 @@ mod tests {
         assert_eq!(set("deepgram"), Err(CredentialError::Unavailable));
         assert_eq!(remove("deepgram"), Err(CredentialError::Unavailable));
         let said = CredentialError::Unavailable.to_string();
-        assert!(said.contains("api_key_env"), "{said}");
+        assert!(said.contains("(env)"), "{said}");
         assert!(said.contains("omapass"), "{said}");
     }
 }
