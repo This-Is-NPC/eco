@@ -384,6 +384,101 @@ is better than CAM++ (DER 29.2 and 29.8). ERes2Net also runs at about a
 quarter of CAM++'s speed (7x to 9x real time, under the 25x floor), and
 ResNet293 at 2x. The held-out set was not run: the dev set decided.
 
+## Re-clustering (2026-11-03)
+
+The speech a session heard, clustered again as a whole every 400 windows
+(about five minutes of speech) and when the recording ends
+(`Speakers::recluster`, see [design.md §4](design.md#4-audio)). Same setup as
+the [baseline](#baseline-and-diagnosis-2026-11-03): `mise run
+bench:diarization`, release build, CAM++, collar 0, threshold 0.7, merge 0.3,
+min share 2%, settle 120 windows, and now re-cluster distance 0.5 every 400
+windows. The numbers are the replay of the same child logic without the
+thread: the result is applied before the next region, so the live child, which
+applies it between two regions, can differ by what it hears meanwhile.
+
+The re-cluster distance is lower than the offline 0.65 because it runs on the
+mean of a run of windows, whose unit vector is closer to its neighbours than a
+single window is. It was chosen on the dev set only, over 0.4 to 0.75 and 200
+to 800 windows. Totals for the four dev meetings:
+
+| Distance | Every | Confusion | DER | Purity | Cover | Churn % |
+|---|---|---|---|---|---|---|
+| 0.40 | 200 / 400 / 800 | 3.4 / 3.7 / 3.5 | 26.6 / 26.9 / 26.7 | 83.3 / 83.0 / 83.2 | 83.6 / 83.3 / 83.6 | 7.6 / 10.3 / 5.7 |
+| 0.45 | 200 / 400 / 800 | 3.4 / 3.7 / 3.4 | 26.6 / 26.9 / 26.6 | 83.3 / 83.0 / 83.2 | 83.6 / 83.3 / 83.5 | 7.1 / 9.9 / 5.7 |
+| **0.50** | 200 / **400** / 800 | 3.4 / **3.4** / 3.5 | 26.6 / **26.6** / 26.7 | 83.3 / **83.3** / 83.2 | 83.7 / **83.6** / 83.6 | 4.3 / **4.2** / 5.7 |
+| 0.55 | 200 / 400 / 800 | 3.4 / 3.4 / 3.5 | 26.6 / 26.6 / 26.7 | 83.3 / 83.3 / 83.2 | 83.7 / 83.6 / 83.5 | 4.7 / 4.3 / 6.4 |
+| 0.60 | 200 / 400 / 800 | 5.2 / 5.2 / 5.2 | 28.4 | 81.3 | 84.0 | 6.2 / 4.0 / 3.7 |
+| 0.65 | 400 | 8.6 | 31.8 | 77.6 | 85.0 | 8.3 |
+| 0.75 | 400 | 14.1 | 37.3 | 71.7 | 88.4 | 11.9 |
+
+From 0.4 to 0.55 the end of the recording decides: the figures hardly move,
+and the choice is the lowest churn (0.5, 400). From 0.6 the groups start to
+join two people.
+
+| Dev | Speakers | Found | Missed | F. alarm | Confusion | DER | Purity | Cover | <5% | Churn % | Stayed s | Offline found / DER / purity |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| IS1008a | 4 | 4 | 7.7 | 3.9 | 1.1 | 12.7 | 94.9 | 94.9 | 0 | 1.6 | 446 | 4 / 12.7 / 94.9 |
+| ES2011a | 4 | 3 | 25.6 | 1.6 | 4.1 | 31.3 | 80.5 | 82.1 | 0 | 2.2 | 313 | 4 / 31.5 / 80.4 |
+| TS3004a | 4 | 4 | 21.2 | 4.7 | 4.1 | 29.9 | 81.6 | 81.6 | 0 | 6.6 | 409 | 4 / 29.8 / 81.7 |
+| IB4001 | 4 | 4 | 20.8 | 4.1 | 3.6 | 28.6 | 80.0 | 80.0 | 0 | 5.2 | 182 | 4 / 28.2 / 80.3 |
+| **All** | | | 19.5 | 3.7 | 3.4 | 26.6 | 83.3 | 83.6 | 0 | 4.2 | 299 | 26.5 / 83.4 |
+
+| Held-out | Speakers | Found | Missed | F. alarm | Confusion | DER | Purity | Cover | <5% | Churn % | Stayed s | Offline found / DER / purity |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| IS1009b | 4 | 4 | 12.2 | 1.8 | 1.5 | 15.6 | 87.9 | 87.9 | 0 | 1.7 | 117 | 4 / 15.6 / 87.9 |
+| ES2004b | 4 | 4 | 17.6 | 1.8 | 1.5 | 20.8 | 88.0 | 88.0 | 0 | 1.2 | 187 | 4 / 20.9 / 87.9 |
+| TS3003b | 4 | 4 | 16.5 | 3.1 | 1.6 | 21.1 | 93.3 | 93.3 | 0 | 3.0 | 185 | 4 / 20.8 / 93.7 |
+| EN2002b | 4 | 5 | 28.5 | 2.0 | 4.3 | 34.8 | 70.6 | 70.6 | 1 | 7.1 | 365 | 4 / 34.6 / 70.8 |
+| **All** | | | 18.6 | 2.1 | 2.2 | 23.0 | 84.8 | 84.8 | 1 | 3.0 | 265 | 22.9 / 84.9 |
+
+Against the baseline and the bars (the held-out set was run once, after the
+choice):
+
+| | Baseline | Now | Bar | |
+|---|---|---|---|---|
+| Dev DER | 28.9 | 26.6 | at most 29.2 | met |
+| Dev confusion | 5.7 | 3.4 | not above 5.7; within 0.5 of offline (3.3) | met |
+| Dev purity / cover | 81.1 / 83.5 | 83.3 / 83.6 | not below 80.1 / 82.5 | met |
+| Dev found | 4, 4, 8, 7 | 4, 3, 4, 4 | TS3004a and IB4001 at most 5 | met |
+| Held-out DER | 24.0 | 23.0 | at most 24.3 | met |
+| Held-out confusion | 3.2 | 2.2 | not above 3.2 | met |
+| Held-out purity / cover | 84.7 / 83.7 | 84.8 / 84.8 | not below 83.7 / 82.7 | met |
+| Held-out found | 8, 5, 5, 8 | 4, 4, 4, 5 | | |
+
+Speakers born in the last minutes are gone: 10 dev and 9 held-out found
+speakers under 5% became 0 and 1. The fourth speaker of IB4001 (about 65 s)
+stays. ES2011a finds 3 of its 4 speakers, where the baseline and the offline
+clustering found 4: two of its speakers end up as one. The
+`Speakers::recluster` tests pin both sides of the fold on synthetic data: 20
+windows of 720 (2.8%) stay, 5 of 725 (0.7%) fold. The recorded tail of TS3004a (`tests/fixtures`), which the
+online path split into 8 speakers, comes out as the 4 who spoke.
+
+Churn rose from 2.8% to 4.2% on the dev set and from 1.1% to 3.0% on the
+held-out set: what is told live is corrected later. The longest a corrected
+stretch stayed wrong was 1,214 s on the dev set.
+
+### Cost over 3 hours
+
+`mise run bench:diarization <dir> --list <dev> --stack 3` repeats the four dev
+meetings to 3.1 h of audio (1,814 regions, 9,827 windows) and hears them
+without, then with, re-clustering as the child does: each re-cluster on its own
+thread, applied between two regions. This is the algorithm in the bench
+process, not the `eco diarize` child; memory is the peak of the process with
+the figure reset before each pass, so the difference is what the stretches and
+the distances add. The machine has 12 cores.
+
+| | Budget | Measured |
+|---|---|---|
+| Slowest re-cluster, 2,575 stretches | 2 s | 0.25 s |
+| Peak memory added | 50 MB | 12 MB (265 MB without, 277 MB with) |
+| Longest step of the hearing thread (a region, or applying a result) | | 20 ms, against a region every 6.1 s |
+| Regions waiting | under 32 | none: a re-cluster never blocks `hear` |
+
+Before the distances were computed on all cores the slowest re-cluster took
+2.31 s over 3,476 stretches (4.3 h); on one core the 3 h figure would be about 1.3 s,
+scaled by the square of the stretches and not measured. A fourth hour holds about 3,500
+stretches, which the first figure already covers.
+
 ## Streaming transcription (2026-10-05)
 
 The first 2 minutes of AMI ES2004a (English, four people in a room) replayed
