@@ -332,6 +332,13 @@ fn removed_event(session: &Session, entry: Option<&Entry>, id: &str) -> Event {
 
 /// `event`, about an entry added to or gone from `session`, with the session's
 /// counts after it.
+/// Whether the user named both speakers `a` and `b` of a session: a line of
+/// one is never given to the other by diarization.
+fn told_apart(session: &Session, a: &str, b: &str) -> bool {
+    let named = |label: &str| session.person_of(label).is_some() || session.name_of(label) != label;
+    named(a) && named(b)
+}
+
 /// Move lines to the labels diarization found for them, as events.
 fn reassigned(
     session: &mut Session,
@@ -1224,7 +1231,7 @@ impl Assistant {
                     }
                 }
                 for ((was, at), label) in pieces.into_iter().zip(targets) {
-                    if label != was {
+                    if label != was && !told_apart(session, &was, &label) {
                         moves.push((was, at, label));
                     }
                 }
@@ -6332,6 +6339,66 @@ mod tests {
         let caio = everyone.iter().find(|p| p.name == "Caio").unwrap();
         assert_eq!(caio.voiceprints.len(), 1);
         assert_eq!(caio.voiceprints[0].voice, [0.0, 0.0, 1.0]);
+    }
+
+    #[test]
+    fn lines_a_recluster_moved_change_speaker_unless_both_are_named() {
+        let directory = tempfile::tempdir().unwrap();
+        let (assistant, events, log) = stored_with(directory.path(), people_in(directory.path()));
+        let mut call = Session::begin("Call", "meeting", LIVE, "pt", log.writer());
+        for (at, text) in [
+            (10.0, "Oi."),
+            (12.0, "Tudo bem?"),
+            (14.0, "Vamos."),
+            (16.0, "Já."),
+        ] {
+            call.hear_at("Eles", text, at);
+        }
+        let voices = BTreeMap::from([
+            (0, vec![1.0, 0.0, 0.0]),
+            (1, vec![0.0, 1.0, 0.0]),
+            (2, vec![0.0, 0.0, 1.0]),
+            (3, vec![0.0, 0.0, 0.0, 1.0]),
+        ]);
+        let mut labels = Labels::default();
+        let first = Said {
+            lines: lines(&[(10.0, 0), (12.0, 1), (14.0, 2), (16.0, 1)]),
+            voices: voices.clone(),
+            ..Said::default()
+        };
+        assistant.voices_heard(&call.id, "Eles", &first, &mut labels);
+        let moves = |told: &[(f64, usize)]| Said {
+            lines: lines(told),
+            voices: voices.clone(),
+            ..Said::default()
+        };
+
+        // A line said long ago, heard as speaker 1 and now speaker 0, changes label.
+        assistant.voices_heard(&call.id, "Eles", &moves(&[(12.0, 0)]), &mut labels);
+        let moved = last_of(&events, "transcript_reassigned");
+        assert_eq!(
+            (&moved["who"], &moved["at"], &moved["label"]),
+            (&json!("Speaker 1"), &json!(12.0), &json!("Eles"))
+        );
+
+        // Two speakers the user named: the line stays, and so does each label.
+        assistant.assign_person(&call.id, "Eles", None, "Caio", None);
+        assistant.assign_person(&call.id, "Speaker 2", None, "Bia", None);
+        let before = count(&events, "transcript_reassigned");
+        assistant.voices_heard(&call.id, "Eles", &moves(&[(14.0, 0)]), &mut labels);
+        assert_eq!(count(&events, "transcript_reassigned"), before);
+        assert_eq!(
+            (&labels[&0].label[..], &labels[&2].label[..]),
+            ("Eles", "Speaker 2")
+        );
+
+        // A named speaker's line may go to one nobody named, new to the session.
+        assistant.voices_heard(&call.id, "Eles", &moves(&[(14.0, 3)]), &mut labels);
+        let moved = last_of(&events, "transcript_reassigned");
+        assert_eq!(
+            (&moved["who"], &moved["at"], &moved["label"]),
+            (&json!("Speaker 2"), &json!(14.0), &json!("Speaker 3"))
+        );
     }
 
     #[test]
