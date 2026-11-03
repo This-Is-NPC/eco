@@ -1021,18 +1021,19 @@ outside `src/bench/` has a lower percentage than on master.
 
 Measured on Linux with `mise run coverage` on the tree that links models to
 providers and secrets, restarts a transcription that panics and tests a model,
-against a checkout of master measured the same way. Whole crate: 96.98% of
-lines (1,200 of 39,724 without a test), against 96.84% (1,175 of 37,158) on
-master. Every `src/` file the tree touched except those below has the same or a
-higher percentage than on master; `src/presets.rs` and
-`src/session/model_test.rs` are new.
+against a checkout of master measured the same way. Whole crate: 97.05% of
+lines (1,175 of 39,875 without a test), against 96.84% (1,175 of 37,158) on
+master. No file of `src/` outside `src/bench/` has a lower percentage than on
+master; `src/presets.rs` and `src/session/model_test.rs` are new.
 
 | File | Master | This tree | Left without a test, and why |
 |---|---|---|---|
 | `src/presets.rs` | new | 100.00% | |
 | `src/session/model_test.rs` | new | 99.26% (2 of 272) | the end of the helper task that holds a stalled connection open, which never ends; the summary counts one more line than the line view shows. |
-| `src/config.rs` | 99.82% (2 of 1102) | 99.69% (5 of 1594) | `variable`, the read of the process environment, which only exists outside tests (a test sets the variables it needs with `testing::set_env`); the summary counts two more lines than the line view shows. |
-| `src/adapters/websocket.rs` | 99.16% (3 of 357) | 99.01% (4 of 404) | the line view shows no line at zero; the summary counts four, one more than on master, among the lines that read a handshake status (`refused`), whose four statuses a test sends. |
+| `src/adapters/omapass.rs` | 100.00% | 100.00% | |
+| `src/config.rs` | 99.82% (2 of 1102) | 99.88% (2 of 1613) | the closing line of `write_atomically`; the summary counts one more line than the line view shows. |
+| `src/adapters/websocket.rs` | 99.16% (3 of 357) | 99.26% (3 of 403) | the line view shows no line at zero; the summary counts three, as on master. |
 | `src/adapters/session_files.rs` | 99.68% (2 of 619) | 99.73% (2 of 744) | as on master. |
-| `src/session.rs` | 96.93% (145 of 4729) | 96.91% (166 of 5379) | `run()`, which builds the real VAD model, the platform's audio, the update sources and the user's socket (132 lines against 121 on master: it now also converts and saves an old config); the omapass resolution in `model_key`, which runs `omapass get` on the user's keyring (a secret by environment variable or credential, and the codes that tell why an omapass secret does not resolve, are tested); the `omapass` command's task, which lists the user's keyring (what it returns is tested through `omapass_listed`); the closure that tells clients when the diarizer falls behind, which only the real `eco diarize` process raises (the tell itself is tested in `src/domain/events.rs`); the end of `run()`, which waits for the daemon to stop; and the rest as in the daemon section. |
+| `src/session.rs` | 96.93% (145 of 4729) | 97.21% (153 of 5480) | `run()`, which builds the real VAD model, the platform's audio, the update sources and the user's socket (it now also converts and saves an old config); and the rest as in the daemon section. |
+| `src/domain/session.rs` | 98.24% (46 of 2610) | 98.36% (47 of 2864) | as in the diarization section. |
 | `src/adapters/diarizer_process.rs`, `http.rs`, `llm_openai.rs`, `overlay.rs`, `stt_deepgram.rs`, `stt_openai.rs`, `domain/assistant.rs`, `domain/channel.rs`, `domain/events.rs`, `domain/transcribers.rs`, `credentials.rs`, `import.rs`, `lib.rs`, `ports.rs`, `doctor.rs` | 88.92–100.00% | the same or higher | as on master. |

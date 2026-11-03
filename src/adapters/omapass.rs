@@ -17,16 +17,40 @@ pub struct Account {
     pub folder: String,
 }
 
-/// The omapass CLI: on PATH, or where Omarchy installs the plugin.
-#[cfg(unix)]
+/// The omapass CLI: on PATH, or where Omarchy installs the plugin; a test
+/// chooses its own with `testing::use_program`, for its thread only.
 fn program() -> Option<PathBuf> {
+    #[cfg(test)]
+    if let Some(chosen) = testing::PROGRAM.with_borrow(Clone::clone) {
+        return chosen;
+    }
+    found()
+}
+
+#[cfg(test)]
+pub mod testing {
+    use std::cell::RefCell;
+    use std::path::PathBuf;
+
+    thread_local! {
+        pub(super) static PROGRAM: RefCell<Option<Option<PathBuf>>> = const { RefCell::new(None) };
+    }
+
+    /// Make the calling test's omapass the CLI at `program`, or none.
+    pub fn use_program(program: Option<PathBuf>) {
+        PROGRAM.with_borrow_mut(|chosen| *chosen = Some(program));
+    }
+}
+
+#[cfg(unix)]
+fn found() -> Option<PathBuf> {
     find(std::env::var_os("PATH"), crate::paths::omapass_plugin())
 }
 
 /// The omapass CLI: none, for omapass keeps its secrets in gnome-keyring,
 /// which Windows does not have.
 #[cfg(windows)]
-fn program() -> Option<PathBuf> {
+fn found() -> Option<PathBuf> {
     None
 }
 

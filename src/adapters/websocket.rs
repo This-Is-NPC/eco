@@ -307,9 +307,8 @@ mod tests {
                 socket.write_all(reply.as_bytes()).await.unwrap();
             });
             let heard: Vec<_> = alive(format!("ws://{address}"), live(3)).collect().await;
-            let [Err(error)] = heard.as_slice() else {
-                panic!("one error: {heard:?}");
-            };
+            assert_eq!(heard.len(), 1, "{heard:?}");
+            let error = heard[0].as_ref().unwrap_err();
             assert_eq!(error.refusal, refusal, "{status}: {}", error.why);
         }
     }

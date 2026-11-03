@@ -24,16 +24,15 @@ pub fn env_key(name: &str) -> Result<String, ConfigError> {
         .ok_or_else(|| ConfigError(format!("{name} is not set")))
 }
 
-#[cfg(not(test))]
-fn variable(name: &str) -> Option<String> {
-    std::env::var(name).ok()
-}
-
 /// A test reads the variables it sets with `testing::set_env`, on its own
-/// thread, and none of the process's.
-#[cfg(test)]
+/// thread, and none of the process's, unless it asks for them with
+/// `testing::read_process_env`.
 fn variable(name: &str) -> Option<String> {
-    testing::ENV.with_borrow(|vars| vars.get(name).cloned())
+    #[cfg(test)]
+    if !testing::PROCESS.get() {
+        return testing::ENV.with_borrow(|vars| vars.get(name).cloned());
+    }
+    std::env::var(name).ok()
 }
 
 #[cfg(test)]
@@ -43,6 +42,12 @@ pub mod testing {
 
     thread_local! {
         pub(super) static ENV: RefCell<HashMap<String, String>> = RefCell::default();
+        pub(super) static PROCESS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    }
+
+    /// Make the calling test's key lookups read the process's variables.
+    pub fn read_process_env() {
+        PROCESS.set(true);
     }
 
     /// Set `name` for the key lookups of the calling test only.
@@ -2259,6 +2264,29 @@ translates = ["meeting"]
         assert_eq!(value["models"][2]["provider"], "a");
         assert_eq!(value["providers"][1]["secret"], "acct");
         assert!(value["models"][2].get("api_key_omapass").is_none());
+    }
+
+    #[test]
+    fn a_key_names_its_source_and_is_read_back_from_it() {
+        for key in [
+            Key::None,
+            Key::Env("VARIABLE"),
+            Key::Omapass("account"),
+            Key::Credential("name"),
+        ] {
+            let (env, omapass, credential) = key.fields();
+            assert_eq!(Key::of(env, omapass, credential), key);
+        }
+    }
+
+    #[test]
+    fn a_key_is_read_from_the_process_environment_when_asked() {
+        testing::read_process_env();
+        assert!(!env_key("PATH").unwrap().is_empty());
+        assert_eq!(
+            env_key("ECO_TEST_NO_SUCH_VARIABLE").unwrap_err().0,
+            "ECO_TEST_NO_SUCH_VARIABLE is not set"
+        );
     }
 
     #[test]
