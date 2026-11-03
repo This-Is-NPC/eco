@@ -277,15 +277,26 @@ pub fn serve(model: &Path) -> anyhow::Result<()> {
 /// `serve`, reading regions from `input` and writing what each told to `out`.
 fn serve_on(model: &Path, input: impl Read, out: impl Write) -> anyhow::Result<()> {
     let embedder = TractEmbedder::load(model).map_err(|e| anyhow::anyhow!(e.0))?;
-    serve_with(&embedder, Clustering::default(), input, out)
+    serve_with(&embedder, Clustering::default(), &start_worker, input, out)
 }
 
-/// `serve_on` with `embedder` and `clustering`. A re-cluster runs on a thread
-/// of its own, and its result is told between two regions; the speech is
-/// clustered once more, after the last re-cluster, when the input ends.
+/// Run a re-cluster on a thread of its own; its result arrives on the channel.
+fn start_worker(job: Recluster) -> Receiver<Reclustered> {
+    let (send, found) = mpsc::channel();
+    thread::spawn(move || {
+        let _ = send.send(job.run());
+    });
+    found
+}
+
+/// `serve_on` with `embedder` and `clustering`. `start` begins a re-cluster
+/// apart from this thread; its result is told between two regions, and the
+/// speech is clustered once more, ignoring one still on its way, when the
+/// input ends.
 fn serve_with(
     embedder: &dyn SpeakerEmbedder,
     clustering: Clustering,
+    start: &dyn Fn(Recluster) -> Receiver<Reclustered>,
     input: impl Read,
     mut out: impl Write,
 ) -> anyhow::Result<()> {
@@ -294,32 +305,27 @@ fn serve_with(
         writeln!(out, "{}", to_json(update))?;
         out.flush()
     };
-    let mut working: Option<thread::JoinHandle<Reclustered>> = None;
+    let mut working: Option<Receiver<Reclustered>> = None;
     let mut input = BufReader::new(input);
     while let Some(region) = read_region(&mut input)? {
-        let start = region.start as f64 / f64::from(SAMPLE_RATE);
+        let at = region.start as f64 / f64::from(SAMPLE_RATE);
         let update = diarizer
-            .add(start, &region.pcm)
+            .add(at, &region.pcm)
             .map_err(|e| anyhow::anyhow!(e.0))?;
         tell(&update)?;
-        if working
-            .as_ref()
-            .is_some_and(thread::JoinHandle::is_finished)
-        {
-            let found = working.take().and_then(|worker| worker.join().ok());
-            let moved = found.and_then(|found| diarizer.regroup(&found));
-            moved.iter().try_for_each(&mut tell)?;
+        match working.as_ref().map(Receiver::try_recv) {
+            Some(Ok(found)) => {
+                working = None;
+                diarizer.regroup(&found).iter().try_for_each(&mut tell)?;
+            }
+            Some(Err(mpsc::TryRecvError::Disconnected)) => working = None,
+            Some(Err(mpsc::TryRecvError::Empty)) | None => {}
         }
         if working.is_none() && diarizer.due() {
-            working = diarizer
-                .snapshot()
-                .map(|job| thread::spawn(move || job.run()));
+            working = diarizer.snapshot().map(start);
         }
     }
-    // A re-cluster still running is older than the one that ends the input.
-    if let Some(worker) = working {
-        let _ = worker.join();
-    }
+    drop(working);
     let last = diarizer.snapshot().map(Recluster::run);
     let moved = last.and_then(|found| diarizer.regroup(&found));
     moved.iter().try_for_each(&mut tell)?;
@@ -549,8 +555,7 @@ cat > input
     }
 
     /// A voice by the first sample of a clip: 100 is the first speaker, 50
-    /// sounds like a mix of both at first, and anything else is the second,
-    /// whose clips take long enough for a re-cluster on its thread to be done.
+    /// sounds like a mix of both at first, and anything else is the second.
     struct ByFirstSample;
 
     impl SpeakerEmbedder for ByFirstSample {
@@ -558,10 +563,7 @@ cat > input
             Ok(match pcm[0] {
                 100 => vec![1.0, 0.0],
                 50 => vec![0.6, 0.8],
-                _ => {
-                    thread::sleep(std::time::Duration::from_millis(20));
-                    vec![0.0, 1.0]
-                }
+                _ => vec![0.0, 1.0],
             })
         }
     }
@@ -573,50 +575,105 @@ cat > input
         }
     }
 
-    /// What `serve_with` tells for `clips`, as updates.
-    fn served(clustering: Clustering, clips: &[Segment]) -> Vec<Update> {
+    /// What `serve_with` tells for `clips` when a re-cluster `start`ed is
+    /// delivered as `delivery` says, as updates.
+    fn served(
+        clustering: Clustering,
+        clips: &[Segment],
+        delivery: impl Fn(Recluster) -> Receiver<Reclustered>,
+    ) -> Vec<Update> {
         let mut input = Vec::new();
         for clip in clips {
             write_region(&mut input, clip).unwrap();
         }
         let mut out = Vec::new();
-        serve_with(&ByFirstSample, clustering, input.as_slice(), &mut out).unwrap();
+        serve_with(
+            &ByFirstSample,
+            clustering,
+            &delivery,
+            input.as_slice(),
+            &mut out,
+        )
+        .unwrap();
         let text = String::from_utf8(out).unwrap();
         text.lines().map(|line| parse(line).unwrap()).collect()
     }
 
-    /// The early sound of the second speaker joins the first when it is heard;
-    /// once the input ends, the speech is clustered again and tells it moved.
-    /// A re-cluster that ran on its thread meanwhile changes nothing.
-    #[test]
-    fn what_was_heard_wrong_is_moved_when_the_input_ends() {
-        let clips = [clip(100, 6, 0), clip(50, 3, 6), clip(-100, 6, 9)];
-        for every in [400, 5] {
-            let clustering = Clustering {
-                every,
-                ..Clustering::default()
-            };
-            let updates = served(clustering, &clips);
-            let (last, regions) = updates.split_last().unwrap();
-            assert_eq!(regions.len(), 3);
-            assert!(regions.iter().all(|u| u.moved.is_empty()), "every {every}");
-            assert_eq!(
-                last.moved,
-                [Moved {
-                    start: 6.0,
-                    end: 9.0,
-                    from: 0,
-                    to: 1
-                }]
-            );
-            let mut recording = Recording::default();
-            updates
-                .into_iter()
-                .for_each(|update| recording.apply(update));
-            let speakers: Vec<usize> = recording.finish().turns.iter().map(|t| t.speaker).collect();
-            assert_eq!(speakers, [0, 1]);
+    /// Done at once, and waiting in the channel for the next region.
+    fn at_once(job: Recluster) -> Receiver<Reclustered> {
+        let (send, found) = mpsc::channel();
+        send.send(job.run()).unwrap();
+        found
+    }
+
+    fn early_sound_moved() -> Moved {
+        Moved {
+            start: 6.0,
+            end: 9.0,
+            from: 0,
+            to: 1,
         }
-        assert!(served(Clustering::default(), &[]).is_empty());
+    }
+
+    /// The early sound of the second speaker joins the first when it is heard.
+    /// A re-cluster done meanwhile tells it moved between two regions; one
+    /// that is not done when the input ends is dropped, and the clustering
+    /// that ends the input tells it; a worker that dies tells nothing.
+    #[test]
+    fn what_was_heard_wrong_is_moved_between_regions_or_when_the_input_ends() {
+        let clips = [
+            clip(100, 6, 0),
+            clip(50, 3, 6),
+            clip(-100, 6, 9),
+            clip(-100, 3, 15),
+        ];
+        // 17 windows are heard after the third region.
+        let clustering = Clustering {
+            every: 17,
+            ..Clustering::default()
+        };
+        let updates = served(clustering, &clips, at_once);
+        let moved: Vec<bool> = updates.iter().map(|u| !u.moved.is_empty()).collect();
+        assert_eq!(moved, [false, false, false, false, true]);
+        assert_eq!(updates[4].moved, [early_sound_moved()]);
+        assert_eq!(updates[4].end, 18.0, "after the fourth region");
+
+        let held = std::cell::RefCell::new(Vec::new());
+        let never = |job: Recluster| {
+            let (send, found) = mpsc::channel();
+            held.borrow_mut().push((send, job));
+            found
+        };
+        let updates = served(clustering, &clips, never);
+        let (last, regions) = updates.split_last().unwrap();
+        assert!(regions.iter().all(|u| u.moved.is_empty()));
+        assert_eq!(last.moved, [early_sound_moved()]);
+        assert_eq!(
+            held.borrow().len(),
+            1,
+            "one re-cluster began and none piled up"
+        );
+        let mut recording = Recording::default();
+        updates
+            .into_iter()
+            .for_each(|update| recording.apply(update));
+        let speakers: Vec<usize> = recording.finish().turns.iter().map(|t| t.speaker).collect();
+        assert_eq!(speakers, [0, 1]);
+
+        let died = |_: Recluster| mpsc::channel().1;
+        let updates = served(clustering, &clips, died);
+        assert_eq!(updates.last().unwrap().moved, [early_sound_moved()]);
+        assert_eq!(updates.len(), 5);
+        // On a real thread, early or late, the speech heard so far moves nothing.
+        let early = Clustering {
+            every: 10,
+            ..Clustering::default()
+        };
+        let updates = served(early, &clips, start_worker);
+        let (last, regions) = updates.split_last().unwrap();
+        assert!(regions.iter().all(|u| u.moved.is_empty()));
+        assert_eq!(last.moved, [early_sound_moved()]);
+        assert!(served(Clustering::default(), &[], start_worker).is_empty());
     }
 
     /// The child side over the speaker model and three AMI clips (see
