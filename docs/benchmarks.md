@@ -329,6 +329,61 @@ so the remaining gap is not theirs.
   that stretch (`.rttm`), AMI (CC BY 4.0). It reproduces the 8 speakers, the
   5 late extras and 64% purity, and is read by `bench::embeddings` tests.
 
+## Speaker embedding choice (2026-11-03)
+
+Does a stronger embedding beat the current CAM++ on the same clustering?
+`mise run bench:diarization` on the four dev meetings, release build, collar
+0, merge 0.3, min share 2%, settle 120, thresholds 0.5 to 0.8. All models
+take the 80-dim Kaldi fbank with the clip mean removed that `TractEmbedder`
+feeds, and all load in tract unchanged. Models come from the sherpa-onnx
+`speaker-recongition-models` release (sha256 from its `checksum.txt`, checked). Licenses are those of the WeSpeaker and 3D-Speaker repositories; the weights carry no separate notice that was read.
+
+| Model | License | Size | Speed (x real time) |
+|---|---|---|---|
+| CAM++ (WeSpeaker, current) | Apache-2.0 | 29.3 MB | 18-44 |
+| CAM++ LM (WeSpeaker) | Apache-2.0 | 29.3 MB | 23-35 |
+| CAM++ en VoxCeleb (3D-Speaker) | Apache-2.0 | 29.6 MB | 19-35 |
+| ERes2Net en VoxCeleb (3D-Speaker) | Apache-2.0 | 26.5 MB | 7-9 |
+| ResNet293 LM (WeSpeaker) | Apache-2.0 | 114.3 MB | 2 (stopped after IS1008a) |
+
+ERes2NetV2 is published only for Mandarin (`zh-cn`) as ONNX, so it was not
+tried; the English ERes2Net is its predecessor. The machine ran other builds
+at the same time, so speed varies between runs of the same model (CAM++ ran
+18x to 44x across the four meetings); read the ratio between models, not the
+figure. Over the whole grid ERes2Net took 621 s against 161 s for CAM++.
+
+Dev set totals (all four meetings; missed 19.5 and false alarm 3.7 are the
+same for every model). <5%: found speakers under 5% of the speech.
+
+| Model | Threshold | Confusion | DER | Purity | Cover | <5% | Churn % |
+|---|---|---|---|---|---|---|---|
+| CAM++ | 0.5 | 6.7 | 29.9 | 81.1 | 82.4 | 64 | 12.5 |
+| CAM++ | 0.6 | 5.9 | 29.1 | 81.1 | 83.2 | 26 | 6.4 |
+| **CAM++** | **0.7** | **5.7** | **28.9** | **81.1** | **83.5** | **10** | **2.8** |
+| CAM++ | 0.8 | 11.2 | 34.4 | 75.0 | 85.5 | 3 | 0.9 |
+| CAM++ LM | 0.5 | 7.4 | 30.6 | 80.7 | 81.7 | 62 | 12.4 |
+| CAM++ LM | 0.6 | 6.3 | 29.5 | 80.7 | 82.8 | 29 | 6.2 |
+| CAM++ LM | 0.7 | 6.1 | 29.3 | 80.7 | 83.0 | 11 | 2.3 |
+| CAM++ LM | 0.8 | 8.2 | 31.4 | 78.2 | 83.9 | 5 | 1.1 |
+| CAM++ 3D | 0.5 | 4.8 | 28.0 | 83.3 | 82.0 | 72 | 15.3 |
+| CAM++ 3D | 0.6 | 6.0 | 29.2 | 81.3 | 83.1 | 33 | 7.3 |
+| CAM++ 3D | 0.7 | 6.0 | 29.2 | 81.2 | 83.0 | 13 | 2.9 |
+| CAM++ 3D | 0.8 | 7.5 | 30.7 | 78.9 | 84.7 | 2 | 1.1 |
+| ERes2Net | 0.5 | 5.2 | 28.4 | 83.3 | 81.6 | 75 | 16.6 |
+| ERes2Net | 0.6 | 7.3 | 30.5 | 81.2 | 81.7 | 39 | 8.4 |
+| ERes2Net | 0.7 | 6.6 | 29.8 | 81.1 | 82.2 | 18 | 3.2 |
+| ERes2Net | 0.8 | 8.0 | 31.2 | 78.6 | 84.1 | 7 | 1.6 |
+
+Result: no change of model. No candidate beats CAM++ at its best threshold
+(0.7, DER 28.9) with purity and cover kept. The nearest are the 3D-Speaker
+CAM++ and ERes2Net at 0.5 (DER 28.0 and 28.4, confusion 4.8 and 5.2), but
+at 0.5 they leave 72 and 75 short-lived speakers, churn above 15%, and
+cover 82.0 and 81.6 against 83.5. Their gain is the lower threshold
+splitting speakers more, which the clustering has to undo. At 0.7 neither
+is better than CAM++ (DER 29.2 and 29.8). ERes2Net also runs at about a
+quarter of CAM++'s speed (7x to 9x real time, under the 25x floor), and
+ResNet293 at 2x. The held-out set was not run: the dev set decided.
+
 ## Streaming transcription (2026-10-05)
 
 The first 2 minutes of AMI ES2004a (English, four people in a room) replayed
