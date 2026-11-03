@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.13.0](https://github.com/This-Is-NPC/eco/compare/v0.12.0...v0.13.0) (2026-11-03)
+
+
+### Features
+
+* **assistant:** keep named speakers apart when spans move ([e35722e](https://github.com/This-Is-NPC/eco/commit/e35722e2aea492f29cfd1aafacc9081b6b9252e0))
+* **bench:** measure purity, lifetimes, margins and churn ([df2cab8](https://github.com/This-Is-NPC/eco/commit/df2cab812f1115c2f7d2c13cb4400e04e6974ad7))
+* **bench:** measure the cost of re-clustering ([58140b3](https://github.com/This-Is-NPC/eco/commit/58140b3bb313519b35b11fc052c2f7b6bd19dec8))
+* **diarization:** re-cluster live speakers and split lines ([6f96566](https://github.com/This-Is-NPC/eco/commit/6f96566e2c75f316f2da58256259d4af18149213))
+* **diarization:** re-cluster the session's speech ([25c66c6](https://github.com/This-Is-NPC/eco/commit/25c66c63f2f2ddbdff2bf7d2bbcfddcd1f68d4da))
+* **diarization:** split a line where the speaker changes ([7cdf00e](https://github.com/This-Is-NPC/eco/commit/7cdf00e858dff34086bd2211c0cc430596d2e6e6))
+
 ## [0.12.0](https://github.com/This-Is-NPC/eco/compare/v0.11.0...v0.12.0) (2026-10-30)
 
 
