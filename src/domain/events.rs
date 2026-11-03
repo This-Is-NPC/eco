@@ -35,9 +35,11 @@ pub fn log_health(health: &LogHealth) -> Event {
             format!("cannot save session {session} to {path}: {detail}"),
             json!({"session": session, "path": path, "detail": detail}),
         ),
-        LogHealth::Saved { session, path } => {
-            json!({"type": "session_saved", "session": session, "path": path})
-        }
+        LogHealth::Saved {
+            session,
+            path,
+            dropped,
+        } => json!({"type": "session_saved", "session": session, "path": path, "dropped": dropped}),
     }
 }
 
@@ -197,10 +199,11 @@ mod tests {
         let back = log_health(&LogHealth::Saved {
             session: "s1".into(),
             path: "/data/s1.jsonl".into(),
+            dropped: 3,
         });
         assert_eq!(
             back,
-            json!({"type": "session_saved", "session": "s1", "path": "/data/s1.jsonl"})
+            json!({"type": "session_saved", "session": "s1", "path": "/data/s1.jsonl", "dropped": 3})
         );
     }
 }

@@ -206,6 +206,8 @@
   "status.copied": "answer copied",
   "status.transcript_copied": "transcript copied as WebVTT",
   "status.imported": "import finished",
+  "status.session_saved": "Session saved again to {path}",
+  "status.session_saved_dropped": "Session saved again to {path}; {count} records past the memory bound were lost",
   "status.import_stopped": "import stopped",
   "history.back": "HOME",
   "history.all": "ALL",

@@ -134,6 +134,7 @@ struct Journal {
     path: PathBuf,
     held: VecDeque<Record>,
     failing: bool,
+    dropped: usize,
     alert: LogAlert,
 }
 
@@ -144,6 +145,7 @@ impl Journal {
             path,
             held: VecDeque::new(),
             failing: false,
+            dropped: 0,
             alert,
         }
     }
@@ -151,6 +153,8 @@ impl Journal {
     fn write(&mut self, record: Record) {
         if self.held.len() < HELD {
             self.held.push_back(record);
+        } else {
+            self.dropped += 1;
         }
         while let Some(next) = self.held.front() {
             if let Err(error) = append(&self.path, next) {
@@ -171,6 +175,7 @@ impl Journal {
             (self.alert)(LogHealth::Saved {
                 session: self.session.clone(),
                 path: self.path.display().to_string(),
+                dropped: std::mem::take(&mut self.dropped),
             });
         }
     }
@@ -898,7 +903,7 @@ pub(crate) mod tests {
 
     #[test]
     fn records_held_while_writes_fail_are_bounded_to_the_first_ones() {
-        let (mut journal, _, directory) = failing_journal();
+        let (mut journal, told, directory) = failing_journal();
         for n in 0..HELD + 5 {
             journal.write(numbered(n));
         }
@@ -908,6 +913,10 @@ pub(crate) mod tests {
         assert_eq!(written.len(), HELD);
         assert_eq!(written[0]["n"], 0);
         assert_eq!(written[HELD - 1]["n"], HELD - 1);
+        assert!(matches!(
+            told.lock().unwrap().last(),
+            Some(LogHealth::Saved { dropped: 6, .. })
+        ));
         fs::remove_dir_all(directory).unwrap();
     }
 }

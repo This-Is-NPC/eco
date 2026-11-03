@@ -206,6 +206,8 @@
   "status.copied": "resposta copiada",
   "status.transcript_copied": "transcrição copiada em WebVTT",
   "status.imported": "importação concluída",
+  "status.session_saved": "Sessão salva novamente em {path}",
+  "status.session_saved_dropped": "Sessão salva novamente em {path}; {count} registros além do limite de memória foram perdidos",
   "status.import_stopped": "importação interrompida",
   "history.back": "INÍCIO",
   "history.all": "TODAS",

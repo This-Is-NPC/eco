@@ -885,10 +885,12 @@ it leaves the context of later actions as well as the screen.
 printed: each session's sink keeps its own state, and clients get one `error`
 event with `"code":"session.unsaved"` and `params` `{session, path, detail}`
 when writes start failing, then one `{"type":"session_saved","session","path"}`
-event when they work again, never one per record. Records that cannot be
+event (with `dropped`, the records lost past the bound) when they work
+again, never one per record. The overlay keeps the error as a pinned notice
+while it lasts and replaces it with a success notice on recovery. Records that cannot be
 written wait in memory, in order, and are written first once a write works;
-at most 10,000 are held per session, and the ones after that are dropped, so
-the file stays a prefix of the session.
+at most 10,000 are held per session, and the ones after that are dropped and
+counted, so the file stays a prefix of the session.
 
 A daemon that stops mid-session leaves it open; the next start marks it
 `paused` and opens with no session. A stored session left open that no daemon

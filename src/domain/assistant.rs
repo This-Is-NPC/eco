@@ -7093,6 +7093,42 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn clients_hear_once_that_a_log_cannot_be_written_and_once_that_it_can() {
+        let directory = tempfile::tempdir().unwrap();
+        let sessions = directory.path().join("sessions");
+        std::fs::write(&sessions, "not a directory").unwrap();
+        let log: Arc<dyn SessionLog> = Arc::new(SessionFiles::new(sessions.clone()));
+        let (assistant, events) = with_log(&llm(&[]), log, false);
+        let id = assistant.start("Kickoff", "meeting", "pt", None);
+        assistant.pause(Some(&id));
+        let told = |kind: &str| -> Vec<Event> {
+            events
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|e| e["type"] == kind)
+                .cloned()
+                .collect()
+        };
+        let unsaved: Vec<_> = told("error")
+            .into_iter()
+            .filter(|e| e["code"] == "session.unsaved")
+            .collect();
+        assert_eq!(unsaved.len(), 1);
+        assert_eq!(unsaved[0]["params"]["session"], id);
+        assert!(told("session_saved").is_empty());
+
+        std::fs::remove_file(&sessions).unwrap();
+        std::fs::create_dir(&sessions).unwrap();
+        assistant.end(Some(&id));
+        assistant.end(Some(&id));
+        let saved = told("session_saved");
+        assert_eq!(saved.len(), 1);
+        assert_eq!(saved[0]["session"], id);
+        assert_eq!(saved[0]["dropped"], 0);
+    }
+
     /// A session log that cannot delete.
     struct Undeletable(SessionFiles);
 

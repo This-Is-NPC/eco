@@ -251,9 +251,11 @@ pub enum LogHealth {
         path: String,
         detail: String,
     },
+    /// `dropped` records were lost past the bound while writes failed.
     Saved {
         session: String,
         path: String,
+        dropped: usize,
     },
 }
 

@@ -1531,9 +1531,18 @@ Singleton {
       const coded = event.code && I18n.has("error." + event.code)
       if (coded || event.message)
         post(coded ? [{ key: "error." + event.code, args: event.params || {} }] : [{ text: event.message }],
-          "error", { live: liveCodes.some(code => (event.code || "").startsWith(code)) })
+          "error", { live: liveCodes.some(code => (event.code || "").startsWith(code)),
+            topic: event.code === "session.unsaved" ? "unsaved " + about : "",
+            pinned: event.code === "session.unsaved" })
       break
     }
+    // A log that can be written again gives way to the notice that it could not.
+    case "session_saved":
+      removeNotices(notice => notice.topic === "unsaved " + event.session)
+      if (onScreen !== null && onScreen.id === event.session)
+        post([{ key: event.dropped > 0 ? "status.session_saved_dropped" : "status.session_saved",
+          args: { path: event.path, count: event.dropped } }], "success", { topic: "unsaved " + event.session })
+      break
     }
   }
 

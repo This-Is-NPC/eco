@@ -206,6 +206,8 @@
   "status.copied": "回答をコピーしました",
   "status.transcript_copied": "文字起こしを WebVTT でコピーしました",
   "status.imported": "インポートが完了しました",
+  "status.session_saved": "セッションを {path} に再び保存しました",
+  "status.session_saved_dropped": "セッションを {path} に再び保存しました。メモリの上限を超えた {count} 件の記録は失われました",
   "status.import_stopped": "インポートを停止しました",
   "history.back": "ホーム",
   "history.all": "すべて",
