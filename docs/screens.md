@@ -198,15 +198,17 @@ nothing would be heard.` and offers AUDIO SETTINGS.
 **START** puts the window on the session. This is the window for as long as it
 lasts:
 
-![The live session at 720×720: the masthead "ECO / SPRINT PLANNING" with the language dropdown "EN · American English", the cost, details, settings and close buttons; a red capsule reading "00:01:15 RECORDING" with a small trace, PAUSE and END; a framed REPLY answer from google/gemini-2.5-flash, with send, translate, copy and remove buttons on its heading, "Answer: Priya approves it; I send her the form today. Why: she is Acme's IT contact for the export server, so nothing moves until she signs."; a NOTE card "Ask Priya for the VPN account before Friday."; then YOU lines in faint boxes on the right and THEM lines in tinted boxes on the left; the skill chips "1 REPLY", "2 MINUTES", "3 EXPLAIN"; and the composer "Ask about the session, or /skill" with NOTE and SEND.](img/05-live.png)
+![The live session at 720×720: the masthead "ECO / SPRINT PLANNING" with the settings and close buttons; a red capsule reading "00:01:10 RECORDING" with a small trace, PAUSE and END; the tabs 01 CONVERSATION (lit), 02 PEOPLE, 03 SESSION and 04 COST; the dropdowns "EN · American English" and "TRANSLATION: OFF"; a framed REPLY answer from google/gemini-2.5-flash, with send, translate, copy and remove buttons on its heading, "Answer: Priya approves it; I send her the form today. Why: she is Acme's IT contact for the export server, so nothing moves until she signs."; a NOTE card "Ask Priya for the VPN account before Friday."; then YOU lines in faint boxes on the right and THEM lines in tinted boxes on the left; the skill chips "1 REPLY", "2 MINUTES", "3 EXPLAIN"; and the composer "Ask about the session, or /skill" with NOTE and SEND.](img/05-live.png)
 
 From the top:
 
 - **The masthead** carries the session's title (a session without one is named
-  by its kind), the language it is transcribed in — switchable mid-session —,
-  the cost button `$` (section 8), the details button `⋯` (section 6),
-  settings, and close. **Close goes back to
+  by its kind), settings, and close. **Close goes back to
   SESSIONS; a live session keeps recording.**
+- **The tabs** switch between the conversation, who takes part (section 6),
+  the session's details (section 6) and its cost (section 8). The conversation
+  has the language it is transcribed in — switchable mid-session — and the
+  translation menu.
 - **The capsule** is one line: the running time (stopped while paused), the
   state with a dot that keeps sending out a ring while it records, the trace of
   every input, PAUSE and END. Clicking the state pauses or resumes. END fills
@@ -272,11 +274,9 @@ becomes RESUME. END asks first:
 On a short window — the picture is 420×480 — the capsule joins the masthead
 and the skill chips go (`Alt+1…9` still run them):
 
-![The live session at 420×480: the masthead "SPRINT …" with the capsule inside it — a red dot, "00:01:17", pause and end as icons — and the details, settings and close buttons; the last four lines of the conversation; and the composer "Ask, or /skill" with the note and send buttons as icons.](img/10-live-short.png)
+![The live session at 420×480: the masthead "SPRINT …" with the capsule inside it — a red dot, "00:01:17", pause and end as icons — and the settings and close buttons; the last four lines of the conversation; and the composer "Ask, or /skill" with the note and send buttons as icons.](img/10-live-short.png)
 
-Under 560 px wide the capsule keeps icons only, and the language picker and
-COST move into the details — the masthead has no room for them, so the picture
-has no `$`; under 560 px tall the margins tighten and the skill chips
+Under 560 px wide the capsule keeps icons only; under 560 px tall the margins tighten and the skill chips
 hide. The window goes down to 240×320.
 
 **When a source's transcription is down**, a line under the capsule says so
@@ -312,7 +312,7 @@ provider went down to take it.
 | composer | `/` | list the skills: `↑` `↓` choose, `Tab` completes, `Enter` runs |
 | composer | `Alt+1…9` | run the skill with that number |
 | session | `E` | edit title and kind |
-| anywhere | `Esc` | close what is open: a menu, a dialog, the details, then the session |
+| anywhere | `Esc` | close what is open: a menu, a dialog, the tab, then the session |
 
 # 4. Finding it again
 
@@ -403,48 +403,45 @@ Each person keeps their colour across sessions; a speaker nobody has named
 
 # 6. What a session is: the details
 
-`⋯` in the masthead opens the details over the top of the conversation:
+A session has four tabs under its first line: CONVERSATION, PEOPLE, SESSION
+and COST. `Esc` goes back to the conversation, and from there to the sessions
+list. SESSION holds the details:
 
-![The details panel of Acme onboarding kickoff: "ENDED · 10 MAR 2025 14:00 · 00:34:54 · 10 LINES · 2 ANSWERS · 1 NOTE" with the edit and close buttons; the path "/tmp/eco-shots/.local/share/eco/sessions/2025-03-10-140000-acme-onboarding-kickoff.jsonl" and COPY PATH; PEOPLE "Ana Ribeiro, Marcus Lee, Priya Shah" with a + button; SPEAKERS — Speaker 1 → Ana Ribeiro (CLEAR, CHANGE), Me (you) → No one yet (CHANGE), Speaker 2 → Marcus Lee (CLEAR, CHANGE), Speaker 3 → No one yet (CHANGE); TAGS "#Acme ×" "#Q2 ×" and "Add a tag"; CONTEXT with an unlit "resume" chip; "TRANSLATION: OFF"; and COPY VTT and, in red, DELETE.](img/20-session-details.png)
+![The SESSION tab of Acme onboarding kickoff: "ENDED · 10 MAR 2025 14:00 · 00:34:54 · 10 LINES · 2 ANSWERS · 1 NOTE" with the edit button; the path "/tmp/eco-shots/.local/share/eco/sessions/2025-03-10-140000-acme-onboarding-kickoff.jsonl" and COPY PATH; TAGS "#Acme ×" "#Q2 ×" and a field "Add a tag" with ADD; CONTEXT with an unlit "resume" chip; and COPY VTT and, in red, DELETE.](img/20-session-details.png)
 
-Top to bottom: what the session is, in two lines at most, with the edit button
-(title and kind; `E`) and the close button, an up chevron; where its log is, for a stored
-session; the people in it; who each speaker is; its tags; which context slots
-it sends; whether it translates; and COPY VTT (the transcript as WebVTT, to the
-clipboard) and DELETE. A live session's DELETE is off. The first line, with its
-two buttons, stays at the top while the rest scrolls under it, a rule marking
-the edge once it does. The close button shuts the panel as `Esc` and `⋯` do. On
-a short, narrow live window, where the masthead has no room for it, COST is
-here too, before COPY VTT.
+Top to bottom: what the session is, with the edit button (title and kind;
+`E`); where its log is, for a stored session; its tags; which context slots it
+sends; and COPY VTT (the transcript as WebVTT, to the clipboard) and DELETE. A
+live session's DELETE is off. The conversation tab holds the translation menu.
 
 **The edit button** opens `edit session`, the title and the kind:
 
-![The EDIT SESSION dialog over the dimmed details: TITLE "Acme onboarding kickoff", KIND "Meeting", CANCEL and SAVE.](img/21-session-edit.png)
+![The EDIT SESSION dialog over the dimmed SESSION tab: TITLE "Acme onboarding kickoff", KIND "Meeting", CANCEL and SAVE.](img/21-session-edit.png)
 
-**PEOPLE `+`** opens the people dialog: those who are in the session because a
-speaker is them (FROM SPEAKERS, and off, with the reason on hover), and under
-ADD SOMEONE those added by hand — Priya Shah here — and everyone else known:
+**PEOPLE** lists who is in the session: those who are in it because a speaker
+is them (dimmed, with the reason on hover), those added by hand — Priya Shah
+here, with ×, which removes them — and, under the field, everyone else known.
+Under them SPEAKERS says who each speaker is (see 7):
 
-![The PEOPLE IN THIS SESSION dialog: FROM SPEAKERS with Ana Ribeiro and Marcus Lee as dimmed chips; ADD SOMEONE with a field "Add a person by name" and ADD, then chips for Priya Shah (lit, with ×), Chen Wei, Jonas Weber, M. Lee and Sofia Alvarez; CLOSE.](img/22-session-people.png)
+![The PEOPLE tab: PEOPLE with Ana Ribeiro and Marcus Lee as dimmed chips, a field "Add a person by name" with ADD, then chips for Priya Shah (lit, with ×), Chen Wei, Jonas Weber, M. Lee and Sofia Alvarez; SPEAKERS with Speaker 1 → Ana Ribeiro (CLEAR, CHANGE), Me (you) → No one yet (CHANGE), Speaker 2 → Marcus Lee (CLEAR, CHANGE) and Speaker 3 → No one yet (CHANGE).](img/22-session-people.png)
 
 **DELETE** asks `Delete <title>?` and says the transcript, answers and voice
 links go for good:
 
 ![The DELETE SESSION dialog in a red frame: "Delete Acme onboarding kickoff?" and, in red, "The transcript, answers and voice links will be permanently removed.", with CANCEL and, filled red, DELETE.](img/23-session-delete.png)
 
-**When eco recognises a voice**, the session says so on one line, and REVIEW
-opens the details at the speakers:
+**When eco recognises a voice**, a dot lights on the PEOPLE tab and the
+conversation says so on one line, with REVIEW, which opens PEOPLE:
 
-![The imported session "RUST MEETUP: ASYNC IN PRACTICE": the line "OTHER · 27 FEB 2025 18:00 · 00:52:00 · 3 LINES · IMPORTED"; a line "1 VOICE GUESS" with REVIEW; the details open, SPEAKERS saying "eco guessed these speakers from their voices. Nothing changes until you confirm.", Speaker 1 → No one yet, and Speaker 2 → "Jonas Weber? · 93%" with CONFIRM lit, CLEAR and CHANGE.](img/24-session-guess.png)
+![The imported session "RUST MEETUP: ASYNC IN PRACTICE": the line "OTHER · 27 FEB 2025 18:00 · 00:52:00 · 3 LINES · IMPORTED"; the tabs with a red dot after PEOPLE; the PEOPLE tab open, SPEAKERS saying "eco guessed these speakers from their voices. Nothing changes until you confirm.", Speaker 1 → No one yet, and Speaker 2 → "Jonas Weber? · 93%" with CONFIRM lit, CLEAR and CHANGE.](img/24-session-guess.png)
 
 The guess is never applied on its own: the speaker's lines read `JONAS WEBER?`
-until CONFIRM, and CLEAR drops it. On a short window the count moves onto the
-details button.
+until CONFIRM, and CLEAR drops it.
 
 **TRANSLATION** picks a language for this session only — any of the seventeen eco
 knows but the session's own:
 
-![The details of Acme onboarding kickoff with the TRANSLATION menu open over them: OFF marked, then PT · português, ES · español de España, FR · français, DE · Deutsch, IT · italiano, NL · Nederlands, PL · polski, RU · русский, UK · українська, TR · Türkçe, cut at the window's edge.](img/25-session-translation.png)
+![The conversation of Acme onboarding kickoff with the TRANSLATION menu open over it: OFF marked, then PT · português, ES · español de España, FR · français, DE · Deutsch, IT · italiano, NL · Nederlands, PL · polski, RU · русский, UK · українська, TR · Türkçe, cut at the window's edge.](img/25-session-translation.png)
 
 From then on every line and answer carries its translation under it:
 
@@ -463,11 +460,11 @@ saying that no chat model answers there.
 
 # 7. Who is who
 
-The SPEAKERS list of the details is the one place in the window that says who
+The SPEAKERS list of the PEOPLE tab is the one place in the window that says who
 each speaker is. CHANGE on a speaker, or clicking a speaker's name in the
 conversation (`N` on a line), asks:
 
-![The "assign person" dialog over the details: APPLY TO with THIS SPEAKER lit and, in orange, "2 lines will change"; WHO THIS IS with "Tom Becker" typed; a SPEAKER COLOR swatch; KNOWN PEOPLE chips — Ana Ribeiro, Chen Wei, Jonas Weber, M. Lee, Marcus Lee, Priya Shah, Sofia Alvarez; CANCEL and SAVE.](img/27-session-speaker.png)
+![The "assign person" dialog over the PEOPLE tab: APPLY TO with THIS SPEAKER lit and, in orange, "2 lines will change"; WHO THIS IS with "Tom Becker" typed; a SPEAKER COLOR swatch; KNOWN PEOPLE chips — Ana Ribeiro, Chen Wei, Jonas Weber, M. Lee, Marcus Lee, Priya Shah, Sofia Alvarez; CANCEL and SAVE.](img/27-session-speaker.png)
 
 It offers the people the voice suggests first, with their score when the
 session kept one, then everyone known, then a new name. It says how many lines
@@ -479,11 +476,10 @@ has warns and offers to merge the two. **A person id is never on screen.**
 
 # 8. What it cost
 
-**COST** at the top of the session (the `$` button in the masthead); on a
-short, narrow live window, where the masthead has no room for it, it is in the
-details instead:
+**COST** is the last tab of a session. It asks what the session cost when
+chosen:
 
-![The cost screen: masthead "ECO / COST · ACME ONBOARDING KICKOFF", a SESSION back button and "TOTAL US$ 0.27"; "LLM US$ 0.00068 answers US$ 0.00068" and "TRANSCRIPTION US$ 0.27 (35 MIN)"; then three rows: "Transcription · 35 min, 14:34 · deepgram, US$ 0.27"; "Answer · What did we agree on the deadline?, 14:02 · google/gemini-2.5-flash, US$ 0.00027"; "Answer · reply, 14:00 · google/gemini-2.5-flash, US$ 0.00041".](img/28-session-cost.png)
+![The COST tab: "TOTAL US$ 0.27"; "LLM US$ 0.00068 answers US$ 0.00068" and "TRANSCRIPTION US$ 0.27 (35 MIN)"; then three rows: "Transcription · 35 min, 14:34 · deepgram, US$ 0.27"; "Answer · What did we agree on the deadline?, 14:02 · google/gemini-2.5-flash, US$ 0.00027"; "Answer · reply, 14:00 · google/gemini-2.5-flash, US$ 0.00041".](img/28-session-cost.png)
 
 The total, the LLM part split into answers, reviews and translations, and the
 transcription with its minutes; then every charge, what it was for, when, which
@@ -494,12 +490,12 @@ marked `≈`:
 
 ![The cost screen of "Northwind backend interview": "TOTAL ≥ US$ 0.35"; "LLM US$ ? answers US$ ?" and "TRANSCRIPTION US$ 0.35 (45 MIN)"; in amber, "A provider reported no cost for some calls."; "≈ estimated at the price per minute you set for the model."; then "Transcription · 45 min, 09:45 · deepgram, ≈ US$ 0.35" and "Answer · reply, 09:00 · google/gemini-2.5-flash, ? not reported" in amber.](img/29-session-cost-unknown.png)
 
-On a live session the screen follows the spending while open. SESSION or `Esc`
+On a live session the screen follows the spending while open. CONVERSATION or `Esc`
 goes back.
 
 **Cost is shown only when asked for inside a session.** The sessions list, the
-answer cards and the masthead never carry an amount: the `$` button only opens
-this screen.
+answer cards and the masthead never carry an amount: only the COST tab shows
+it.
 
 # 9. People
 
