@@ -16,7 +16,7 @@ use crate::domain::billing::{Joined, Requests, priced, shares};
 use crate::domain::channel::Utterance;
 use crate::domain::diarization::{Labelled, Labels, Said, dot, normalized};
 use crate::domain::echo;
-use crate::domain::events::{Event, error};
+use crate::domain::events::{Event, error, log_alert};
 use crate::domain::index::Indexed;
 use crate::domain::people::{GUESSING, Match, Person, SUGGESTING, ranked};
 use crate::domain::prompts::{
@@ -662,8 +662,13 @@ impl Assistant {
         contexts: Option<&[String]>,
     ) -> String {
         let mut state = self.state();
-        let mut session =
-            Session::begin(title.trim(), kind, LIVE, language, self.inner.log.writer());
+        let mut session = Session::begin(
+            title.trim(),
+            kind,
+            LIVE,
+            language,
+            self.inner.log.writer(log_alert(&self.inner.emit)),
+        );
         if let Some(contexts) = contexts {
             session.set_contexts(contexts);
         }
@@ -1011,7 +1016,11 @@ impl Assistant {
         }
         let log = &self.inner.log;
         let records = log.read(session_id)?;
-        let mut session = Session::restore(&records, log.append_to(session_id)?).ok()?;
+        let mut session = Session::restore(
+            &records,
+            log.append_to(session_id, log_alert(&self.inner.emit))?,
+        )
+        .ok()?;
         Some(change(&mut session))
     }
 
@@ -2692,7 +2701,7 @@ impl Assistant {
         let log = &self.inner.log;
         let session = log
             .read(id)
-            .zip(log.append_to(id))
+            .zip(log.append_to(id, log_alert(&self.inner.emit)))
             .and_then(|(records, sink)| Session::restore(&records, sink).ok())
             .ok_or_else(|| {
                 error(
@@ -3521,7 +3530,7 @@ mod tests {
 
     use super::*;
     use crate::adapters::people_files::PeopleFiles;
-    use crate::adapters::session_files::{NoSessionFiles, SessionFiles};
+    use crate::adapters::session_files::{NoSessionFiles, SessionFiles, tests::quiet};
     use crate::domain::diarization::{Part, Placed};
     use crate::domain::session::IMPORT;
     use crate::ports::{CompletionError, Message, Phrase};
@@ -3857,12 +3866,12 @@ mod tests {
     fn search_finds_what_was_said_however_it_is_written() {
         let directory = tempfile::tempdir().unwrap();
         let log: Arc<dyn SessionLog> = Arc::new(SessionFiles::new(directory.path().into()));
-        let mut said = Session::begin("Kickoff", "meeting", LIVE, "pt", log.writer());
+        let mut said = Session::begin("Kickoff", "meeting", LIVE, "pt", log.writer(quiet()));
         let heard = said.hear_at("Eles", "A reunião de prazo fica para sexta.", now());
-        let mut removed = Session::begin("Daily", "meeting", LIVE, "pt", log.writer());
+        let mut removed = Session::begin("Daily", "meeting", LIVE, "pt", log.writer(quiet()));
         let line = removed.hear_at("Eles", "O prazo mudou.", now());
         removed.unhear("Eles", line.at);
-        let mut noted = Session::begin("Ideias", "idea", LIVE, "pt", log.writer());
+        let mut noted = Session::begin("Ideias", "idea", LIVE, "pt", log.writer(quiet()));
         noted.note("Revisar PRAZOS com o time");
         let (assistant, events) = with_log(&llm(&[]), log, false);
         let found = |query: &str| {
@@ -3896,9 +3905,9 @@ mod tests {
     fn tags_are_added_renamed_and_deleted_across_stored_sessions() {
         let directory = tempfile::tempdir().unwrap();
         let log: Arc<dyn SessionLog> = Arc::new(SessionFiles::new(directory.path().into()));
-        let first = Session::begin("Kickoff", "meeting", LIVE, "pt", log.writer()).id;
-        let second = Session::begin("Daily", "meeting", LIVE, "pt", log.writer()).id;
-        let third = Session::begin("Ideias", "idea", LIVE, "pt", log.writer()).id;
+        let first = Session::begin("Kickoff", "meeting", LIVE, "pt", log.writer(quiet())).id;
+        let second = Session::begin("Daily", "meeting", LIVE, "pt", log.writer(quiet())).id;
+        let third = Session::begin("Ideias", "idea", LIVE, "pt", log.writer(quiet())).id;
         let (assistant, events) = with_log(&llm(&[]), Arc::clone(&log), false);
         let last = || events.lock().unwrap().last().unwrap().clone();
         let tags_of = |id: &str| {
@@ -4287,7 +4296,7 @@ mod tests {
         let events: Events = Arc::default();
         let sink = Arc::clone(&events);
         let emit: Emit = Arc::new(move |event| sink.lock().unwrap().push(event));
-        let mut stored = Session::begin("Entrevista", "meeting", LIVE, "pt", log.writer());
+        let mut stored = Session::begin("Entrevista", "meeting", LIVE, "pt", log.writer(quiet()));
         stored.hear_at("Recrutador", "Como você migrou?", now());
         let fake = llm(&["ok"]);
         let assistant = Assistant::new(emit, log.clone(), store, no_hooks());
@@ -4322,8 +4331,13 @@ mod tests {
         let (assistant, _) = with_log(&fake, log.clone(), false);
         let ids: Vec<String> = (0..=LOADED_STORED)
             .map(|n| {
-                let mut stored =
-                    Session::begin(&format!("Reunião {n}"), "meeting", LIVE, "pt", log.writer());
+                let mut stored = Session::begin(
+                    &format!("Reunião {n}"),
+                    "meeting",
+                    LIVE,
+                    "pt",
+                    log.writer(quiet()),
+                );
                 stored.hear_at("Ana", &format!("Linha {n}."), now());
                 stored.id.clone()
             })
@@ -4368,8 +4382,13 @@ mod tests {
         let (assistant, events) = with_log(&fake, log.clone(), false);
         let ids: Vec<String> = (0..=LOADED_STORED)
             .map(|n| {
-                let mut stored =
-                    Session::begin(&format!("Reunião {n}"), "meeting", LIVE, "pt", log.writer());
+                let mut stored = Session::begin(
+                    &format!("Reunião {n}"),
+                    "meeting",
+                    LIVE,
+                    "pt",
+                    log.writer(quiet()),
+                );
                 stored.hear_at("Ana", "Bom dia.", now());
                 stored.id.clone()
             })
@@ -4395,7 +4414,7 @@ mod tests {
         let events: Events = Arc::default();
         let sink = Arc::clone(&events);
         let emit: Emit = Arc::new(move |event| sink.lock().unwrap().push(event));
-        let mut stored = Session::begin("Daily", "meeting", LIVE, "pt", log.writer());
+        let mut stored = Session::begin("Daily", "meeting", LIVE, "pt", log.writer(quiet()));
         let answer = stored.suggest("probe", "m", "probe", "Pedido");
         stored.finish(&answer.id);
         // A daemon started after the answer was kept: nothing is loaded.
@@ -4820,7 +4839,7 @@ mod tests {
         assert!(costed, "clients are told what it cost now");
 
         // A request billed before the daemon stopped is priced with the next setup.
-        let mut stopped = Session::begin("Call", "meeting", LIVE, "pt", log.writer());
+        let mut stopped = Session::begin("Call", "meeting", LIVE, "pt", log.writer(quiet()));
         stopped.bill("r0", "whisper", (30.0, 1.0), now());
         assistant.configure(billed_by(&llm, &charges));
         tokio::time::sleep(Duration::from_secs(6)).await;
@@ -4831,7 +4850,7 @@ mod tests {
         assert_eq!(summary["cost"]["transcription_unknown"], false);
 
         // An imported file, a request per segment, is priced once it is in.
-        let mut imported = Session::begin("Aula", "other", IMPORT, "pt", log.writer());
+        let mut imported = Session::begin("Aula", "other", IMPORT, "pt", log.writer(quiet()));
         imported.transcribe_with(HeardBy::Model("whisper".into(), 1, None));
         imported.bill("s1", "whisper", (9.0, 1.0), now());
         imported.bill("s2", "whisper", (4.0, 1.0), now());
@@ -5188,8 +5207,13 @@ mod tests {
     fn stored(log: &SessionFiles) -> Vec<String> {
         (0..3)
             .map(|n| {
-                let mut session =
-                    Session::begin(&format!("Reunião {n}"), "meeting", LIVE, "pt", log.writer());
+                let mut session = Session::begin(
+                    &format!("Reunião {n}"),
+                    "meeting",
+                    LIVE,
+                    "pt",
+                    log.writer(quiet()),
+                );
                 session.hear_at("Ana", "Bom dia.", now());
                 session.id.clone()
             })
@@ -5810,7 +5834,7 @@ mod tests {
     async fn a_stored_session_left_open_that_no_daemon_holds_is_interrupted() {
         let directory = tempfile::tempdir().unwrap();
         let log = Arc::new(SessionFiles::new(directory.path().into()));
-        let mut left = Session::begin("Left", "meeting", LIVE, "pt", log.writer());
+        let mut left = Session::begin("Left", "meeting", LIVE, "pt", log.writer(quiet()));
         left.set_state(PAUSED);
         let fake = llm(&[]);
         let (assistant, events) = with_log(&fake, log.clone(), false);
@@ -5908,7 +5932,7 @@ mod tests {
             ("Retro", [[0.95, 0.05], [0.0, 1.0]]),
         ];
         for (title, voices) in sessions {
-            let mut session = Session::begin(title, "meeting", IMPORT, "pt", log.writer());
+            let mut session = Session::begin(title, "meeting", IMPORT, "pt", log.writer(quiet()));
             session.hear_at("Eu", "Bom dia.", now());
             session.hear_at("Eu", "Oi.", now());
             session.assign_speakers(&["Speaker 1".into(), "Speaker 2".into()]);
@@ -6043,7 +6067,7 @@ mod tests {
         let sink = Arc::clone(&events);
         let emit: Emit = Arc::new(move |event| sink.lock().unwrap().push(event));
         let assistant = Assistant::new(emit, log.clone(), store.clone(), no_hooks());
-        let mut session = Session::begin("Aula", "meeting", IMPORT, "en", log.writer());
+        let mut session = Session::begin("Aula", "meeting", IMPORT, "en", log.writer(quiet()));
         session.hear_at("Eu", "Hello.", now());
         session.assign_speakers(&["Speaker 1".into()]);
         let id = session.id.clone();
@@ -6092,7 +6116,7 @@ mod tests {
 
         // Two voices among the others: the input's first keeps its label, the
         // other's lines move as they are known, and nobody is named.
-        let mut call = Session::begin("Call", "meeting", LIVE, "pt", log.writer());
+        let mut call = Session::begin("Call", "meeting", LIVE, "pt", log.writer(quiet()));
         call.hear_at("Eles", "Oi.", 10.0);
         call.hear_at("Eu", "Olá.", 11.0);
         call.hear_at("Eles", "Tudo bem?", 12.0);
@@ -6179,7 +6203,7 @@ mod tests {
         assert_eq!(prints[1].voice, normalized(vec![0.8, 0.6, 0.0]));
 
         // One voice keeps the participant's label, and is guessed too.
-        let mut chat = Session::begin("Chat", "meeting", LIVE, "pt", log.writer());
+        let mut chat = Session::begin("Chat", "meeting", LIVE, "pt", log.writer(quiet()));
         chat.hear_at("Eles", "Bom dia.", 30.0);
         let mut labels = Labels::default();
         assistant.voices_heard(
@@ -6269,7 +6293,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let people = people_in(directory.path());
         let (assistant, events, log) = stored_with(directory.path(), people.clone());
-        let mut call = Session::begin("Call", "meeting", LIVE, "pt", log.writer());
+        let mut call = Session::begin("Call", "meeting", LIVE, "pt", log.writer(quiet()));
         call.hear_at("Eles", "Oi.", 10.0);
         call.hear_at("Eles", "Tudo bem?", 12.0);
         call.hear_at("Eles", "Vamos.", 14.0);
@@ -6363,7 +6387,7 @@ mod tests {
     fn lines_a_recluster_moved_change_speaker_unless_both_are_named() {
         let directory = tempfile::tempdir().unwrap();
         let (assistant, events, log) = stored_with(directory.path(), people_in(directory.path()));
-        let mut call = Session::begin("Call", "meeting", LIVE, "pt", log.writer());
+        let mut call = Session::begin("Call", "meeting", LIVE, "pt", log.writer(quiet()));
         for (at, text) in [
             (10.0, "Oi."),
             (12.0, "Tudo bem?"),
@@ -6429,7 +6453,7 @@ mod tests {
         let emit: Emit = Arc::new(move |event| sink.lock().unwrap().push(event));
         let assistant = Assistant::new(emit, log.clone(), people.clone(), no_hooks());
         for source in [LIVE, IMPORT] {
-            let mut session = Session::begin(source, "meeting", source, "en", log.writer());
+            let mut session = Session::begin(source, "meeting", source, "en", log.writer(quiet()));
             session.hear_at("Others", "Hello.", now());
             session.rename_speaker("Others", "Ana");
         }
@@ -7073,8 +7097,8 @@ mod tests {
     struct Undeletable(SessionFiles);
 
     impl SessionLog for Undeletable {
-        fn writer(&self) -> crate::ports::RecordSink {
-            self.0.writer()
+        fn writer(&self, alert: crate::ports::LogAlert) -> crate::ports::RecordSink {
+            self.0.writer(alert)
         }
 
         fn index(
@@ -7089,8 +7113,12 @@ mod tests {
             self.0.read(session_id)
         }
 
-        fn append_to(&self, session_id: &str) -> Option<crate::ports::RecordSink> {
-            self.0.append_to(session_id)
+        fn append_to(
+            &self,
+            session_id: &str,
+            alert: crate::ports::LogAlert,
+        ) -> Option<crate::ports::RecordSink> {
+            self.0.append_to(session_id, alert)
         }
 
         fn storage(&self, session_id: &str) -> Option<crate::ports::SessionStorage> {
@@ -7175,7 +7203,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let people = people_in(directory.path());
         let (assistant, events, log) = stored_with(directory.path(), people.clone());
-        let mut call = Session::begin("Call", "meeting", LIVE, "pt", log.writer());
+        let mut call = Session::begin("Call", "meeting", LIVE, "pt", log.writer(quiet()));
         call.hear_at("Eles", "Oi.", 10.0);
         people.keep_voices(&call.id, &voice(&[1.0, 0.0])).unwrap();
         assistant.assign_person(&call.id, "Eles", None, "Ana", None);
@@ -7211,7 +7239,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let people = people_in(directory.path());
         let (assistant, events, log) = stored_with(directory.path(), people.clone());
-        let mut call = Session::begin("Call", "meeting", LIVE, "pt", log.writer());
+        let mut call = Session::begin("Call", "meeting", LIVE, "pt", log.writer(quiet()));
         call.hear_at("Eles", "Oi.", 10.0);
         let id = call.id.clone();
 
@@ -7272,10 +7300,10 @@ mod tests {
             refusing: Default::default(),
         });
         let (assistant, events, log) = stored_with(directory.path(), people.clone());
-        let mut call = Session::begin("Call", "meeting", LIVE, "pt", log.writer());
+        let mut call = Session::begin("Call", "meeting", LIVE, "pt", log.writer(quiet()));
         call.hear_at("Eles", "Oi.", 10.0);
         call.hear_at("Eu", "Olá.", 11.0);
-        let mut other = Session::begin("Other", "meeting", LIVE, "pt", log.writer());
+        let mut other = Session::begin("Other", "meeting", LIVE, "pt", log.writer(quiet()));
         other.hear_at("Eles", "Bom dia.", 5.0);
         people.keep_voices(&call.id, &voice(&[1.0, 0.0])).unwrap();
         people.keep_voices(&other.id, &voice(&[1.0, 0.0])).unwrap();
@@ -7321,7 +7349,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let people = people_in(directory.path());
         let (assistant, events, log) = stored_with(directory.path(), people.clone());
-        let mut call = Session::begin("Call", "meeting", LIVE, "pt", log.writer());
+        let mut call = Session::begin("Call", "meeting", LIVE, "pt", log.writer(quiet()));
         call.hear_at("Eles", "Oi.", 10.0);
         let mut labels = Labels::default();
         assistant.voices_heard(&call.id, "Eles", &alone(10.0, &[1.0, 0.0]), &mut labels);
@@ -7364,7 +7392,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let log = Arc::new(Undeletable(SessionFiles::new(directory.path().into())));
         let (assistant, events, log) = stored_in(log, people_in(directory.path()));
-        let id = Session::begin("Call", "meeting", LIVE, "pt", log.writer()).id;
+        let id = Session::begin("Call", "meeting", LIVE, "pt", log.writer(quiet())).id;
         assistant.delete_session(&id);
         let failed = events.lock().unwrap().last().unwrap().clone();
         assert_eq!(
@@ -7388,7 +7416,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let people = people_in(directory.path());
         let (assistant, events, log) = stored_with(directory.path(), people.clone());
-        let mut call = Session::begin("Call", "meeting", LIVE, "pt", log.writer());
+        let mut call = Session::begin("Call", "meeting", LIVE, "pt", log.writer(quiet()));
         for at in [10.0, 11.0, 12.0] {
             call.hear_at("Eles", "Oi.", at);
         }
@@ -7482,7 +7510,7 @@ mod tests {
     async fn a_timeline_comes_in_pages_that_say_what_is_left() {
         let directory = tempfile::tempdir().unwrap();
         let (assistant, events, log) = stored_with(directory.path(), people_in(directory.path()));
-        let mut stored = Session::begin("Long", "meeting", LIVE, "pt", log.writer());
+        let mut stored = Session::begin("Long", "meeting", LIVE, "pt", log.writer(quiet()));
         for i in 0..5 {
             stored.hear_at("Eles", &format!("fala {i}"), 100.0 + f64::from(i));
         }
@@ -7577,7 +7605,7 @@ mod tests {
         assert_eq!(count(&events, "translated"), 1, "the line, not the note");
 
         // A stored session that translates gets what it lacks when shown.
-        let mut kept = Session::begin("Kept", "meeting", LIVE, "pt", log.writer());
+        let mut kept = Session::begin("Kept", "meeting", LIVE, "pt", log.writer(quiet()));
         kept.set_translation("en");
         kept.hear_at("Eles", "Bom dia.", now());
         kept.set_state(ENDED);
@@ -7586,7 +7614,7 @@ mod tests {
         assert_eq!(last_of(&events, "translated")["session"], json!(kept.id));
 
         // An import still running is not resumed.
-        let importing = Session::begin("Import", "meeting", IMPORT, "pt", log.writer());
+        let importing = Session::begin("Import", "meeting", IMPORT, "pt", log.writer(quiet()));
         assistant.reopen(&importing.id);
         assert_eq!(last_code(&events), "session.not_resumable");
 
@@ -7606,7 +7634,7 @@ mod tests {
             .map(|tag| {
                 // Titles apart: one second and one title name one file.
                 let title = format!("Call {tag}");
-                let id = Session::begin(&title, "meeting", LIVE, "pt", log.writer()).id;
+                let id = Session::begin(&title, "meeting", LIVE, "pt", log.writer(quiet())).id;
                 assistant.tag(&id, tag, true);
                 id
             })
@@ -7859,7 +7887,7 @@ mod tests {
         let ana = Person::new("Ana");
         people.save(&ana).unwrap();
         let (assistant, _, log) = stored_with(directory.path(), people.clone());
-        let mut session = Session::begin("Kickoff", "meeting", LIVE, "pt", log.writer());
+        let mut session = Session::begin("Kickoff", "meeting", LIVE, "pt", log.writer(quiet()));
         session.tag("Q3");
         session.set_state(ENDED);
         let id = session.id.clone();

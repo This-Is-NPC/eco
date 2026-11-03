@@ -2,6 +2,7 @@
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use futures::future::BoxFuture;
 use futures::stream::BoxStream;
@@ -241,6 +242,24 @@ pub type Record = Map<String, Value>;
 /// Where a session's records go, in order.
 pub type RecordSink = Box<dyn FnMut(Record) + Send>;
 
+/// What a session's log tells about writing: once when records stop reaching
+/// the file, and once when they do again.
+#[derive(Debug, Clone, PartialEq)]
+pub enum LogHealth {
+    Unsaved {
+        session: String,
+        path: String,
+        detail: String,
+    },
+    Saved {
+        session: String,
+        path: String,
+    },
+}
+
+/// Hears a log's [`LogHealth`].
+pub type LogAlert = Arc<dyn Fn(LogHealth) + Send + Sync>;
+
 pub struct SessionStorage {
     pub path: String,
     pub bytes: u64,
@@ -248,7 +267,9 @@ pub struct SessionStorage {
 
 pub trait SessionLog: Send + Sync {
     /// A sink for a new session's records; the first is the session itself.
-    fn writer(&self) -> RecordSink;
+    /// Records the log cannot write are kept in memory, in order, and written
+    /// first once it can; `alert` hears when it cannot and when it can again.
+    fn writer(&self, alert: LogAlert) -> RecordSink;
     /// Every stored session's entry in the session index, newest session first
     /// (docs/design.md §8): the one kept for its log while the log is unchanged
     /// and `fresh` holds of it, else the one `entry` makes from the log's
@@ -261,7 +282,7 @@ pub trait SessionLog: Send + Sync {
     /// One session's records, or `None` when there is no such session.
     fn read(&self, session_id: &str) -> Option<Vec<Record>>;
     /// A sink that continues an existing session's records.
-    fn append_to(&self, session_id: &str) -> Option<RecordSink>;
+    fn append_to(&self, session_id: &str, alert: LogAlert) -> Option<RecordSink>;
     fn storage(&self, session_id: &str) -> Option<SessionStorage>;
     fn delete(&self, session_id: &str) -> Result<bool, StoreError>;
 }

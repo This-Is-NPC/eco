@@ -19,7 +19,7 @@ use crate::domain::channel::{
     Listeners, SpeechProbability, Transcriber, Trouble, Utterance, transcribe_channel,
 };
 use crate::domain::diarization::{Diarization, Recording, label_lines};
-use crate::domain::events::{Event, Outages, error};
+use crate::domain::events::{Event, Outages, error, log_alert};
 use crate::domain::segmenter::{Segment, SegmenterConfig};
 use crate::domain::session::{ENDED, HeardBy, IMPORT, Session, now, recorded_at};
 use crate::paths;
@@ -103,7 +103,7 @@ fn begin(
         IMPORT,
         &request.language,
         started_at,
-        log.writer(),
+        log.writer(log_alert(emit)),
     );
     session.transcribe_with(heard);
     emit(json!({

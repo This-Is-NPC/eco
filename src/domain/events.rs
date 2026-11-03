@@ -5,7 +5,9 @@ use std::sync::{Arc, Mutex};
 
 use serde_json::{Map, Value, json};
 
+use crate::domain::assistant::Emit;
 use crate::domain::channel::Trouble;
+use crate::ports::{LogAlert, LogHealth};
 
 pub type Event = Value;
 
@@ -18,6 +20,31 @@ pub fn error(code: &str, message: impl Into<String>, params: Value) -> Event {
         params
     };
     json!({"type": "error", "code": code, "params": params, "message": message.into()})
+}
+
+/// A session log that cannot be written is an error with the path; one that can
+/// be again is a `session_saved` event.
+pub fn log_health(health: &LogHealth) -> Event {
+    match health {
+        LogHealth::Unsaved {
+            session,
+            path,
+            detail,
+        } => error(
+            "session.unsaved",
+            format!("cannot save session {session} to {path}: {detail}"),
+            json!({"session": session, "path": path, "detail": detail}),
+        ),
+        LogHealth::Saved { session, path } => {
+            json!({"type": "session_saved", "session": session, "path": path})
+        }
+    }
+}
+
+/// An alert that tells the clients `emit` reaches.
+pub fn log_alert(emit: &Emit) -> LogAlert {
+    let emit = Arc::clone(emit);
+    Arc::new(move |health| emit(log_health(&health)))
 }
 
 /// `who`'s trouble: speech lost is an error; a streaming transcription or the
@@ -154,6 +181,26 @@ mod tests {
         assert_eq!(
             error("session.none", "start a session first", Value::Null)["params"],
             json!({})
+        );
+    }
+
+    #[test]
+    fn a_log_that_cannot_be_written_is_an_error_with_its_path_and_a_saved_event_after() {
+        let down = log_health(&LogHealth::Unsaved {
+            session: "s1".into(),
+            path: "/data/s1.jsonl".into(),
+            detail: "No space left on device".into(),
+        });
+        assert_eq!(down["code"], "session.unsaved");
+        assert_eq!(down["params"]["path"], "/data/s1.jsonl");
+        assert_eq!(down["params"]["detail"], "No space left on device");
+        let back = log_health(&LogHealth::Saved {
+            session: "s1".into(),
+            path: "/data/s1.jsonl".into(),
+        });
+        assert_eq!(
+            back,
+            json!({"type": "session_saved", "session": "s1", "path": "/data/s1.jsonl"})
         );
     }
 }

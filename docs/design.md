@@ -881,6 +881,15 @@ A session log holds `session`, `state`, `speech`, `suggestion`, `removed`,
 `--no-save` keeps it in memory. A removed suggestion is a `removed` record, and
 it leaves the context of later actions as well as the screen.
 
+**A log that cannot be written** (disk full, permissions) is told, not only
+printed: each session's sink keeps its own state, and clients get one `error`
+event with `"code":"session.unsaved"` and `params` `{session, path, detail}`
+when writes start failing, then one `{"type":"session_saved","session","path"}`
+event when they work again, never one per record. Records that cannot be
+written wait in memory, in order, and are written first once a write works;
+at most 10,000 are held per session, and the ones after that are dropped, so
+the file stays a prefix of the session.
+
 A daemon that stops mid-session leaves it open; the next start marks it
 `paused` and opens with no session. A stored session left open that no daemon
 holds is listed and shown as `interrupted`, never reopened by itself.
