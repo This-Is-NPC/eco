@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use rayon::prelude::*;
 
-use crate::ports::{EmbeddingError, SAMPLE_RATE, SpeakerEmbedder};
+use crate::ports::{EmbeddingError, SAMPLE_RATE, SpeakerEmbedder, Word};
 
 const WINDOW: usize = SAMPLE_RATE as usize * 3 / 2;
 const HOP: usize = WINDOW / 2;
@@ -489,6 +489,100 @@ pub struct HeardLine {
     pub at: f64,
     pub start: f64,
     pub end: f64,
+    /// Its words, timed, when the transcriber times them.
+    pub words: Vec<Word>,
+}
+
+/// The least a part of a line talks, in seconds; a speaker who changes for
+/// less is the diarizer's jitter and stays with the neighbouring part.
+const PART: f64 = 0.5;
+
+/// A stretch of a line said by one speaker, from the word at index `first`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Part {
+    pub first: usize,
+    pub speaker: usize,
+}
+
+/// A heard line with the parts the diarizer divides it in: its time, its words
+/// as written, and one part per speaker's stretch.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Placed {
+    pub at: f64,
+    pub words: Vec<String>,
+    pub parts: Vec<Part>,
+}
+
+/// The parts of a line spanning `[start, end)` with `words`, from `turns`: each
+/// word goes to the speaker who talks most over it, and the line is cut where
+/// that changes, at the word nearest the change. A speaker who talks less than
+/// [`PART`] joins the longer neighbouring part. A line without word times, or
+/// said by one speaker, is one part, by [`speaker_of`]. Empty without turns.
+pub fn parts(turns: &[Turn], words: &[Word], start: f64, end: f64) -> Vec<Part> {
+    let mut runs: Vec<Run> = Vec::new();
+    for (first, word) in words.iter().enumerate() {
+        let Some(speaker) = speaker_of(turns, word.start, word.end) else {
+            return Vec::new();
+        };
+        let talk = (word.end - word.start).max(0.0);
+        runs.push(Run {
+            first,
+            speaker,
+            talk,
+        });
+    }
+    join_same(&mut runs);
+    while runs.len() > 1 {
+        let shortest = (0..runs.len()).min_by(|&a, &b| runs[a].talk.total_cmp(&runs[b].talk));
+        let Some(short) = shortest.filter(|&i| runs[i].talk < PART) else {
+            break;
+        };
+        let run = runs.remove(short);
+        let (before, after) = (
+            short.checked_sub(1),
+            Some(short).filter(|&i| i < runs.len()),
+        );
+        let into = match (before, after) {
+            (Some(b), Some(a)) if runs[a].talk > runs[b].talk => a,
+            (Some(b), _) => b,
+            (None, a) => a.expect("a neighbour remains"),
+        };
+        runs[into].talk += run.talk;
+        runs[into].first = runs[into].first.min(run.first);
+        join_same(&mut runs);
+    }
+    match runs.as_slice() {
+        [_, _, ..] => runs
+            .into_iter()
+            .map(|run| Part {
+                first: run.first,
+                speaker: run.speaker,
+            })
+            .collect(),
+        _ => speaker_of(turns, start, end)
+            .map(|speaker| Part { first: 0, speaker })
+            .into_iter()
+            .collect(),
+    }
+}
+
+/// Consecutive words of one speaker.
+struct Run {
+    first: usize,
+    speaker: usize,
+    talk: f64,
+}
+
+/// Fold neighbouring runs of one speaker into one.
+fn join_same(runs: &mut Vec<Run>) {
+    let mut joined: Vec<Run> = Vec::with_capacity(runs.len());
+    for run in runs.drain(..) {
+        match joined.last_mut() {
+            Some(last) if last.speaker == run.speaker => last.talk += run.talk,
+            _ => joined.push(run),
+        }
+    }
+    *runs = joined;
 }
 
 /// What a session learns of a live input's voices: its lines, by time, with
@@ -496,7 +590,7 @@ pub struct HeardLine {
 /// the latest voice of each speaker involved.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Said {
-    pub lines: Vec<(f64, usize)>,
+    pub lines: Vec<Placed>,
     pub merged: Vec<(usize, usize)>,
     pub voices: BTreeMap<usize, Vec<f32>>,
 }
@@ -504,7 +598,7 @@ pub struct Said {
 /// What became known of a live input's voices, for every session it records for.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Known {
-    pub lines: Vec<(HeardLine, usize)>,
+    pub lines: Vec<(HeardLine, Vec<Part>)>,
     pub merged: Vec<(usize, usize)>,
     pub voices: BTreeMap<usize, Vec<f32>>,
 }
@@ -517,7 +611,11 @@ impl Known {
                 .lines
                 .iter()
                 .filter(|(line, _)| line.session == session)
-                .map(|(line, speaker)| (line.at, *speaker))
+                .map(|(line, parts)| Placed {
+                    at: line.at,
+                    words: line.words.iter().map(|w| w.text.clone()).collect(),
+                    parts: parts.clone(),
+                })
                 .collect(),
             merged: self.merged.clone(),
             voices: self.voices.clone(),
@@ -533,6 +631,8 @@ pub struct Live {
     turns: Vec<Turn>,
     horizon: f64,
     waiting: Vec<HeardLine>,
+    /// Lines with timed words, with the parts last told, while their turns can still change.
+    settled: Vec<(HeardLine, Vec<Part>)>,
     voices: BTreeMap<usize, Vec<f32>>,
     ended: bool,
 }
@@ -572,6 +672,13 @@ impl Live {
             self.voices.insert(speaker, voice);
         }
         let horizon = self.horizon;
+        for (line, told) in &mut self.settled {
+            let now = parts(&self.turns, &line.words, line.start, line.end);
+            if !now.is_empty() && now != *told {
+                Self::tell(&self.voices, line.clone(), now.clone(), &mut known);
+                *told = now;
+            }
+        }
         let (ready, waiting): (Vec<HeardLine>, Vec<HeardLine>) = std::mem::take(&mut self.waiting)
             .into_iter()
             .partition(|line| line.end <= horizon);
@@ -580,6 +687,8 @@ impl Live {
             self.said(line, &mut known);
         }
         self.turns.retain(|t| t.end >= horizon - RECENT);
+        self.settled
+            .retain(|(line, _)| line.start >= horizon - RECENT);
         known
     }
 
@@ -594,13 +703,36 @@ impl Live {
         known
     }
 
-    fn said(&self, line: HeardLine, known: &mut Known) {
-        if let Some(speaker) = speaker_of(&self.turns, line.start, line.end) {
-            if let Some(voice) = self.voices.get(&speaker) {
-                known.voices.entry(speaker).or_insert_with(|| voice.clone());
-            }
-            known.lines.push((line, speaker));
+    fn said(&mut self, line: HeardLine, known: &mut Known) {
+        let parts = parts(&self.turns, &line.words, line.start, line.end);
+        if parts.is_empty() {
+            return;
         }
+        if !line.words.is_empty() {
+            self.settled.push((line.clone(), parts.clone()));
+            if self.settled.len() > WAITING {
+                self.settled.remove(0);
+            }
+        }
+        Self::tell(&self.voices, line, parts, known);
+    }
+
+    /// Tell `line` is said as `parts`, with the voices of their speakers.
+    fn tell(
+        voices: &BTreeMap<usize, Vec<f32>>,
+        line: HeardLine,
+        parts: Vec<Part>,
+        known: &mut Known,
+    ) {
+        for part in &parts {
+            if let Some(voice) = voices.get(&part.speaker) {
+                known
+                    .voices
+                    .entry(part.speaker)
+                    .or_insert_with(|| voice.clone());
+            }
+        }
+        known.lines.push((line, parts));
     }
 }
 
@@ -933,7 +1065,13 @@ mod tests {
             at,
             start,
             end,
+            words: Vec::new(),
         }
+    }
+
+    /// A line said whole by `speaker`.
+    fn whole(speaker: usize) -> Vec<Part> {
+        vec![Part { first: 0, speaker }]
     }
 
     #[test]
@@ -951,17 +1089,21 @@ mod tests {
             voices: vec![(0, vec![1.0, 0.0])],
             merged: Vec::new(),
         });
-        assert_eq!(known.lines, [(line("n1", 100.0, 0.0, 2.0), 0)]);
+        assert_eq!(known.lines, [(line("n1", 100.0, 0.0, 2.0), whole(0))]);
         assert_eq!(known.voices[&0], [1.0, 0.0]);
 
         // Heard after: told at once, with its speaker's voice.
         let known = live.line(line("n2", 101.0, 1.0, 3.0));
-        assert_eq!(known.lines, [(line("n2", 101.0, 1.0, 3.0), 0)]);
+        assert_eq!(known.lines, [(line("n2", 101.0, 1.0, 3.0), whole(0))]);
         assert_eq!(known.voices[&0], [1.0, 0.0]);
         assert_eq!(
             known.of("n2"),
             Said {
-                lines: vec![(101.0, 0)],
+                lines: vec![Placed {
+                    at: 101.0,
+                    words: Vec::new(),
+                    parts: whole(0)
+                }],
                 merged: Vec::new(),
                 voices: known.voices.clone(),
             }
@@ -982,14 +1124,14 @@ mod tests {
         assert_eq!(known.merged, [(0, 1)]);
         assert!(known.lines.is_empty());
         let known = live.line(line("n1", 102.0, 0.0, 1.0));
-        assert_eq!(known.lines[0].1, 1);
+        assert_eq!(known.lines[0].1, whole(1));
         assert_eq!(known.voices.keys().copied().collect::<Vec<_>>(), [1]);
 
         // The diarizer stops: the lines waiting go to the turns it told, and
         // later lines at once.
         assert!(live.line(line("n1", 103.0, 6.5, 7.0)).lines.is_empty());
         let known = live.finish();
-        assert_eq!(known.lines, [(line("n1", 103.0, 6.5, 7.0), 1)]);
+        assert_eq!(known.lines, [(line("n1", 103.0, 6.5, 7.0), whole(1))]);
         assert_eq!(live.line(line("n1", 104.0, 9.0, 10.0)).lines.len(), 1);
     }
 
@@ -1015,10 +1157,129 @@ mod tests {
             merged: Vec::new(),
         });
         assert_eq!(known.lines.len(), WAITING);
-        assert!(known.lines.iter().all(|(_, speaker)| *speaker == 0));
+        assert!(known.lines.iter().all(|(_, parts)| *parts == whole(0)));
         assert!(known.voices.is_empty());
         // Turns further behind than `RECENT` are gone.
         assert_eq!(live.turns, [turn(900.0, 1000.0, 1)]);
         assert!(live.waiting.is_empty());
+    }
+
+    fn turn(start: f64, end: f64, speaker: usize) -> Turn {
+        Turn {
+            start,
+            end,
+            speaker,
+        }
+    }
+
+    /// Words of a second each, from `start`.
+    fn spoken(start: f64, texts: &[&str]) -> Vec<Word> {
+        let words = texts.iter().enumerate().map(|(index, text)| Word {
+            start: start + index as f64,
+            end: start + index as f64 + 1.0,
+            text: (*text).into(),
+        });
+        words.collect()
+    }
+
+    fn firsts(parts: &[Part]) -> Vec<(usize, usize)> {
+        parts.iter().map(|p| (p.first, p.speaker)).collect()
+    }
+
+    #[test]
+    fn a_line_over_two_turns_is_cut_at_the_word_nearest_the_change() {
+        let words = spoken(0.0, &["Tudo", "bem", "com", "voce", "sim", "e", "voce"]);
+        let turns = [turn(0.0, 4.2, 0), turn(4.2, 7.0, 1)];
+        assert_eq!(firsts(&parts(&turns, &words, 0.0, 7.0)), [(0, 0), (4, 1)]);
+        let later = [turn(0.0, 5.1, 0), turn(5.1, 7.0, 1)];
+        assert_eq!(firsts(&parts(&later, &words, 0.0, 7.0)), [(0, 0), (5, 1)]);
+        let back = [turn(0.0, 2.0, 0), turn(2.0, 5.0, 1), turn(5.0, 7.0, 0)];
+        assert_eq!(
+            firsts(&parts(&back, &words, 0.0, 7.0)),
+            [(0, 0), (2, 1), (5, 0)]
+        );
+    }
+
+    #[test]
+    fn a_line_said_by_one_speaker_is_one_part_even_over_a_blip() {
+        let words = spoken(0.0, &["Tudo", "bem", "com", "voce"]);
+        let blip = [turn(0.0, 1.0, 0), turn(1.0, 1.3, 1), turn(1.3, 4.0, 0)];
+        assert_eq!(firsts(&parts(&blip, &words, 0.0, 4.0)), [(0, 0)]);
+        let first = [turn(0.0, 0.3, 1), turn(0.3, 4.0, 0)];
+        assert_eq!(firsts(&parts(&first, &words, 0.0, 4.0)), [(0, 0)]);
+        let one = [turn(0.0, 4.0, 3)];
+        assert_eq!(firsts(&parts(&one, &words, 0.0, 4.0)), [(0, 3)]);
+    }
+
+    #[test]
+    fn a_line_without_word_times_goes_whole_to_who_talks_most() {
+        let turns = [turn(0.0, 1.0, 0), turn(1.0, 4.0, 1)];
+        assert_eq!(firsts(&parts(&turns, &[], 0.0, 4.0)), [(0, 1)]);
+        assert!(parts(&[], &[], 0.0, 4.0).is_empty());
+        let words = spoken(0.0, &["a", "b"]);
+        assert!(parts(&[], &words, 0.0, 2.0).is_empty());
+    }
+
+    fn timed(session: &str, at: f64, words: Vec<Word>) -> HeardLine {
+        HeardLine {
+            start: words[0].start,
+            end: words[words.len() - 1].end,
+            words,
+            ..line(session, at, 0.0, 0.0)
+        }
+    }
+
+    fn heard(end: f64, turns: Vec<Turn>) -> Update {
+        Update {
+            end,
+            turns,
+            voices: vec![(0, vec![1.0, 0.0]), (1, vec![0.0, 1.0])],
+            merged: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn a_live_line_is_cut_again_as_the_turns_change() {
+        let mut live = Live::default();
+        let words = spoken(0.0, &["Tudo", "bem", "com", "voce", "sim", "e", "voce"]);
+        let said = timed("n1", 100.0, words);
+        assert_eq!(live.line(said.clone()), Known::default());
+        let turns = vec![turn(0.0, 4.2, 0), turn(4.2, 7.0, 1)];
+        let known = live.update(heard(8.0, turns));
+        assert_eq!(known.lines.len(), 1);
+        assert_eq!(firsts(&known.lines[0].1), [(0, 0), (4, 1)]);
+        assert_eq!(known.voices.keys().copied().collect::<Vec<_>>(), [0, 1]);
+
+        // The change moves: the line is told again, cut elsewhere.
+        let known = live.update(heard(9.0, vec![turn(4.2, 5.1, 0)]));
+        assert_eq!(known.lines.len(), 1);
+        assert_eq!(firsts(&known.lines[0].1), [(0, 0), (5, 1)]);
+
+        // The two speakers are found to be one: the parts rejoin.
+        let mut joined = heard(10.0, Vec::new());
+        joined.merged = vec![(1, 0)];
+        let known = live.update(joined);
+        assert_eq!(firsts(&known.lines[0].1), [(0, 0)]);
+
+        // Nothing moved: nothing is told.
+        assert!(live.update(heard(11.0, Vec::new())).lines.is_empty());
+    }
+
+    #[test]
+    fn lines_with_words_are_followed_only_while_their_turns_are_kept() {
+        let mut live = Live::default();
+        let old = timed("n1", 1.0, spoken(0.0, &["a", "b"]));
+        live.line(old);
+        live.update(heard(2.0, vec![turn(0.0, 2.0, 0)]));
+        assert_eq!(live.settled.len(), 1);
+        live.update(heard(RECENT + 10.0, vec![turn(RECENT, RECENT + 10.0, 0)]));
+        assert!(live.settled.is_empty());
+        for index in 0..=WAITING {
+            let at = RECENT + 1.0 + index as f64 * 0.001;
+            live.line(timed("n1", at, spoken(RECENT, &["a"])));
+        }
+        assert_eq!(live.settled.len(), WAITING);
+        assert!(live.line(line("n1", 9.0, RECENT, RECENT + 1.0)).lines.len() == 1);
+        assert_eq!(live.settled.len(), WAITING);
     }
 }

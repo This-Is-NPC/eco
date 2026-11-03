@@ -16,7 +16,7 @@ use crate::adapters::stt_openai::wav_bytes;
 use crate::adapters::websocket::{self, Protocol, Reading};
 use crate::ports::{
     BillingError, Frame, Heard, Phrase, SAMPLE_RATE, SpeechToText, StreamingSpeechToText,
-    Transcript, TranscriptionBilling, TranscriptionError,
+    Transcript, TranscriptionBilling, TranscriptionError, Word,
 };
 
 pub struct DeepgramTranscriber {
@@ -128,6 +128,26 @@ fn streaming_models(reply: &Value) -> Vec<String> {
     names
 }
 
+/// The timed words of a reply's `words` array, as Deepgram punctuates them.
+fn timed_words(array: &Value) -> Vec<Word> {
+    let timed = |word: &Value| {
+        Some(Word {
+            start: word["start"].as_f64()?,
+            end: word["end"].as_f64()?,
+            text: word["punctuated_word"]
+                .as_str()
+                .or_else(|| word["word"].as_str())?
+                .into(),
+        })
+    };
+    array
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(timed)
+        .collect()
+}
+
 /// A recorded-audio reply: its utterances as phrases, and the request Deepgram
 /// billed it under.
 fn transcript(reply: &Value) -> Transcript {
@@ -141,6 +161,7 @@ fn transcript(reply: &Value) -> Transcript {
                 start: u["start"].as_f64().unwrap_or(0.0),
                 end: u["end"].as_f64().unwrap_or(0.0),
                 text: text.into(),
+                words: timed_words(&u["words"]),
             })
         })
         .collect();
@@ -238,6 +259,7 @@ impl TranscriptionBilling for DeepgramBilling {
 #[derive(Default)]
 struct Held {
     texts: Vec<String>,
+    words: Vec<Word>,
     start: Option<f64>,
     end: f64,
 }
@@ -250,6 +272,7 @@ impl Held {
                 start,
                 end: held.end,
                 text: held.texts.join(" "),
+                words: held.words,
             }],
             _ => Vec::new(),
         }
@@ -281,6 +304,7 @@ impl Held {
                         .get_or_insert(at(words.first(), "start").unwrap_or(start));
                     self.end = at(words.last(), "end").unwrap_or(start + duration);
                     self.texts.push(transcript.into());
+                    self.words.extend(timed_words(&alternative["words"]));
                 }
                 Ok(if message["speech_final"] == true {
                     Reading::Phrases(self.flush())
@@ -372,7 +396,14 @@ mod tests {
             [Phrase {
                 start: 1.2,
                 end: 2.8,
-                text: "Bom dia, tudo bem?".into()
+                text: "Bom dia, tudo bem?".into(),
+                words: [(1.2, 1.5), (1.5, 1.9), (2.0, 2.3), (2.3, 2.8)]
+                    .map(|(start, end)| Word {
+                        start,
+                        end,
+                        text: "w".into()
+                    })
+                    .to_vec(),
             }]
         );
         let held_on = results("Oi", &[(4.0, 4.2)], false);
@@ -382,6 +413,29 @@ mod tests {
         assert!(phrases(held.read(ended).unwrap()).is_empty());
         let error = r#"{"type":"Error","description":"bad key"}"#;
         assert_eq!(held.read(error).err().unwrap(), "deepgram: bad key");
+    }
+
+    #[test]
+    fn words_are_read_as_punctuated_and_timed() {
+        let reply = serde_json::json!({"results": {"utterances": [{
+            "start": 0.5, "end": 2.0, "transcript": "Bom dia. Tudo bem?",
+            "words": [
+                {"word": "bom", "punctuated_word": "Bom", "start": 0.5, "end": 0.8},
+                {"word": "dia", "start": 0.8, "end": 1.1},
+                {"word": "tudo", "start": 1.2},
+                {"punctuated_word": "bem?", "start": 1.4, "end": 2.0},
+            ],
+        }]}});
+        let said = transcript(&reply).phrases;
+        let words: Vec<(&str, f64, f64)> = said[0]
+            .words
+            .iter()
+            .map(|w| (w.text.as_str(), w.start, w.end))
+            .collect();
+        assert_eq!(
+            words,
+            [("Bom", 0.5, 0.8), ("dia", 0.8, 1.1), ("bem?", 1.4, 2.0)]
+        );
     }
 
     #[test]
@@ -399,7 +453,8 @@ mod tests {
                 phrases: vec![Phrase {
                     start: 0.1,
                     end: 1.4,
-                    text: "Bom dia.".into()
+                    text: "Bom dia.".into(),
+                    words: Vec::new(),
                 }],
                 request: Some("5f0c".into()),
             }
@@ -717,7 +772,12 @@ mod tests {
                 Heard::Phrase(Phrase {
                     start: 0.2,
                     end: 0.9,
-                    text: "Bom dia.".into()
+                    text: "Bom dia.".into(),
+                    words: vec![Word {
+                        start: 0.2,
+                        end: 0.9,
+                        text: "w".into()
+                    }],
                 }),
             ]
         );
@@ -747,7 +807,8 @@ mod tests {
             [Phrase {
                 start: 2.0,
                 end: 3.5,
-                text: "Oi.".into()
+                text: "Oi.".into(),
+                words: Vec::new(),
             }]
         );
         let ended = results("", &[], true);
@@ -761,7 +822,8 @@ mod tests {
                 phrases: vec![Phrase {
                     start: 0.0,
                     end: 0.0,
-                    text: "Oi".into()
+                    text: "Oi".into(),
+                    words: Vec::new(),
                 }],
                 request: None,
             }

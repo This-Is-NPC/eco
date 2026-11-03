@@ -10,7 +10,9 @@ use serde_json::{Value, json};
 use tokio_tungstenite::tungstenite::Message;
 
 use crate::adapters::websocket::{self, Protocol, Reading};
-use crate::ports::{Frame, Heard, Phrase, SAMPLE_RATE, StreamingSpeechToText, TranscriptionError};
+use crate::ports::{
+    Frame, Heard, Phrase, SAMPLE_RATE, StreamingSpeechToText, TranscriptionError, Word,
+};
 
 /// The models Scribe streams with.
 pub const MODELS: [&str; 1] = ["scribe_v2_realtime"];
@@ -80,11 +82,19 @@ fn read(text: &str) -> Result<Reading, String> {
         .map(|words| words.iter().filter(|w| w["type"] == "word").collect())
         .unwrap_or_default();
     let at = |word: Option<&&Value>, key| word.and_then(|w| w[key].as_f64());
+    let timed = |word: &&Value| {
+        Some(Word {
+            start: word["start"].as_f64()?,
+            end: word["end"].as_f64()?,
+            text: word["text"].as_str()?.into(),
+        })
+    };
     match (at(words.first(), "start"), at(words.last(), "end")) {
         (Some(start), Some(end)) if !text.is_empty() => Ok(Reading::Phrases(vec![Phrase {
             start,
             end,
             text: text.into(),
+            words: words.iter().filter_map(timed).collect(),
         }])),
         _ => Ok(Reading::Nothing),
     }
@@ -131,6 +141,18 @@ mod tests {
             start: 0.5,
             end: 1.1,
             text: "Bom dia.".into(),
+            words: vec![
+                Word {
+                    start: 0.5,
+                    end: 0.7,
+                    text: "Bom".into(),
+                },
+                Word {
+                    start: 0.75,
+                    end: 1.1,
+                    text: "dia.".into(),
+                },
+            ],
         }];
         assert!(
             matches!(read(&committed.to_string()).unwrap(), Reading::Phrases(phrases) if phrases == said)
@@ -244,7 +266,12 @@ mod tests {
                 Heard::Phrase(Phrase {
                     start: 0.0,
                     end: 0.6,
-                    text: "Bom dia.".into()
+                    text: "Bom dia.".into(),
+                    words: vec![Word {
+                        start: 0.0,
+                        end: 0.6,
+                        text: "Bom dia.".into(),
+                    }],
                 }),
             ]
         );

@@ -563,6 +563,47 @@ pub enum LineError {
 /// is closer; then half the way to it.
 const SPLIT_STEP: f64 = 0.001;
 
+/// At most this many cut lines are followed.
+const CUTS: usize = 256;
+
+/// A heard line cut in parts: the first word and the time of each part.
+struct Cut {
+    at: f64,
+    parts: Vec<(usize, f64)>,
+}
+
+/// What cutting a line again did to the timeline.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Recut {
+    /// The part `gone` joined `kept`.
+    Merged { kept: Speech, gone: Speech },
+    /// `kept` lost its right part, the new line `new`.
+    Split { kept: Speech, new: Speech },
+}
+
+/// Where each of `words` starts in `text`, in characters, found in order. A
+/// word is found whole: after the start or a space, before the end, a space
+/// or punctuation.
+fn word_offsets(text: &str, words: &[String]) -> Option<Vec<usize>> {
+    let mut from = 0;
+    let mut offsets = Vec::with_capacity(words.len());
+    for word in words {
+        let byte = text[from..]
+            .match_indices(word.as_str())
+            .find_map(|(i, _)| {
+                let (start, end) = (from + i, from + i + word.len());
+                let before = text[..start].chars().next_back();
+                let after = text[end..].chars().next();
+                let opens = before.is_none_or(char::is_whitespace);
+                let closes = after.is_none_or(|c| c.is_whitespace() || c.is_ascii_punctuation());
+                (opens && closes).then_some(start)
+            })?;
+        offsets.push(text[..byte].chars().count());
+        from = byte + word.len();
+    }
+    Some(offsets)
+}
+
 fn as_record(value: Value) -> Record {
     match value {
         Value::Object(map) => map,
@@ -610,6 +651,9 @@ pub struct Session {
     translations: Vec<Translation>,
     /// The user's tags, in the order given, one per name whatever its case.
     tags: Vec<String>,
+    /// The live lines cut by who said their parts, while diarization can still
+    /// move the cuts; never written to the log, which holds the splits.
+    cuts: Vec<Cut>,
     record: RecordSink,
 }
 
@@ -675,6 +719,7 @@ impl Session {
             translation: String::new(),
             translations: Vec::new(),
             tags: Vec::new(),
+            cuts: Vec::new(),
             record,
         }
     }
@@ -711,6 +756,7 @@ impl Session {
             translation: String::new(),
             translations: Vec::new(),
             tags: Vec::new(),
+            cuts: Vec::new(),
             record,
         };
         for item in &records[1..] {
@@ -1491,6 +1537,85 @@ impl Session {
             "new": {"who": new.who, "at": new.at, "text": new.text},
         })));
         Ok((kept, new))
+    }
+
+    fn speech_at(&self, at: f64) -> Option<&Speech> {
+        self.timeline.iter().find_map(|entry| match entry {
+            Entry::Speech(s) if (s.at - at).abs() < 1e-6 => Some(s),
+            _ => None,
+        })
+    }
+
+    /// Who has each part of the live line heard at `at`, and when it was said.
+    fn pieces(&self, at: f64) -> Vec<(String, f64)> {
+        let parts = match self.cuts.iter().find(|cut| cut.at == at) {
+            Some(cut) => cut.parts.iter().map(|part| part.1).collect(),
+            None => vec![at],
+        };
+        let found = parts.into_iter().map(|t| self.speech_at(t));
+        found.flatten().map(|s| (s.who.clone(), s.at)).collect()
+    }
+
+    /// Cut the live line heard at `at`, whose words are `words`, into parts
+    /// that start at the words `firsts`, the first being 0: the parts it has
+    /// are merged and split again, by the records of a merge and a split,
+    /// unless they start where `firsts` says already. Gives what changed and
+    /// who has each part now. A line the user changed, or whose text does not
+    /// hold the words, is left as it is.
+    pub fn recut(
+        &mut self,
+        at: f64,
+        words: &[String],
+        firsts: &[usize],
+    ) -> (Vec<Recut>, Vec<(String, f64)>) {
+        let held = self.cuts.iter().position(|cut| cut.at == at);
+        let parts = match held {
+            Some(index) => self.cuts[index].parts.clone(),
+            None => vec![(0, at)],
+        };
+        let pieces = self.pieces(at);
+        if pieces.len() != parts.len() {
+            self.cuts.retain(|cut| cut.at != at);
+            return (Vec::new(), Vec::new());
+        }
+        if parts.iter().map(|part| part.0).eq(firsts.iter().copied()) {
+            return (Vec::new(), pieces);
+        }
+        let texts: Vec<&str> = pieces
+            .iter()
+            .filter_map(|(_, t)| self.speech_at(*t))
+            .map(|s| s.text.trim())
+            .collect();
+        let text = texts.join(" ");
+        let Some(offsets) = word_offsets(&text, words) else {
+            return (Vec::new(), pieces);
+        };
+        let mut done = Vec::new();
+        let (head_who, head_at) = pieces[0].clone();
+        for (who, t) in &pieces[1..] {
+            if let Ok((kept, gone)) = self.merge_lines((&head_who, head_at), (who, *t)) {
+                done.push(Recut::Merged { kept, gone });
+            }
+        }
+        let mut made = vec![(firsts[0], head_at)];
+        let mut last = (head_who, head_at);
+        for (k, &first) in firsts.iter().enumerate().skip(1) {
+            let base = if k == 1 { 0 } else { offsets[firsts[k - 1]] };
+            let Ok((kept, new)) = self.split_line(&last.0, last.1, offsets[first] - base) else {
+                break;
+            };
+            made.push((first, new.at));
+            last = (new.who.clone(), new.at);
+            done.push(Recut::Split { kept, new });
+        }
+        self.cuts.retain(|cut| cut.at != at);
+        if made.len() > 1 {
+            self.cuts.push(Cut { at, parts: made });
+            if self.cuts.len() > CUTS {
+                self.cuts.remove(0);
+            }
+        }
+        (done, self.pieces(at))
     }
 
     /// Give the lines heard so far, in order, the speakers `who` names.
@@ -3097,6 +3222,154 @@ mod tests {
         );
         let restored = Session::restore(&records, Box::new(|_| {})).unwrap();
         assert_eq!(lines(&restored), lines(&session));
+    }
+
+    fn words(text: &str) -> Vec<String> {
+        text.split_whitespace().map(String::from).collect()
+    }
+
+    fn texts(session: &Session) -> Vec<(String, String)> {
+        let found = lines(session).into_iter();
+        found.map(|(who, text, _)| (who, text)).collect()
+    }
+
+    #[test]
+    fn a_live_line_is_cut_where_asked_moved_and_rejoined_by_records() {
+        let (sink, records) = collecting();
+        let mut session = Session::begin("Call", "meeting", LIVE, "pt", sink);
+        let said = "Tudo bem? Sim e voce";
+        session.hear_at("Eles", said, 10.0);
+        session.hear_at("Eles", "Outra.", 11.0);
+
+        // Cut before the third word: two lines, the right one right below.
+        let (done, pieces) = session.recut(10.0, &words(said), &[0, 2]);
+        assert_eq!(done.len(), 1);
+        assert!(matches!(&done[0], Recut::Split { kept, new }
+            if kept.text == "Tudo bem?" && new.text == "Sim e voce"));
+        assert_eq!(pieces.len(), 2);
+        assert_eq!(pieces[0], ("Eles".to_string(), 10.0));
+        assert_eq!(
+            texts(&session),
+            [
+                ("Eles".into(), "Tudo bem?".into()),
+                ("Eles".into(), "Sim e voce".into()),
+                ("Eles".into(), "Outra.".into())
+            ]
+        );
+
+        // The same cuts again change nothing and write nothing.
+        let written = records.lock().unwrap().len();
+        let (done, again) = session.recut(10.0, &words(said), &[0, 2]);
+        assert!(done.is_empty());
+        assert_eq!(again, pieces);
+        assert_eq!(records.lock().unwrap().len(), written);
+
+        // The change moves: merged, then cut elsewhere, three parts.
+        let (done, pieces) = session.recut(10.0, &words(said), &[0, 1, 3]);
+        assert_eq!(done.len(), 3);
+        assert!(matches!(&done[0], Recut::Merged { kept, gone }
+            if kept.text == said && gone.text == "Sim e voce"));
+        assert_eq!(
+            texts(&session)[..3],
+            [
+                ("Eles".into(), "Tudo".into()),
+                ("Eles".into(), "bem? Sim".into()),
+                ("Eles".into(), "e voce".into())
+            ]
+        );
+        assert_eq!(pieces.len(), 3);
+
+        // One speaker said it all: rejoined into the first line.
+        let (done, pieces) = session.recut(10.0, &words(said), &[0]);
+        assert_eq!(done.len(), 2);
+        assert_eq!(pieces, [("Eles".to_string(), 10.0)]);
+        assert_eq!(texts(&session)[0], ("Eles".into(), said.into()));
+        assert_eq!(texts(&session).len(), 2);
+
+        let records = records.lock().unwrap().clone();
+        let kinds: Vec<&str> = records
+            .iter()
+            .filter_map(|r| r["type"].as_str())
+            .filter(|kind| ["split", "merged"].contains(kind))
+            .collect();
+        assert_eq!(
+            kinds,
+            ["split", "merged", "split", "split", "merged", "merged"]
+        );
+        let restored = Session::restore(&records, Box::new(|_| {})).unwrap();
+        assert_eq!(lines(&restored), lines(&session));
+    }
+
+    #[test]
+    fn words_are_found_whole_and_in_order() {
+        let found = |text: &str, said: &str| word_offsets(text, &words(said));
+        assert_eq!(found("this is it", "is it"), Some(vec![5, 8]));
+        assert_eq!(
+            found("Bom dia, tudo?", "Bom dia, tudo?"),
+            Some(vec![0, 4, 9])
+        );
+        assert_eq!(found("this", "is"), None);
+        assert_eq!(found("is this", "this is"), None);
+    }
+
+    #[test]
+    fn a_line_cut_in_three_is_cut_again_in_two_with_every_text_right() {
+        let mut session = Session::begin("Call", "meeting", LIVE, "pt", Box::new(|_| {}));
+        let said = "Um dois. Tres quatro cinco. Seis sete";
+        let all = words(said);
+        session.hear_at("Eles", said, 10.0);
+        session.recut(10.0, &all, &[0, 2, 5]);
+        let shown = |session: &Session| -> Vec<String> {
+            texts(session).into_iter().map(|(_, t)| t).collect()
+        };
+        assert_eq!(
+            shown(&session),
+            ["Um dois.", "Tres quatro cinco.", "Seis sete"]
+        );
+        session.recut(10.0, &all, &[0, 3]);
+        assert_eq!(
+            shown(&session),
+            ["Um dois. Tres", "quatro cinco. Seis sete"]
+        );
+        session.recut(10.0, &all, &[0, 1, 6]);
+        assert_eq!(
+            shown(&session),
+            ["Um", "dois. Tres quatro cinco. Seis", "sete"]
+        );
+    }
+
+    #[test]
+    fn a_live_line_the_user_changed_or_that_lacks_its_words_stays() {
+        let mut session = Session::begin("Call", "meeting", LIVE, "pt", Box::new(|_| {}));
+        session.hear_at("Eles", "Tudo bem? Sim e voce", 10.0);
+        // Its text does not hold the words: nothing is cut.
+        let (done, pieces) = session.recut(10.0, &words("outras palavras aqui"), &[0, 1]);
+        assert!(done.is_empty());
+        assert_eq!(pieces, [("Eles".to_string(), 10.0)]);
+        // A line gone is not followed.
+        assert_eq!(
+            session.recut(99.0, &words("a b"), &[0, 1]),
+            (vec![], vec![])
+        );
+
+        // A part the user removed: the cuts are forgotten and nothing changes.
+        let said = words("Tudo bem? Sim e voce");
+        session.recut(10.0, &said, &[0, 2]);
+        let part = session.pieces(10.0)[1].clone();
+        assert!(session.unhear(&part.0, part.1));
+        let before = texts(&session);
+        assert_eq!(session.recut(10.0, &said, &[0, 1]), (vec![], vec![]));
+        assert_eq!(texts(&session), before);
+    }
+
+    #[test]
+    fn a_line_with_no_room_to_cut_stays_whole() {
+        let mut session = Session::begin("Call", "meeting", LIVE, "pt", Box::new(|_| {}));
+        session.hear_at("Eles", "um dois tres", 10.0);
+        session.hear_at("Eu", "x", 10.000_001_5);
+        let (done, pieces) = session.recut(10.0, &words("um dois tres"), &[0, 1, 2]);
+        assert!(done.is_empty());
+        assert_eq!(pieces, [("Eles".to_string(), 10.0)]);
     }
 
     #[test]

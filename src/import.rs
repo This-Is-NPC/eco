@@ -437,6 +437,7 @@ mod tests {
                         start: 0.0,
                         end: pcm.len() as f64 / RATE as f64,
                         text: format!("line {call}"),
+                        words: Vec::new(),
                     }],
                     request: Some(format!("request {call}")),
                 })
@@ -477,6 +478,7 @@ mod tests {
                     start: 1.0,
                     end: self.0,
                     text: "all of it".into(),
+                    words: Vec::new(),
                 };
                 let heard = [
                     Heard::Request("stream 1".into()),
