@@ -448,7 +448,14 @@ choice):
 Speakers born in the last minutes are gone: 10 dev and 9 held-out found
 speakers under 5% became 0 and 1. The fourth speaker of IB4001 (about 65 s)
 stays. ES2011a finds 3 of its 4 speakers, where the baseline and the offline
-clustering found 4: two of its speakers end up as one. The
+clustering found 4. The missing one is FEE042, who speaks 24.6 s of the
+meeting's 938 s (2.6%). It is not the 2% fold: with the minimum share at 1% the
+result is the same, and at 0 the meeting splits into 82 speakers. It is the
+linkage: FEE042's stretches sit within 0.5 of another group on average, and
+only a distance of 0.25 separates them, at which confusion goes from 4.1 to
+12.8 and DER from 31.3 to 40.0. Offline linkage over single windows finds a
+fourth group but scores the same DER (31.5), so nothing measurable is lost; no
+guard on the fold fixes it, and none was added. The
 `Speakers::recluster` tests pin both sides of the fold on synthetic data: 20
 windows of 720 (2.8%) stay, 5 of 725 (0.7%) fold. The recorded tail of TS3004a (`tests/fixtures`), which the
 online path split into 8 speakers, comes out as the 4 who spoke.
@@ -473,6 +480,12 @@ the distances add. The machine has 12 cores.
 | Peak memory added | 50 MB | 12 MB (265 MB without, 277 MB with) |
 | Longest step of the hearing thread (a region, or applying a result) | | 20 ms, against a region every 6.1 s |
 | Regions waiting | under 32 | none: a re-cluster never blocks `hear` |
+
+The real child, `eco diarize` from the release build, fed 3.00 h of the same
+meetings through its stdin as 10 s regions (all of it as speech, so more
+windows than the VAD would keep), its peak RSS read from `/proc` while it ran,
+including the clustering at the end of the input: 216 MB, against 191 MB for
+the same run on the commit before re-clustering (58eeb19), 25 MB more.
 
 Before the distances were computed on all cores the slowest re-cluster took
 2.31 s over 3,476 stretches (4.3 h); on one core the 3 h figure would be about 1.3 s,
