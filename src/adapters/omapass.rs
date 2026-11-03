@@ -36,7 +36,9 @@ pub mod testing {
         pub(super) static PROGRAM: RefCell<Option<Option<PathBuf>>> = const { RefCell::new(None) };
     }
 
-    /// Make the calling test's omapass the CLI at `program`, or none.
+    /// Make the calling test's omapass the CLI at `program`, or none; only the
+    /// Unix tests run a stand-in CLI.
+    #[cfg(unix)]
     pub fn use_program(program: Option<PathBuf>) {
         PROGRAM.with_borrow_mut(|chosen| *chosen = Some(program));
     }
