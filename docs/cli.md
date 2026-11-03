@@ -138,7 +138,7 @@ The names, never the keys, a model's key can come from: the daemon's ECO_ and pr
 
 - **Usage**: `eco key set <NAME>`
 
-Store a key as the credential eco:<name>, which a model names with api_key_credential; typed hidden, or read from stdin when it is not a terminal
+Store a key as the credential eco:<name>, which a secret names with `credential`; typed hidden, or read from stdin when it is not a terminal
 
 ### Arguments
 

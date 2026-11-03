@@ -97,17 +97,25 @@ before eco kept prices has none in its log and takes the price the model has
 now; so does audio heard while the model had no price.
 
 ```toml
+[[secrets]]
+name = "deepgram"
+env = "DEEPGRAM_API_KEY"
+
+[[providers]]
+name = "deepgram"
+base_url = "wss://api.deepgram.com/v1/listen"
+secret = "deepgram"
+
 [[models]]
 name = "deepgram"
 type = "transcription"
-base_url = "wss://api.deepgram.com/v1/listen"
+provider = "deepgram"
 model = "nova-3"
-api_key_env = "DEEPGRAM_API_KEY"
 price_per_minute = 0.0077                 # USD; only where the provider reports no cost
 ```
 
 In the window it is the model's **FALLBACK PRICE PER MINUTE, USD (OPTIONAL)**
-field, in **Settings › Models**, on transcription models only.
+field, in **Settings › Models** (**EDIT**), on transcription models only.
 
 An import of 35 seconds on that model, with a key that cannot read usage, so
 each of its twelve requests is priced at it:

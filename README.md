@@ -84,13 +84,16 @@ Then, in the window:
    **Audio** first: a row per device. A fresh install already hears you on the
    default microphone (`Me`) and everybody else on the default output
    (`Them`); change them there if you want other sources.
-2. **Models**: a transcription model and, for answers and translation, a chat
-   model, each named once; pick one and press **DEFAULT FOR TRANSCRIPTION**,
-   or **DEFAULT FOR CHAT**. eco records and transcribes with no chat model. Their
-   keys come from the daemon's environment (`OPENROUTER_API_KEY`,
-   `DEEPGRAM_API_KEY`, `ELEVEN_LABS_API_KEY`, `GROQ_API_KEY`,
-   or one of yours named `ECO_<NAME>`, kept in `~/.config/uwsm/env`) or from
-   your omapass keyring, and **PICK A KEY** lists their names
+2. **Secrets**, **Providers**, **Models**: a secret says where a key lives
+   (the daemon's environment — `OPENROUTER_API_KEY`, `DEEPGRAM_API_KEY`,
+   `ELEVEN_LABS_API_KEY`, `GROQ_API_KEY`, or one of yours named `ECO_<NAME>`,
+   kept in `~/.config/uwsm/env` — or your omapass keyring; **PICK A KEY**
+   lists the names); a provider is an address and the secret its requests
+   carry; a model is registered once on a provider, chat or transcription.
+   eco ships presets for OpenRouter, Deepgram, ElevenLabs and Groq, so with
+   only a key set a session already transcribes and answers. In Models, pick
+   one and press **DEFAULT FOR TRANSCRIPTION** or **DEFAULT FOR CHAT**; **TEST**
+   checks it. eco records and transcribes with no chat model
    ([how to register models](docs/how-to-register-models.md)).
 3. **NEW SESSION** on the start screen, or `SUPER+ALT+N` from anywhere: a title,
    a kind, a language, START.

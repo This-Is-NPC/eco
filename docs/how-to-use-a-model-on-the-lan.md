@@ -74,17 +74,21 @@ In `~/.config/eco/config.toml`:
 [stt]
 model = "whisper-lan"     # every session, unless its kind has its own model
 
+[[providers]]
+name = "lan"
+base_url = "http://192.168.0.200:8081/v1"
+
 [[models]]
 name = "whisper-lan"
 type = "transcription"
-base_url = "http://192.168.0.200:8081/v1"
+provider = "lan"
 model = "whisper-1"
 ```
 
-No key: the server asks for none. **It ignores `model`**; it is sent because
+No secret: a provider with none sends no key; the server asks for none. **It ignores `model`**; it is sent because
 OpenAI's API requires one.
 
-An `http(s)://` base URL is what picks the OpenAI-compatible adapter
+An `http(s)://` provider URL is what picks the OpenAI-compatible adapter
 ([design.md §5](design.md#5-transcription)). It is not streaming: eco's VAD cuts
 the speech into segments, posts each one, keeps up to four in flight, and
 keeps the lines in order. A line shows when its segment is transcribed, not
@@ -109,7 +113,7 @@ own model instead of being the default — `kinds` on the model:
 [[models]]
 name = "whisper-lan"
 type = "transcription"
-base_url = "http://192.168.0.200:8081/v1"
+provider = "lan"
 model = "whisper-1"
 kinds = ["idea"]          # idea sessions transcribe here; the rest keep [stt] model
 ```
@@ -128,10 +132,14 @@ The same machine runs a `llama-server` on port 8080, which speaks OpenAI's chat
 API. It is a chat model like any other:
 
 ```toml
+[[providers]]
+name = "lan-llm"
+base_url = "http://192.168.0.200:8080/v1"
+
 [[models]]
 name = "qwen-lan"
 type = "chat"
-base_url = "http://192.168.0.200:8080/v1"
+provider = "lan-llm"
 model = "qwen3-14b"
 kinds = ["idea"]          # and answer here unless the skill names a model
 ```
@@ -164,10 +172,11 @@ from its cache, in 1.5 s instead of 3.7 s.
 
 ## When there is no LAN server: streaming in the cloud
 
-For live transcription without the machine at home, **Settings › Models** offers
-the **ELEVENLABS** preset when you add a transcription model: ElevenLabs Scribe
-v2 Realtime, reached straight from the daemon. Put `ELEVEN_LABS_API_KEY` in the
-daemon's environment, pick the preset and **SAVE**. It uses
+For live transcription without the machine at home, eco ships the
+**ELEVENLABS** provider and the model `scribe-v2`: ElevenLabs Scribe v2
+Realtime, reached straight from the daemon. Put `ELEVEN_LABS_API_KEY` in the
+daemon's environment and restart eco; in **Settings › Models** the preset is
+enabled, and **DEFAULT FOR TRANSCRIPTION** chooses it. It uses
 `wss://api.elevenlabs.io/v1/speech-to-text/realtime` with the model
 `scribe_v2_realtime`. The session's language is chosen when it starts; `auto`
 lets Scribe detect it. The English replay results are in
