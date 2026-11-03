@@ -69,17 +69,20 @@ Item {
       root.list = root.listOf(view)
       Eco.handle({ type: "session", live: [{ id: "s1", title: "Long", kind: "meeting", state: "recording", active_s: 0, running_since: null }] })
       Eco.showSession("s1")
+      return () => Eco.timelineAsked !== null
     },
     () => {
       root.check("a live session shown asks for its newest page", root.asked({ id: "s1" }))
       Eco.handle(root.page("s1", {}, root.lines(1700, 300), true, false))
       root.check("the newest page fills the timeline", Eco.timeline.count === 300 && Eco.moreBefore && !Eco.moreAfter)
       root.check("a page read back is not new", !Eco.timeline.get(0).fresh)
+      return () => list.contentHeight > list.height
     },
     () => {
       // The user scrolls up to the top of what is held.
       list.following = false
       list.contentY = list.originY
+      return () => Eco.timelineAsked !== null
     },
     () => {
       root.check("nearing the top asks for the page before the oldest entry held", root.asked({ id: "s1", before: 1700 }))
@@ -88,6 +91,7 @@ Item {
       Eco.handle(root.page("s1", { before: 1700 }, root.lines(1400, 300), true, false))
       root.check("the older page goes above", Eco.timeline.count === 600 && Eco.timeline.get(0).at === 1400)
       root.check("no other page is asked for at once", Eco.timelineAsked === null)
+      return () => list.itemAtIndex(root.held + 300) !== null
     },
     () => {
       const kept = list.itemAtIndex(root.held + 300)
@@ -131,11 +135,16 @@ Item {
       root.check("the page around the time fills the timeline", Eco.timeline.count === 100 && Eco.moreBefore && Eco.moreAfter)
       Eco.handle({ type: "note", session: "s2", id: "n1", text: "later", at: 9000 })
       root.check("a new entry does not go below a page short of the newest", Eco.timeline.count === 100)
+      return () => {
+        const entry = list.itemAtIndex(50)
+        return entry !== null && entry.y >= list.contentY && entry.y < list.contentY + list.height
+      }
     },
     () => {
       const middle = list.indexAt(list.width / 2, list.contentY + list.height / 2)
       root.check("the view shows the entry found, not the newest", !list.following && Math.abs(middle - 50) <= 3)
       list.positionViewAtEnd()
+      return () => Eco.timelineAsked !== null
     },
     () => {
       root.check("nearing the end asks for the page after the newest entry held", root.asked({ id: "s2", after: 5099 }))
@@ -147,10 +156,15 @@ Item {
     }
   ]
 
+  // What the step before waits for, so a slow frame never decides a check.
+  property var ready: () => true
   Timer {
-    interval: 100
+    interval: 10
     running: true
     repeat: true
-    onTriggered: if (root.step < root.steps.length) root.steps[root.step++]()
+    onTriggered: {
+      if (root.ready() && root.step < root.steps.length)
+        root.ready = root.steps[root.step++]() || (() => true)
+    }
   }
 }
