@@ -1128,11 +1128,9 @@ sources takes the credential, then omapass, then the variable. Only the daemon
 writes: at start it keeps the old file as `config.toml.bak`, saves the new shape
 atomically, and when either fails it keeps the converted config in memory and
 tells every client `config.convert_failed` (`{detail}`). The CLI and `eco
-doctor` convert in memory and write nothing. Until the settings window edits
-providers and secrets, the `config` snapshot also gives each model its
-provider's `base_url` and its secret's `api_key_*` field, and a `config.set`
-whose models carry those fields points them at a provider and secret by the
-same rule, dropping the ones nothing uses any more.
+doctor` convert in memory and write nothing. The `config`
+snapshot and a `config.set` carry the three lists as they are: a model that
+still carries those fields is refused.
 
 eco ships presets, in `src/presets.rs`: the providers OpenRouter, Deepgram,
 ElevenLabs and Groq, each with a secret of the same name that reads its
@@ -1240,7 +1238,7 @@ login by key — gets `NoStore`, said as such; the tests that need the real
 store stop there with a line on stderr. On Linux the field parses and the
 provider fails with the message that names omapass and the environment.
 
-The window's KEY FROM picks a key by name from one list: the `keys` command
+The Secrets section's PICK A KEY picks a reference by name from one list: the `keys` command
 (§10.2) answers the names of the daemon's environment variables that may hold a
 key and of the Credential Manager's `eco:<name>` credentials, and the `omapass`
 command the accounts. Only names cross the socket; no value is kept or sent.
@@ -1250,21 +1248,21 @@ empty). The `ECO_` variables eco itself sets or reads for its own work
 (`ECO_SOCKET`, `ECO_TOKEN`, `ECO_WINDOW`, `ECO_SESSION`, `ECO_TITLE`, …) are
 `OWN_VARIABLES` in `src/session.rs`, one list, and are never offered. The daemon
 reads its environment when it starts, so a new `ECO_` variable is listed after
-`eco restart`: on Linux set it in `~/.config/uwsm/env`, on Windows among the
-user's environment variables. A credential added on Windows is listed at once,
+`eco restart`: on Linux set it in `~/.config/environment.d/eco.conf`, on Windows
+with `setx` or among the user's environment variables, on macOS with
+`launchctl setenv`. A credential added on Windows is listed at once,
 since the store is searched on each request. `eco key list` prints the three
 lists (§11).
 
-The `models` command (§10.2) lists a provider's models with a key, so it reads a
-key only where a saved provider would: the key source of a saved model, sent to
-that model's `base_url` (a trailing `/` aside); the preset models are among the
-saved ones, so `DEEPGRAM_API_KEY`, `ELEVEN_LABS_API_KEY`, `GROQ_API_KEY` and
-`OPENROUTER_API_KEY` go to their preset's own URL only. The window gets the
-presets from the `config` event (§10.1), so the window and this rule read one
-table. Any other request
-is refused before a key is read, so whatever can write to the socket, an agent
-included, cannot send a secret to a server of its choosing. A draft model with a
-custom URL and a key, or an omapass key, lists once it is saved.
+The `models` command (§10.2) lists the models of a provider the window names
+(`{"target","provider"}`), so it reads a key only for a provider the daemon
+holds, a preset among them, with the secret that provider names, and sends it
+to that provider's `base_url` only. A provider that is not saved is refused with
+`models.provider_unknown` before a key is read, so whatever can write to the
+socket, an agent included, cannot send a secret to a server of its choosing. A
+draft provider lists once it is saved. The `secrets` command answers whether
+each secret resolves, reading it as a provider build would and dropping it: the
+reply carries a boolean and why not, as a code, never the key.
 
 ---
 
@@ -1371,7 +1369,7 @@ session it shows:
 {"type":"import_started","session":{…},"total_s":1834.2}
 {"type":"import_progress","id":"…","done_s":612.5,"total_s":1834.2}
 {"type":"import_done","id":"…","complete":true}
-{"type":"config","config":{...},"devices":[{"id":"@default-input","label":"...","kind":"input"}],"omapass":{"installed":false,"page":"https://plugins.omarchy.org/..."},"credential_manager":false,"presets":{"transcription":[{"name":"ELEVENLABS","values":{"base_url":"wss://api.elevenlabs.io/v1/speech-to-text/realtime","model":"scribe_v2_realtime","api_key_env":"ELEVEN_LABS_API_KEY"}},…],"chat":[{"name":"OPENROUTER","values":{"base_url":"https://openrouter.ai/api/v1","model":"openai/gpt-6-luna","api_key_env":"OPENROUTER_API_KEY","extra":{}}}]},"echo_cancel":null}
+{"type":"config","config":{...},"devices":[{"id":"@default-input","label":"...","kind":"input"}],"omapass":{"installed":false,"page":"https://plugins.omarchy.org/..."},"credential_manager":false,"platform":"linux","presets":{"secrets":[{"name":"OPENROUTER","env":"OPENROUTER_API_KEY"},…],"providers":[{"name":"OPENROUTER","base_url":"https://openrouter.ai/api/v1","secret":"OPENROUTER"},…],"models":[{"name":"gpt-6-luna","type":"chat","provider":"OPENROUTER","model":"openai/gpt-6-luna","reasoning":"off"},…]},"echo_cancel":null}
 {"type":"config_saved"}
 {"type":"config_pending","id":"1","hooks":[{"action":"minutes","command":"~/bin/crm-push"}],"files":["~/notes/cv.md"],"models":[{"name":"fast","base_url":"http://192.0.2.10:8000/v1","api_key_env":null,"api_key_omapass":"openrouter","api_key_credential":null}]}
 {"type":"models","target":"llm","models":["..."],"error":"..."}
@@ -1469,10 +1467,17 @@ other client's answers `config.busy`), `config.approve <token> <id>` and
 empty lists; a client that connects while a change is held is greeted with its
 `config_pending`),
 `session.language <json>`, `models <json>`
-(`{"target","base_url","api_key_env","api_key_omapass","api_key_credential"}`; the key is read only
-with no key source, a saved model's own source at that model's `base_url`, or a
-preset's variable at the preset's URL, as in §9.1; anything else answers `models`
-with `"code":"models.key_refused"` and `params` `{"base_url"}`), `omapass` (its
+(`{"target","provider"}`: the models the saved provider or preset called
+`provider` offers, listed with its own secret and address, as in §9.1; an unknown
+one answers `models` with `"code":"models.provider_unknown"` and `params`
+`{"provider"}`), `secrets` (whether each secret, presets among them, resolves
+now, answered in the background:
+`{"type":"secrets","status":{"OPENROUTER":{"resolved":true},"DEEPGRAM":{"resolved":false,"code":"secret.env_unset","params":{"variable":"DEEPGRAM_API_KEY"}}}}`;
+`code` is `secret.env_unset`, `secret.omapass_missing` (`{account}`),
+`secret.omapass_failed` (`{account,detail}`), `secret.credential_missing`
+(`{credential}`) or `secret.unreadable` (`{detail}`), each with an
+`error.<code>` text; the daemon reads the key to tell and drops it, and no key
+is ever sent), `omapass` (its
 passwords: `{"type":"omapass","installed","accounts":[{"account","folder"}],"error"?}`;
 not installed is `"installed":false`, not an error), `keys` (the names a
 model's key can come from, answered in the background:
@@ -2063,11 +2068,13 @@ the rule in `packaging/hypr/eco.lua` gives it no size, so it keeps that one, and
 centres it on the screen (without `center`, Hyprland would centre it on the
 overlay, past the screen's edge).
 
-**Sections.** Eight, down the left in the kit's `TabRail`, each named for
-the one question it answers: 01 Audio, 02 Models, 03 Languages, 04 Session
-kinds, 05 Prompts, 06 Context, 07 Skills, 08 General (`settings.at`: `audio`,
-`models`, `languages`, `kinds`, `prompts`, `context`, `skills`, `general`) —
-Audio first and Models second, since the sections after it pick from it, and
+**Sections.** Eleven, down the left in the kit's `TabRail`, each named for
+the one question it answers: 01 Audio, 02 Secrets, 03 Providers, 04 Models,
+05 Languages, 06 Session kinds, 07 Prompts, 08 Context, 09 Skills, 10 General,
+11 Appearance (`settings.at`: `audio`, `secrets`, `providers`, `models`,
+`languages`, `kinds`, `prompts`, `context`, `skills`, `general`, `appearance`) —
+Audio first, then the three lists a model is made of in the order they link,
+since the sections after them pick from Models, and
 Models sets the defaults: the chat, translation, review and transcription
 models used where nothing more specific picks one. The rail is a carousel in that order: the section on screen at
 its head beside the bar, the ones after it below, the ones before it coming
@@ -2231,7 +2238,7 @@ asking: unsaved changes are dropped. Leaving is what the user asked for, and
 Qt's own quit, which asks every window first, would stop at the kept settings
 window, which never closes, and leave the process running unseen.
 
-**Keys.** `Ctrl+1`…`Ctrl+8` a section, `Ctrl+Tab` / `Ctrl+Shift+Tab` the next
+**Keys.** `Ctrl+1`…`Ctrl+9` one of the first nine sections, `Ctrl+Tab` / `Ctrl+Shift+Tab` the next
 or previous one; on the rail ↑/↓/Home/End move and Enter or Space opens the
 section. In a section's table ↑/↓ pick a row, Enter or Space opens it, Delete
 deletes it (asking first); in a child table ↑/↓ pick, Delete removes the
@@ -2263,6 +2270,23 @@ table, then closes the window. Keys show only in the shortcuts dialog
   naming the devices no longer heard, whether nobody else is heard (it held the
   only output device) and whether nobody is the user any more. Echoes are set
   under General.
+- **Secrets** (`SecretsSection`, `SecretView`, `SecretFields`): where each
+  key comes from, a row per secret — name, source (environment variable,
+  omapass account or, on Windows, Credential Manager name), the reference and
+  STATE: whether the daemon reads a key from it now, from the `secrets` reply
+  (§10.2), never the key. The window asks again on each `config` event and on
+  CHECK. The presets' secrets follow the user's, dim and read only
+  (`PresetView`); a user secret with a preset's name replaces it. Edited: its
+  name (the providers that use it follow, `Draft.renameItem`), its source and
+  reference, typed or picked from the names the daemon lists, with, beside a
+  variable, how to set it so the daemon sees it: the `config` event's
+  `platform` only chooses the text (Linux `~/.config/environment.d/eco.conf`
+  then `eco restart`, Windows `setx`, macOS `launchctl setenv`). A secret a
+  provider uses is not deleted.
+- **Providers** (`ProvidersSection`, `ProviderView`): a row per provider — name,
+  base URL, secret, and the models that use it. Edited: name (the models follow),
+  base URL and the secret, picked from Secrets or none. The presets' providers
+  follow, read only; a provider a model uses is not deleted.
 - **Models** (`ModelsSection`): the registry and the defaults — a row per
   model, chat and transcription alike: its name, type, the provider's model
   id, DEFAULT (what it is the default for: CHAT, TRANSLATION, REVIEW,
@@ -2273,23 +2297,24 @@ table, then closes the window. Keys show only in the shortcuts dialog
   and dimmed on the model that is already that default (`Draft.defaults`,
   `Draft.makeDefault`); with none picked, DEFAULT FOR CHAT, dimmed. DEFAULT
   FOR REVIEW sets `[reviewer] model` and leaves `enabled` as it is; nothing
-  else in the window picks the reviewer's model. Read: its type, what it is
-  the default for, provider, base URL, model id, where its key comes from, and
+  else in the window picks the reviewer's model. The models eco ships follow the user's with a STATE: PRESET, or PRESET,
+  DISABLED when the snapshot's `disabled_models` names it, whose reason its
+  read-only screen gives and which cannot be made a default; the overlay names
+  them like its own (`Draft.usePresets`). Read: its type, what it is
+  the default for, provider, model id, and
   for chat its REASONING and extra fields, for transcription its price per
   minute; RELATED, what else uses it, grouped by the section that sets each
   use (the skills that name it, and each kind once, under a
   group that says what the kinds in it use it for: assistant, translation or
   both, as the overlay's one resolver, `answering` in
   `overlay/Eco/Core/draft.js`, mirrors the daemon's precedence). Edited: its
-  TYPE while nothing uses it (changing it keeps the name and model id; the
-  provider and key change only when its base URL does not fit the new type),
+  TYPE while nothing uses it (changing it keeps the name, provider and model id),
   its NAME, for chat REASONING (the provider's — or IN EXTRA FIELDS when
   `extra` sets one —, off, low, medium or high: `reasoning`, sent as
   OpenRouter's `reasoning` field and winning over one in `extra`), the
-  provider (a preset of its type or CUSTOM, which shows the base URL), model
+  provider (a chip per provider of Providers, the presets among them), model
   (typed, with the preset's model as an example, or picked from LIST, which
-  closes the list again, as Esc does), key from an environment variable or an
-  omapass password, for transcription a fallback price per minute and, for
+  asks for the saved provider's models and closes the list again, as Esc does), for transcription a fallback price per minute and, for
   chat, the extra JSON sent with each request (EXTRA (JSON)). The chat and
   transcription defaults cannot be deleted; deleting another asks first, listing what
   falls back to which model (as `answering` picks it) and whether the reviewer

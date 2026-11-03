@@ -11,9 +11,12 @@ page: [how to use a model on the LAN](how-to-use-a-model-on-the-lan.md).
 
 ---
 
-A **model** is registered once, in the **Models** section of the settings: a
-name of yours, a type — **chat** or **transcription** —, the provider and the
-provider's id for it, and where its key comes from. The Models table also
+Three lists, each a section of the settings, link by name. A **secret** (the
+**Secrets** section) says where a key comes from: an environment variable, an
+omapass account or a Credential Manager name, never the key. A **provider**
+(**Providers**) is a base URL and the secret its requests carry. A **model**
+(**Models**) is registered once: a name of yours, a type — **chat** or
+**transcription** —, a provider and the provider's id for it. The Models table also
 makes a model the default for chat, translation, review or transcription;
 skills and session kinds may pick another by its name, and never repeat
 a provider or a key. Answers go through one adapter, the
@@ -70,19 +73,19 @@ written to a log. There are two places it can come from on Linux, and two on
 Windows: the environment, and omapass on Linux or the Windows Credential
 Manager on Windows.
 
-**From the environment.** The daemon is usually started from the launcher or a
-Hyprland key, which do not read `.bashrc`, so put the keys in
-`~/.config/uwsm/env`, which the whole Omarchy session reads:
+**From the environment.** The daemon is a systemd user service, so an `export`
+in a shell never reaches it. Put one `NAME=value` line per key, with no
+`export`, in `~/.config/environment.d/eco.conf`, then run `eco restart`:
 
-```bash
-export OPENROUTER_API_KEY=sk-or-…
-export DEEPGRAM_API_KEY=…
+```
+OPENROUTER_API_KEY=sk-or-…
+DEEPGRAM_API_KEY=…
 ```
 
 The variables eco's presets name are `OPENROUTER_API_KEY`, `DEEPGRAM_API_KEY`,
-`ELEVEN_LABS_API_KEY` and `GROQ_API_KEY`. A new value reaches
-the daemon once the session has read the file again: log out and back in, then
-`eco restart`.
+`ELEVEN_LABS_API_KEY` and `GROQ_API_KEY`. The **Secrets** section lists them as
+presets, and says for each whether the daemon reads a key from it now. The
+same section says, beside a variable, how to set it on the system eco runs on.
 
 **A key of your own: name it `ECO_<NAME>`.** `<NAME>` is a placeholder for a
 name of yours, such as `ECO_LAN_KEY`. The model form lists every variable named
@@ -92,8 +95,8 @@ variables (`ECO_SOCKET`, `ECO_TOKEN`, `ECO_WINDOW` and the others it sets for
 its windows and hooks) are never listed. The daemon reads its environment when
 it starts, so a new variable is listed after `eco restart`:
 
-- **On Linux,** add `export ECO_LAN_KEY=…` to `~/.config/uwsm/env`, log out and
-  back in, then `eco restart`.
+- **On Linux,** add `ECO_LAN_KEY=…` to `~/.config/environment.d/eco.conf`,
+  then `eco restart`.
 - **On Windows,** add it under **Settings › System › About › Advanced system
   settings › Environment Variables › User variables** (or run
   `setx ECO_LAN_KEY "…"` in a terminal), then restart eco from a new terminal
@@ -150,11 +153,24 @@ for each key again.
 
 ## 2. Add a chat model
 
-Open the settings (`SUPER+ALT+C`), then **Models**, section 02 (`Ctrl+2`). It
-is a table of the models registered: each one's name, type, the provider's
-model id, what it is the default for and what else uses it.
+Open the settings (`SUPER+ALT+C`). A model needs a provider, and a provider
+that asks for a key needs a secret, so go **Secrets**, **Providers**, **Models**.
 
-![The Models section: the rail of sections down the left, with 02 marked; the bar with ADD MODEL, VIEW, EDIT, the defaults by their short names, a dimmed FOR CHAT, a dimmed FOR TRANSLATION and FOR REVIEW, and a dimmed DELETE; "Register each model once — chat or transcription — with its provider, and make it a default from the bar"; and a table of whisper-lan (TRANSCRIPTION, whisper-large-v3-turbo, default TRANSCRIPTION, used by MEETING, CONVERSATION…), deepgram (TRANSCRIPTION, nova-3, INTERVIEW), gemini-flash (CHAT, google/gemini-2.5-flash, default CHAT · TRANSLATION, MEETING…, picked) and claude-haiku (CHAT, anthropic/claude-haiku-4.5, default REVIEW, minutes).](img/41-settings-models.png)
+**Secrets**, section 02 (`Ctrl+2`): each row is a name and a reference, with
+STATE saying whether the daemon reads a key from it. The presets eco ships are
+listed dim; a variable you set satisfies its preset, and `eco restart` shows it.
+For a key of your own, **ADD SECRET**, name it, pick the source and the
+reference with **PICK A KEY**, **SAVE**. **Providers**, section 03 (`Ctrl+3`):
+**ADD PROVIDER** with a name, the base URL and the secret from the Secrets
+section, or none for a server on your network. The presets are listed there too.
+
+Then **Models**, section 04 (`Ctrl+4`). It
+is a table of the models registered: each one's name, type, the provider's
+model id, what it is the default for, what else uses it and, for the models eco
+ships, that it is a preset. A preset whose key is not set stays in the table,
+dim, as "preset, disabled", with its reason on its screen.
+
+![The Models section: the rail of sections down the left, with 04 marked; the bar with ADD MODEL, VIEW, EDIT, the defaults by their short names, a dimmed FOR CHAT, a dimmed FOR TRANSLATION and FOR REVIEW, and a dimmed DELETE; "Register each model once — chat or transcription — with a provider from the Providers tab…"; and a table of whisper-lan (TRANSCRIPTION, whisper-large-v3-turbo, default TRANSCRIPTION, used by MEETING, CONVERSATION…), deepgram (TRANSCRIPTION, nova-3, INTERVIEW), gemini-flash (CHAT, google/gemini-2.5-flash, default CHAT · TRANSLATION, MEETING…, picked), claude-haiku (CHAT, anthropic/claude-haiku-4.5, default REVIEW, minutes), then the presets, dim where disabled.](img/46-settings-models.png)
 
 **A chat model is optional.** Without one eco records, transcribes and keeps
 notes; the **Prompts**, **Context** and **Skills** sections say NO CHAT MODEL
@@ -164,7 +180,7 @@ and translation pickers — stays on screen, dimmed, its hint saying why. Skip t
 step 3 if you only want transcripts.
 
 **ADD MODEL** opens a new model, marked NEW and EDITING, starting from the
-provider and key source of the last model of its type. The first model of its type
+provider of the last model of its type. The first model of its type
 becomes that type's default on save; any other is the default of nothing until
 step 4 makes it one. Fill it top to bottom:
 
@@ -176,21 +192,12 @@ step 4 makes it one. Fill it top to bottom:
   **HIGH**. **OFF** starts the answer at once, which is what a live
   conversation wants; some models require reasoning and fail without it. It is
   sent as OpenRouter's `reasoning` field.
-- **PROVIDER** — **OPENROUTER**, **GROQ**, or **CUSTOM** for any other
-  OpenAI-compatible base URL.
+- **PROVIDER** — a chip per provider of the Providers section, the presets
+  among them (**OPENROUTER**, **GROQ**…). For any other OpenAI-compatible base
+  URL, add a provider first.
 - **MODEL** — the provider's id, such as `google/gemini-3.5-flash-lite`. Type
-  it, or press **LIST** to ask the provider which models it offers and pick one;
-  the list filters as you type.
-- **KEY FROM** — the key's name, picked with **PICK A KEY**: one list, a
-  title per source, of the names step 1 put where the daemon reads them —
-  **ENVIRONMENT** (the `ECO_<NAME>` variables and the presets' variables that
-  are set), then **OMAPASS** (its accounts) on Linux when omapass is
-  installed, or **CREDENTIAL MANAGER** (the `eco:<name>` credentials) on
-  Windows. Only names are listed, never a secret. **TYPE A NAME…** under a
-  source keeps that source and lets you type a name the list does not show.
-  Without omapass on the machine, an info button beside the picker opens
-  omapass's install page in the browser. With a credential named, a line says
-  how to store that key with `eco key set` or by hand.
+  it, or press **LIST** to ask the saved provider which models it offers and
+  pick one; the list filters as you type. Its key is the provider's secret.
 - **EXTRA (JSON)** — extra fields sent with every request, as a JSON object, such as
   `{"temperature": 0.2}`. A reasoning chosen above wins over one written here.
 
@@ -198,21 +205,21 @@ step 4 makes it one. Fill it top to bottom:
 `settings saved`, and the model's screen shows it read. A save with a field
 missing marks that field and saves nothing:
 
-![A new model saved empty: MODEL NEW EDITING over "new model"; NAME outlined in red with "Give it a name." under it, and MODEL outlined in red with "Set the provider's model id."; SAVE and CANCEL in the bar.](img/54-settings-errors.png)
+![A new model saved empty: MODEL NEW EDITING over "new model"; NAME outlined in red with "Give it a name." under it, and MODEL outlined in red with "Set the provider's model id."; SAVE and CANCEL in the bar.](img/60-settings-errors.png)
 
 A registered model, read: ABOUT says what it is and what it is the default
 for, and RELATED what else uses it, each a link to where that use is set. **EDIT** (`Ctrl+E`) opens the same form; a model
 in use has no TYPE row.
 
-![The gemini-flash model read: BACK, EDIT and DELETE in the bar; ABOUT with TYPE CHAT, DEFAULT FOR CHAT · TRANSLATION, PROVIDER OPENROUTER, BASE URL https://openrouter.ai/api/v1, MODEL ID google/gemini-2.5-flash, KEY FROM env OPENROUTER_API_KEY and REASONING OFF; RELATED with the session kinds, each once, under SESSION KINDS · ASSISTANT + TRANSLATION.](img/42-settings-model.png)
+![The gemini-flash model read: BACK, EDIT and DELETE in the bar; ABOUT with TYPE CHAT, DEFAULT FOR CHAT · TRANSLATION, PROVIDER openrouter, MODEL ID google/gemini-2.5-flash and REASONING OFF; RELATED with the session kinds, each once, under SESSION KINDS · ASSISTANT + TRANSLATION.](img/47-settings-model.png)
 
-![The gemini-flash model being edited: SAVE and CANCEL in the bar; NAME "gemini-flash"; REASONING with OFF lit; PROVIDER with OPENROUTER lit, GROQ and CUSTOM; MODEL "google/gemini-2.5-flash" with LIST; KEY FROM · ENVIRONMENT with "OPENROUTER_API_KEY", an info button and PICK A KEY open below it: ENVIRONMENT with DEEPGRAM_API_KEY, ECO_LAN_KEY, OPENROUTER_API_KEY (chosen) and TYPE A NAME…; the line on eco restart under the field; EXTRA (JSON) holding "{}".](img/43-settings-model-edit.png)
+![The gemini-flash model being edited: SAVE and CANCEL in the bar; NAME "gemini-flash"; REASONING with OFF lit; PROVIDER with openrouter lit among the providers, and a line saying to pick one from the Providers tab; MODEL "google/gemini-2.5-flash" with LIST; EXTRA (JSON) holding "{}".](img/48-settings-model-edit.png)
 
 **BACK** returns to the table.
 
 ## 3. Add a transcription model
 
-**ADD MODEL** again, **TYPE** **TRANSCRIPTION**. The provider presets are:
+**ADD MODEL** again, **TYPE** **TRANSCRIPTION**. The preset providers are:
 
 | preset | how it transcribes | key |
 |---|---|---|
@@ -220,7 +227,7 @@ in use has no TYPE row.
 | **DEEPGRAM** (`nova-3`) | streaming: words appear as they are said | `DEEPGRAM_API_KEY` |
 | **GROQ** (`whisper-large-v3-turbo`) | one phrase at a time, once it ends | `GROQ_API_KEY` |
 
-The base URL decides how: a `wss://` URL streams, an `http(s)://` one is the
+The provider's base URL decides how: a `wss://` URL streams, an `http(s)://` one is the
 OpenAI-compatible `/v1/audio/transcriptions`. How fast each is, measured, is in
 [benchmarks](benchmarks.md).
 
@@ -252,7 +259,7 @@ the chat default translates, and its DEFAULT reads CHAT · TRANSLATION
 (INHERITED).
 
 DEFAULT FOR REVIEW only picks the reviewer's model; it does not turn review on.
-That is **REVIEW ANSWERS**, under the title REVIEWER in **General** (`Ctrl+8`),
+That is **REVIEW ANSWERS**, under the title REVIEWER in **General** (section 10, `Ctrl+Tab` or the rail),
 an ON/OFF saved at once; its row names the reviewer's model beside the value.
 Turned on with no reviewer model picked, the chat default reviews.
 
@@ -261,10 +268,10 @@ pick, **SAVE**:
 
 | section | item | picks |
 |---|---|---|
-| **Session kinds** (`Ctrl+4`) | each kind | per kind of session, its own transcription, assistant and translation models |
-| **Skills** (`Ctrl+7`) | each skill | a model per skill, or the default |
+| **Session kinds** (`Ctrl+6`) | each kind | per kind of session, its own transcription, assistant and translation models |
+| **Skills** (`Ctrl+9`) | each skill | a model per skill, or the default |
 
-![The Session kinds section: ADD KIND, VIEW, EDIT, MAKE DEFAULT and DELETE in the bar; "The default kind is suggested when you create or import a session…"; and a table of Meeting (DEFAULT), Conversation, Other and Idea, each transcribing with "default · whisper-lan" and answering with "default · gemini-flash", and interview, transcribing with deepgram.](img/45-settings-kinds.png)
+![The Session kinds section: ADD KIND, VIEW, EDIT, MAKE DEFAULT and DELETE in the bar; "The default kind is suggested when you create or import a session…"; and a table of Meeting (DEFAULT), Conversation, Other and Idea, each transcribing with "default · whisper-lan" and answering with "default · gemini-flash", and interview, transcribing with deepgram.](img/51-settings-kinds.png)
 
 **A kind can run on its own models.** Open a kind in **Session kinds** to give it a
 transcription, assistant and translation model of its own — an `idea` session on

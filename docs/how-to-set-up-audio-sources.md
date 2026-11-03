@@ -92,7 +92,7 @@ has signal, its row draws its live trace, in its colour, under **LEVEL**.
 
 ## 4. Choose what to do about echoes
 
-Open **General** (`Ctrl+8`). Under its title **AUDIO**, each is an ON/OFF in
+Open **General** (section 10: `Ctrl+Tab`, or the rail). Under its title **AUDIO**, each is an ON/OFF in
 its row, saved at once:
 
 - **DROP ECHOES** — on by default. A line of yours whose words mostly repeat, in

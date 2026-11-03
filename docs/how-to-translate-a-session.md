@@ -97,7 +97,7 @@ that does not translate: it goes into the session's translation language when
 there is one, else into the interface's.
 
 The model that writes them by default is set on the **Settings › Models**
-table (`Ctrl+2`): pick a chat model and press **DEFAULT FOR TRANSLATION**. It
+table (`Ctrl+4`): pick a chat model and press **DEFAULT FOR TRANSLATION**. It
 saves at once, and the model's DEFAULT column says TRANSLATION. Until one is
 set, the chat default translates, and its DEFAULT reads CHAT · TRANSLATION
 (INHERITED). A session kind may pick its own, on its screen in **Settings ›

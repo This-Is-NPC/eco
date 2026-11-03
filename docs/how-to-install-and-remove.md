@@ -196,7 +196,7 @@ eco: daemon running (pid 434054, version 0.1.0)
 `eco status` prints `eco: daemon stopped` and exits 3 when nothing answers, so a
 script can test it.
 
-**To have eco in the tray,** open **Settings › General** (`Ctrl+8`) and
+**To have eco in the tray,** open **Settings › General** (section 10: `Ctrl+Tab`, or the rail) and
 press the **OFF** chip of **SHOW ECO IN THE TRAY** to turn it **ON**: it saves at once, and the
 icon shows in the bar's tray at once (on
 Omarchy it may sit in the drawer behind the `<` arrow). A click opens the
@@ -691,7 +691,7 @@ version` when no daemon runs.
 
 ### From the window
 
-1. Open **Settings › General** (`Ctrl+8`). The **UPDATES** group has three rows:
+1. Open **Settings › General** (section 10: `Ctrl+Tab`, or the rail). The **UPDATES** group has three rows:
    **CHECK FOR UPDATES**, an ON/OFF chip; **VERSION**, with **CHECK NOW** and
    `0.4.0 · up to date · checked 2 h ago` (or `0.4.0 · not checked`,
    `0.4.0 · could not check`),
