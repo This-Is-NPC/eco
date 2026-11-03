@@ -1121,31 +1121,27 @@ fn convert(value: &mut Value) -> bool {
                 text(provider, "base_url")
             })
             .unwrap_or_default();
+        let mut secret_of = |field: &str, source: &str| {
+            let found = secrets
+                .iter()
+                .find(|s| text(s, field).as_deref() == Some(source));
+            match found.and_then(|s| text(s, "name")) {
+                Some(name) => name,
+                None => {
+                    let preset = (field == "env")
+                        .then(|| crate::presets::secret_named(source))
+                        .flatten();
+                    let name = unique(&secrets, preset.unwrap_or(source));
+                    secrets.push(serde_json::json!({"name": name, field: source}));
+                    name
+                }
+            }
+        };
         let secret = match Key::of(env.as_deref(), omapass.as_deref(), credential.as_deref()) {
             Key::None => None,
-            key => {
-                let (env, omapass, credential) = key.fields();
-                let (field, source) = match (env, omapass, credential) {
-                    (Some(name), ..) => ("env", name),
-                    (_, Some(name), _) => ("omapass", name),
-                    (.., Some(name)) => ("credential", name),
-                    _ => unreachable!("a key with a source names one"),
-                };
-                let found = secrets
-                    .iter()
-                    .find(|s| text(s, field).as_deref() == Some(source));
-                Some(match found.and_then(|s| text(s, "name")) {
-                    Some(name) => name,
-                    None => {
-                        let preset = (field == "env")
-                            .then(|| crate::presets::secret_named(source))
-                            .flatten();
-                        let name = unique(&secrets, preset.unwrap_or(source));
-                        secrets.push(serde_json::json!({"name": name, field: source}));
-                        name
-                    }
-                })
-            }
+            Key::Env(name) => Some(secret_of("env", name)),
+            Key::Omapass(name) => Some(secret_of("omapass", name)),
+            Key::Credential(name) => Some(secret_of("credential", name)),
         };
         let found = providers.iter().find(|p| {
             text(p, "base_url").as_deref() == Some(url.as_str()) && text(p, "secret") == secret
@@ -2223,6 +2219,55 @@ translates = ["meeting"]
         let providers: Vec<&str> = config.providers.iter().map(|p| p.name.as_str()).collect();
         assert_eq!(providers, ["OPENROUTER", "lan"]);
         assert_eq!(config.providers[0].secret.as_deref(), Some("OPENROUTER"));
+    }
+
+    #[test]
+    fn a_conversion_follows_a_models_named_provider_and_drops_what_it_leaves() {
+        assert!(!convert(&mut json!(3)));
+        let mut value = json!({
+            "secrets": [{"name": "gone", "env": "G"}, {"name": "shared", "env": "S"}],
+            "providers": [
+                {"name": "old", "base_url": "http://a/v1", "secret": "gone"},
+                {"name": "old2", "base_url": "http://b/v1", "secret": "shared"},
+                {"name": "other", "base_url": "http://c/v1", "secret": "shared"},
+            ],
+            "models": [
+                3,
+                {"name": "keep", "type": "chat", "provider": "other", "model": "m"},
+                {"name": "c1", "type": "chat", "provider": "old", "model": "m",
+                 "api_key_omapass": "acct"},
+                {"name": "c2", "type": "chat", "provider": "old2", "model": "m",
+                 "api_key_omapass": "acct"},
+                {"name": "c3", "type": "chat", "provider": "old", "model": "m",
+                 "api_key_credential": "cred"},
+            ],
+        });
+        assert!(convert(&mut value));
+        let names = |list: &str| -> Vec<String> {
+            value[list]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter_map(|item| item["name"].as_str().map(String::from))
+                .collect()
+        };
+        // A provider no model uses any more goes, and so does a secret no
+        // provider uses; one another provider still uses stays.
+        assert_eq!(names("secrets"), ["shared", "acct", "cred"]);
+        assert_eq!(names("providers"), ["other", "a", "b", "a-2"]);
+        assert_eq!(value["models"][4]["provider"], "a-2");
+        assert_eq!(value["models"][2]["provider"], "a");
+        assert_eq!(value["providers"][1]["secret"], "acct");
+        assert!(value["models"][2].get("api_key_omapass").is_none());
+    }
+
+    #[test]
+    fn a_file_is_not_written_under_a_directory_that_cannot_be_made() {
+        let directory = tempfile::tempdir().unwrap();
+        let file = directory.path().join("file");
+        fs::write(&file, "x").unwrap();
+        assert!(write_atomically(&file.join("config.toml"), b"y").is_err());
+        assert_eq!(fs::read_to_string(&file).unwrap(), "x");
     }
 
     #[test]
