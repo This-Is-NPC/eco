@@ -385,6 +385,8 @@ enum WindowCommand {
     Toggle,
 }
 
+// One value is parsed per run, so the size of its largest variant costs nothing.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Subcommand)]
 enum Bench {
     /// Time to first token of candidate models on OpenRouter (needs OPENROUTER_API_KEY).
@@ -411,6 +413,12 @@ enum Bench {
         /// Windows heard before a small speaker is folded into a larger one, to compare.
         #[arg(long, value_delimiter = ',', default_value = "120")]
         settle: Vec<usize>,
+        /// Distances at which the speech heard is clustered again, to compare.
+        #[arg(long, value_delimiter = ',', default_value = "0.5")]
+        recluster: Vec<f32>,
+        /// Windows of speech heard between two re-clusters, to compare.
+        #[arg(long, value_delimiter = ',', default_value = "400")]
+        every: Vec<usize>,
         /// Seconds forgiven around reference boundaries, half on each side.
         #[arg(long, default_value_t = 0.0)]
         collar: f64,
@@ -549,6 +557,8 @@ impl From<Command> for Run {
                         merge,
                         min_share,
                         settle,
+                        recluster,
+                        every,
                         collar,
                         output,
                         dump,
@@ -560,6 +570,8 @@ impl From<Command> for Run {
                         merges: merge,
                         min_shares: min_share,
                         settles: settle,
+                        reclusters: recluster,
+                        everys: every,
                         collar,
                         output,
                         dump,
@@ -1196,6 +1208,7 @@ mod tests {
             (options.merges, options.min_shares, options.settles),
             (vec![0.3], vec![0.02], vec![120])
         );
+        assert_eq!((options.reclusters, options.everys), (vec![0.5], vec![400]));
         assert_eq!(options.collar, 0.0);
     }
 
@@ -1217,6 +1230,10 @@ mod tests {
             "0.1",
             "--settle",
             "60,120",
+            "--recluster",
+            "0.6,0.7",
+            "--every",
+            "200,400",
             "--collar",
             "0.25",
             "--output",
@@ -1234,6 +1251,10 @@ mod tests {
         assert_eq!(
             (options.merges, options.min_shares, options.settles),
             (vec![0.3, 0.4], vec![0.1], vec![60, 120])
+        );
+        assert_eq!(
+            (options.reclusters, options.everys),
+            (vec![0.6, 0.7], vec![200, 400])
         );
         assert_eq!(options.collar, 0.25);
         assert_eq!(

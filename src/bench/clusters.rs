@@ -6,7 +6,9 @@
 use std::collections::BTreeMap;
 
 use crate::bench::der::{Segment, crop, labels};
-use crate::domain::diarization::{Clustering, Diarization, Recording, Region, Speakers, Turn, dot};
+use crate::domain::diarization::{
+    Clustering, Diarization, Recording, Region, Turn, around, dot, speaker_of, updates,
+};
 
 /// Seconds of speech shared by each reference speaker (rows) and each found
 /// speaker (columns), within the scored regions.
@@ -237,37 +239,47 @@ impl Churn {
     }
 }
 
-/// Who spoke when in `regions`, heard in order as a session hears them, and how
-/// much of what was told changed afterwards.
+/// Who spoke when in `regions`, heard and clustered again as a session does,
+/// and how much of what was told changed afterwards.
 pub fn replay(regions: &[Region], clustering: Clustering) -> (Diarization, Churn) {
-    let mut speakers = Speakers::new(clustering);
+    /// A stretch as told, who has it now, and when that last changed.
+    struct Told {
+        turn: Turn,
+        at: f64,
+        now: usize,
+        changed: f64,
+    }
     let mut recording = Recording::default();
-    // Each stretch as told, and when; each speaker joined, into whom, and when.
-    let mut told: Vec<(Turn, f64)> = Vec::new();
-    let mut joined: BTreeMap<usize, (usize, f64)> = BTreeMap::new();
-    for region in regions {
-        let update = speakers.hear(region);
-        told.extend(update.turns.iter().map(|t| (t.clone(), update.end)));
-        joined.extend(
-            update
-                .merged
-                .iter()
-                .map(|&(gone, kept)| (gone, (kept, update.end))),
-        );
+    let mut told: Vec<Told> = Vec::new();
+    for update in updates(regions, clustering) {
+        let end = update.end;
+        let changes = !update.merged.is_empty() || !update.moved.is_empty();
+        told.extend(update.turns.iter().map(|turn| Told {
+            turn: turn.clone(),
+            at: end,
+            now: turn.speaker,
+            changed: end,
+        }));
         recording.apply(update);
+        if !changes {
+            continue;
+        }
+        for stretch in &mut told {
+            let near = around(recording.turns(), stretch.turn.start, stretch.turn.end);
+            let speaker = speaker_of(near, stretch.turn.start, stretch.turn.end);
+            if let Some(speaker) = speaker.filter(|&s| s != stretch.now) {
+                (stretch.now, stretch.changed) = (speaker, end);
+            }
+        }
     }
     let mut churn = Churn::default();
-    for (turn, at) in &told {
-        let seconds = turn.end - turn.start;
+    for stretch in &told {
+        let seconds = stretch.turn.end - stretch.turn.start;
         churn.speech += seconds;
-        let (mut speaker, mut changed) = (turn.speaker, *at);
-        while let Some(&(kept, when)) = joined.get(&speaker) {
-            (speaker, changed) = (kept, when);
-        }
-        if changed > *at {
+        if stretch.changed > stretch.at {
             churn.changed += seconds;
-            churn.wrong += seconds * (changed - at);
-            churn.longest = churn.longest.max(changed - at);
+            churn.wrong += seconds * (stretch.changed - stretch.at);
+            churn.longest = churn.longest.max(stretch.changed - stretch.at);
         }
     }
     (recording.finish(), churn)
@@ -435,6 +447,7 @@ mod tests {
             merge: 0.34,
             min_share: 0.0,
             settle: 0,
+            ..Clustering::default()
         };
         let at = |degrees: f32| (degrees.to_radians().cos(), degrees.to_radians().sin());
         let regions = heard(&[at(0.0), at(0.0), at(60.0), at(40.0), at(40.0)]);

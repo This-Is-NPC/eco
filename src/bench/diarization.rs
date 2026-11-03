@@ -35,6 +35,10 @@ pub struct Options {
     pub min_shares: Vec<f32>,
     /// Windows heard before a small speaker is folded, to compare.
     pub settles: Vec<usize>,
+    /// Distances at which the speech heard is clustered again, to compare.
+    pub reclusters: Vec<f32>,
+    /// Windows of speech heard between two re-clusters, to compare.
+    pub everys: Vec<usize>,
     /// Seconds forgiven around each reference boundary, half on each side.
     pub collar: f64,
     /// Where to write eco's turns as `<name>.rttm`, for the first threshold.
@@ -178,6 +182,32 @@ impl Meeting {
     }
 }
 
+/// Every clustering the options ask to compare.
+fn combinations(options: &Options) -> Vec<Clustering> {
+    let mut all = Vec::new();
+    for &threshold in &options.thresholds {
+        for &merge in &options.merges {
+            for &min_share in &options.min_shares {
+                for &settle in &options.settles {
+                    for &recluster in &options.reclusters {
+                        for &every in &options.everys {
+                            all.push(Clustering {
+                                threshold,
+                                merge,
+                                min_share,
+                                settle,
+                                recluster,
+                                every,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+    all
+}
+
 fn found(turns: &[Turn]) -> usize {
     turns.iter().map(|t| t.speaker + 1).max().unwrap_or(0)
 }
@@ -273,97 +303,92 @@ pub async fn run(options: Options) -> Result<()> {
         })
         .collect();
     let mut first = true;
-    for &threshold in &options.thresholds {
-        for &merge in &options.merges {
-            for &min_share in &options.min_shares {
-                for &settle in &options.settles {
-                    let clustering = Clustering {
-                        threshold,
-                        merge,
-                        min_share,
-                        settle,
-                    };
-                    println!(
-                        "\nonline: threshold {threshold}, merge {merge}, min share {min_share}, settle {settle}; offline: average linkage at {OFFLINE_THRESHOLD}, min share {offline_share}"
-                    );
-                    println!("{COLUMNS}");
-                    let (mut all, mut agreement, mut churn) =
-                        (Score::default(), Agreement::default(), Churn::default());
-                    let (mut off, mut off_agreement) = (Score::default(), Agreement::default());
-                    let mut extras = 0;
-                    let mut details = Vec::new();
-                    for (meeting, offline) in meetings.iter().zip(&offline) {
-                        let (online, moved) = replay(&meeting.regions, clustering);
-                        if let Some(dir) = options.output.as_ref().filter(|_| first) {
-                            write_rttm(
-                                &dir.join(format!("{}.rttm", meeting.name)),
-                                &meeting.name,
-                                &online.turns,
-                            )?;
-                        }
-                        let voices = online.voices;
-                        let evaluation = meeting.evaluate(online.turns, options.collar);
-                        let (result, offline_result) = (evaluation.result, offline.result);
-                        let speakers = evaluation.overlap.reference.len();
-                        let lives =
-                            lifetimes(&evaluation.turns, &meeting.centres, &evaluation.overlap);
-                        let under = small(&lives);
-                        println!(
-                            "{:10} {speakers:>8} {:>5} {:>6} {:>7} {:>7} {:>5} {:>6} {:>5} {under:>3} {:>6} {:>6.0} | {:>9} {:>4} {:>6} {:>5}",
-                            meeting.name,
-                            found(&evaluation.turns),
-                            percent(result.missed, &result),
-                            percent(result.false_alarm, &result),
-                            percent(result.confusion, &result),
-                            format!("{:.1}", 100.0 * result.der()),
-                            ratio(evaluation.agreement.purity()),
-                            ratio(evaluation.agreement.coverage()),
-                            ratio(moved.changed / moved.speech),
-                            moved.stayed(),
-                            found(&offline.turns),
-                            format!("{:.1}", 100.0 * offline_result.der()),
-                            ratio(offline.agreement.purity()),
-                            ratio(offline.agreement.coverage()),
-                        );
-                        all.add(result);
-                        agreement.add(evaluation.agreement);
-                        churn.add(moved);
-                        off.add(offline_result);
-                        off_agreement.add(offline.agreement);
-                        extras += under;
-                        if first {
-                            details.push((meeting, evaluation, voices));
-                        }
-                    }
-                    println!(
-                        "{:10} {:>8} {:>5} {:>6} {:>7} {:>7} {:>5} {:>6} {:>5} {extras:>3} {:>6} {:>6.0} | {:>9} {:>4} {:>6} {:>5}",
-                        "all",
-                        "",
-                        "",
-                        percent(all.missed, &all),
-                        percent(all.false_alarm, &all),
-                        percent(all.confusion, &all),
-                        format!("{:.1}", 100.0 * all.der()),
-                        ratio(agreement.purity()),
-                        ratio(agreement.coverage()),
-                        ratio(churn.changed / churn.speech),
-                        churn.stayed(),
-                        "",
-                        format!("{:.1}", 100.0 * off.der()),
-                        ratio(off_agreement.purity()),
-                        ratio(off_agreement.coverage()),
-                    );
-                    println!(
-                        "churn: {:.0} s of {:.0} s changed speaker after being told; longest {:.0} s",
-                        churn.changed, churn.speech, churn.longest
-                    );
-                    for (meeting, evaluation, voices) in details {
-                        print_detail(meeting, &evaluation, &voices);
-                    }
-                    first = false;
-                }
+    for clustering in combinations(&options) {
+        let Clustering {
+            threshold,
+            merge,
+            min_share,
+            settle,
+            recluster,
+            every,
+        } = clustering;
+        println!(
+            "\nonline: threshold {threshold}, merge {merge}, min share {min_share}, settle {settle}; re-cluster at {recluster} every {every} windows; offline: average linkage at {OFFLINE_THRESHOLD}, min share {offline_share}"
+        );
+        println!("{COLUMNS}");
+        let (mut all, mut agreement, mut churn) =
+            (Score::default(), Agreement::default(), Churn::default());
+        let (mut off, mut off_agreement) = (Score::default(), Agreement::default());
+        let mut extras = 0;
+        let mut details = Vec::new();
+        for (meeting, offline) in meetings.iter().zip(&offline) {
+            let (online, moved) = replay(&meeting.regions, clustering);
+            if let Some(dir) = options.output.as_ref().filter(|_| first) {
+                write_rttm(
+                    &dir.join(format!("{}.rttm", meeting.name)),
+                    &meeting.name,
+                    &online.turns,
+                )?;
+            }
+            let voices = online.voices;
+            let evaluation = meeting.evaluate(online.turns, options.collar);
+            let (result, offline_result) = (evaluation.result, offline.result);
+            let speakers = evaluation.overlap.reference.len();
+            let lives = lifetimes(&evaluation.turns, &meeting.centres, &evaluation.overlap);
+            let under = small(&lives);
+            println!(
+                "{:10} {speakers:>8} {:>5} {:>6} {:>7} {:>7} {:>5} {:>6} {:>5} {under:>3} {:>6} {:>6.0} | {:>9} {:>4} {:>6} {:>5}",
+                meeting.name,
+                found(&evaluation.turns),
+                percent(result.missed, &result),
+                percent(result.false_alarm, &result),
+                percent(result.confusion, &result),
+                format!("{:.1}", 100.0 * result.der()),
+                ratio(evaluation.agreement.purity()),
+                ratio(evaluation.agreement.coverage()),
+                ratio(moved.changed / moved.speech),
+                moved.stayed(),
+                found(&offline.turns),
+                format!("{:.1}", 100.0 * offline_result.der()),
+                ratio(offline.agreement.purity()),
+                ratio(offline.agreement.coverage()),
+            );
+            all.add(result);
+            agreement.add(evaluation.agreement);
+            churn.add(moved);
+            off.add(offline_result);
+            off_agreement.add(offline.agreement);
+            extras += under;
+            if first {
+                details.push((meeting, evaluation, voices));
             }
         }
+        println!(
+            "{:10} {:>8} {:>5} {:>6} {:>7} {:>7} {:>5} {:>6} {:>5} {extras:>3} {:>6} {:>6.0} | {:>9} {:>4} {:>6} {:>5}",
+            "all",
+            "",
+            "",
+            percent(all.missed, &all),
+            percent(all.false_alarm, &all),
+            percent(all.confusion, &all),
+            format!("{:.1}", 100.0 * all.der()),
+            ratio(agreement.purity()),
+            ratio(agreement.coverage()),
+            ratio(churn.changed / churn.speech),
+            churn.stayed(),
+            "",
+            format!("{:.1}", 100.0 * off.der()),
+            ratio(off_agreement.purity()),
+            ratio(off_agreement.coverage()),
+        );
+        println!(
+            "churn: {:.0} s of {:.0} s changed speaker after being told; longest {:.0} s",
+            churn.changed, churn.speech, churn.longest
+        );
+        for (meeting, evaluation, voices) in details {
+            print_detail(meeting, &evaluation, &voices);
+        }
+        first = false;
     }
     if let Some(peak) = peak_rss_mb() {
         println!("\npeak RSS {peak:.0} MB");

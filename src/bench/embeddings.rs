@@ -105,7 +105,7 @@ mod tests {
     /// The last 7 minutes of AMI TS3004a (CC BY 4.0): CAM++ embeddings of its
     /// 433 windows and the reference turns of the same stretch.
     #[test]
-    fn the_online_path_splits_the_tail_of_ts3004a_into_extra_short_speakers() {
+    fn clustering_the_tail_of_ts3004a_again_folds_the_extra_short_speakers() {
         let regions = read(include_bytes!("../../tests/fixtures/ami-TS3004a-tail.emb")).unwrap();
         let reference =
             parse_rttm(include_str!("../../tests/fixtures/ami-TS3004a-tail.rttm")).unwrap();
@@ -127,27 +127,23 @@ mod tests {
             .map(|w| (w.0 + w.1) / 2.0)
             .collect();
         let lives = lifetimes(&found.turns, &centres, &overlap);
-        // Three people spoke; five extra speakers of 1 to 2 windows were born
-        // in the last minutes and never settled.
-        assert_eq!(lives.len(), 8);
-        assert_eq!(small(&lives), 5);
-        assert!(
-            lives[3..]
-                .iter()
-                .all(|l| l.windows <= 2 && l.first > 1290.0)
-        );
+        // Online, four people who spoke were eight speakers: four extra of 1
+        // to 2 windows, born in the last minutes, never settled. At the end
+        // they are folded into the four.
+        assert_eq!(lives.len(), 4);
+        assert_eq!(small(&lives), 0);
+        assert!(lives.iter().all(|l| l.windows >= 80));
         let agreement = Agreement::of(&overlap);
         assert_eq!(
             (percent(agreement.purity()), percent(agreement.coverage())),
-            (64, 79)
+            (77, 77)
         );
-        assert_eq!((churn.changed.round(), churn.longest.round()), (5.0, 109.0));
+        assert_eq!(
+            (churn.changed.round(), churn.longest.round()),
+            (81.0, 312.0)
+        );
         let spread = spread(&margins(&regions, &found.voices)).unwrap();
         assert_eq!(spread.windows, 433);
-        assert_eq!(
-            spread.below.map(|share| (share * 100.0).round()),
-            [3.0, 4.0, 11.0]
-        );
     }
 
     fn percent(share: f64) -> i64 {

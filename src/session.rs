@@ -5578,6 +5578,7 @@ mod tests {
             }],
             voices: vec![(0, vec![1.0; 4])],
             merged: Vec::new(),
+            moved: Vec::new(),
         });
         let (diarizer, counted) = diarizer(vec![heard], vec![Diarized::Done]);
         let voices = voices(&assistant, &emit, "Eles", &diarizer).unwrap();

@@ -212,6 +212,18 @@ Windows heard before a small speaker is folded into a larger one, to compare
 
 **Default:** `120`
 
+#### `--recluster… <RECLUSTER>`
+
+Distances at which the speech heard is clustered again, to compare
+
+**Default:** `0.5`
+
+#### `--every… <EVERY>`
+
+Windows of speech heard between two re-clusters, to compare
+
+**Default:** `400`
+
 #### `--collar <COLLAR>`
 
 Seconds forgiven around reference boundaries, half on each side

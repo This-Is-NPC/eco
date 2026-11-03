@@ -2,7 +2,10 @@
 //! to the system when it exits. Speech regions go to its stdin as
 //! `start (u64 LE, samples) · length (u32 LE) · samples (i16 LE)`; as soon as it
 //! has heard a region it prints one JSON line,
-//! `{"end": s, "turns": [[start, end, speaker], …], "voices": [[speaker, […]], …], "merged": [[gone, kept], …]}`.
+//! `{"end": s, "turns": [[start, end, speaker], …], "voices": [[speaker, […]], …], "merged": [[gone, kept], …], "moved": [[start, end, from, to], …]}`.
+//! Every few minutes of speech, and when its input ends, it clusters the speech
+//! it kept again on a thread of its own and prints one more line of the same
+//! shape: no turns, the stretches that went to another speaker as `moved`.
 
 use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
@@ -15,9 +18,11 @@ use std::thread;
 use serde_json::{Value, json};
 
 use crate::adapters::speaker_tract::TractEmbedder;
-use crate::domain::diarization::{Clustering, Diarizer, Turn, Update};
+use crate::domain::diarization::{
+    Clustering, Diarizer, Moved, Recluster, Reclustered, Turn, Update,
+};
 use crate::domain::segmenter::Segment;
-use crate::ports::SAMPLE_RATE;
+use crate::ports::{SAMPLE_RATE, SpeakerEmbedder};
 
 /// Speech regions that wait, at most, for the child; a region is at most 15 s
 /// (480 kB).
@@ -117,7 +122,15 @@ fn to_json(update: &Update) -> Value {
         .iter()
         .map(|t| json!([t.start, t.end, t.speaker]))
         .collect();
-    json!({"end": update.end, "turns": turns, "voices": update.voices, "merged": update.merged})
+    let moved: Vec<Value> = update
+        .moved
+        .iter()
+        .map(|m| json!([m.start, m.end, m.from, m.to]))
+        .collect();
+    json!({
+        "end": update.end, "turns": turns, "voices": update.voices,
+        "merged": update.merged, "moved": moved,
+    })
 }
 
 fn parse(text: &str) -> Option<Update> {
@@ -127,6 +140,7 @@ fn parse(text: &str) -> Option<Update> {
         turns: Vec<(f64, f64, usize)>,
         voices: Vec<(usize, Vec<f32>)>,
         merged: Vec<(usize, usize)>,
+        moved: Vec<(f64, f64, usize, usize)>,
     }
     let reply: Reply = serde_json::from_str(text).ok()?;
     let turns = reply
@@ -143,6 +157,16 @@ fn parse(text: &str) -> Option<Update> {
         turns,
         voices: reply.voices,
         merged: reply.merged,
+        moved: reply
+            .moved
+            .into_iter()
+            .map(|(start, end, from, to)| Moved {
+                start,
+                end,
+                from,
+                to,
+            })
+            .collect(),
     })
 }
 
@@ -251,18 +275,54 @@ pub fn serve(model: &Path) -> anyhow::Result<()> {
 }
 
 /// `serve`, reading regions from `input` and writing what each told to `out`.
-fn serve_on(model: &Path, input: impl Read, mut out: impl Write) -> anyhow::Result<()> {
+fn serve_on(model: &Path, input: impl Read, out: impl Write) -> anyhow::Result<()> {
     let embedder = TractEmbedder::load(model).map_err(|e| anyhow::anyhow!(e.0))?;
-    let mut diarizer = Diarizer::new(&embedder, Clustering::default());
+    serve_with(&embedder, Clustering::default(), input, out)
+}
+
+/// `serve_on` with `embedder` and `clustering`. A re-cluster runs on a thread
+/// of its own, and its result is told between two regions; the speech is
+/// clustered once more, after the last re-cluster, when the input ends.
+fn serve_with(
+    embedder: &dyn SpeakerEmbedder,
+    clustering: Clustering,
+    input: impl Read,
+    mut out: impl Write,
+) -> anyhow::Result<()> {
+    let mut diarizer = Diarizer::new(embedder, clustering);
+    let mut tell = |update: &Update| -> std::io::Result<()> {
+        writeln!(out, "{}", to_json(update))?;
+        out.flush()
+    };
+    let mut working: Option<thread::JoinHandle<Reclustered>> = None;
     let mut input = BufReader::new(input);
     while let Some(region) = read_region(&mut input)? {
         let start = region.start as f64 / f64::from(SAMPLE_RATE);
         let update = diarizer
             .add(start, &region.pcm)
             .map_err(|e| anyhow::anyhow!(e.0))?;
-        writeln!(out, "{}", to_json(&update))?;
-        out.flush()?;
+        tell(&update)?;
+        if working
+            .as_ref()
+            .is_some_and(thread::JoinHandle::is_finished)
+        {
+            let found = working.take().and_then(|worker| worker.join().ok());
+            let moved = found.and_then(|found| diarizer.regroup(&found));
+            moved.iter().try_for_each(&mut tell)?;
+        }
+        if working.is_none() && diarizer.due() {
+            working = diarizer
+                .snapshot()
+                .map(|job| thread::spawn(move || job.run()));
+        }
     }
+    // A re-cluster still running is older than the one that ends the input.
+    if let Some(worker) = working {
+        let _ = worker.join();
+    }
+    let last = diarizer.snapshot().map(Recluster::run);
+    let moved = last.and_then(|found| diarizer.regroup(&found));
+    moved.iter().try_for_each(&mut tell)?;
     Ok(())
 }
 
@@ -284,6 +344,12 @@ mod tests {
             }],
             voices: vec![(1, vec![0.6, 0.8])],
             merged: vec![(0, 1)],
+            moved: vec![Moved {
+                start: 1.0,
+                end: 1.5,
+                from: 2,
+                to: 1,
+            }],
         }
     }
 
@@ -373,7 +439,7 @@ cat > input
     }
 
     #[cfg(unix)]
-    const REPLY: &str = r#"{"end": 3.25, "turns": [[1.5, 3.25, 1]], "voices": [[1, [0.6, 0.8]]], "merged": [[0, 1]]}"#;
+    const REPLY: &str = r#"{"end": 3.25, "turns": [[1.5, 3.25, 1]], "voices": [[1, [0.6, 0.8]]], "merged": [[0, 1]], "moved": [[1.0, 1.5, 2, 1]]}"#;
 
     #[cfg(unix)]
     #[test]
@@ -480,6 +546,77 @@ cat > input
         );
         let unknown = told(Err(std::io::Error::other("no exe")), &[]);
         assert_eq!(unknown, [Diarized::Failed("no exe".into())]);
+    }
+
+    /// A voice by the first sample of a clip: 100 is the first speaker, 50
+    /// sounds like a mix of both at first, and anything else is the second,
+    /// whose clips take long enough for a re-cluster on its thread to be done.
+    struct ByFirstSample;
+
+    impl SpeakerEmbedder for ByFirstSample {
+        fn embed(&self, pcm: &[i16]) -> Result<Vec<f32>, crate::ports::EmbeddingError> {
+            Ok(match pcm[0] {
+                100 => vec![1.0, 0.0],
+                50 => vec![0.6, 0.8],
+                _ => {
+                    thread::sleep(std::time::Duration::from_millis(20));
+                    vec![0.0, 1.0]
+                }
+            })
+        }
+    }
+
+    fn clip(value: i16, seconds: usize, start: usize) -> Segment {
+        Segment {
+            pcm: vec![value; seconds * SAMPLE_RATE as usize],
+            start: start * SAMPLE_RATE as usize,
+        }
+    }
+
+    /// What `serve_with` tells for `clips`, as updates.
+    fn served(clustering: Clustering, clips: &[Segment]) -> Vec<Update> {
+        let mut input = Vec::new();
+        for clip in clips {
+            write_region(&mut input, clip).unwrap();
+        }
+        let mut out = Vec::new();
+        serve_with(&ByFirstSample, clustering, input.as_slice(), &mut out).unwrap();
+        let text = String::from_utf8(out).unwrap();
+        text.lines().map(|line| parse(line).unwrap()).collect()
+    }
+
+    /// The early sound of the second speaker joins the first when it is heard;
+    /// once the input ends, the speech is clustered again and tells it moved.
+    /// A re-cluster that ran on its thread meanwhile changes nothing.
+    #[test]
+    fn what_was_heard_wrong_is_moved_when_the_input_ends() {
+        let clips = [clip(100, 6, 0), clip(50, 3, 6), clip(-100, 6, 9)];
+        for every in [400, 5] {
+            let clustering = Clustering {
+                every,
+                ..Clustering::default()
+            };
+            let updates = served(clustering, &clips);
+            let (last, regions) = updates.split_last().unwrap();
+            assert_eq!(regions.len(), 3);
+            assert!(regions.iter().all(|u| u.moved.is_empty()), "every {every}");
+            assert_eq!(
+                last.moved,
+                [Moved {
+                    start: 6.0,
+                    end: 9.0,
+                    from: 0,
+                    to: 1
+                }]
+            );
+            let mut recording = Recording::default();
+            updates
+                .into_iter()
+                .for_each(|update| recording.apply(update));
+            let speakers: Vec<usize> = recording.finish().turns.iter().map(|t| t.speaker).collect();
+            assert_eq!(speakers, [0, 1]);
+        }
+        assert!(served(Clustering::default(), &[]).is_empty());
     }
 
     /// The child side over the speaker model and three AMI clips (see
