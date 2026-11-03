@@ -6280,6 +6280,9 @@ mod tests {
         assistant.start("Call", "meeting", "pt", None);
         let said = "Tudo bem? Sim e voce";
         let (id, at) = assistant.hear(&heard(), &utterance("Eles", said)).remove(0);
+        // `hear` stamps the wall clock; a split needs room before the next
+        // line, which two calls back to back may not leave.
+        std::thread::sleep(Duration::from_millis(5));
         assistant.hear(&heard(), &utterance("Eles", "Outra."));
         let last = |kind: &str| last_of(&events, kind);
         let words: Vec<String> = said.split(' ').map(String::from).collect();
