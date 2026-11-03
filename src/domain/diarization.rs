@@ -16,8 +16,8 @@ const HOP: usize = WINDOW / 2;
 const MIN_CLIP: usize = SAMPLE_RATE as usize / 2;
 /// At most this many speakers at once: past it, a window joins the nearest.
 const MAX_SPEAKERS: usize = 32;
-/// A small speaker is folded into a larger one only once this many windows
-/// were heard since they first spoke (about 90 s of speech).
+/// How many windows must be heard since a small speaker first spoke before
+/// they are folded into a larger one (about 90 s of speech).
 const SETTLE: usize = 120;
 /// Seconds of turns a live input keeps behind what the diarizer has heard.
 const RECENT: f64 = 300.0;
@@ -51,6 +51,9 @@ pub struct Clustering {
     /// A settled speaker holding less than this share of the windows joins the
     /// nearest larger one.
     pub min_share: f32,
+    /// A small speaker is folded into a larger one only once this many windows
+    /// were heard since they first spoke.
+    pub settle: usize,
 }
 
 impl Default for Clustering {
@@ -59,6 +62,7 @@ impl Default for Clustering {
             threshold: 0.7,
             merge: 0.3,
             min_share: 0.02,
+            settle: SETTLE,
         }
     }
 }
@@ -76,6 +80,36 @@ pub struct Region {
     start: f64,
     end: f64,
     windows: Vec<Window>,
+}
+
+impl Region {
+    #[cfg(test)]
+    pub fn new(start: f64, end: f64, windows: Vec<(f64, f64, Vec<f32>)>) -> Self {
+        let windows = windows
+            .into_iter()
+            .map(|(start, end, embedding)| Window {
+                start,
+                end,
+                embedding,
+            })
+            .collect();
+        Self {
+            start,
+            end,
+            windows,
+        }
+    }
+
+    pub fn span(&self) -> (f64, f64) {
+        (self.start, self.end)
+    }
+
+    /// Each window's span in seconds and its embedding (unit length).
+    pub fn windows(&self) -> impl Iterator<Item = (f64, f64, &[f32])> {
+        self.windows
+            .iter()
+            .map(|w| (w.start, w.end, &w.embedding[..]))
+    }
 }
 
 fn seconds(samples: usize) -> f64 {
@@ -276,7 +310,7 @@ impl Speakers {
             .map(|(speaker, voice)| (speaker, voice.unit()))
             .collect();
         let (gone, voice) = self.live().find(|(_, voice)| {
-            (voice.windows as f32) < minimum && self.windows - voice.since >= SETTLE
+            (voice.windows as f32) < minimum && self.windows - voice.since >= self.clustering.settle
         })?;
         let voice = voice.unit();
         let nearest = large
@@ -695,16 +729,11 @@ mod tests {
 
     /// A region of one window per voice, each a second long, from `start`.
     fn windows(start: f64, voices: &[&[f32]]) -> Region {
-        let windows = voices.iter().enumerate().map(|(index, voice)| Window {
-            start: start + index as f64,
-            end: start + index as f64 + 1.0,
-            embedding: normalized(voice.to_vec()),
+        let windows = voices.iter().enumerate().map(|(index, voice)| {
+            let at = start + index as f64;
+            (at, at + 1.0, normalized(voice.to_vec()))
         });
-        Region {
-            start,
-            end: start + voices.len() as f64,
-            windows: windows.collect(),
-        }
+        Region::new(start, start + voices.len() as f64, windows.collect())
     }
 
     fn rounded(turns: &[Turn]) -> Vec<(f64, f64, usize)> {
@@ -799,6 +828,7 @@ mod tests {
             threshold: 0.2,
             merge: 0.5,
             min_share: 0.0,
+            ..Clustering::default()
         });
         // The second window is past the threshold, so it starts a speaker; the
         // two voices are within the merge distance, so they are one.
@@ -820,7 +850,7 @@ mod tests {
         let (a, b): (&[f32], &[f32]) = (&[1.0, 0.0], &[0.0, 1.0]);
         let first = speakers.hear(&windows(0.0, &[a, b]));
         assert!(first.merged.is_empty(), "not settled yet");
-        let more = vec![a; SETTLE + 5];
+        let more = vec![a; Clustering::default().settle + 5];
         let second = speakers.hear(&windows(2.0, &more));
         assert_eq!(second.merged, [(1, 0)]);
         assert_eq!(speakers.live().count(), 1);
@@ -832,6 +862,7 @@ mod tests {
             threshold: 0.5,
             merge: 0.0,
             min_share: 0.0,
+            ..Clustering::default()
         });
         let axes: Vec<Vec<f32>> = (0..=MAX_SPEAKERS)
             .map(|axis| {

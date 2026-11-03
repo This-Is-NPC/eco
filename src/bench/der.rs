@@ -101,7 +101,7 @@ fn scored(regions: &[(f64, f64)], reference: &[Segment], collar: f64) -> Vec<(f6
 }
 
 /// `segments` cut to `regions`.
-fn crop(segments: &[Segment], regions: &[(f64, f64)]) -> Vec<Segment> {
+pub(super) fn crop(segments: &[Segment], regions: &[(f64, f64)]) -> Vec<Segment> {
     let mut cropped = Vec::new();
     for segment in segments {
         for &(start, end) in regions {
@@ -118,7 +118,7 @@ fn crop(segments: &[Segment], regions: &[(f64, f64)]) -> Vec<Segment> {
     cropped
 }
 
-fn labels(segments: &[Segment]) -> Vec<String> {
+pub(super) fn labels(segments: &[Segment]) -> Vec<String> {
     let set: BTreeSet<&str> = segments.iter().map(|s| s.speaker.as_str()).collect();
     set.into_iter().map(String::from).collect()
 }
