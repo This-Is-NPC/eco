@@ -742,7 +742,11 @@ fn voices(assistant: &Assistant, emit: &Emit, who: &str, diarizer: &Diarizer) ->
     let heard: Arc<Mutex<InputVoices>> = Arc::default();
     let (assistant, emit, who) = (assistant.clone(), Arc::clone(emit), who.to_string());
     let told = Arc::clone(&heard);
+    let runtime = tokio::runtime::Handle::current();
     let regions = diarizer(Box::new(move |diarized| {
+        // The child's reader is a plain thread; what the sessions spawn from
+        // here needs the runtime.
+        let _runtime = runtime.enter();
         let mut heard = told.lock().expect("not poisoned");
         let known = match diarized {
             Diarized::Update(update) => heard.live.update(update),
@@ -5498,6 +5502,49 @@ mod tests {
         }
     }
 
+    /// Hears the timed words "Tudo bem? Sim e voce" in the first clip and
+    /// "Outra." in each next one.
+    #[derive(Default)]
+    struct Timed(std::sync::atomic::AtomicUsize);
+
+    impl SpeechToText for Timed {
+        fn transcribe<'a>(
+            &'a self,
+            _: &'a [i16],
+        ) -> BoxFuture<'a, Result<crate::ports::Transcript, TranscriptionError>> {
+            let first = self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0;
+            let text = if first {
+                "Tudo bem? Sim e voce"
+            } else {
+                "Outra."
+            };
+            let words = match first {
+                true => text
+                    .split(' ')
+                    .enumerate()
+                    .map(|(i, word)| crate::ports::Word {
+                        start: i as f64,
+                        end: i as f64 + 1.0,
+                        text: word.into(),
+                    })
+                    .collect(),
+                false => Vec::new(),
+            };
+            let phrases = vec![crate::ports::Phrase {
+                start: 0.0,
+                end: 4.0,
+                text: text.into(),
+                words,
+            }];
+            Box::pin(async move {
+                Ok(crate::ports::Transcript {
+                    phrases,
+                    request: None,
+                })
+            })
+        }
+    }
+
     /// Streams the request "r2", a partial, then a phrase, once a frame comes.
     struct Streams;
 
@@ -5619,6 +5666,76 @@ mod tests {
         transcribed.await.unwrap();
         drop(voices);
         assert_eq!(counted.recv().unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_line_the_diarizer_cuts_is_translated_and_the_input_keeps_transcribing() {
+        let delta = json!({"choices": [{"delta": {"content": "Hi."}}]});
+        let reply = format!("data: {delta}\n\ndata: [DONE]\n\n").into_bytes();
+        let replies = vec![(200, Some("text/event-stream"), reply); 3];
+        let (base, _) = http::testing::serve(replies).await;
+        let mut raw = raw();
+        raw["models"][1]["base_url"] = json!(base);
+        let mut d = daemon(raw);
+        d.configured().await;
+        let id = d.start("Retro").await;
+        d.line(&format!(
+            r#"session.translation {{"id": "{id}", "language": "en"}}"#
+        ))
+        .await;
+        let (assistant, emit) = (d.session.assistant.clone(), Arc::clone(&d.session.emit));
+        // The diarizer's own thread tells the voices once the line is heard.
+        let (cut, cuts) = std::sync::mpsc::channel::<()>();
+        let cuts = Mutex::new(Some(cuts));
+        let diarizer: Diarizer = Arc::new(move |mut tell: Found| {
+            let (regions, _received) = diarizer_process::channel(64);
+            let cuts = cuts.lock().unwrap().take().expect("one diarizer");
+            std::thread::spawn(move || {
+                cuts.recv().unwrap();
+                let turn = |start, end, speaker| crate::domain::diarization::Turn {
+                    start,
+                    end,
+                    speaker,
+                };
+                tell(Diarized::Update(crate::domain::diarization::Update {
+                    end: 60.0,
+                    turns: vec![turn(0.0, 2.0, 0), turn(2.0, 4.0, 1)],
+                    voices: vec![(0, vec![1.0, 0.0]), (1, vec![0.0, 1.0])],
+                    merged: Vec::new(),
+                    moved: Vec::new(),
+                }));
+            });
+            Some(regions)
+        });
+        let voices = voices(&assistant, &emit, "Eles", &diarizer).unwrap();
+        let mut hub = Hub::default();
+        let capture = hub.input("mic");
+        let cell: Ready = Arc::new(OnceCell::new_with(Some(Ok(Stt::Segments(Box::new(
+            Timed::default(),
+        ))))));
+        let listening = Listening {
+            model: "w".into(),
+            language: "pt".into(),
+        };
+        let transcribed = tokio::spawn(transcriber(
+            "Eles".into(),
+            hub.read("mic").unwrap(),
+            (Arc::default(), cell),
+            listening,
+            assistant,
+            (emit, Outages::default()),
+            Some(Arc::clone(&voices.heard)),
+        ));
+        capture.send(segment());
+        d.until(|event| event["text"] == "Tudo bem? Sim e voce")
+            .await;
+        cut.send(()).unwrap();
+        d.until(|event| event["type"] == "line_split").await;
+        d.until(|event| event["type"] == "translated").await;
+        capture.send(segment());
+        d.until(|event| event["text"] == "Outra.").await;
+        drop(capture);
+        transcribed.await.unwrap();
     }
 
     #[tokio::test]
