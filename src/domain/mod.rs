@@ -10,6 +10,7 @@ pub mod echo;
 pub mod events;
 pub mod hub;
 pub mod index;
+pub mod linkage;
 pub mod loudness;
 pub mod notifications;
 pub mod people;
