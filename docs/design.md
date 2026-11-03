@@ -263,7 +263,21 @@ eco/
   it prints the turns, the voices that changed and the speakers joined.
   The daemon keeps the last 5 minutes of turns and up to 256 lines that wait
   for the child to hear past their end; each line then goes to the voice that
-  said most of it. The first time a voice says a line it gets a label: that of
+  said most of it. A line from a transcriber that times words (Deepgram,
+  ElevenLabs) goes by its words instead: each word to the voice that talks
+  most over it, the line cut before the first word of each change of voice
+  into one line per voice, except where a voice talks less than 0.5 s, which
+  stays with the longer neighbouring part. The cuts are a function of the
+  words' times and the turns alone: while the line's turns are kept (the last
+  5 minutes, at most 256 lines), each region the child tells moves them again —
+  the parts merge and split anew, or into one line when one voice said it
+  all. The words and their times stay in memory and are never written to the
+  log, which holds the `split` and `merged` records (§7) and the `voiced` ones;
+  clients get `line_split`, `line_merged` and `transcript_reassigned` (§10.1),
+  as for the user's own edits. A line the user changed, or whose text does not
+  hold the words, is left as it is. A transcriber without word times keeps the
+  whole line with the voice that said most of it.
+  The first time a voice says a line it gets a label: that of
   a voice the session keeps close to it (≥ 0.70), else the audio source's for
   the input's first voice, else `Speaker N`. Its lines move to that label as
   they are known — a `voiced` record, and `transcript_reassigned` to clients.
@@ -583,7 +597,8 @@ any other label shows as written.
   character: a `split` record, `{"of":{"who","at"},"text","new":{"who","at","text"}}`,
   the left part kept and the right part a new line of the same speaker whose
   `at` is the line's plus 1 ms, or half the way to the next entry when that is
-  closer, so it lands right below. Restoring a log replays both; the lines they
+  closer, so it lands right below. Diarization of a live line writes the same
+  records (§4). Restoring a log replays both; the lines they
   rewrite lose their translations, translated again when the session
   translates, and later answers carry the corrected lines.
 - **Delete:** an interrupted or ended session can be deleted; deletion removes
