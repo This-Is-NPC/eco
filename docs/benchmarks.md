@@ -187,6 +187,148 @@ End to end through the daemon: ES2004a imported, its four speakers named by
 hand after the reference; ES2004b imported next had all four named without
 asking, and 670 of its 713 lines (94%) carry the right person.
 
+## Baseline and diagnosis (2026-11-03)
+
+The online clustering as it stands (commit `df2cab8`), measured before
+anything changes, so a later change is judged against these numbers.
+`mise run bench:diarization`, release build, CAM++ (`wespeaker_campplus.onnx`,
+sha256 `b50810498b5bcf5773d086f6993d344476bd0c88b566a41e8d801aaf8461efad`),
+collar 0, threshold 0.7, merge 0.3, min share 2%, settle 120 windows.
+The dev set is IS1008a, ES2011a, TS3004a and IB4001. The held-out set is
+IS1009b, ES2004b, TS3003b and EN2002b, picked once from the test meetings
+(`heldout.txt`, not used to choose anything). Data: AMI Mix-Headset
+(CC BY 4.0).
+
+How each column is read:
+
+- **purity**: of the time found speakers share with the reference, the part
+  in each one's main reference speaker. **cover**: the same from the reference
+  side. Both count only speech the reference and eco both hold, so missed
+  speech and false alarm do not move them.
+- **<5%**: found speakers holding under 5% of the found speech. A real but
+  quiet speaker counts too.
+- **churn %**: speech eco told as one speaker and later moved to another (the
+  speakers joined), over all speech told. **stayed**: seconds of recording, on
+  average, until the move.
+- **offline**: the average-linkage clustering eco ran when the recording ended
+  (threshold 0.65, min share 2%), over the same windows.
+
+| Dev | Speakers | Found | Missed | F. alarm | Confusion | DER | Purity | Cover | <5% | Churn % | Stayed s | Offline found / DER / purity |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| IS1008a | 4 | 4 | 7.7 | 3.9 | 1.9 | 13.5 | 94.1 | 94.1 | 0 | 1.6 | 279 | 4 / 12.7 / 94.9 |
+| ES2011a | 4 | 4 | 25.6 | 1.6 | 4.1 | 31.3 | 80.5 | 82.0 | 1 | 1.3 | 176 | 4 / 31.5 / 80.4 |
+| TS3004a | 4 | 8 | 21.2 | 4.7 | 12.7 | 38.5 | 72.6 | 82.3 | 5 | 3.3 | 265 | 4 / 29.8 / 81.7 |
+| IB4001 | 4 | 7 | 20.8 | 4.1 | 4.0 | 29.0 | 80.0 | 79.6 | 4 | 4.1 | 106 | 4 / 28.2 / 80.3 |
+| **All** | | | 19.5 | 3.7 | 5.7 | 28.9 | 81.1 | 83.5 | 10 | 2.8 | 175 | 26.5 / 83.4 |
+
+| Held-out | Speakers | Found | Missed | F. alarm | Confusion | DER | Purity | Cover | <5% | Churn % | Stayed s | Offline found / DER / purity |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| IS1009b | 4 | 8 | 12.2 | 1.8 | 1.8 | 15.9 | 87.9 | 87.6 | 4 | 1.4 | 112 | 4 / 15.6 / 87.9 |
+| ES2004b | 4 | 5 | 17.6 | 1.8 | 1.5 | 20.8 | 88.0 | 88.0 | 1 | 1.1 | 124 | 4 / 20.9 / 87.9 |
+| TS3003b | 4 | 5 | 16.5 | 3.1 | 1.9 | 21.4 | 92.9 | 92.9 | 1 | 0.7 | 123 | 4 / 20.8 / 93.7 |
+| EN2002b | 4 | 8 | 28.5 | 2.0 | 7.8 | 38.3 | 70.5 | 66.9 | 3 | 1.2 | 114 | 4 / 34.6 / 70.8 |
+| **All** | | | 18.6 | 2.1 | 3.2 | 24.0 | 84.7 | 83.7 | 9 | 1.1 | 118 | 22.9 / 84.9 |
+
+Online against offline: 2.4 points of DER on the dev set (28.9 against 26.5)
+and 1.1 on the held-out set (24.0 against 22.9); offline always finds the 4
+speakers. The whole gap is confusion, on three meetings: TS3004a (8.7
+points), EN2002b (3.7) and IB4001 (0.8). Elsewhere online and offline agree
+within 0.8.
+
+### Found speakers over time
+
+Of the 19 found speakers under 5% of the speech (10 dev, 9 held-out), 18 lived
+1 to 8 seconds, and 17 were born in the last 2 minutes of the meeting. Born
+in the last minutes, they cannot settle: the fold into a larger speaker waits
+for 120 windows (about 90 s of speech) after the birth. Examples, in seconds
+(speech, born, meeting end): TS3004a five extras of 1 to 2 s born from 1293
+to 1309 (end 1329); IS1009b 5, 1, 1, 1 s born at 1927, 2011, 2024, 2027 (end
+2028); EN2002b 8, 1, 1 s born at 1730, 1767, 1771 (end 1786). The other two:
+a real fourth speaker of IB4001 (FIO093, 65 s, 80% pure) that the share
+threshold counts as small, and one extra of ES2011a born 123 s before the
+end. The extras cost little: a few seconds
+of speech each. What they cost is the speaker count (4 reference speakers,
+5 to 8 found in 6 of 8 meetings).
+
+The bigger error is long-lived: TS3004a's first speaker holds 249 s of which
+48% is MTD015UID and the rest others; EN2002b's second speaker holds 110 s of
+which 31% is MEE073 and 69% others. Purity is 70% to
+80% on TS3004a, IB4001 and EN2002b (ES2011a 80.5%) against 88% to 94% on the
+other four. The offline
+result separates most of them (TS3004a purity 81.7%).
+
+### Margin between the two nearest voices
+
+Per window, cosine similarity to the nearest final voice minus the second
+nearest. Share of windows under 0.05 / 0.1 / 0.2, and the median:
+
+| Meeting | under 0.05 | under 0.1 | under 0.2 | median |
+|---|---|---|---|---|
+| IS1008a | 0.4% | 0.9% | 1.6% | 0.628 |
+| ES2011a | 3.9% | 6.7% | 18.1% | 0.337 |
+| TS3004a | 2.9% | 5.7% | 13.2% | 0.435 |
+| IB4001 | 2.9% | 6.0% | 12.0% | 0.423 |
+| IS1009b | 2.4% | 4.1% | 8.5% | 0.482 |
+| ES2004b | 0.9% | 1.8% | 4.7% | 0.493 |
+| TS3003b | 0.8% | 2.1% | 6.8% | 0.431 |
+| EN2002b | 4.2% | 9.6% | 21.9% | 0.358 |
+
+At most 10% of the windows are within 0.1 of a second voice. The margin is
+measured against the voices at the end, not the ones the online path had when
+it decided; how many wrong windows are among the ambiguous ones was not
+measured.
+
+### Churn
+
+The online path never reassigns a window; the only change after a speaker is
+told is a join. On the dev set 102 s of 3622 s (2.8%) moved to another speaker
+after being told, and they stayed with the old one for 175 s on average and up
+to 594 s. On the held-out set 74 s of 6663 s (1.1%), 118 s on average, up to
+225 s. A name or an answer built on such speech meanwhile has the wrong
+speaker.
+
+### Existing constants
+
+Merge 0.3 / 0.4, min share 0.01 / 0.02 / 0.05 and settle 60 / 120, from the
+same embeddings (offline unchanged, 26.5 dev and 22.9 held-out):
+
+| Merge | Min share | Settle | Dev DER / conf. | purity / cover | <5% | churn % | Held-out DER / conf. | purity / cover | <5% | churn % |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 0.3 | 0.02 | 120 | 28.9 / 5.7 | 81.1 / 83.5 | 10 | 2.8 | 24.0 / 3.2 | 84.7 / 83.7 | 9 | 1.1 |
+| 0.3 | 0.02 | 60 | 28.9 / 5.7 | 81.0 / 83.5 | 7 | 2.7 | 24.0 / 3.2 | 84.7 / 83.7 | 8 | 1.2 |
+| 0.3 | 0.01 | 120 | 29.8 / 6.6 | 81.1 / 82.4 | 11 | 1.3 | 24.0 / 3.2 | 84.7 / 83.7 | 9 | 1.1 |
+| 0.3 | 0.01 | 60 | 29.7 / 6.5 | 81.1 / 82.5 | 8 | 1.4 | 24.0 / 3.2 | 84.7 / 83.7 | 8 | 1.2 |
+| 0.3 | 0.05 | 120 | 32.2 / 9.0 | 77.4 / 85.4 | 8 | 5.1 | 24.9 / 4.1 | 83.7 / 82.8 | 9 | 1.9 |
+| 0.3 | 0.05 | 60 | 35.6 / 12.4 | 73.7 / 86.4 | 6 | 5.0 | 27.7 / 6.9 | 80.6 / 83.9 | 8 | 4.1 |
+| 0.4 | 0.02 | 120 | 28.9 / 5.7 | 81.1 / 83.5 | 10 | 2.8 | 23.9 / 3.1 | 84.7 / 83.8 | 8 | 1.2 |
+| 0.4 | 0.02 | 60 | 28.9 / 5.7 | 81.0 / 83.5 | 7 | 2.7 | 23.9 / 3.1 | 84.7 / 83.8 | 7 | 1.3 |
+| 0.4 | 0.01 | 120 | 29.8 / 6.6 | 81.1 / 82.4 | 11 | 1.3 | 23.9 / 3.1 | 84.7 / 83.8 | 8 | 1.2 |
+| 0.4 | 0.01 | 60 | 29.7 / 6.5 | 81.1 / 82.5 | 8 | 1.4 | 23.9 / 3.1 | 84.7 / 83.8 | 7 | 1.3 |
+| 0.4 | 0.05 | 120 | 32.2 / 9.0 | 77.4 / 85.4 | 8 | 5.1 | 24.8 / 4.0 | 83.7 / 82.9 | 8 | 2.0 |
+| 0.4 | 0.05 | 60 | 35.6 / 12.4 | 73.7 / 86.4 | 6 | 5.0 | 27.6 / 6.8 | 80.6 / 83.9 | 7 | 4.0 |
+
+No combination beats the default by more than 0.1 point of DER. Merge 0.4
+changes nothing on the dev set and 0.1 point on the held-out set. A share of
+5% folds real speakers (confusion up 1 to 7 points); settle 60 removes one to
+three extras but not the confusion. The constants are at their best already,
+so the remaining gap is not theirs.
+
+### What points where
+
+- Short-lived extras are real but cheap in DER; they are born too late to
+  settle. A fold of unsettled small speakers when the recording ends, or a
+  speaker that is not told as new until it has been heard a few windows,
+  removes the speaker-count error.
+- The DER gap to offline is the long-lived mixing in three meetings, not the
+  extras and not the low-margin windows: under 10% of windows are
+  ambiguous. What offline has that online lacks is the chance to revisit
+  early windows with the later voices, so re-clustering the settled speakers
+  (a second pass over the windows kept in memory) is the lever for it.
+- The fixture `tests/fixtures/ami-TS3004a-tail.emb` holds the CAM++
+  embeddings of the last 433 windows of TS3004a with the reference turns of
+  that stretch (`.rttm`), AMI (CC BY 4.0). It reproduces the 8 speakers, the
+  5 late extras and 64% purity, and is read by `bench::embeddings` tests.
+
 ## Streaming transcription (2026-10-05)
 
 The first 2 minutes of AMI ES2004a (English, four people in a room) replayed
