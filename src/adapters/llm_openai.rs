@@ -46,7 +46,7 @@ fn parse_line(line: &str) -> Result<Vec<Chunk>, CompletionError> {
         return Ok(Vec::new());
     }
     let event: Value =
-        serde_json::from_str(data).map_err(|error| CompletionError(error.to_string()))?;
+        serde_json::from_str(data).map_err(|error| CompletionError::new(error.to_string()))?;
     let mut chunks = Vec::new();
     let delta = |key: &str| {
         event
@@ -97,7 +97,7 @@ where
                     Some(Ok(more)) => buffer.extend_from_slice(&more),
                     Some(Err(error)) => {
                         return Some((
-                            Err(CompletionError(error.to_string())),
+                            Err(CompletionError::new(error.to_string())),
                             (bytes, buffer, ready, true),
                         ));
                     }
@@ -121,7 +121,7 @@ impl LanguageModel for Unavailable {
         _: &str,
         _: Vec<Message>,
     ) -> BoxStream<'static, Result<Chunk, CompletionError>> {
-        stream::iter([Err(CompletionError(self.0.clone()))]).boxed()
+        stream::iter([Err(CompletionError::new(self.0.clone()))]).boxed()
     }
 }
 
@@ -168,7 +168,7 @@ impl LanguageModel for OpenAIChat {
             let response = request
                 .send()
                 .await
-                .map_err(|error| CompletionError(endpoint.failure(&error, quiet(&heard))))?;
+                .map_err(|error| CompletionError::new(endpoint.failure(&error, quiet(&heard))))?;
             let status = response.status();
             let json = response
                 .headers()
@@ -184,7 +184,10 @@ impl LanguageModel for OpenAIChat {
                 });
                 return match answer.filter(|_| status.is_success()) {
                     Some(text) => Ok(stream::iter(vec![Ok(Chunk::Text(text))]).boxed()),
-                    None => Err(CompletionError(endpoint.refusal(status.as_u16(), &body))),
+                    None => Err(CompletionError::replied(
+                        status.as_u16(),
+                        endpoint.refusal(status.as_u16(), &body),
+                    )),
                 };
             }
             let bytes = response.bytes_stream().map(move |part| match part {
@@ -233,6 +236,7 @@ mod tests {
 
     use super::*;
     use crate::adapters::http::testing::{serve_once, serve_once_as};
+    use crate::ports::Refusal;
 
     fn sse_body(chunks: &[Value]) -> Vec<u8> {
         let mut body: String = chunks.iter().map(|c| format!("data: {c}\n\n")).collect();
@@ -258,7 +262,7 @@ mod tests {
     /// The one error a stream ended with, and nothing before it.
     fn only_error(chunks: &[Result<Chunk, CompletionError>]) -> &str {
         assert_eq!(chunks.len(), 1, "{chunks:?}");
-        &chunks[0].as_ref().unwrap_err().0
+        &chunks[0].as_ref().unwrap_err().why
     }
 
     fn hello() -> Vec<Message> {
@@ -383,6 +387,21 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_refused_key_or_a_missing_model_is_classified_and_a_server_error_is_not() {
+        for (status, refusal) in [
+            (401, Some(Refusal::Credential)),
+            (402, Some(Refusal::Credential)),
+            (403, Some(Refusal::Credential)),
+            (404, Some(Refusal::NotFound)),
+            (429, None),
+            (500, None),
+        ] {
+            let (chunks, _) = collect(status, b"no".to_vec(), json!({}), "m", hello()).await;
+            assert_eq!(chunks[0].as_ref().unwrap_err().refusal, refusal, "{status}");
+        }
+    }
+
+    #[tokio::test]
     async fn http_error_carries_status_and_body() {
         let (chunks, _) = collect(
             402,
@@ -470,7 +489,7 @@ mod tests {
         let (chunks, _) = collect(200, reply.to_vec(), json!({}), "m", hello()).await;
         assert_eq!(chunks.len(), 2, "{chunks:?}");
         assert_eq!(chunks[0].as_ref().unwrap(), &Chunk::Text("Ol".into()));
-        let error = &chunks[1].as_ref().unwrap_err().0;
+        let error = &chunks[1].as_ref().unwrap_err().why;
         assert_eq!(error, "key must be a string at line 1 column 2");
     }
 
@@ -498,7 +517,7 @@ mod tests {
             .await;
         assert_eq!(chunks.len(), 2, "{chunks:?}");
         assert_eq!(chunks[0].as_ref().unwrap(), &Chunk::Text("Ol".into()));
-        let error = &chunks[1].as_ref().unwrap_err().0;
+        let error = &chunks[1].as_ref().unwrap_err().why;
         assert!(error.ends_with("(quiet for 0 s)"), "{error}");
     }
 

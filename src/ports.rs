@@ -75,9 +75,57 @@ pub trait AudioDevices: Send + Sync {
     fn cancel_echo(&self, mic: &str) -> BoxFuture<'static, Result<EchoCancelling, EchoError>>;
 }
 
+/// Why a provider refused a request for good: retrying it changes nothing
+/// until the user fixes the key or the model.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Refusal {
+    /// The key was refused (HTTP 401, 402 or 403, also a WebSocket handshake).
+    Credential,
+    /// The provider has no such model (HTTP 404).
+    NotFound,
+}
+
+impl Refusal {
+    /// The one classification of a provider's HTTP status; `None` for any other
+    /// status, which is an outage that may pass.
+    pub fn of(status: u16) -> Option<Self> {
+        match status {
+            401..=403 => Some(Self::Credential),
+            404 => Some(Self::NotFound),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
-#[error("{0}")]
-pub struct TranscriptionError(pub String);
+#[error("{why}")]
+pub struct TranscriptionError {
+    pub why: String,
+    pub refusal: Option<Refusal>,
+}
+
+impl TranscriptionError {
+    pub fn new(why: impl Into<String>) -> Self {
+        Self {
+            why: why.into(),
+            refusal: None,
+        }
+    }
+
+    /// A provider's reply with `status`, classified.
+    pub fn replied(status: u16, why: impl Into<String>) -> Self {
+        Self {
+            why: why.into(),
+            refusal: Refusal::of(status),
+        }
+    }
+}
+
+impl From<String> for TranscriptionError {
+    fn from(why: String) -> Self {
+        Self::new(why)
+    }
+}
 
 /// A word said over `[start, end)`, in seconds, as the provider writes it.
 #[derive(Debug, Clone, PartialEq)]
@@ -177,8 +225,28 @@ pub trait TranscriptionBilling: Send + Sync {
 }
 
 #[derive(Debug, thiserror::Error)]
-#[error("{0}")]
-pub struct CompletionError(pub String);
+#[error("{why}")]
+pub struct CompletionError {
+    pub why: String,
+    pub refusal: Option<Refusal>,
+}
+
+impl CompletionError {
+    pub fn new(why: impl Into<String>) -> Self {
+        Self {
+            why: why.into(),
+            refusal: None,
+        }
+    }
+
+    /// A provider's reply with `status`, classified.
+    pub fn replied(status: u16, why: impl Into<String>) -> Self {
+        Self {
+            why: why.into(),
+            refusal: Refusal::of(status),
+        }
+    }
+}
 
 /// What a completion cost: prompt tokens, how many came from the provider's cache.
 #[derive(Debug, Clone, PartialEq)]

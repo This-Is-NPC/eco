@@ -1291,6 +1291,7 @@ Singleton {
       const diarizing = (event.code || "").startsWith("diarization.")
       links = Object.assign({}, links, { [diarizing ? event.who + " · diarization" : event.who]: {
         who: event.who, state: event.state, code: event.code || "", detail: event.detail || "",
+        model: event.model || "", secret: event.secret || "",
         dropped_s: event.dropped_s || 0, count: event.count || 0, at: Date.now() / 1000
       } })
       break

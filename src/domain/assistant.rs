@@ -16,7 +16,7 @@ use crate::domain::billing::{Joined, Requests, priced, shares};
 use crate::domain::channel::Utterance;
 use crate::domain::diarization::{Labelled, Labels, Said, dot, normalized};
 use crate::domain::echo;
-use crate::domain::events::{Event, error, log_alert};
+use crate::domain::events::{Event, error, log_alert, refusal_code};
 use crate::domain::index::Indexed;
 use crate::domain::people::{GUESSING, Match, Person, SUGGESTING, ranked};
 use crate::domain::prompts::{
@@ -29,7 +29,8 @@ use crate::domain::session::{
 };
 use crate::domain::transcribers::Listening;
 use crate::ports::{
-    Chunk, Hooks, LanguageModel, PeopleStore, Record, SessionLog, TranscriptionBilling, Usage,
+    Chunk, CompletionError, Hooks, LanguageModel, PeopleStore, Record, SessionLog,
+    TranscriptionBilling, Usage,
 };
 
 pub type Emit = Arc<dyn Fn(Event) + Send + Sync>;
@@ -146,11 +147,28 @@ impl Setup {
     }
 }
 
+fn secret_of(model: Option<&Model>) -> bool {
+    model.is_some_and(|model| model.secret.is_some())
+}
+
+fn secret_name(model: Option<&Model>) -> &str {
+    model
+        .and_then(|model| model.secret.as_deref())
+        .unwrap_or_default()
+}
+
+fn name_of(model: Option<&Model>) -> &str {
+    model.map_or("", |model| model.name.as_str())
+}
+
 /// A chat model ready to stream: its provider and the provider's id for it.
 #[derive(Clone)]
 pub struct Model {
     pub llm: Arc<dyn LanguageModel>,
     pub id: String,
+    /// The name the user registered it under, and the secret its key comes from.
+    pub name: String,
+    pub secret: Option<String>,
     /// What it was built from, so a new setup tells whether it changed.
     pub settings: String,
 }
@@ -2808,12 +2826,12 @@ impl Assistant {
             // Held until the answer ends: past the limit, an answer waits here.
             let _streaming = limit.acquire_owned().await;
             let Some(model) = model else {
-                return assistant.fail(&id, NO_CHAT);
+                return assistant.fail(&id, &CompletionError::new(NO_CHAT), None);
             };
             let started = Instant::now();
             let draft = model.llm.stream(&model.id, messages.clone());
             let (stream, by) = match reviewer {
-                None => (draft, ("answer", model.id)),
+                None => (draft, ("answer", model.clone())),
                 Some(reviewer) => match assistant
                     .draft(&id, draft, &model.id, reviewer.verbose)
                     .await
@@ -2821,9 +2839,9 @@ impl Assistant {
                     Ok(text) => {
                         let Model { llm, id, .. } = &reviewer.model;
                         let review = llm.stream(id, review(messages, &text, &reviewer.prompt));
-                        (review, ("review", id.clone()))
+                        (review, ("review", reviewer.model.clone()))
                     }
-                    Err(detail) => return assistant.fail(&id, &detail),
+                    Err(failure) => return assistant.fail(&id, &failure, Some(&model)),
                 },
             };
             assistant.run(id, stream, started, by).await
@@ -2840,11 +2858,11 @@ impl Assistant {
         mut stream: Chunks,
         model: &str,
         verbose: bool,
-    ) -> Result<String, String> {
+    ) -> Result<String, CompletionError> {
         let mut draft = String::new();
         let mut cost = None;
         while let Some(chunk) = stream.next().await {
-            match chunk.map_err(|failure| failure.0)? {
+            match chunk? {
                 Chunk::Thinking(text) => {
                     self.emit(json!({"type": "suggestion_thinking", "id": id, "text": text}));
                 }
@@ -2862,14 +2880,14 @@ impl Assistant {
         }
         self.spend(&mut self.state(), id, "answer", model, cost);
         if draft.trim().is_empty() {
-            return Err("the model sent no answer".into());
+            return Err(CompletionError::new("the model sent no answer"));
         }
         Ok(draft)
     }
 
     /// Stream the answer `id` to clients; `by` says what gives it — the answer or
     /// its review — and the model's id.
-    async fn run(&self, id: String, mut stream: Chunks, started: Instant, by: (&str, String)) {
+    async fn run(&self, id: String, mut stream: Chunks, started: Instant, by: (&str, Model)) {
         let mut first: Option<Duration> = None;
         let mut usage: Option<Usage> = None;
         while let Some(chunk) = stream.next().await {
@@ -2886,15 +2904,19 @@ impl Assistant {
                     }
                     self.emit(json!({"type": "suggestion_delta", "id": id, "text": text}));
                 }
-                Err(failure) => return self.fail(&id, &failure.0),
+                Err(failure) => return self.fail(&id, &failure, Some(&by.1)),
             }
         }
         let (what, model) = by;
         let cost = usage.as_ref().and_then(|u| u.cost_usd);
         // A stream that ends without a word is no answer: say so rather than keep an empty card.
         if first.is_none() {
-            self.spend(&mut self.state(), &id, what, &model, cost);
-            return self.fail(&id, "the model sent no answer");
+            self.spend(&mut self.state(), &id, what, &model.id, cost);
+            return self.fail(
+                &id,
+                &CompletionError::new("the model sent no answer"),
+                Some(&model),
+            );
         }
         let mut state = self.state();
         let queue = state.queued(&id);
@@ -2923,7 +2945,7 @@ impl Assistant {
             "cached_tokens": usage.as_ref().map(|u| u.cached_tokens),
             "cost_usd": cost,
         }));
-        self.spend(&mut state, &id, what, &model, cost);
+        self.spend(&mut state, &id, what, &model.id, cost);
         if let Some(setup) = state.setup.clone()
             && let Some(session) = state.holder(&id)
             && let Some(language) = session.translation().map(String::from)
@@ -3144,25 +3166,26 @@ impl Assistant {
             let mut out = String::new();
             let mut failure = None;
             let mut cost = None;
-            let translator = model.id.clone();
             while let Some(chunk) = stream.next().await {
                 match chunk {
                     Ok(Chunk::Text(piece)) => out.push_str(&piece),
                     Ok(Chunk::Usage(usage)) => cost = usage.cost_usd,
                     Ok(Chunk::Thinking(_)) => {}
                     Err(error) => {
-                        failure = Some(error.0);
+                        failure = Some(error);
                         break;
                     }
                 }
             }
             let result = match failure {
-                Some(detail) => Err(detail),
-                None if out.trim().is_empty() => Err("the model sent no translation".into()),
+                Some(error) => Err(error),
+                None if out.trim().is_empty() => {
+                    Err(CompletionError::new("the model sent no translation"))
+                }
                 None => Ok(out.trim().to_string()),
             };
             let took = started.elapsed();
-            let spent = (translator.as_str(), cost);
+            let spent = (&model, cost);
             assistant.translated(&session_id, &key, of, &language, result, took, spent);
         });
     }
@@ -3174,9 +3197,9 @@ impl Assistant {
         key: &str,
         of: Source,
         language: &str,
-        result: Result<String, String>,
+        result: Result<String, CompletionError>,
         took: Duration,
-        (model, cost): (&str, Option<f64>),
+        (model, cost): (&Model, Option<f64>),
     ) {
         self.inner
             .pending
@@ -3185,18 +3208,20 @@ impl Assistant {
             .remove(key);
         let text = match result {
             Ok(text) => text,
-            Err(detail) => {
+            Err(failure) => {
+                let detail = &failure.why;
                 return self.emit(error(
-                    "translation.failed",
+                    &refusal_code("translation", failure.refusal, secret_of(Some(model))),
                     format!("translation: {detail}"),
-                    json!({"session": session_id, "detail": detail}),
+                    json!({"session": session_id, "detail": detail,
+                        "model": model.name, "secret": secret_name(Some(model))}),
                 ));
             }
         };
         let mut state = self.state();
         let setup = state.setup.clone();
         let kept = self.edit_session(&mut state, session_id, |session| {
-            session.spend("translation", model, cost, None);
+            session.spend("translation", &model.id, cost, None);
             self.emit(cost_event(setup.as_deref(), session));
             session.translated(of.clone(), language, &text)
         });
@@ -3239,8 +3264,8 @@ impl Assistant {
         }
     }
 
-    /// The answer `id` failed for `detail`: clients read why, then it is dropped.
-    fn fail(&self, id: &str, detail: &str) {
+    /// The answer `id` from `model` failed: clients read why, then it is dropped.
+    fn fail(&self, id: &str, failure: &CompletionError, model: Option<&Model>) {
         let mut state = self.state();
         let action = suggestion_of(&state, id)
             .map(|s| s.action)
@@ -3250,10 +3275,12 @@ impl Assistant {
             queue.running = None;
         }
         // The reason first, so a client waiting on this answer reads it.
+        let detail = &failure.why;
         self.emit(error(
-            "completion.failed",
+            &refusal_code("completion", failure.refusal, secret_of(model)),
             format!("{action}: {detail}"),
-            json!({"id": id, "action": action, "detail": detail}),
+            json!({"id": id, "action": action, "detail": detail,
+                "model": name_of(model), "secret": secret_name(model)}),
         ));
         self.remove_from(&mut state, id);
         if let Some(session) = queue {
@@ -3546,6 +3573,8 @@ mod tests {
         thinking: Option<&'static str>,
         deltas: Vec<&'static str>,
         fail: bool,
+        /// The HTTP status of the failure, when it is a provider's reply.
+        status: Option<u16>,
         delay: Duration,
         usage: Option<Usage>,
         calls: Calls,
@@ -3568,7 +3597,10 @@ mod tests {
                 items.push(Ok(Chunk::Usage(usage)));
             }
             if self.fail {
-                items.push(Err(CompletionError("429: rate limited".into())));
+                items.push(Err(match self.status {
+                    Some(status) => CompletionError::replied(status, format!("{status}: refused")),
+                    None => CompletionError::new("429: rate limited"),
+                }));
             }
             stream::iter(items)
                 .then(move |item| async move {
@@ -3651,17 +3683,23 @@ mod tests {
         slots: Vec<ContextSlot>,
     ) -> Arc<Setup> {
         let cheap = Model {
+            name: String::new(),
+            secret: None,
             llm: Arc::clone(&llm),
             id: "cheap/model".into(),
             settings: String::new(),
         };
         let translator = Model {
+            name: String::new(),
+            secret: None,
             llm: Arc::clone(&llm),
             id: "translate/model".into(),
             settings: String::new(),
         };
         Arc::new(Setup {
             model: Some(Model {
+                name: "default".into(),
+                secret: Some("openrouter".into()),
                 llm,
                 id: "default/model".into(),
                 settings: String::new(),
@@ -3702,6 +3740,8 @@ mod tests {
         let mut setup = Arc::into_inner(setup(draft)).expect("only reference");
         setup.reviewer = Some(Reviewer {
             model: Model {
+                name: String::new(),
+                secret: None,
                 llm: Arc::new(reviewer.clone()),
                 id: "review/model".into(),
                 settings: String::new(),
@@ -4009,6 +4049,8 @@ mod tests {
         let (assistant, events) = with_log(&answers, Arc::clone(&log), false);
         let mut on = Arc::into_inner(setup(&answers)).expect("only reference");
         on.translation.model = Some(Model {
+            name: String::new(),
+            secret: None,
             llm: Arc::new(english.clone()),
             id: "translate/model".into(),
             settings: String::new(),
@@ -4767,6 +4809,8 @@ mod tests {
         named.models.insert(
             "cheap".into(),
             Model {
+                name: String::new(),
+                secret: None,
                 llm: Arc::new(cheap.clone()),
                 id: "cheap/model".into(),
                 settings: String::new(),
@@ -4978,6 +5022,8 @@ mod tests {
 
     fn named(id: &str) -> Model {
         Model {
+            name: String::new(),
+            secret: None,
             llm: Arc::new(llm(&[])),
             id: id.into(),
             settings: String::new(),
@@ -5067,6 +5113,8 @@ mod tests {
         let (assistant, events) = make(&answers, false);
         let mut answering = Arc::into_inner(chatless(&answers)).expect("only reference");
         let local = Model {
+            name: String::new(),
+            secret: None,
             llm: Arc::new(answers.clone()),
             id: "local/model".into(),
             settings: String::new(),
@@ -5105,6 +5153,8 @@ mod tests {
         let (assistant, _) = make(&paid, false);
         let mut own = Arc::into_inner(reviewed(&paid, &paid, false)).expect("only reference");
         let model = Model {
+            name: String::new(),
+            secret: None,
             llm: Arc::new(local.clone()),
             id: "local/model".into(),
             settings: String::new(),
@@ -5394,7 +5444,8 @@ mod tests {
         // It names the answer that failed, so a client can show why on that answer.
         assert_eq!(
             failure["params"],
-            json!({"id": removed["id"], "action": "ask", "detail": "429: rate limited"})
+            json!({"id": removed["id"], "action": "ask", "detail": "429: rate limited",
+                "model": "default", "secret": "openrouter"})
         );
         assert!(shown_timeline(&assistant).is_empty());
     }
@@ -7859,6 +7910,59 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn an_answer_refused_for_its_key_or_model_says_which_in_its_code() {
+        for (status, code) in [
+            (401, "completion.credential"),
+            (402, "completion.credential"),
+            (403, "completion.credential"),
+            (404, "completion.model_missing"),
+            (500, "completion.failed"),
+        ] {
+            let fake = FakeLlm {
+                fail: true,
+                status: Some(status),
+                ..llm(&[])
+            };
+            let (assistant, events) = make(&fake, true);
+            assistant.trigger(None, "ask");
+            settle().await;
+            let failed = last_of(&events, "error");
+            assert_eq!(failed["code"], code, "{status}");
+            assert_eq!(failed["params"]["model"], "default");
+            assert_eq!(failed["params"]["secret"], "openrouter");
+            assert_eq!(failed["params"]["detail"], format!("{status}: refused"));
+        }
+    }
+
+    #[tokio::test]
+    async fn a_translation_refused_for_its_key_says_so_in_its_code() {
+        let answers = llm(&[]);
+        let broken = FakeLlm {
+            fail: true,
+            status: Some(401),
+            ..llm(&[])
+        };
+        let (assistant, events) = make(&answers, false);
+        let mut on = Arc::into_inner(setup(&answers)).expect("only reference");
+        on.translation.model = Some(Model {
+            name: "translator".into(),
+            secret: None,
+            llm: Arc::new(broken),
+            id: "translate/model".into(),
+            settings: String::new(),
+        });
+        assistant.configure(Arc::new(on));
+        let id = assistant.start("Daily", "meeting", "pt", None);
+        assistant.set_translation(&id, "en");
+        assistant.hear(&heard(), &utterance("Recrutador", "Bom dia."));
+        settle().await;
+        let failed = last_of(&events, "error");
+        // A model with no secret has its own code, so the text names none.
+        assert_eq!(failed["code"], "translation.refused");
+        assert_eq!(failed["params"]["model"], "translator");
+    }
+
+    #[tokio::test]
     async fn a_translation_that_fails_says_why_and_keeps_nothing() {
         let answers = llm(&[]);
         let broken = FakeLlm {
@@ -7869,6 +7973,8 @@ mod tests {
         let (assistant, events) = make(&answers, false);
         let mut on = Arc::into_inner(setup(&answers)).expect("only reference");
         on.translation.model = Some(Model {
+            name: String::new(),
+            secret: None,
             llm: Arc::new(broken.clone()),
             id: "translate/model".into(),
             settings: String::new(),

@@ -545,7 +545,13 @@ fn transcriber(
                 }
             }
         };
-        let trouble = |who: &str, trouble: Trouble| emit(outages.note(who, &trouble));
+        let secret = models
+            .get(&from.model)
+            .and_then(|model| model.secret.as_ref())
+            .map(|secret| secret.name.as_str());
+        let trouble = |who: &str, trouble: Trouble| {
+            emit(outages.note_model(who, &trouble, (&from.model, secret)));
+        };
         let partial = |words: String| assistant.hear_partial(&from, &who, &words);
         let bills = assistant.bills(&from);
         let request = |id: String| bills.opened(id);
@@ -1057,7 +1063,16 @@ async fn pipeline(config: Config, assistant: Assistant, emit: Emit, rig: Rig) {
             registered.request_fields()
         ]);
         let settings = settings.to_string();
-        models.insert(name.clone(), Model { llm, id, settings });
+        models.insert(
+            name.clone(),
+            Model {
+                llm,
+                id,
+                name: name.clone(),
+                secret: registered.secret.as_ref().map(|secret| secret.name.clone()),
+                settings,
+            },
+        );
     }
     let model = models.get(&config.llm.model).cloned();
     let kind_models: HashMap<String, Model> = config
@@ -1742,7 +1757,13 @@ impl Session {
     }
 
     async fn restart(&mut self) {
+        // A model stopped by a refusal is tried again with the new config; its
+        // outage goes with the pipeline, so it is read first.
+        let rearmed = self.rig.outages.rearm();
         stop(self.pipeline.take()).await;
+        for event in rearmed {
+            (self.emit)(event);
+        }
         self.pipeline = Some(tokio::spawn(pipeline(
             presets::overlay(&self.current),
             self.assistant.clone(),
@@ -3472,10 +3493,23 @@ mod tests {
             frames: stream::BoxStream<'a, Frame>,
         ) -> stream::BoxStream<'a, Result<Heard, TranscriptionError>> {
             if self.0.load(Ordering::Relaxed) {
-                let refused = TranscriptionError("refused".into());
+                let refused = TranscriptionError::new("refused");
                 return stream::iter([Err(refused)]).boxed();
             }
             frames.filter_map(|_| async { None }).boxed()
+        }
+    }
+
+    /// A streaming transcription whose provider answers every handshake with `status`.
+    struct Answers(u16);
+
+    impl StreamingSpeechToText for Answers {
+        fn transcribe<'a>(
+            &'a self,
+            _frames: stream::BoxStream<'a, Frame>,
+        ) -> stream::BoxStream<'a, Result<Heard, TranscriptionError>> {
+            let refused = TranscriptionError::replied(self.0, "HTTP error");
+            stream::iter([Err(refused)]).boxed()
         }
     }
 
@@ -3562,6 +3596,53 @@ mod tests {
         capture.send(Captured::Frame(1, vec![0; FRAME_SAMPLES]));
         until(&events, |event| event["state"] == "back").await;
         assert_eq!(told(&greeting), [] as [Value; 0]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_client_that_connects_after_a_refused_key_is_told_which_model_stopped() {
+        let dir = tempfile::tempdir().unwrap();
+        let (emit, events) = recorder();
+        let assistant = assistant(&emit, dir.path());
+        let outages = Outages::default();
+        let greeting = greeting(
+            assistant.clone(),
+            Arc::default(),
+            outages.clone(),
+            Arc::default(),
+            windows_told(),
+            Vec::new(),
+            no_updates(&emit, dir.path()),
+        );
+        let stt = Stt::Stream(Box::new(Answers(401)));
+        let (capture, _running) = transcribing(stt, &assistant, &emit, &outages);
+        capture.send(Captured::Frame(0, vec![0; FRAME_SAMPLES]));
+        until(&events, |event| event["state"] == "down").await;
+        assert_eq!(
+            told(&greeting),
+            [
+                json!({"type": "transcription", "who": "Eles", "state": "down",
+                    "code": "stt.refused", "detail": "HTTP error",
+                    "model": "w"})
+            ]
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_config_saved_tries_a_stopped_model_again_without_a_pause() {
+        let mut d = daemon(raw());
+        let refused = Trouble::Refused(crate::ports::Refusal::Credential, "401".into());
+        d.session
+            .rig
+            .outages
+            .note_model("Eles", &refused, ("nova-3", Some("deepgram")));
+        let events = d.line(&format!("config.set {}", raw())).await;
+        assert!(
+            events
+                .iter()
+                .any(|e| e["code"] == "stt.rearmed" && e["who"] == "Eles" && e["state"] == "back"),
+            "{events:?}"
+        );
+        assert_eq!(d.session.rig.outages.events(), [] as [Value; 0]);
     }
 
     #[tokio::test(start_paused = true)]

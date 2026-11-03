@@ -430,7 +430,7 @@ mod tests {
             let call = self.calls.fetch_add(1, Ordering::SeqCst) + 1;
             Box::pin(async move {
                 if self.down {
-                    return Err(TranscriptionError("down".into()));
+                    return Err(TranscriptionError::new("down"));
                 }
                 Ok(Transcript {
                     phrases: vec![Phrase {
@@ -1019,7 +1019,7 @@ mod tests {
             _: BoxStream<'a, Frame>,
         ) -> BoxStream<'a, Result<Heard, TranscriptionError>> {
             if self.calls.fetch_add(1, Ordering::SeqCst) == 0 {
-                let refused = TranscriptionError("refused".into());
+                let refused = TranscriptionError::new("refused");
                 return stream::iter([Err(refused)]).boxed();
             }
             self.reopened.notify_one();

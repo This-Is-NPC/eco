@@ -10,7 +10,7 @@ Column {
   id: strip
 
   // Each source to tell about: {who, color, state ("down" or "back"), code,
-  // detail, dropped_s}.
+  // detail, dropped_s, model, secret}.
   property var sources: []
 
   visible: sources.length > 0
@@ -41,7 +41,9 @@ Column {
         Label {
           Layout.fillWidth: true
           text: row.down
-            ? I18n.t(I18n.has("error." + row.modelData.code) ? "error." + row.modelData.code : "error.stt.down")
+            ? I18n.t(I18n.has("error." + row.modelData.code) ? "error." + row.modelData.code : "error.stt.down", row.modelData)
+            : row.modelData.code === "stt.rearmed"
+              ? I18n.t("transcription.rearmed")
             : row.modelData.code === "diarization.caught_up"
               ? I18n.t("diarization.caught_up", { count: row.modelData.count })
             : row.modelData.dropped_s >= 0.5
@@ -50,7 +52,7 @@ Column {
           color: row.tone
           font.pixelSize: 10
           font.letterSpacing: 2
-          elide: Text.ElideRight
+          wrapMode: Text.WordWrap
         }
       }
 

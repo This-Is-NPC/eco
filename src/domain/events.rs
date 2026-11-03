@@ -7,7 +7,7 @@ use serde_json::{Map, Value, json};
 
 use crate::domain::assistant::Emit;
 use crate::domain::channel::Trouble;
-use crate::ports::{LogAlert, LogHealth};
+use crate::ports::{LogAlert, LogHealth, Refusal};
 
 pub type Event = Value;
 
@@ -64,6 +64,10 @@ pub fn transcription(who: &str, trouble: &Trouble) -> Event {
             "type": "transcription", "who": who, "state": "down",
             "code": "stt.down", "detail": detail,
         }),
+        Trouble::Refused(refusal, detail) => json!({
+            "type": "transcription", "who": who, "state": "down",
+            "code": refusal_code("stt", Some(*refusal), true), "detail": detail,
+        }),
         Trouble::Unheard(detail) => json!({
             "type": "transcription", "who": who, "state": "down",
             "code": "capture.down", "detail": detail,
@@ -72,6 +76,18 @@ pub fn transcription(who: &str, trouble: &Trouble) -> Event {
             "type": "transcription", "who": who, "state": "back",
             "down_s": down.as_secs_f64(), "dropped_s": dropped,
         }),
+    }
+}
+
+/// The code of a failed `what` (`stt`, `completion`, `translation`), which says
+/// when the provider refused the key — of a `secret` or of none — or has no
+/// such model.
+pub fn refusal_code(what: &str, refusal: Option<Refusal>, secret: bool) -> String {
+    match (refusal, secret) {
+        (Some(Refusal::Credential), true) => format!("{what}.credential"),
+        (Some(Refusal::Credential), false) => format!("{what}.refused"),
+        (Some(Refusal::NotFound), _) => format!("{what}.model_missing"),
+        (None, _) => format!("{what}.failed"),
     }
 }
 
@@ -98,10 +114,32 @@ pub struct Outages(Arc<Mutex<BTreeMap<String, Event>>>);
 impl Outages {
     /// The event `trouble` makes for `who`, noted: down holds until back.
     pub fn note(&self, who: &str, trouble: &Trouble) -> Event {
-        let event = transcription(who, trouble);
+        self.keep(who, trouble, transcription(who, trouble))
+    }
+
+    /// `note` for a transcription by `model`, whose refusal names it and the
+    /// `secret` its key comes from, if any.
+    pub fn note_model(
+        &self,
+        who: &str,
+        trouble: &Trouble,
+        (model, secret): (&str, Option<&str>),
+    ) -> Event {
+        let mut event = transcription(who, trouble);
+        if let Trouble::Refused(refusal, _) = trouble {
+            event["model"] = model.into();
+            match secret {
+                Some(secret) => event["secret"] = secret.into(),
+                None => event["code"] = refusal_code("stt", Some(*refusal), false).into(),
+            }
+        }
+        self.keep(who, trouble, event)
+    }
+
+    fn keep(&self, who: &str, trouble: &Trouble, event: Event) -> Event {
         let mut down = self.0.lock().expect("not poisoned");
         match trouble {
-            Trouble::Down(_) | Trouble::Unheard(_) => {
+            Trouble::Down(_) | Trouble::Refused(..) | Trouble::Unheard(_) => {
                 down.insert(who.to_string(), event.clone());
             }
             Trouble::Back { .. } => {
@@ -110,6 +148,27 @@ impl Outages {
             Trouble::Failed(_) => {}
         }
         event
+    }
+
+    /// Forget every transcription stopped by a refusal and tell its clients it
+    /// is tried again, as the transcription starts anew.
+    pub fn rearm(&self) -> Vec<Event> {
+        let mut down = self.0.lock().expect("not poisoned");
+        let stopped: Vec<String> = down
+            .iter()
+            .filter(|(_, event)| is_refusal(event))
+            .map(|(who, _)| who.clone())
+            .collect();
+        stopped
+            .into_iter()
+            .map(|who| {
+                down.remove(&who);
+                json!({
+                    "type": "transcription", "who": who, "state": "back",
+                    "code": "stt.rearmed", "down_s": 0.0, "dropped_s": 0.0,
+                })
+            })
+            .collect()
     }
 
     /// The event for `who`'s diarizer: behind holds until it catches up.
@@ -134,6 +193,13 @@ impl Outages {
     pub fn until_stopped<'a>(&'a self, who: &'a str) -> Stopped<'a> {
         Stopped(self, who)
     }
+}
+
+fn is_refusal(event: &Event) -> bool {
+    matches!(
+        event["code"].as_str(),
+        Some("stt.credential" | "stt.refused" | "stt.model_missing")
+    )
 }
 
 /// The key of `who`'s diarizer in the outages, apart from its transcription.
@@ -203,6 +269,43 @@ mod tests {
             transcription("Eles", &back).to_string(),
             r#"{"type":"transcription","who":"Eles","state":"back","down_s":7.5,"dropped_s":2.5}"#
         );
+    }
+
+    #[test]
+    fn a_refused_model_is_told_with_its_secret_kept_and_tried_again_on_rearm() {
+        let outages = Outages::default();
+        let refused = Trouble::Refused(Refusal::Credential, "401".into());
+        let event = outages.note_model("Eles", &refused, ("nova-3", Some("deepgram")));
+        assert_eq!(
+            event.to_string(),
+            r#"{"type":"transcription","who":"Eles","state":"down","code":"stt.credential","detail":"401","model":"nova-3","secret":"deepgram"}"#
+        );
+        let missing = Trouble::Refused(Refusal::NotFound, "404".into());
+        let lost = outages.note_model("Eu", &missing, ("nova-9", None));
+        assert_eq!(lost["code"], "stt.model_missing");
+        // A refused key of a model with no secret has a code of its own.
+        let open = outages.note_model("Ela", &refused, ("lan", None));
+        assert_eq!(open["code"], "stt.refused");
+        assert_eq!(open["model"], "lan");
+        outages.note(
+            "Ela",
+            &Trouble::Back {
+                down: Duration::ZERO,
+                dropped: 0.0,
+            },
+        );
+        let down = outages.note("Ela", &Trouble::Down("reset".into()));
+        assert_eq!(outages.events(), [down.clone(), event, lost]);
+        // Only the stopped ones are re-armed; an outage that retries stays.
+        let rearmed = outages.rearm();
+        assert_eq!(
+            rearmed.iter().map(Value::to_string).collect::<Vec<_>>(),
+            [
+                r#"{"type":"transcription","who":"Eles","state":"back","code":"stt.rearmed","down_s":0.0,"dropped_s":0.0}"#,
+                r#"{"type":"transcription","who":"Eu","state":"back","code":"stt.rearmed","down_s":0.0,"dropped_s":0.0}"#,
+            ]
+        );
+        assert_eq!(outages.events(), [down]);
     }
 
     #[test]

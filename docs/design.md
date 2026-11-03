@@ -405,7 +405,25 @@ eco/
   minutes the oldest audio is dropped, and the seconds dropped are said by
   `back`; dropped by an outage still under way when the capture ends, they
   are a `transcription.failed` error. Outages are not written to the session
-  log, which keeps no errors either. An import
+  log, which keeps no errors either. One classification of a provider's HTTP
+  status (`Refusal::of` in `src/ports.rs`, used by every adapter that talks
+  to a provider: Deepgram, Scribe, the OpenAI-compatible transcription and
+  the chat adapter, and the WebSocket handshake) tells a refused key (401,
+  402, 403) and a model the provider does not have (404) from everything
+  else, which stays an outage that may pass (5xx, 429, a dropped or stalled
+  connection). A refusal is not retried: the stream stops opening
+  connections, the audio heard goes on being held within the same five
+  minutes and bound, and the clients are told once with a `transcription`
+  event `"state":"down"` and `"code":"stt.credential"` or
+  `"stt.model_missing"`, with the `model` (the name the user registered) and
+  the `secret` its key comes from; a model with no secret gets `"stt.refused"`
+  and no `secret`, so the text names none; the overlay says so in the strip and points
+  to Settings › Secrets or Settings › Models. A segment-by-segment model
+  stops the same way: the refused segment is not sent again and the segments
+  after it are not sent. The stopped state is kept for clients that connect
+  later. Saving the config restarts the transcription, which tries the model
+  again at once, without pausing and playing the session; clients get a
+  `"state":"back"` event with `"code":"stt.rearmed"` meanwhile. An import
   streams to Scribe with waiting frames joined into chunks of up to a second
   (frame by frame it refuses them as too frequent); Deepgram streams only as
   fast as the audio plays, so an import posts each segment to the same path
@@ -1320,6 +1338,7 @@ session it shows:
 {"type":"transcript","session":"…","who":"Eles","name":"Ana","text":"...","at":1791083840.1,"latency_ms":990,"counts":{"lines":41,"answers":2,"notes":1}}
 {"type":"transcript_partial","session":"…","who":"Eles","name":"Ana","text":"so the next…"}
 {"type":"transcription","who":"Eles","state":"down","code":"stt.down","detail":"stalled: nothing heard for 15s"}
+{"type":"transcription","who":"Ana","state":"down","code":"stt.credential","detail":"HTTP error: 401 Unauthorized","model":"deepgram-nova","secret":"deepgram"}
 {"type":"transcription","who":"Eu","state":"down","code":"capture.down","detail":"Default microphone: not connected"}
 {"type":"transcription","who":"Eles","state":"back","down_s":318.4,"dropped_s":18.2}
 {"type":"suggestion_start","id":"54401f25","session":"…","action":"chat","model":"google/gemini-3.5-flash-lite","prompt":"Ele citou Kafka?","at":1791083860.0,"counts":{"lines":41,"answers":3,"notes":1}}
@@ -1605,7 +1624,10 @@ How the commands are built:
   which could end the command line early; nothing is sent),
   `daemon.offline`, `daemon.access_denied`, `daemon.unavailable`,
   `session.not_found`, `session.delete_failed`, `action.unknown`, `chat.none`,
-  `completion.failed`, `suggestion.removed` (replaced by a newer request),
+  `completion.failed`, `completion.credential` (with the model and its secret),
+  `completion.refused` (a model with no secret) and `completion.model_missing`
+  (the provider refused the key, or has no such model; `translation.failed`
+  has the same three), `suggestion.removed` (replaced by a newer request),
   `translation.none`, `import.busy`,
   `import.failed`, `person.not_found`, `person.invalid`, `person.exists`,
   `people.failed`, `line.not_found`, `tag.invalid`, `tag.not_found`.

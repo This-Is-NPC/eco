@@ -65,9 +65,9 @@ impl DeepgramTranscriber {
         format!("{https}?{}&utterances=true", self.query())
     }
 
-    async fn post(&self, pcm: &[i16]) -> Result<Transcript, String> {
-        let client =
-            http::client(Some(std::time::Duration::from_secs(60))).map_err(|e| e.to_string())?;
+    async fn post(&self, pcm: &[i16]) -> Result<Transcript, TranscriptionError> {
+        let client = http::client(Some(std::time::Duration::from_secs(60)))
+            .map_err(|e| TranscriptionError::new(e.to_string()))?;
         let mut request = client
             .post(self.files_url())
             .header("Content-Type", "audio/wav")
@@ -75,14 +75,15 @@ impl DeepgramTranscriber {
         if let Some(key) = &self.key {
             request = request.header("Authorization", format!("Token {key}"));
         }
+        let failed = |e: reqwest::Error| http::transcription_error(&e);
         let reply: Value = request
             .send()
             .await
             .and_then(|r| r.error_for_status())
-            .map_err(|e| e.to_string())?
+            .map_err(failed)?
             .json()
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(failed)?;
         Ok(transcript(&reply))
     }
 }
@@ -174,7 +175,7 @@ impl SpeechToText for DeepgramTranscriber {
         &'a self,
         pcm: &'a [i16],
     ) -> BoxFuture<'a, Result<Transcript, TranscriptionError>> {
-        Box::pin(async move { self.post(pcm).await.map_err(TranscriptionError) })
+        Box::pin(async move { self.post(pcm).await })
     }
 }
 
@@ -577,8 +578,9 @@ mod tests {
     async fn recorded_audio_refused_or_garbled_is_an_error() {
         let (base, _) = serve_once(401, b"{}".to_vec()).await;
         let refused = SpeechToText::transcribe(&local(&base, None), &[0; 160]).await;
-        let why = refused.unwrap_err().0;
-        assert!(why.contains("401"), "{why}");
+        let refused = refused.unwrap_err();
+        assert!(refused.why.contains("401"), "{}", refused.why);
+        assert_eq!(refused.refusal, Some(crate::ports::Refusal::Credential));
         let (base, _) = serve_once(200, b"<html>".to_vec()).await;
         let garbled = SpeechToText::transcribe(&local(&base, None), &[0; 160]).await;
         assert!(garbled.is_err());
@@ -786,7 +788,7 @@ mod tests {
     #[tokio::test]
     async fn a_stream_deepgram_refuses_or_garbles_ends_with_an_error() {
         let refused = stream(vec![r#"{"type":"Error","description":"bad audio"}"#.into()]).await;
-        let why = &refused.last().expect("a result").as_ref().unwrap_err().0;
+        let why = &refused.last().expect("a result").as_ref().unwrap_err().why;
         assert_eq!(why, "deepgram: bad audio");
         let garbled = stream(vec!["not json".into()]).await;
         assert!(matches!(garbled.last(), Some(Err(_))), "{garbled:?}");
