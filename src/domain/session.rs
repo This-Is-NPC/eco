@@ -3363,6 +3363,25 @@ mod tests {
     }
 
     #[test]
+    fn only_the_latest_cuts_are_remembered() {
+        let mut session = Session::begin("Call", "meeting", LIVE, "pt", Box::new(|_| {}));
+        let said = words("Tudo bem? Sim e voce");
+        let cut = |session: &mut Session, at: f64| {
+            session.hear_at("Eles", "Tudo bem? Sim e voce", at);
+            session.recut(at, &said, &[0, 2])
+        };
+        for line in 0..=CUTS {
+            cut(&mut session, 10.0 + line as f64 * 2.0);
+        }
+        // The newest cut is held: cutting it the same way again finds it done.
+        let newest = 10.0 + CUTS as f64 * 2.0;
+        assert_eq!(session.recut(newest, &said, &[0, 2]).0, []);
+        assert_eq!(session.recut(newest, &said, &[0, 2]).1.len(), 2);
+        // The oldest is forgotten: only its first part answers for the line.
+        assert_eq!(session.recut(10.0, &said, &[0, 2]).1.len(), 1);
+    }
+
+    #[test]
     fn a_line_with_no_room_to_cut_stays_whole() {
         let mut session = Session::begin("Call", "meeting", LIVE, "pt", Box::new(|_| {}));
         session.hear_at("Eles", "um dois tres", 10.0);

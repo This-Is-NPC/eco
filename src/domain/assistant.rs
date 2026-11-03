@@ -6339,6 +6339,24 @@ mod tests {
         let caio = everyone.iter().find(|p| p.name == "Caio").unwrap();
         assert_eq!(caio.voiceprints.len(), 1);
         assert_eq!(caio.voiceprints[0].voice, [0.0, 0.0, 1.0]);
+
+        // Two speakers that already share a label have nothing to move.
+        for speaker in [6, 7] {
+            let shared = Labelled {
+                label: "Eles".into(),
+                ..Labelled::default()
+            };
+            labels.insert(speaker, shared);
+        }
+        let same = Said {
+            merged: vec![(7, 6)],
+            ..Said::default()
+        };
+        let before = count(&events, "transcript_reassigned");
+        assistant.voices_heard(&call.id, "Eles", &same, &mut labels);
+        assert!(!labels.contains_key(&7));
+        assert_eq!(labels[&6].label, "Eles");
+        assert_eq!(count(&events, "transcript_reassigned"), before);
     }
 
     #[test]

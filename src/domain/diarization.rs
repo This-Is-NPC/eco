@@ -1251,6 +1251,17 @@ mod tests {
         Region::new(start, start + voices.len() as f64, windows.collect())
     }
 
+    #[test]
+    fn a_region_shifted_moves_its_windows_and_keeps_their_voices() {
+        let region = windows(2.0, &[&[1.0, 0.0], &[0.0, 1.0]]);
+        let later = region.shifted(100.0);
+        assert_eq!(later.span(), (102.0, 104.0));
+        let at: Vec<_> = later.windows.iter().map(|w| (w.start, w.end)).collect();
+        assert_eq!(at, [(102.0, 103.0), (103.0, 104.0)]);
+        assert_eq!(later.windows[1].embedding, region.windows[1].embedding);
+        assert_eq!(region.span(), (2.0, 4.0));
+    }
+
     fn rounded(turns: &[Turn]) -> Vec<(f64, f64, usize)> {
         let tenth = |x: f64| (x * 10.0).round() / 10.0;
         turns
@@ -1603,6 +1614,43 @@ mod tests {
         assert_eq!(firsts(&parts(&one, &words, 0.0, 4.0)), [(0, 3)]);
     }
 
+    /// Words with their own start and end, one per `(start, end)`.
+    fn timed_words(spans: &[(f64, f64)]) -> Vec<Word> {
+        let words = spans.iter().map(|&(start, end)| Word {
+            start,
+            end,
+            text: "w".into(),
+        });
+        words.collect()
+    }
+
+    #[test]
+    fn a_speaker_over_a_short_stretch_joins_the_longer_neighbour() {
+        // Words of 1.0, 0.3 and 0.6 s, the middle one said by another speaker.
+        let words = timed_words(&[(0.0, 1.0), (1.0, 1.3), (1.3, 1.9)]);
+        let turns = [turn(0.0, 1.0, 0), turn(1.0, 1.3, 1), turn(1.3, 1.9, 2)];
+        assert_eq!(firsts(&parts(&turns, &words, 0.0, 1.9)), [(0, 0), (2, 2)]);
+        let words = timed_words(&[(0.0, 0.6), (0.6, 0.9), (0.9, 1.9)]);
+        let turns = [turn(0.0, 0.6, 0), turn(0.6, 0.9, 1), turn(0.9, 1.9, 2)];
+        assert_eq!(firsts(&parts(&turns, &words, 0.0, 1.9)), [(0, 0), (1, 2)]);
+        // At either end it joins the only neighbour.
+        let words = timed_words(&[(0.0, 0.3), (0.3, 1.3)]);
+        let turns = [turn(0.0, 0.3, 1), turn(0.3, 1.3, 0)];
+        assert_eq!(firsts(&parts(&turns, &words, 0.0, 1.3)), [(0, 0)]);
+        let words = timed_words(&[(0.0, 1.0), (1.0, 1.3)]);
+        let turns = [turn(0.0, 1.0, 0), turn(1.0, 1.3, 1)];
+        assert_eq!(firsts(&parts(&turns, &words, 0.0, 1.3)), [(0, 0)]);
+        // Two short ones side by side are folded one after the other.
+        let words = timed_words(&[(0.0, 1.0), (1.0, 1.3), (1.3, 1.6), (1.6, 3.6)]);
+        let turns = [
+            turn(0.0, 1.0, 0),
+            turn(1.0, 1.3, 1),
+            turn(1.3, 1.6, 2),
+            turn(1.6, 3.6, 3),
+        ];
+        assert_eq!(firsts(&parts(&turns, &words, 0.0, 3.6)), [(0, 0), (2, 3)]);
+    }
+
     #[test]
     fn a_line_without_word_times_goes_whole_to_who_talks_most() {
         let turns = [turn(0.0, 1.0, 0), turn(1.0, 4.0, 1)];
@@ -1736,6 +1784,26 @@ mod tests {
         assert_eq!(speakers.live().count(), 1);
         let next = speakers.hear(&windows(16.0, &[b; 2]));
         assert_eq!(next.turns[0].speaker, 0);
+    }
+
+    #[test]
+    fn a_speaker_whose_stretches_moved_to_two_others_is_gone_not_joined() {
+        let mut speakers = Speakers::new(Clustering::default());
+        let (a, b, c): (&[f32], &[f32], &[f32]) =
+            (&[1.0, 0.0, 0.0], &[0.0, 1.0, 0.0], &[0.0, 0.0, 1.0]);
+        for (start, voice, count) in [(0.0, a, 4), (4.0, b, 8), (12.0, c, 8), (20.0, a, 4)] {
+            speakers.hear(&windows(start, &vec![voice; count]));
+        }
+        // The first and the last stretch, both the first speaker's, fall in the
+        // groups of the second and the third.
+        let found = Reclustered {
+            ids: vec![0, 1, 2, 3],
+            groups: vec![0, 0, 1, 1],
+        };
+        let update = speakers.regroup(&found).unwrap();
+        assert_eq!(spans(&update.moved), [(0.0, 4.0, 0, 1), (20.0, 24.0, 0, 2)]);
+        assert!(update.merged.is_empty());
+        assert_eq!(speakers.live().count(), 2);
     }
 
     #[test]

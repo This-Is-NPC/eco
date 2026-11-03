@@ -198,5 +198,7 @@ mod tests {
         assert_eq!(cluster(&items, &[10, 10, 1], 0.1, 0.0), [0, 1, 2]);
         assert_eq!(cluster(&[], &[], 0.5, 0.0), Vec::<usize>::new());
         assert_eq!(cluster(&items[..1], &[1], 0.5, 0.0), [0]);
+        // No group is heavy enough: all are one.
+        assert_eq!(cluster(&items, &[10, 10, 1], 0.1, 1.0), [0, 0, 0]);
     }
 }
