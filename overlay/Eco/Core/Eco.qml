@@ -269,14 +269,17 @@ Singleton {
   // The token the daemon gave this window: its config.set is the user's own.
   readonly property string token: Host.env("ECO_TOKEN") || ""
   // A change another client asked for, held until the user approves or rejects
-  // it ({id, hooks: [{action, command}], files, models: [{name, base_url,
-  // api_key_env, api_key_omapass, api_key_credential}]}), or null. The daemon says it again on
-  // connecting.
+  // it ({id, hooks: [{action, command}], files, secrets: [{name, env, omapass,
+  // credential}], providers: [{name, base_url, secret}]}), or null. The daemon
+  // says it again on connecting.
   property var pendingConfig: null
   // What the held change runs, sends and where, one line each.
   readonly property string pendingText: pendingConfig === null ? "" : pendingConfig.hooks.map(hook => I18n.t("pending.hook", hook))
     .concat(pendingConfig.files.map(file => I18n.t("pending.file", { path: file })))
-    .concat(pendingConfig.models.map(model => I18n.t(model.api_key_env ? "pending.model_env" : model.api_key_omapass ? "pending.model_omapass" : model.api_key_credential ? "pending.model_credential" : "pending.model_keyless", model)))
+    .concat(pendingConfig.providers.map(provider => {
+      const secret = pendingConfig.secrets.find(s => s.name === provider.secret) || {}
+      return I18n.t(secret.env ? "pending.provider_env" : secret.omapass ? "pending.provider_omapass" : secret.credential ? "pending.provider_credential" : "pending.provider_keyless", Object.assign({}, provider, secret, { name: provider.name }))
+    }))
     .join("\n")
   // Met again, the warning that the daemon was not reached goes. Gone, it
   // takes the held change with it, and a save under way never answers.
@@ -1500,7 +1503,7 @@ Singleton {
       post([{ key: "uninstall.stage." + event.stage, args: event }], event.stage === "failed" ? "error" : "info", { topic: "uninstall" })
       break
     case "config_pending":
-      pendingConfig = event.hooks.length + event.files.length + event.models.length > 0 ? event : null
+      pendingConfig = event.hooks.length + event.files.length + event.providers.length > 0 ? event : null
       break
     case "config_saved":
       configSaving = false

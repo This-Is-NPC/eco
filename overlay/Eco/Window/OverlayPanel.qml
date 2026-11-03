@@ -283,7 +283,7 @@ Window {
       confirmText: I18n.t("delete.action")
       onConfirmed: Eco.deleteSession(session.id)
     }
-    // A change to hooks, context files or models another client asked for:
+    // A change to hooks, context files or providers another client asked for:
     // only the user's choice here closes it.
     ConfirmDialog {
       id: pendingDialog

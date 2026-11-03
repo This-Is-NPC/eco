@@ -1163,10 +1163,10 @@ key is sent to its provider's `base_url`, so only the user adds them. The daemon
 every window with one random token per run in `ECO_TOKEN`, and the window's
 `config.set` carries it. A `config.set` from any other socket client that adds
 or changes an action's `hook`, adds a file to `[context]` or a `[[contexts]]`
-slot, or adds a model or changes the address or key source of its provider,
+slot, or adds a provider or changes its address or its secret's key source,
 is not saved: the daemon holds it, announces
-`config_pending` with its `id` and each hook command, file path, and model's
-address and key source (a variable's or an omapass account's name, never a
+`config_pending` with its `id` and each hook command, file path, and provider's
+address and secret (a variable's, an omapass account's or a credential's name, never a
 key), and answers the error `config.pending`. The window shows them in a
 dialog; APPROVE sends `config.approve <token> <id>` and saves it, REJECT sends
 `config.reject <token> <id>`, which drops it with the error `config.rejected`.
@@ -1394,7 +1394,7 @@ session it shows:
 {"type":"import_done","id":"…","complete":true}
 {"type":"config","config":{...},"devices":[{"id":"@default-input","label":"...","kind":"input"}],"omapass":{"installed":false,"page":"https://plugins.omarchy.org/..."},"credential_manager":false,"platform":"linux","presets":{"secrets":[{"name":"OPENROUTER","env":"OPENROUTER_API_KEY"},…],"providers":[{"name":"OPENROUTER","base_url":"https://openrouter.ai/api/v1","secret":"OPENROUTER"},…],"models":[{"name":"gpt-6-luna","type":"chat","provider":"OPENROUTER","model":"openai/gpt-6-luna","reasoning":"off"},…]},"echo_cancel":null}
 {"type":"config_saved"}
-{"type":"config_pending","id":"1","hooks":[{"action":"minutes","command":"~/bin/crm-push"}],"files":["~/notes/cv.md"],"models":[{"name":"fast","base_url":"http://192.0.2.10:8000/v1","api_key_env":null,"api_key_omapass":"openrouter","api_key_credential":null}]}
+{"type":"config_pending","id":"1","hooks":[{"action":"minutes","command":"~/bin/crm-push"}],"files":["~/notes/cv.md"],"secrets":[{"name":"bank","omapass":"openrouter"}],"providers":[{"name":"fast","base_url":"http://192.0.2.10:8000/v1","secret":"bank"}]}
 {"type":"models","target":"llm","models":["..."],"error":"..."}
 {"type":"keys","env":["ECO_LAN_KEY","OPENROUTER_API_KEY"],"credentials":null,"credential_error":""}
 {"type":"update","current":"0.4.0","latest":"0.5.0","newer":true,"notes":"https://github.com/This-Is-NPC/eco/releases/tag/v0.5.0","checked_at":1791083833,"check":true,"error":""}
@@ -1483,7 +1483,7 @@ pages of 1000.
 `action <name>`, `ask <question>`,
 `config` (current config and devices, and in `echo_cancel` the error code that says why echo cancellation cannot run on this platform, `echo_cancel.unavailable` on Windows, or `null`; General's ECHO CANCELLATION row is disabled with that code's text as its tip), `config.set <json>` (the config whole;
 a window adds `"token"`; one from another client that adds a hook, a context
-file or a model, or moves a model's key, is held, §9; while one is held, any
+file or a provider, or moves a provider's key, is held, §9; while one is held, any
 other client's answers `config.busy`), `config.approve <token> <id>` and
 `config.reject <token> <id>` (the held change `id`; another id answers
 `config.stale`; once nothing is held, `config_pending` with a null `id` and
