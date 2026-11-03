@@ -14,7 +14,7 @@ import Eco.Kit
 Item {
   id: view
 
-  // The section on screen, 0 to 8.
+  // The section on screen, 0 to 10.
   property int page: 0
   // A section asked for, as when a related item is followed.
   signal wanted(int page)
@@ -22,9 +22,11 @@ Item {
   signal closeRequested()
 
   // The sections' places, for links: settings.link(settings.at.prompts, "rules").
-  readonly property var at: ({ audio: 0, models: 1, languages: 2, kinds: 3, prompts: 4, context: 5, skills: 6, general: 7, appearance: 8 })
-  readonly property var sections: [audio, models, languages, kinds, prompts, context, skills, general, appearance]
+  readonly property var at: ({ audio: 0, secrets: 1, providers: 2, models: 3, languages: 4, kinds: 5, prompts: 6, context: 7, skills: 8, general: 9, appearance: 10 })
+  readonly property var sections: [audio, secrets, providers, models, languages, kinds, prompts, context, skills, general, appearance]
   AudioSection { id: audio; settings: view }
+  SecretsSection { id: secrets; settings: view }
+  ProvidersSection { id: providers; settings: view }
   ModelsSection { id: models; settings: view }
   LanguagesSection { id: languages; settings: view }
   KindsSection { id: kinds; settings: view }

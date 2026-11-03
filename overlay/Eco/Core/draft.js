@@ -2,9 +2,28 @@
 
 // Reads and edits of the settings draft that several views share.
 
-// The names of the draft's registered models of `type`, "chat" or "transcription".
+// The providers, secrets and models eco ships, as the daemon lists them
+// ({secrets, providers, models}): the lists below name them like the user's own.
+var presets = { secrets: [], providers: [], models: [] }
+
+// Remember the presets the daemon lists.
+function usePresets(listed) {
+  presets = listed
+}
+
+// The names of the draft's `list` ("secrets", "providers" or "models") and
+// of the presets of it that a name of the draft does not replace.
+function listed(draft, list) {
+  const own = draft[list].map(item => item.name)
+  return own.concat(presets[list].map(item => item.name).filter(name => !own.includes(name)))
+}
+
+// The names of the registered models of `type`, "chat" or "transcription",
+// the presets among them.
 function named(draft, type) {
   return draft.models.filter(model => model.type === type && model.name).map(model => model.name)
+    .concat(presets.models.filter(preset => preset.type === type && !draft.models.some(model => model.name === preset.name))
+      .map(preset => preset.name))
 }
 
 // Whether the draft has a chat model registered: answers, skills and
@@ -48,7 +67,7 @@ function serve(d, use, kind, name) {
 // itself rather than inheriting it.
 function answering(draft, use, kind, action) {
   const type = use === "transcription" ? "transcription" : "chat"
-  const known = name => !!name && draft.models.some(model => model.type === type && model.name === name)
+  const known = name => !!name && named(draft, type).includes(name)
   const steps = []
   if (action)
     steps.push(action.model || "")
@@ -120,37 +139,59 @@ function rename(d, index, text, from) {
   return name
 }
 
-// The provider a model of `type` in the draft starts from: the base URL and key
-// source of the draft's last model of that type, or else of the type's first
-// preset in `presets` ({chat: [...], transcription: [...]}).
-function provider(draft, type, presets) {
-  const last = (draft.models || []).filter(model => model.type === type).pop()
-  const from = last || presets[type][0].values
-  const fields = { base_url: from.base_url }
-  if (from.api_key_credential !== undefined)
-    fields.api_key_credential = from.api_key_credential
-  else if (from.api_key_omapass !== undefined)
-    fields.api_key_omapass = from.api_key_omapass
-  else if (from.api_key_env !== undefined)
-    fields.api_key_env = from.api_key_env
-  return fields
+// The provider a new model of `type` starts from: that of the draft's last
+// model of that type, or else of the type's first preset; "" when there is none.
+function provider(draft, type) {
+  const last = draft.models.filter(model => model.type === type && model.provider).pop()
+  const preset = presets.models.find(model => model.type === type)
+  return last ? last.provider : preset ? preset.provider : ""
 }
 
-// Make the model at `index` in the draft `d` the other `type`, keeping its name
-// and model id. Its base URL stays when it fits the type — a preset of that type
-// uses it, or no preset does and it is not a streaming wss:// one for chat —;
-// otherwise the provider and key come from `provider`. A chat model's reasoning,
-// extra fields and translations leave with its type.
-function retype(d, index, type, presets) {
+// Make the model at `index` in the draft `d` the other `type`, keeping its
+// name, provider and model id. A chat model's reasoning, extra fields and
+// translations leave with its type.
+function retype(d, index, type) {
   const entry = d.models[index]
-  const url = entry.base_url || ""
-  const preset = list => list.some(p => p.values.base_url === url)
-  const fits = preset(presets[type]) || (!preset(presets.chat) && !preset(presets.transcription)
-    && !(type === "chat" && url.startsWith("wss://")))
-  const kept = { name: entry.name, type: type, model: entry.model || "" }
-  if (fits)
-    ["base_url", "api_key_env", "api_key_omapass", "api_key_credential"].forEach(key => { if (entry[key] !== undefined) kept[key] = entry[key] })
-  d.models[index] = Object.assign(kept, fits ? {} : provider(d, type, presets))
+  d.models[index] = { name: entry.name, type: type, provider: entry.provider, model: entry.model || "" }
+}
+
+// "env", "omapass" or "credential": where the key of `secret` is read from.
+function sourceOf(secret) {
+  return secret.credential !== undefined ? "credential" : secret.omapass !== undefined ? "omapass" : "env"
+}
+
+// The pack key that names a secret `source`.
+function sourceKey(source) {
+  return source === "credential" ? "provider.key_credential" : source === "omapass" ? "provider.key_omapass" : "provider.key_env"
+}
+
+// Name the secret or provider at `index` of the draft's `list` ("secrets" or
+// "providers") as `text` is typed. What refers to it — the providers' `secret`,
+// the models' `provider` — names it `from`, the last name it had that was
+// nonempty and no other item's ("" for one never named); it follows the typed
+// name, trimmed, only once it is such a name too. Returns the name it holds now.
+function renameItem(d, list, index, text, from) {
+  d[list][index].name = text
+  const name = text.trim()
+  if (!name || name === from || d[list].some((item, i) => i !== index && item.name.trim() === name))
+    return from
+  if (!from)
+    return name
+  const holders = list === "secrets" ? d.providers : d.models
+  const field = list === "secrets" ? "secret" : "provider"
+  holders.forEach(holder => { if (holder[field] === from) holder[field] = name })
+  return name
+}
+
+// The names of what refers to the secret ("secrets") or provider ("providers")
+// called `name`: the draft's providers or models, and with `shipped` the
+// presets of those that a name of the draft does not replace.
+function referrers(draft, list, name, shipped) {
+  const holders = list === "secrets" ? "providers" : "models"
+  const field = list === "secrets" ? "secret" : "provider"
+  const own = draft[holders]
+  const all = shipped ? own.concat(presets[holders].filter(preset => !own.some(item => item.name === preset.name))) : own
+  return all.filter(holder => !!name && holder[field] === name).map(holder => holder.name)
 }
 
 // What uses the model named `name` in the draft now, as `answering` picks it:
@@ -160,7 +201,7 @@ function retype(d, index, type, presets) {
 // "transcription" and "translation"). A model with no name, or none of that
 // name, is used by nothing.
 function users(draft, name) {
-  const entry = draft.models.find(model => model.name === name)
+  const entry = draft.models.find(model => model.name === name) || presets.models.find(model => model.name === name)
   if (!name || !entry)
     return []
   const found = []
@@ -232,6 +273,16 @@ function normalised(d) {
     if (action.model)
       action.model = trim(action.model)
   })
+  next.secrets.forEach(secret => {
+    secret.name = trim(secret.name)
+    for (const field of ["env", "omapass", "credential"])
+      if (secret[field] !== undefined)
+        secret[field] = trim(secret[field])
+  })
+  next.providers.forEach(provider => {
+    provider.name = trim(provider.name)
+    provider.base_url = trim(provider.base_url)
+  })
   next.models.forEach(model => {
     model.name = trim(model.name)
     model.model = trim(model.model)
@@ -293,7 +344,7 @@ function removal(draft, index) {
 
 // What keeps the draft `d` from saving, each on the field it concerns, in the
 // order of the settings tabs: {path, key, typed}. `path` names the field
-// ("actions.2", "models.0.base_url"), `key` its message; `typed` marks what is
+// ("actions.2", "models.0.model"), `key` its message; `typed` marks what is
 // wrong in what was typed — a repeated name, a space — rather than missing.
 // Names compare trimmed, as they are saved.
 function problems(d) {
@@ -311,12 +362,27 @@ function problems(d) {
         add(path(i), "settings.error_taken", true)
     })
   }
-  const typed = type => d.models.filter(model => model.type === type).map(model => model.name.trim())
+  const typed = type => named(d, type).map(name => name.trim())
   names(d.participants.map(person => person.name), i => "participants." + i, true)
+  names(d.secrets.map(secret => secret.name), i => "secrets." + i + ".name", true)
+  d.secrets.forEach((secret, i) => {
+    const given = ["env", "omapass", "credential"].filter(field => (secret[field] || "").trim() !== "")
+    if (given.length !== 1)
+      add("secrets." + i + ".source", "settings.error_secret_source")
+    else if (given[0] === "credential" && /\s/.test(secret.credential.trim()))
+      add("secrets." + i + ".source", "settings.error_credential_name", true)
+  })
+  names(d.providers.map(provider => provider.name), i => "providers." + i + ".name", true)
+  d.providers.forEach((provider, i) => {
+    if (!provider.base_url.trim())
+      add("providers." + i + ".base_url", "settings.error_base_url")
+    if (provider.secret && !listed(d, "secrets").includes(provider.secret))
+      add("providers." + i + ".secret", "settings.error_secret_unknown")
+  })
   names(d.models.map(model => model.name), i => "models." + i + ".name", true)
   d.models.forEach((model, i) => {
-    if (!model.base_url.trim())
-      add("models." + i + ".base_url", "settings.error_base_url")
+    if (!listed(d, "providers").includes(model.provider))
+      add("models." + i + ".provider", "settings.error_provider_pick")
     if (!model.model.trim())
       add("models." + i + ".model", "settings.error_model_id")
   })

@@ -2,27 +2,33 @@ import QtQuick
 import Eco.Core
 
 // ModelsSection registers the models, chat and transcription: each row its
-// name, its type, the provider's id, what it is the default for and what else
-// uses it; a row opens ModelView. The picked model is made a default from the
-// bar, saved at once. The chat and transcription defaults are not deleted;
-// deleting another first says what falls back.
+// name, its type, the provider's id, what it is the default for, what else
+// uses it and, for the models eco ships, that it is a preset and why it is
+// disabled while its key is not set; a row opens ModelView, a preset's
+// PresetView. The picked model is made a default from the bar, saved at once.
+// The chat and transcription defaults are not deleted; deleting another first
+// says what falls back.
 SettingsSection {
   id: section
 
   name: I18n.t("settings.models")
   note: I18n.t("settings.models_note")
-  columns: [{ title: I18n.t("settings.column_name"), weight: 0.16 }, { title: I18n.t("settings.column_type"), weight: 0.13 },
-    { title: I18n.t("settings.column_model_id"), weight: 0.22 }, { title: I18n.t("settings.column_default"), weight: 0.26 },
-    { title: I18n.t("settings.column_used_by"), weight: 0.23 }]
-  stacked: [[0], [1, 2], [3], [4]]
+  columns: [{ title: I18n.t("settings.column_name"), weight: 0.15 }, { title: I18n.t("settings.column_type"), weight: 0.13 },
+    { title: I18n.t("settings.column_model_id"), weight: 0.21 }, { title: I18n.t("settings.column_default"), weight: 0.28 },
+    { title: I18n.t("settings.column_used_by"), weight: 0.13 }, { title: I18n.t("models.column_state"), weight: 0.1 }]
+  stacked: [[0], [1, 2], [3], [4, 5]]
   add: I18n.t("settings.add_model")
   file: "ModelView.qml"
   rows: config => config.models.map(model => {
     const kept = config.llm.model === model.name || config.stt.model === model.name
     return { id: model.name, removable: !kept, keptReason: kept ? I18n.t("settings.delete_in_use") : "",
       cells: [model.name, typeName(model.type), model.model, defaultsText(config, model.name),
-        links(config, model.name).map(link => link.text).join(", ")] }
-  })
+        links(config, model.name).map(link => link.text).join(", "), ""] }
+  }).concat(shipped(config).map(model => ({
+    id: model.name, file: "PresetView.qml", fixed: true, edits: false, noEdit: I18n.t("presets.no_edit"), dim: isDisabled(model.name),
+    cells: [model.name, typeName(model.type), model.model, defaultsText(config, model.name),
+      links(config, model.name).map(link => link.text).join(", "),
+      I18n.t(isDisabled(model.name) ? "models.preset_disabled" : "models.preset")] })))
   remove: (config, row) => {
     const change = Draft.removal(config, config.models.findIndex(model => model.name === row.id))
     const groups = {}
@@ -43,13 +49,14 @@ SettingsSection {
   // TRANSCRIPTION for a transcription one, each off on the model that is
   // already that default; DEFAULT FOR CHAT, off, while no model is picked.
   commands: (config, row) => {
-    const model = row === null ? null : config.models.find(model => model.name === row.id)
+    const model = row === null ? null : config.models.find(model => model.name === row.id) || shipped(config).find(model => model.name === row.id)
     if (!model)
       return [{ text: I18n.t("settings.default_chat"), icon: "check", tip: I18n.t("settings.pick_row_tip"), enabled: false, run: () => {} }]
     const is = Draft.defaults(config, model.name)
     const command = (use, text, tip, isTip, short) => {
       const already = is.some(entry => entry.use === use && !entry.inherited)
-      return { text: I18n.t(text), short: short ? I18n.t(short) : "", icon: "check", tip: I18n.t(already ? isTip : tip), enabled: !already && !Eco.configSaving,
+      return { text: I18n.t(text), short: short ? I18n.t(short) : "", icon: "check", tip: isDisabled(model.name) ? disabledText(model.name) : I18n.t(already ? isTip : tip),
+        enabled: !already && !isDisabled(model.name) && !Eco.configSaving,
         run: () => settings.saveNow(d => Draft.makeDefault(d, use, model.name)) }
     }
     return model.type === "chat" ? [
@@ -58,6 +65,26 @@ SettingsSection {
         "settings.default_translation_short"),
       command("review", "settings.default_review", "settings.default_review_tip", "settings.default_review_is", "settings.default_review_short")
     ] : [command("transcription", "settings.default_transcription", "settings.default_transcription_tip", "settings.default_transcription_is")]
+  }
+
+  // The models eco ships that a model of the user's with the same name does not replace.
+  function shipped(config) {
+    return Eco.presets.models.filter(preset => !config.models.some(model => model.name === preset.name))
+  }
+  // Whether the preset `name` waits for a key, and why, as the daemon told it.
+  function isDisabled(name) { return Eco.disabledModels[name] !== undefined }
+  function disabledText(name) {
+    const why = Eco.disabledModels[name]
+    return why === undefined ? "" : I18n.t("error." + why.code, why.params)
+  }
+  // The screen of the preset model `name`.
+  function presetFacts(name) {
+    const preset = Eco.presets.models.find(entry => entry.name === name)
+    return { facts: [[I18n.t("settings.model_type"), typeName(preset.type)], [I18n.t("settings.fact_default"), defaultsText(Eco.config, name)],
+      [I18n.t("models.provider"), preset.provider], [I18n.t("settings.column_model_id"), preset.model]]
+      .concat(preset.reasoning ? [[I18n.t("settings.reasoning"), I18n.t(preset.reasoning === "off" ? "settings.reasoning_off" : preset.reasoning === "low" ? "settings.reasoning_low"
+        : preset.reasoning === "medium" ? "settings.reasoning_medium" : "settings.reasoning_high")]] : []),
+      disabled: disabledText(name) }
   }
 
   // What the model `name` of `config` is the default for, as read: "" for nothing.

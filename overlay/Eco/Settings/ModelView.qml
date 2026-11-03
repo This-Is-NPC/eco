@@ -5,11 +5,12 @@ import Eco.Core
 import Eco.Kit
 
 // ModelView is one registered model. Read, what it is — its type, what it is
-// the default for, provider, model id, where its key comes from, how much a
-// chat model reasons, what a minute of audio costs a transcription model — and
-// what else uses it, each use a link to where it is set. Edited: its type while nothing uses it, its name,
-// its reasoning, its provider, its price per minute and, for chat, the extra
-// fields sent with each request. Renaming it renames it wherever it is used. A new
+// the default for, its provider and the provider's id for it, how much a chat
+// model reasons, what a minute of audio costs a transcription model — and what
+// else uses it, each use a link to where it is set. Edited: its type while
+// nothing uses it, its name, its reasoning, its provider, picked from the
+// Providers tab, the id, its price per minute and, for chat, the extra fields
+// sent with each request. Renaming it renames it wherever it is used. A new
 // model starts from the provider of the last one of its type.
 ItemPage {
   id: page
@@ -21,7 +22,7 @@ ItemPage {
   // Its place in the config being edited: past the end for a new one.
   readonly property int at: item.base === null ? -1 : fresh ? item.base.models.length : item.base.models.findIndex(model => model.name === key)
   readonly property var entry: (item.active ? item.draft.models[at] : config ? config.models.find(model => model.name === key) : null)
-    || ({ name: "", type: "chat", model: "", base_url: "" })
+    || ({ name: "", type: "chat", provider: "", model: "" })
   readonly property bool chat: entry.type === "chat"
   readonly property var links: config ? section.links(config, entry.name) : []
   // Anything answers with it, a default too: its type stays.
@@ -82,26 +83,17 @@ ItemPage {
       page.reload()
     }
   }
-  Component.onCompleted: if (fresh) item.begin(d => d.models.push(Object.assign({ name: "", type: "chat", model: "" }, Draft.provider(d, "chat", Eco.presets))))
+  Component.onCompleted: if (fresh) item.begin(d => d.models.push({ name: "", type: "chat", provider: Draft.provider(d, "chat"), model: "" }))
   // Its provider's model list, listed for another model, is asked for again.
   onEditingChanged: if (editing) Eco.clearModels(target(entry.type))
 
-  facts: {
-    const preset = (Eco.presets[entry.type] || []).find(preset => preset.values.base_url === entry.base_url)
-    const source = entry.api_key_env !== undefined && entry.api_key_env !== "" ? I18n.t("settings.key_env", { name: entry.api_key_env })
-      : entry.api_key_omapass !== undefined ? I18n.t("settings.key_omapass", { name: entry.api_key_omapass })
-      : entry.api_key_credential !== undefined ? I18n.t("settings.key_credential", { name: entry.api_key_credential })
-      : I18n.t("settings.key_none")
-    return [
-      [I18n.t("settings.model_type"), section.typeName(entry.type)],
-      [I18n.t("settings.fact_default"), config ? section.defaultsText(config, entry.name) : ""],
-      [I18n.t("provider.provider"), preset ? preset.name : I18n.t("provider.custom")],
-      [I18n.t("provider.base_url"), entry.base_url],
-      [I18n.t("settings.column_model_id"), entry.model],
-      [I18n.t("provider.key_from"), source]
-    ].concat(chat ? [[I18n.t("settings.reasoning"), reasoningName(entry.reasoning || "")]].concat(entry.extra ? [[I18n.t("config.extra"), JSON.stringify(entry.extra)]] : [])
-      : [[I18n.t("settings.fact_price"), entry.price_per_minute === undefined ? I18n.t("settings.price_unset") : String(entry.price_per_minute)]])
-  }
+  facts: [
+    [I18n.t("settings.model_type"), section.typeName(entry.type)],
+    [I18n.t("settings.fact_default"), config ? section.defaultsText(config, entry.name) : ""],
+    [I18n.t("models.provider"), entry.provider],
+    [I18n.t("settings.column_model_id"), entry.model]
+  ].concat(chat ? [[I18n.t("settings.reasoning"), reasoningName(entry.reasoning || "")]].concat(entry.extra ? [[I18n.t("config.extra"), JSON.stringify(entry.extra)]] : [])
+    : [[I18n.t("settings.fact_price"), entry.price_per_minute === undefined ? I18n.t("settings.price_unset") : String(entry.price_per_minute)]])
   related: {
     const groups = []
     links.forEach(link => {
@@ -110,6 +102,8 @@ ItemPage {
         groups.push(group = { title: link.group, items: [] })
       group.items.push(link)
     })
+    if (entry.provider)
+      groups.push({ title: settings.sections[settings.at.providers].name, items: [settings.link(settings.at.providers, entry.provider, entry.provider)] })
     return groups
   }
 
@@ -129,7 +123,7 @@ ItemPage {
             const at = page.at
             const type = modelData
             Eco.clearModels(page.target(type))
-            item.update(d => Draft.retype(d, at, type, Eco.presets))
+            item.update(d => Draft.retype(d, at, type))
           }
         }
       }
@@ -165,17 +159,37 @@ ItemPage {
     }
   }
 
-  ProviderFields {
+  ColumnLayout {
+    Layout.fillWidth: true
+    spacing: 6
+    Caption { text: I18n.t("models.provider") }
+    Flow {
+      Layout.fillWidth: true
+      spacing: 6
+      Repeater {
+        model: page.config ? Draft.listed(page.config, "providers") : []
+        delegate: Chip {
+          required property string modelData
+          text: modelData
+          checked: page.entry.provider === modelData
+          onClicked: if (!checked) {
+            Eco.clearModels(page.target(page.entry.type))
+            page.change("provider", modelData)
+          }
+        }
+      }
+    }
+    FieldError { Layout.fillWidth: true; text: item.errors[page.path + "provider"] || "" }
+    ItemNote { text: I18n.t("models.provider_note") }
+  }
+
+  ModelIdFields {
     Layout.fillWidth: true
     target: page.target(page.entry.type)
-    errors: ({ base_url: item.errors[page.path + "base_url"], model: item.errors[page.path + "model"] })
+    error: item.errors[page.path + "model"] || ""
     section: page.entry
-    presets: Eco.presets[page.entry.type] || []
-    onEdited: (key, value) => {
-      page.change(key, value)
-      if (key === "extra")
-        page.reload()
-    }
+    example: Eco.presets.models.find(model => model.type === page.entry.type) || null
+    onEdited: (key, value) => page.change(key, value)
   }
 
   Field {

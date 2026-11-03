@@ -8,13 +8,14 @@ TestCase {
   name: "Draft"
 
   function draft(models, transcriber, assistant) {
-    return { participants: [], models: models, contexts: [], actions: [], kinds: ["meeting"],
+    return { participants: [], secrets: [], providers: [{ name: "stt", base_url: "http://stt" }, { name: "llm", base_url: "http://llm" }],
+      models: models, contexts: [], actions: [], kinds: ["meeting"],
       stt: { model: transcriber, language: "auto", languages: ["auto"] }, llm: { model: assistant } }
   }
 
   readonly property var registered: [
-    { name: "w", type: "transcription", base_url: "http://stt", model: "whisper-1" },
-    { name: "m", type: "chat", base_url: "http://llm", model: "m" }
+    { name: "w", type: "transcription", provider: "stt", model: "whisper-1" },
+    { name: "m", type: "chat", provider: "llm", model: "m" }
   ]
 
   function paths(d) {
@@ -38,23 +39,77 @@ TestCase {
     compare(paths(draft([], "gone", "gone")), ["stt.model", "llm.model"])
   }
 
-  readonly property var presets: ({
-    chat: [{ name: "OPENROUTER", values: { base_url: "https://openrouter.ai/api/v1", api_key_env: "OPENROUTER_API_KEY" } }],
-    transcription: [{ name: "DEEPGRAM", values: { base_url: "wss://api.deepgram.com/v1/listen", api_key_env: "DEEPGRAM_API_KEY" } }]
+  readonly property var shipped: ({
+    secrets: [{ name: "OPENROUTER", env: "OPENROUTER_API_KEY" }],
+    providers: [{ name: "OPENROUTER", base_url: "https://openrouter.ai/api/v1", secret: "OPENROUTER" }],
+    models: [{ name: "gpt", type: "chat", provider: "OPENROUTER", model: "openai/gpt" },
+      { name: "nova", type: "transcription", provider: "OPENROUTER", model: "nova-3" }]
   })
 
-  function test_a_new_model_keeps_the_key_source_of_the_last_one() {
-    const keyed = [{ name: "c", type: "chat", base_url: "http://llm", model: "m", api_key_credential: "llm" }]
-    compare(Draft.provider(draft(keyed, "", ""), "chat", presets), { base_url: "http://llm", api_key_credential: "llm" })
-    const d = draft(keyed, "", "")
-    Draft.retype(d, 0, "transcription", presets)
-    compare(d.models[0].api_key_credential, "llm")
+  function test_a_new_model_starts_from_the_provider_of_the_last_one_of_its_type() {
+    Draft.usePresets(shipped)
+    const d = draft(JSON.parse(JSON.stringify(registered)), "", "")
+    compare(Draft.provider(d, "chat"), "llm")
+    compare(Draft.provider(draft([], "", ""), "chat"), "OPENROUTER")
+    Draft.retype(d, 0, "chat")
+    compare(d.models[0], { name: "w", type: "chat", provider: "stt", model: "whisper-1" })
+    Draft.usePresets({ secrets: [], providers: [], models: [] })
+  }
+
+  // The models eco ships are named like the user's own, unless the user has one by that name.
+  function test_a_default_may_name_a_preset_model() {
+    Draft.usePresets(shipped)
+    compare(paths(draft([], "nova", "gpt")), [])
+    compare(Draft.named(draft(registered, "", ""), "chat"), ["m", "gpt"])
+    compare(paths(draft([], "gpt", "nova")), ["stt.model", "llm.model"])
+    verify(Draft.chats(draft([], "", "")))
+    compare(Draft.users(draft([], "", "gpt"), "gpt").map(use => use.role), ["assistant", "translation", "kind"])
+    Draft.usePresets({ secrets: [], providers: [], models: [] })
+  }
+
+  function test_a_model_needs_a_listed_provider_and_a_provider_a_listed_secret() {
+    Draft.usePresets(shipped)
+    const d = draft([{ name: "a", type: "chat", provider: "gone", model: "x" }, { name: "b", type: "chat", provider: "OPENROUTER", model: "x" }], "", "")
+    d.providers.push({ name: "p", base_url: "http://p", secret: "gone" }, { name: "q", base_url: " ", secret: "OPENROUTER" })
+    compare(paths(d), ["providers.2.secret", "providers.3.base_url", "models.0.provider"])
+    Draft.usePresets({ secrets: [], providers: [], models: [] })
+  }
+
+  function test_a_secret_has_exactly_one_reference() {
+    const d = draft([], "", "")
+    d.secrets = [{ name: "a", env: "KEY" }, { name: "b", env: "" }, { name: "c", env: "K", omapass: "x" }, { name: "d", credential: "a b" },
+      { name: "e", omapass: "acct" }]
+    compare(paths(d), ["secrets.1.source", "secrets.2.source", "secrets.3.source"])
+  }
+
+  // What names a secret or provider follows its typed name, never an empty or another item's.
+  function test_renaming_a_secret_or_provider_renames_what_names_it() {
+    const d = draft([{ name: "a", type: "chat", provider: "llm", model: "x" }], "", "")
+    d.secrets = [{ name: "k", env: "KEY" }, { name: "j", env: "J" }]
+    d.providers[1].secret = "k"
+    compare(Draft.renameItem(d, "secrets", 0, "key2", "k"), "key2")
+    compare(d.providers[1].secret, "key2")
+    compare(Draft.renameItem(d, "secrets", 0, "j", "key2"), "key2")
+    compare(Draft.renameItem(d, "secrets", 0, "", "key2"), "key2")
+    compare(Draft.renameItem(d, "providers", 1, "remote", "llm"), "remote")
+    compare(d.models[0].provider, "remote")
+    compare(Draft.referrers(d, "secrets", "key2"), ["remote"])
+    compare(Draft.referrers(d, "providers", "remote"), ["a"])
+  }
+
+  function test_what_the_presets_use_counts_only_when_asked() {
+    Draft.usePresets(shipped)
+    const d = draft([], "", "")
+    compare(Draft.referrers(d, "providers", "OPENROUTER"), [])
+    compare(Draft.referrers(d, "providers", "OPENROUTER", true), ["gpt", "nova"])
+    compare(Draft.referrers(d, "secrets", "OPENROUTER", true), ["OPENROUTER"])
+    Draft.usePresets({ secrets: [], providers: [], models: [] })
   }
 
   // With nothing registered, a model just added and not yet named serves nothing,
   // so its type can still be chosen.
   function test_a_nameless_model_serves_nothing() {
-    const d = draft([{ name: "", type: "chat", base_url: "http://llm", model: "" }], "", "")
+    const d = draft([{ name: "", type: "chat", provider: "llm", model: "" }], "", "")
     verify(!Draft.serves(d, d.models[0], "chat", "", null))
     verify(!Draft.serves(d, d.models[0], "chat", "meeting", null))
     verify(!Draft.serves(d, d.models[0], "translation", "", null))
@@ -63,7 +118,7 @@ TestCase {
   }
 
   function test_naming_a_new_model_makes_it_no_default() {
-    const d = draft([{ name: "", type: "transcription", base_url: "http://stt", model: "" }], "", "")
+    const d = draft([{ name: "", type: "transcription", provider: "stt", model: "" }], "", "")
     compare(Draft.rename(d, 0, "w", ""), "w")
     compare([d.models[0].name, d.stt.model, d.llm.model], ["w", "", ""])
   }
@@ -81,7 +136,7 @@ TestCase {
   // another model's name, neither model's users move.
   function test_a_model_renamed_as_typed_keeps_its_users_and_takes_none() {
     const d = draft(JSON.parse(JSON.stringify(registered)), "w", "m")
-    d.models.push({ name: "x", type: "chat", base_url: "http://llm", model: "x" })
+    d.models.push({ name: "x", type: "chat", provider: "llm", model: "x" })
     d.actions = [{ name: "probe", model: "m" }, { name: "other", model: "x" }]
     let following = "m"
     for (const text of ["", "x", "x2"])
@@ -96,7 +151,7 @@ TestCase {
   function test_the_users_of_a_model_are_what_answers_with_it() {
     const d = draft(JSON.parse(JSON.stringify(registered)), "w", "m")
     d.kinds = ["meeting", "talk"]
-    d.models.push({ name: "x", type: "chat", base_url: "http://llm", model: "x", kinds: ["talk"] })
+    d.models.push({ name: "x", type: "chat", provider: "llm", model: "x", kinds: ["talk"] })
     d.actions = [{ name: "probe", model: "m" }, { name: "ask" }]
     d.reviewer = { enabled: true, model: "m" }
     compare(Draft.users(d, "m"), [{ role: "assistant" }, { role: "translation" }, { role: "reviewer" },
@@ -115,7 +170,7 @@ TestCase {
   // model; translation follows the chat default until one of its own is set.
   function test_a_model_is_made_the_default_for_each_use() {
     const d = draft(JSON.parse(JSON.stringify(registered)), "", "")
-    d.models.push({ name: "x", type: "chat", base_url: "http://llm", model: "x" })
+    d.models.push({ name: "x", type: "chat", provider: "llm", model: "x" })
     compare(Draft.defaults(d, "m"), [])
     Draft.makeDefault(d, "chat", "m")
     compare(d.llm.model, "m")
@@ -134,7 +189,7 @@ TestCase {
   // The reviewer's model is a default too: made one, review stays as it was.
   function test_a_model_is_made_the_default_for_review() {
     const d = draft(JSON.parse(JSON.stringify(registered)), "", "m")
-    d.models.push({ name: "x", type: "chat", base_url: "http://llm", model: "x" })
+    d.models.push({ name: "x", type: "chat", provider: "llm", model: "x" })
     Draft.makeDefault(d, "review", "x")
     compare(d.reviewer.enabled, false)
     compare(d.reviewer.model, "x")
@@ -148,7 +203,7 @@ TestCase {
   }
 
   function test_a_renamed_kind_follows_into_models_and_slots() {
-    const d = draft([{ name: "m", type: "chat", base_url: "http://llm", model: "m", kinds: ["meeting", "talk"], translates: ["talk"] }], "", "m")
+    const d = draft([{ name: "m", type: "chat", provider: "llm", model: "m", kinds: ["meeting", "talk"], translates: ["talk"] }], "", "m")
     d.contexts = [{ name: "notes", kinds: ["talk"] }]
     Draft.followKind(d, "talk", "chat")
     compare([d.models[0].kinds, d.models[0].translates, d.contexts[0].kinds], [["meeting", "chat"], ["chat"], ["chat"]])
@@ -157,7 +212,7 @@ TestCase {
   }
 
   function test_a_draft_is_saved_trimmed_and_serving_only_its_kinds() {
-    const d = draft([{ name: " m ", type: "chat", base_url: "http://llm", model: " id ", kinds: ["meeting", "gone"], translates: ["gone"] }], " w ", " m ")
+    const d = draft([{ name: " m ", type: "chat", provider: "llm", model: " id ", kinds: ["meeting", "gone"], translates: ["gone"] }], " w ", " m ")
     d.participants = [{ name: " Ana " }]
     d.kinds = [" meeting "]
     d.stt.languages = [" EN "]
@@ -186,7 +241,7 @@ TestCase {
     const again = Draft.rebased(elsewhere, base, edited, ["models.1"], null, [rename])
     compare([again.models[1].name, again.llm.model, again.kinds], ["fast", "fast", ["meeting", "idea"]])
     const added = JSON.parse(JSON.stringify(base))
-    added.models.unshift({ name: "x", type: "chat", base_url: "http://x", model: "x" })
+    added.models.unshift({ name: "x", type: "chat", provider: "llm", model: "x" })
     compare(Draft.rebased(added, base, edited, ["models.1"], null, [rename]), null)
   }
 
@@ -198,7 +253,7 @@ TestCase {
     const edited = JSON.parse(JSON.stringify(base))
     serve(edited)
     const models = JSON.parse(JSON.stringify(base))
-    models.models.push({ name: "x", type: "chat", base_url: "http://x", model: "x" })
+    models.models.push({ name: "x", type: "chat", provider: "llm", model: "x" })
     compare(Draft.rebased(models, base, edited, ["kinds.0"], null, [serve]), null)
     const people = JSON.parse(JSON.stringify(base))
     people.participants = [{ name: "Ana", devices: [] }]

@@ -16,7 +16,7 @@ import Eco.Window
 // sessions' NEW SESSION and N start a session, the composer grows with a
 // line Shift+Enter breaks and sends it whole on Enter or keeps it as a note on
 // Ctrl+Enter, a session's tab is chosen
-// and Esc goes back to the conversation, and a model's key picker lists each source's names under its title,
+// and Esc goes back to the conversation, and a secret's key picker lists each source's names under its title,
 // its keyboard stepping over the titles, a pick setting that source's field. Each check that fails is printed, and the exit status is how many failed.
 Window {
   id: root
@@ -34,8 +34,8 @@ Window {
   property var asked: []
   property var noted: []
   property real composerHeight: 0
-  // The model the key picker edits, changed as the model page changes it.
-  property var model: ({ base_url: "https://openrouter.ai/api/v1", model: "m", api_key_env: "OPENROUTER_API_KEY" })
+  // The secret the key picker edits, changed as the secret page changes it.
+  property var secret: ({ name: "key", env: "OPENROUTER_API_KEY" })
 
   function check(name, ok) {
     if (!ok) {
@@ -188,20 +188,16 @@ Window {
     height: 500
   }
 
-  ProviderFields {
+  Column {
     id: provider
     visible: false
     width: root.width
-    target: "llm"
-    section: root.model
-    onEdited: (key, value) => {
-      const model = Object.assign({}, root.model)
-      if (value === null)
-        delete model[key]
-      else
-        model[key] = value
-      root.model = model
+    SecretFields {
+      width: parent.width
+      secret: root.secret
+      onChosen: (source, name) => root.secret = { name: "key", [source]: name }
     }
+    TextBox { text: "m" }
   }
   readonly property Item picker: find(provider, item => kind(item, "Dropdown"))
   readonly property var pickerList: picker ? picker.data.find(item => kind(item, "MenuPopup")) : null
@@ -312,7 +308,7 @@ Window {
       root.keys.keyClick(Qt.Key_Down)
       root.check("Down steps over the next source's title", root.onKey().text === "AI · openrouter")
       root.keys.keyClick(Qt.Key_Return)
-      root.check("a picked omapass password is the model's key, and only it", root.model.api_key_omapass === "openrouter" && root.model.api_key_env === undefined)
+      root.check("a picked omapass password is the secret's reference, and only it", root.secret.omapass === "openrouter" && root.secret.env === undefined)
     },
     () => {
       // The keyboard on another field as the list opens, which it goes back to unless a pick moves it.
@@ -320,7 +316,7 @@ Window {
       root.picker.open()
       root.keys.keyClick(Qt.Key_Home)
       root.keys.keyClick(Qt.Key_Return)
-      root.check("a picked variable is the model's key, and only it", root.model.api_key_env === "ECO_LAN_KEY" && root.model.api_key_omapass === undefined)
+      root.check("a picked variable is the secret's reference, and only it", root.secret.env === "ECO_LAN_KEY" && root.secret.omapass === undefined)
     },
     () => {
       root.check("a pick gives the keyboard back to the field that had it", root.activeFocusItem !== null && root.activeFocusItem.text === "m")
@@ -333,7 +329,7 @@ Window {
       root.check("names listed while open keep the keyboard on the chosen key", root.onKey().text === "ECO_LAN_KEY")
       root.keys.keyClick(Qt.Key_Down)
       root.keys.keyClick(Qt.Key_Return)
-      root.check("TYPE A NAME… keeps the source with its name", root.model.api_key_env === "ECO_LAN_KEY")
+      root.check("TYPE A NAME… keeps the source with its name", root.secret.env === "ECO_LAN_KEY")
     },
     () => {
       root.check("TYPE A NAME… gives the keyboard to the name once the list closed", root.activeFocusItem !== null && root.activeFocusItem.text === "ECO_LAN_KEY")
@@ -342,7 +338,7 @@ Window {
     () => {
       root.keys.keyClick(Qt.Key_End)
       root.keys.keyClick(Qt.Key_Return)
-      root.check("TYPE A NAME… under OMAPASS starts an empty omapass name", root.model.api_key_omapass === "" && root.model.api_key_env === undefined)
+      root.check("TYPE A NAME… under OMAPASS starts an empty omapass name", root.secret.omapass === "" && root.secret.env === undefined)
     },
     () => Qt.exit(root.failed)
   ]

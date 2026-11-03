@@ -318,9 +318,15 @@ Singleton {
   // The error code that says why echo cancellation cannot run here, or "".
   property string echoCancelError: ""
   property string omapassPage: ""
-  // Provider presets by model type, from the daemon: {chat: [...], transcription: [...]},
-  // each {name, values} with the model fields it sets.
-  property var presets: ({ chat: [], transcription: [] })
+  // The secrets, providers and models eco ships, from the daemon:
+  // {secrets: [{name, env}], providers: [{name, base_url, secret}], models: [{name, type, provider, model, reasoning?}]}.
+  property var presets: ({ secrets: [], providers: [], models: [] })
+  // The system the daemon runs on, "linux", "windows" or "macos".
+  property string platform: "linux"
+  // Whether each secret resolves now, by name: {resolved, code?, params?}. Never the key.
+  property var secretStatus: ({})
+  // The preset models that wait for a key, by name: {code, params}.
+  property var disabledModels: ({})
 
   // Asks the overlay to open the new-session dialog, e.g. from a shortcut.
   signal newSessionRequested()
@@ -775,18 +781,16 @@ Singleton {
     configSaving = true
     send("config.set " + JSON.stringify(Object.assign({ token: token }, draft)))
   }
-  // requestModels lists a provider's models, with its key from `section`.
-  function requestModels(target, section) {
+  // requestModels lists the models the saved provider `provider` offers.
+  function requestModels(target, provider) {
     if (!connected)
       return
     modelsLoading = Object.assign({}, modelsLoading, { [target]: true })
     modelsAsked = Object.assign({}, modelsAsked, { [target]: true })
-    send("models " + JSON.stringify({
-      target: target, base_url: section.base_url || "",
-      api_key_env: section.api_key_env || "", api_key_omapass: section.api_key_omapass || "",
-      api_key_credential: section.api_key_credential || ""
-    }))
+    send("models " + JSON.stringify({ target: target, provider: provider }))
   }
+  // Asks whether each secret resolves now.
+  function requestSecrets() { send("secrets") }
   function requestOmapass() { send("omapass") }
   function requestKeys() { send("keys") }
   // clearModels forgets a provider's model list: it belonged to another provider.
@@ -1082,6 +1086,7 @@ Singleton {
       languageCodes = event.language_codes
       kinds = event.kinds
       kindModels = event.kind_models || {}
+      disabledModels = event.disabled_models || {}
       defaultModels = event.default_models || defaultModels
       contexts = event.contexts || []
       uiLanguage = event.ui_language
@@ -1443,6 +1448,8 @@ Singleton {
     case "config":
       // Presets first: the settings draft is made from the config.
       presets = event.presets
+      Draft.usePresets(event.presets)
+      platform = event.platform
       config = event.config
       Theme.configure((config.ui || {}).appearance)
       devices = event.devices
@@ -1450,6 +1457,10 @@ Singleton {
       omapassPage = event.omapass.page
       credentialManager = event.credential_manager
       echoCancelError = event.echo_cancel || ""
+      requestSecrets()
+      break
+    case "secrets":
+      secretStatus = event.status
       break
     case "devices":
       devices = event.devices

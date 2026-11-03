@@ -42,8 +42,8 @@ QtObject {
   readonly property var steps: [
     () => {
       Eco.handle({ type: "config", devices: [], omapass: { installed: false, page: "" }, credential_manager: false,
-        presets: { chat: [{ name: "LOCAL", values: { base_url: "http://127.0.0.1/v1" } }], transcription: [{ name: "LOCAL", values: { base_url: "http://127.0.0.1/v1" } }] },
-        config: { participants: [], models: [], kinds: ["meeting"], actions: [], contexts: [], context: { files: [] }, ui: { language: "auto" },
+        platform: "linux", presets: { secrets: [], providers: [{ name: "LOCAL", base_url: "http://127.0.0.1/v1" }], models: [] },
+        config: { participants: [], secrets: [], providers: [], models: [], kinds: ["meeting"], actions: [], contexts: [], context: { files: [] }, ui: { language: "auto" },
           stt: { model: "", language: "auto", languages: ["auto"] }, llm: { model: "", max_context_chars: 60000, concurrency: 8 } } })
       Eco.configOpen = true
       root.keys = Qt.createQmlObject("import QtTest; TestCase { when: false }", root.window.contentItem, "keys")
@@ -65,7 +65,7 @@ QtObject {
       root.keys.keyClick(Qt.Key_Tab, Qt.ControlModifier)
       root.check("Ctrl+Tab turns to the next", root.window.page === 1)
     },
-    () => root.window.view.create(1),
+    () => root.window.view.create(root.window.view.at.models),
     () => {
       root.find(root.window.contentItem, item => item.visible && item.cursorPosition !== undefined && !item.readOnly).forceActiveFocus()
     },
@@ -73,7 +73,7 @@ QtObject {
       const field = root.window.activeFocusItem
       const before = field.text
       root.keys.keyClick(Qt.Key_3)
-      root.check("3 in a field is written there", root.window.page === 1 && field.text === before + "3")
+      root.check("3 in a field is written there", root.window.page === root.window.view.at.models && field.text === before + "3")
       root.keys.keyClick(Qt.Key_5, Qt.ControlModifier)
       root.check("Ctrl+5 in a field chooses the fifth", root.window.page === 4)
     },
@@ -116,7 +116,7 @@ QtObject {
       const view = root.window.view
       root.check("Esc while writing goes back to the table", view.openPage === null)
       root.check("the row stays picked", view.picked[view.at.kinds] === "meeting")
-      const names = ["audio", "models", "languages", "kinds", "prompts", "context", "skills", "general", "appearance"]
+      const names = ["audio", "secrets", "providers", "models", "languages", "kinds", "prompts", "context", "skills", "general", "appearance"]
       root.check("the sections come in their order", JSON.stringify(view.sections.map(section => section.name))
         === JSON.stringify(names.map(name => I18n.t("settings." + name))))
       root.check("each section has its place", names.every((name, index) => view.at[name] === index))
@@ -140,7 +140,7 @@ QtObject {
     },
     () => {
       root.keys.keyClick(Qt.Key_9, Qt.ControlModifier)
-      root.check("Ctrl+9 chooses Appearance", root.window.page === root.window.view.at.appearance)
+      root.check("Ctrl+9 chooses the ninth", root.window.page === root.window.view.at.skills)
       Qt.exit(root.failed)
     }
   ]

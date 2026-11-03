@@ -24,7 +24,7 @@ SystemTrayIcon {
     "session_deleted", "session_export", "session_opened", "sessions", "sessions_found",
     "attendees_changed", "people", "tags", "tag_renamed", "tag_deleted", "hook_started",
     "hook_sent", "import_date", "import_started", "import_progress", "import_done", "devices",
-    "models", "keys", "omapass", "config", "config_pending", "config_saved", "update",
+    "models", "secrets", "keys", "omapass", "config", "config_pending", "config_saved", "update",
     "update_progress", "window_call", "window_focus", "window_share"
   ]
   function leaveOut() {
