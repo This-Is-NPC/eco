@@ -69,7 +69,7 @@ SettingsSection {
 
   // The models eco ships that a model of the user's with the same name does not replace.
   function shipped(config) {
-    return Eco.presets.models.filter(preset => !config.models.some(model => model.name === preset.name))
+    return Draft.shipped(config, "models")
   }
   // Whether the preset `name` waits for a key, and why, as the daemon told it.
   function isDisabled(name) { return Eco.disabledModels[name] !== undefined }

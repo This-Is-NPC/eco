@@ -22,7 +22,7 @@ SettingsSection {
     return { id: secret.name, removable: users.length === 0,
       keptReason: users.length > 0 ? I18n.t("secrets.delete_in_use", { names: users.join(", ") }) : "",
       cells: [secret.name, sourceName(Draft.sourceOf(secret)), reference(secret), stateText(secret.name)] }
-  }).concat(Eco.presets.secrets.filter(preset => !config.secrets.some(secret => secret.name === preset.name)).map(preset => ({
+  }).concat(Draft.shipped(config, "secrets").map(preset => ({
     id: preset.name, file: "PresetView.qml", fixed: true, edits: false, noEdit: I18n.t("presets.no_edit"), dim: true,
     cells: [preset.name, sourceName("env"), preset.env, stateText(preset.name)] })))
   remove: (config, row) => ({

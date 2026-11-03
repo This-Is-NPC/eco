@@ -21,9 +21,9 @@ SettingsSection {
       keptReason: users.length > 0 ? I18n.t("providers.delete_in_use", { names: users.join(", ") }) : "",
       cells: [provider.name, provider.base_url, provider.secret || I18n.t("providers.no_secret"),
         Draft.referrers(config, "providers", provider.name, true).join(", ")] }
-  }).concat(Eco.presets.providers.filter(preset => !config.providers.some(provider => provider.name === preset.name)).map(preset => ({
+  }).concat(Draft.shipped(config, "providers").map(preset => ({
     id: preset.name, file: "PresetView.qml", fixed: true, edits: false, noEdit: I18n.t("presets.no_edit"), dim: true,
-    cells: [preset.name, preset.base_url, preset.secret || I18n.t("providers.no_secret"),
+    cells: [preset.name, preset.base_url, Draft.shippedSecret(config, preset) || I18n.t("providers.no_secret"),
       Draft.referrers(config, "providers", preset.name, true).join(", ")] })))
   remove: (config, row) => ({
     title: I18n.t("providers.remove_title"),
@@ -35,7 +35,7 @@ SettingsSection {
   // The screen of the preset provider `name`.
   function presetFacts(name) {
     const preset = Eco.presets.providers.find(entry => entry.name === name)
-    return { facts: [[I18n.t("provider.base_url"), preset.base_url], [I18n.t("providers.column_secret"), preset.secret || I18n.t("providers.no_secret")]],
+    return { facts: [[I18n.t("provider.base_url"), preset.base_url], [I18n.t("providers.column_secret"), Draft.shippedSecret(Eco.config, preset) || I18n.t("providers.no_secret")]],
       disabled: "" }
   }
 }

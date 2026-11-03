@@ -97,6 +97,19 @@ TestCase {
     compare(Draft.referrers(d, "providers", "remote"), ["a"])
   }
 
+  // A secret of the user's reading a preset secret's variable takes its place.
+  function test_a_secret_reading_a_preset_variable_replaces_the_preset() {
+    Draft.usePresets(shipped)
+    const d = draft([], "", "")
+    d.secrets = [{ name: "OPENROUTER_API_KEY", env: "OPENROUTER_API_KEY" }]
+    compare(Draft.shipped(d, "secrets").length, 0)
+    compare(Draft.listed(d, "secrets"), ["OPENROUTER_API_KEY"])
+    compare(Draft.shippedSecret(d, shipped.providers[0]), "OPENROUTER_API_KEY")
+    compare(Draft.referrers(d, "secrets", "OPENROUTER_API_KEY", true), ["OPENROUTER"])
+    compare(Draft.shipped(draft([], "", ""), "secrets").length, 1)
+    Draft.usePresets({ secrets: [], providers: [], models: [] })
+  }
+
   function test_what_the_presets_use_counts_only_when_asked() {
     Draft.usePresets(shipped)
     const d = draft([], "", "")

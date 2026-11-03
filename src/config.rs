@@ -1063,7 +1063,7 @@ const OLD_FIELDS: [&str; 4] = [
 /// Point every model that still carries `base_url` or `api_key_*` fields at a
 /// provider and a secret, in `value`'s `providers` and `secrets` lists: one
 /// provider per distinct (base URL, key source), one secret per distinct key
-/// source, reused when the list already has them, named from the host and the
+/// source, reused when the list already has them, named after the preset with the same variable or base URL, else from the host and the
 /// source and numbered when the name is taken. Every other field of the model
 /// stays. Where an old model names several key sources, the credential wins,
 /// then omapass, then the variable. A provider or secret the conversion left
@@ -1137,7 +1137,10 @@ fn convert(value: &mut Value) -> bool {
                 Some(match found.and_then(|s| text(s, "name")) {
                     Some(name) => name,
                     None => {
-                        let name = unique(&secrets, source);
+                        let preset = (field == "env")
+                            .then(|| crate::presets::secret_named(source))
+                            .flatten();
+                        let name = unique(&secrets, preset.unwrap_or(source));
                         secrets.push(serde_json::json!({"name": name, field: source}));
                         name
                     }
@@ -1150,7 +1153,11 @@ fn convert(value: &mut Value) -> bool {
         let provider = match found.and_then(|p| text(p, "name")) {
             Some(name) => name,
             None => {
-                let name = unique(&providers, &host_label(&url));
+                let preset = crate::presets::provider_named(&url);
+                let name = unique(
+                    &providers,
+                    &preset.map_or_else(|| host_label(&url), String::from),
+                );
                 let mut provider = serde_json::json!({"name": name, "base_url": url});
                 if let Some(secret) = &secret {
                     provider["secret"] = secret.clone().into();
@@ -2148,8 +2155,8 @@ translates = ["meeting"]
                     .collect()
             ),
             [
-                "DEEPGRAM_API_KEY=DEEPGRAM_API_KEY",
-                "OPENROUTER_API_KEY=OPENROUTER_API_KEY",
+                "DEEPGRAM=DEEPGRAM_API_KEY",
+                "OPENROUTER=OPENROUTER_API_KEY",
                 "openrouter=openrouter"
             ]
         );
@@ -2163,17 +2170,17 @@ translates = ["meeting"]
             [
                 ("192.0.2.10", "http://192.0.2.10:8000/v1", None),
                 (
-                    "deepgram",
+                    "DEEPGRAM",
                     "wss://api.deepgram.com/v1/listen",
-                    Some("DEEPGRAM_API_KEY")
+                    Some("DEEPGRAM")
                 ),
                 (
-                    "openrouter",
+                    "OPENROUTER",
                     "https://openrouter.ai/api/v1",
-                    Some("OPENROUTER_API_KEY")
+                    Some("OPENROUTER")
                 ),
                 (
-                    "openrouter-2",
+                    "OPENROUTER-2",
                     "https://openrouter.ai/api/v1",
                     Some("openrouter")
                 ),
@@ -2184,10 +2191,10 @@ translates = ["meeting"]
             used,
             [
                 "192.0.2.10",
-                "deepgram",
-                "openrouter",
-                "openrouter-2",
-                "openrouter"
+                "DEEPGRAM",
+                "OPENROUTER",
+                "OPENROUTER-2",
+                "OPENROUTER"
             ]
         );
         let deep = &config.models[3];
@@ -2200,6 +2207,22 @@ translates = ["meeting"]
         assert_eq!(resolved[0].key(), Key::None);
         assert_eq!(resolved[3].key(), Key::Omapass("openrouter"));
         assert_eq!(resolved[4].key(), Key::Env("OPENROUTER_API_KEY"));
+    }
+
+    #[test]
+    fn a_converted_key_or_address_a_preset_has_takes_the_presets_name() {
+        let value = json!({"models": [
+            {"name": "a", "type": "chat", "base_url": "https://openrouter.ai/api/v1",
+             "model": "m", "api_key_env": "OPENROUTER_API_KEY"},
+            {"name": "b", "type": "chat", "base_url": "http://lan/v1", "model": "m",
+             "api_key_env": "LAN_KEY"},
+        ]});
+        let config = from_old(value).unwrap();
+        let secrets: Vec<&str> = config.secrets.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(secrets, ["OPENROUTER", "LAN_KEY"]);
+        let providers: Vec<&str> = config.providers.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(providers, ["OPENROUTER", "lan"]);
+        assert_eq!(config.providers[0].secret.as_deref(), Some("OPENROUTER"));
     }
 
     #[test]

@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use serde_json::{Value, json};
 
 use crate::config::{
-    Config, ModelConfig, ModelType, ProviderConfig, Resolved, SecretConfig, env_key,
+    Config, Key, ModelConfig, ModelType, ProviderConfig, Resolved, SecretConfig, env_key,
 };
 
 /// A preset provider and the variable its key is read from; its secret and
@@ -131,13 +131,29 @@ impl Model {
     }
 }
 
+/// The name of the preset secret that reads `variable`.
+pub fn secret_named(variable: &str) -> Option<&'static str> {
+    PROVIDERS
+        .iter()
+        .find(|p| p.variable == variable)
+        .map(|p| p.name)
+}
+
+/// The name of the preset provider at `base_url`.
+pub fn provider_named(base_url: &str) -> Option<&'static str> {
+    PROVIDERS
+        .iter()
+        .find(|p| p.base_url == base_url)
+        .map(|p| p.name)
+}
+
 /// The variable `model` waits for when it is a preset whose key is not set.
 pub fn missing(model: &Resolved) -> Option<&str> {
     let preset = MODELS.iter().find(|p| p.name == model.name)?;
     let provider = PROVIDERS.iter().find(|p| p.name == preset.provider)?;
     let same = model.entry == preset.config()
         && model.base_url == provider.base_url
-        && model.secret.as_ref() == Some(&provider.secret());
+        && model.key() == Key::Env(provider.variable);
     let variable = provider.variable;
     (same && env_key(variable).is_err()).then_some(variable)
 }
@@ -164,11 +180,21 @@ pub fn overlay(config: &Config) -> Config {
     let mut config = config.clone();
     let old = config.clone();
     for provider in &PROVIDERS {
-        if !old.secrets.iter().any(|s| s.name == provider.name) {
+        // A secret of the user's that reads the same variable takes the
+        // preset's place: the preset provider names it.
+        let user = old
+            .secrets
+            .iter()
+            .find(|s| s.name == provider.name || s.env.as_deref() == Some(provider.variable));
+        if user.is_none() {
             config.secrets.push(provider.secret());
         }
         if !old.providers.iter().any(|p| p.name == provider.name) {
-            config.providers.push(provider.config());
+            let mut entry = provider.config();
+            if let Some(user) = user {
+                entry.secret = Some(user.name.clone());
+            }
+            config.providers.push(entry);
         }
     }
     let added: Vec<ModelConfig> = MODELS
@@ -245,7 +271,7 @@ pub fn disabled_value(disabled: &[Disabled]) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{self, Key, testing::set_env};
+    use crate::config::{self, testing::set_env};
 
     fn user(models: Value) -> Config {
         Config::from_value(json!({"models": models})).unwrap()
@@ -351,6 +377,33 @@ mod tests {
         assert_eq!(loaded, chosen);
         assert!(
             loaded.models.is_empty() && loaded.providers.is_empty() && loaded.secrets.is_empty()
+        );
+    }
+
+    #[test]
+    fn a_user_secret_reading_a_preset_variable_takes_the_presets_place() {
+        let own = Config::from_value(json!({
+            "secrets": [{"name": "OPENROUTER_API_KEY", "env": "OPENROUTER_API_KEY"}],
+        }))
+        .unwrap();
+        let config = overlay(&own);
+        let names: Vec<&str> = config.secrets.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(
+            names,
+            ["OPENROUTER_API_KEY", "ELEVENLABS", "DEEPGRAM", "GROQ"]
+        );
+        let luna = config.resolve(config.model("gpt-6-luna").unwrap()).unwrap();
+        assert_eq!(luna.secret.unwrap().name, "OPENROUTER_API_KEY");
+        assert_eq!(disabled(&config)[0].name, "gpt-6-luna");
+    }
+
+    #[test]
+    fn the_presets_are_found_by_variable_and_by_address() {
+        assert_eq!(secret_named("GROQ_API_KEY"), Some("GROQ"));
+        assert_eq!(secret_named("MINE"), None);
+        assert_eq!(
+            provider_named("https://api.groq.com/openai/v1"),
+            Some("GROQ")
         );
     }
 

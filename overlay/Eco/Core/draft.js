@@ -11,19 +11,32 @@ function usePresets(listed) {
   presets = listed
 }
 
-// The names of the draft's `list` ("secrets", "providers" or "models") and
-// of the presets of it that a name of the draft does not replace.
+// The presets of the draft's `list` ("secrets", "providers" or "models") that
+// the draft does not replace: one of its own name, or for a secret, one that
+// reads the same variable, which takes the preset's place.
+function shipped(draft, list) {
+  return presets[list].filter(preset => !draft[list].some(item => item.name === preset.name
+    || (list === "secrets" && item.env !== undefined && item.env === preset.env)))
+}
+
+// The name of the secret the preset provider `preset` carries in the draft:
+// the draft's own secret that reads the same variable, else the preset's.
+function shippedSecret(draft, preset) {
+  const secret = presets.secrets.find(entry => entry.name === preset.secret)
+  const own = secret && draft.secrets.find(item => item.env !== undefined && item.env === secret.env)
+  return own ? own.name : preset.secret
+}
+
+// The names of the draft's `list` and of the presets of it the draft does not replace.
 function listed(draft, list) {
-  const own = draft[list].map(item => item.name)
-  return own.concat(presets[list].map(item => item.name).filter(name => !own.includes(name)))
+  return draft[list].map(item => item.name).concat(shipped(draft, list).map(item => item.name))
 }
 
 // The names of the registered models of `type`, "chat" or "transcription",
 // the presets among them.
 function named(draft, type) {
   return draft.models.filter(model => model.type === type && model.name).map(model => model.name)
-    .concat(presets.models.filter(preset => preset.type === type && !draft.models.some(model => model.name === preset.name))
-      .map(preset => preset.name))
+    .concat(shipped(draft, "models").filter(preset => preset.type === type).map(preset => preset.name))
 }
 
 // Whether the draft has a chat model registered: answers, skills and
@@ -184,14 +197,15 @@ function renameItem(d, list, index, text, from) {
 }
 
 // The names of what refers to the secret ("secrets") or provider ("providers")
-// called `name`: the draft's providers or models, and with `shipped` the
+// called `name`: the draft's providers or models, and with `withPresets` the
 // presets of those that a name of the draft does not replace.
-function referrers(draft, list, name, shipped) {
+function referrers(draft, list, name, withPresets) {
   const holders = list === "secrets" ? "providers" : "models"
   const field = list === "secrets" ? "secret" : "provider"
   const own = draft[holders]
-  const all = shipped ? own.concat(presets[holders].filter(preset => !own.some(item => item.name === preset.name))) : own
-  return all.filter(holder => !!name && holder[field] === name).map(holder => holder.name)
+  const named = holder => list === "secrets" && !own.includes(holder) ? shippedSecret(draft, holder) : holder[field]
+  const all = withPresets ? own.concat(shipped(draft, holders)) : own
+  return all.filter(holder => !!name && named(holder) === name).map(holder => holder.name)
 }
 
 // What uses the model named `name` in the draft now, as `answering` picks it:
