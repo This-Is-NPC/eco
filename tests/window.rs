@@ -411,6 +411,26 @@ async fn the_secrets_providers_and_models_tabs_list_presets_and_hint_per_platfor
     );
 }
 
+/// The TEST of a model: idle, busy, answered or failed, and off for a preset
+/// that waits for a key.
+#[tokio::test]
+async fn testing_a_model_shows_its_busy_state_and_its_result() {
+    let dir = tempfile::tempdir().unwrap();
+    let run = offscreen("model_test", dir.path())
+        .env("ECO_SOCKET", dir.path().join("no-daemon"))
+        .kill_on_drop(true)
+        .output();
+    let output = tokio::time::timeout(Duration::from_secs(30), run)
+        .await
+        .expect("the test did not finish")
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
 /// The toast stack: three at most, the pinned one kept, information closing
 /// after its time unless held by the pointer or the keyboard, errors staying,
 /// Esc and Tab, and a notice replacing one of its topic or text.

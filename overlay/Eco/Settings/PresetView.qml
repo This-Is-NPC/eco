@@ -16,7 +16,8 @@ ItemPage {
 
   kind: I18n.t("presets.item")
   title: key
-  facts: preset.facts
+  facts: preset.facts.concat(section.testFacts(key))
+  extra: [section.testCommand(key)]
   details: [ItemNote { text: I18n.t("presets.note") },
     ItemNote { visible: page.preset.disabled !== ""; text: page.preset.disabled }]
 }

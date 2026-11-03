@@ -77,6 +77,24 @@ SettingsSection {
     const why = Eco.disabledModels[name]
     return why === undefined ? "" : I18n.t("error." + why.code, why.params)
   }
+  // TEST for the saved model `name`: off, saying why, while it waits for a key;
+  // busy while the daemon waits for the provider.
+  function testCommand(name) {
+    const waiting = disabledText(name)
+    const busy = !!(Eco.modelTests[name] || {}).busy
+    return { text: I18n.t(busy ? "model_test.busy" : "model_test.button"), icon: "check", busy: busy,
+      tip: waiting !== "" ? waiting : I18n.t("model_test.tip"), enabled: waiting === "",
+      run: () => Eco.testModel(name) }
+  }
+  // The facts of the saved model `name`'s last test, once there is one.
+  function testFacts(name) {
+    const test = Eco.modelTests[name]
+    if (!test || test.busy)
+      return []
+    const told = test.ok ? I18n.t("model_test.ok", { ms: test.ms })
+      : I18n.has("error." + test.code) ? I18n.t("error." + test.code, test.params) : test.message
+    return [[I18n.t("model_test.fact"), told]]
+  }
   // The screen of the preset model `name`.
   function presetFacts(name) {
     const preset = Eco.presets.models.find(entry => entry.name === name)

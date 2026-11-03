@@ -7,7 +7,8 @@ import Eco.Kit
 // ModelView is one registered model. Read, what it is — its type, what it is
 // the default for, its provider and the provider's id for it, how much a chat
 // model reasons, what a minute of audio costs a transcription model — and what
-// else uses it, each use a link to where it is set. Edited: its type while
+// else uses it, each use a link to where it is set, and the last TEST of it,
+// pressed from the bar. Edited: its type while
 // nothing uses it, its name, its reasoning, its provider, picked from the
 // Providers tab, the id, its price per minute and, for chat, the extra fields
 // sent with each request. Renaming it renames it wherever it is used. A new
@@ -94,6 +95,8 @@ ItemPage {
     [I18n.t("settings.column_model_id"), entry.model]
   ].concat(chat ? [[I18n.t("settings.reasoning"), reasoningName(entry.reasoning || "")]].concat(entry.extra ? [[I18n.t("config.extra"), JSON.stringify(entry.extra)]] : [])
     : [[I18n.t("settings.fact_price"), entry.price_per_minute === undefined ? I18n.t("settings.price_unset") : String(entry.price_per_minute)]])
+    .concat(section.testFacts(entry.name))
+  extra: [section.testCommand(entry.name)]
   related: {
     const groups = []
     links.forEach(link => {

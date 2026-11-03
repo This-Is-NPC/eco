@@ -287,6 +287,7 @@ Singleton {
     }
     pendingConfig = null
     updateChecking = false
+    modelTests = {}
     if (configSaving) {
       configSaving = false
       configSaveFailed(I18n.t("start.offline"))
@@ -327,6 +328,9 @@ Singleton {
   property var secretStatus: ({})
   // The preset models that wait for a key, by name: {code, params}.
   property var disabledModels: ({})
+  // The test of each saved model, by name, while it runs and after: {busy: true},
+  // {ok: true, ms} or {ok: false, code, params, message}. Never a key.
+  property var modelTests: ({})
 
   // Asks the overlay to open the new-session dialog, e.g. from a shortcut.
   signal newSessionRequested()
@@ -788,6 +792,14 @@ Singleton {
     modelsLoading = Object.assign({}, modelsLoading, { [target]: true })
     modelsAsked = Object.assign({}, modelsAsked, { [target]: true })
     send("models " + JSON.stringify({ target: target, provider: provider }))
+  }
+  // testModel asks the daemon for the smallest real request the saved model
+  // `name` answers; it may be billed, so it runs only when the user presses.
+  function testModel(name) {
+    if (!connected || (modelTests[name] || {}).busy)
+      return
+    modelTests = Object.assign({}, modelTests, { [name]: { busy: true } })
+    send("model.test " + JSON.stringify({ name: name }))
   }
   // Asks whether each secret resolves now.
   function requestSecrets() { send("secrets") }
@@ -1457,10 +1469,16 @@ Singleton {
       omapassPage = event.omapass.page
       credentialManager = event.credential_manager
       echoCancelError = event.echo_cancel || ""
+      // A result belongs to the model as it was saved.
+      modelTests = Object.keys(modelTests).filter(name => modelTests[name].busy).reduce((kept, name) => Object.assign(kept, { [name]: modelTests[name] }), {})
       requestSecrets()
       break
     case "secrets":
       secretStatus = event.status
+      break
+    case "model_test":
+      modelTests = Object.assign({}, modelTests, { [event.name]: event.ok ? { ok: true, ms: event.ms }
+        : { ok: false, code: event.code, params: event.params, message: event.message } })
       break
     case "devices":
       devices = event.devices

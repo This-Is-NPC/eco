@@ -430,6 +430,16 @@ transcription: make another model that default first.` Deleting any
 other asks first, listing what falls back to which model and whether the
 reviewer turns off, then saves at once.
 
+## Test a model
+
+Open a saved model, or a preset, and press TEST in the bar. eco makes the
+smallest real request the model answers: a one-token answer for a chat model,
+one second of silence for a transcription model. The result is listed among the
+model's facts: the time it took, or why it failed (a key the provider refused,
+with the secret named; a model the provider does not have; no answer within 15
+seconds). The provider may bill the request, so it runs only when you press.
+A preset that waits for its key has TEST off and says which variable it needs.
+
 ---
 
 ## Next

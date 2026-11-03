@@ -6,7 +6,7 @@ import Eco.Kit
 // A page's chrome: the tab rail down the left, its second page marked, the
 // page bar beside its head with the commands of the page on screen and its
 // readout, and command rows on their own: the guarded command behind a
-// hairline, and alone with none.
+// hairline, alone with none, and one busy while its work goes on.
 Column {
   id: samples
 
@@ -61,4 +61,5 @@ Column {
   Kicker { width: parent.width; text: I18n.t("lab.command_row") }
   CommandRow { commands: samples.rowCommands }
   CommandRow { commands: samples.rowCommands.filter(command => command.role === "guarded") }
+  CommandRow { commands: [{ text: I18n.t("model_test.busy"), icon: "check", busy: true, run: () => {} }] }
 }
