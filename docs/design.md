@@ -1266,6 +1266,27 @@ draft provider lists once it is saved. The `secrets` command answers whether
 each secret resolves, reading it as a provider build would and dropping it: the
 reply carries a boolean and why not, as a code, never the key.
 
+The `model.test` command tests one saved model, a preset among them, on an
+explicit press only, since the request may be billed. The daemon builds the
+model's provider from its secret as a session does and makes the smallest real
+request: for a chat model a one-token completion (`max_tokens` 1, with the
+model's own reasoning and extra fields); for a transcription model one second
+of silence made in memory (never user audio, never written) through the batch
+request, and, for a provider that only streams (ElevenLabs), a stream opened
+and closed with no audio. It waits 15 s. A saved model is tested, not a draft:
+the window offers TEST only while the model is read, and the secret and
+address come from the saved config, so a draft cannot send a key to a server
+the daemon does not hold. The reply is one `model_test` event, which carries
+no key and no body of the provider's reply. A failure is classified by the same
+`Refusal::of` as a session's: a refused key is `model_test.credential` (it
+names the secret, or `model_test.refused` for a model with none), a missing
+model `model_test.model_missing`, any other failure `model_test.failed` with
+the transport's words as `detail` (a network that is down is one), a stall
+`model_test.timeout`, an unsaved name `model_test.unknown`; a provider that
+cannot be built answers with the `model.unavailable`, `model.credential_missing`
+or `model.preset_disabled` codes (`stt.` for a transcription model) a session
+tells.
+
 ---
 
 ## 10. The socket
@@ -1468,6 +1489,9 @@ other client's answers `config.busy`), `config.approve <token> <id>` and
 `config.stale`; once nothing is held, `config_pending` with a null `id` and
 empty lists; a client that connects while a change is held is greeted with its
 `config_pending`),
+`model.test <json>` (`{"name"}`: test the saved model, answered in the
+background with `{"type":"model_test","name":"gpt-6-luna","ok":true,"ms":412}` or
+`{"type":"model_test","name":"…","ok":false,"code":"model_test.credential","params":{"name":"…","secret":"…"},"message":"…"}`; §9.1),
 `session.language <json>`, `models <json>`
 (`{"target","provider"}`: the models the saved provider or preset called
 `provider` offers, listed with its own secret and address, as in §9.1; an unknown

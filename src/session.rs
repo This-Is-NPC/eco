@@ -54,6 +54,7 @@ use crate::ports::{
 };
 use crate::presets;
 
+mod model_test;
 pub mod update;
 
 use update::{Parts, Updates};
@@ -2419,6 +2420,12 @@ impl Session {
                 let composed = presets::overlay(&self.current);
                 self.background
                     .spawn(async move { emit(models(&payload, &composed).await) });
+            }
+            ("model.test", Some(payload)) => {
+                let payload = payload.to_string();
+                let composed = presets::overlay(&self.current);
+                self.background
+                    .spawn(async move { emit(model_test::run(&payload, &composed).await) });
             }
             ("secrets", None) => {
                 let composed = presets::overlay(&self.current);
