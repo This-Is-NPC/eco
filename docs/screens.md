@@ -571,7 +571,7 @@ as in a live session (section 3):
 
 The dialog scrolls (arrows, `PgUp`, `PgDn`). Its end:
 
-![The keyboard shortcuts dialog scrolled to its end: QUESTION BOX (Enter, Shift+Enter, / with ↑ · ↓, Tab and Enter, Alt+1…9), MENUS AND OPTION LISTS (↑ · ↓ · Home · End, Enter · Space, Esc) and SETTINGS (1…8 · Ctrl+1…8 switch tab, Ctrl+Tab · Ctrl+Shift+Tab over two lines, next · previous tab, ↑ · ↓ · Home · End and Enter · Space on the rail, ↑ · ↓ pick a row, Enter · Space open the item picked, Delete delete the item picked, Enter and Delete in a table inside an item, Ctrl+E edit the item picked or open, Enter · Space on a row with a value open its list, turn its switch, or write its name or number, Ctrl+S save, Esc back one level, then close).](img/38-shortcuts-end.png)
+![The keyboard shortcuts dialog scrolled to its end: QUESTION BOX (Enter, Shift+Enter, / with ↑ · ↓, Tab and Enter, Alt+1…9), MENUS AND OPTION LISTS (↑ · ↓ · Home · End, Enter · Space, Esc) and SETTINGS (1…9 · 0 · Ctrl+1…9 · Ctrl+0 over two lines, choose section 1–10 with 0 the tenth, Ctrl+Tab · Ctrl+Shift+Tab over two lines, next · previous section round the ends, ↑ · ↓ · Home · End move along the sections on the rail, Enter · Space open the section the rail is on, ↑ · ↓ pick a row, Enter · Space open the item picked, Delete delete the item picked, Enter and Delete in a table inside an item, Ctrl+E edit the item picked or open, Enter · Space on a row with a value open its list, turn its switch, or write its name or number, Ctrl+S save, Esc back one level, then close).](img/38-shortcuts-end.png)
 
 The GLOBAL keys are not the window's: `packaging/hypr/eco.lua` binds them in
 Hyprland to `eco window` commands, and on Windows the daemon registers them
