@@ -4,8 +4,8 @@ import Eco.Core
 // SecretsSection is where each key comes from, one row each: a name, the kind
 // of source — an environment variable, an omapass account or, on Windows, a
 // Credential Manager name — the reference, and whether the daemon reads a key
-// from it now. A reference only: eco never creates or stores a key. The
-// secrets eco ships follow the user's, as presets. A row opens SecretView; a
+// from it now. A reference only: eco never creates or stores a key.
+// A row opens SecretView; a
 // secret a provider uses is not deleted.
 SettingsSection {
   id: section
@@ -22,9 +22,7 @@ SettingsSection {
     return { id: secret.name, removable: users.length === 0,
       keptReason: users.length > 0 ? I18n.t("secrets.delete_in_use", { names: users.join(", ") }) : "",
       cells: [secret.name, sourceName(Draft.sourceOf(secret)), reference(secret), stateText(secret.name)] }
-  }).concat(Draft.shipped(config, "secrets").map(preset => ({
-    id: preset.name, file: "PresetView.qml", fixed: true, edits: false, noEdit: I18n.t("presets.no_edit"), dim: true,
-    cells: [preset.name, sourceName("env"), preset.env, stateText(preset.name)] })))
+  })
   remove: (config, row) => ({
     title: I18n.t("secrets.remove_title"),
     question: I18n.t("secrets.remove_question", { name: row.id }),
@@ -48,11 +46,5 @@ SettingsSection {
     if (state.resolved)
       return I18n.t("secrets.resolved")
     return I18n.t("error." + state.code, state.params)
-  }
-  // The screen of the preset secret `name`.
-  function presetFacts(name) {
-    const preset = Eco.presets.secrets.find(entry => entry.name === name)
-    return { facts: [[I18n.t("secrets.column_source"), sourceName("env")], [I18n.t("secrets.column_reference"), preset.env],
-      [I18n.t("secrets.column_state"), stateText(name)]], disabled: "" }
   }
 }

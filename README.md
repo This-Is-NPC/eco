@@ -90,9 +90,8 @@ Then, in the window:
    kept in `~/.config/uwsm/env` — or your omapass keyring; **PICK A KEY**
    lists the names); a provider is an address and the secret its requests
    carry; a model is registered once on a provider, chat or transcription.
-   A new config starts with entries for OpenRouter, Deepgram, ElevenLabs and
-   Groq, which you edit or delete like your own, so with only a key set a
-   session already transcribes and answers. In Models, pick
+   eco adds entries for OpenRouter, Deepgram, ElevenLabs and Groq when it first runs,
+   which you edit or delete like your own, so with only a key set a session already transcribes and answers. In Models, pick
    one and press **DEFAULT FOR TRANSCRIPTION** or **DEFAULT FOR CHAT**; **TEST**
    checks it. eco records and transcribes with no chat model
    ([how to register models](docs/how-to-register-models.md)).

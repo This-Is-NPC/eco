@@ -55,14 +55,13 @@ per provider and type:
 | `whisper-turbo` | transcription | Groq | not measured on Groq |
 
 The numbers are in [benchmarks](benchmarks.md); the choice is reviewed each
-release. A new `config.toml` starts with these models, their providers and their
-secrets, and a config of an earlier eco gets them when it is converted: they
-are ordinary entries, so edit or delete them, and a deleted one stays deleted.
-When you have not chosen a default chat or transcription model, the first one
-whose variable is set is the default, in the registration order.
+release. These models are not in `config.toml`: eco adds them when it reads it,
+and a model, provider or secret of yours with the same name replaces the
+shipped one. When you have not chosen a default chat or transcription model, the
+first shipped one whose variable is set is the default, in the order of the table.
 
 A model whose variable is not set is listed and disabled, never hidden.
-If a default names it, the daemon tells `Transcription unavailable: the model
+If a default names it, the daemon tells `Transcription unavailable: model
 scribe-v2 needs ELEVEN_LABS_API_KEY, which is not set. …` (for a chat model,
 `Model gpt-6-luna unavailable: …`) and does not switch to another. Set the
 variable, then `eco restart`.
@@ -161,22 +160,22 @@ Open the settings (`SUPER+ALT+C`). A model needs a provider, and a provider
 that asks for a key needs a secret, so go **Secrets**, **Providers**, **Models**.
 
 **Secrets**, section 02 (`Ctrl+2`): each row is a name and a reference, with
-STATE saying whether the daemon reads a key from it. A new config starts with
-the secrets of the presets eco ships, as ordinary rows you edit or delete; a
-variable you set satisfies its secret, and `eco restart` shows it.
+STATE saying whether the daemon reads a key from it. The secrets eco ships are
+added when it first runs and listed like yours; a variable you set satisfies
+one, and `eco restart` shows it.
 For a key of your own, **ADD SECRET**, name it, pick the source and the
 reference with **PICK A KEY**, **SAVE**. **Providers**, section 03 (`Ctrl+3`):
 **ADD PROVIDER** with a name, the base URL and the secret from the Secrets
-section, or none for a server on your network. A new config starts with the preset providers there too, as ordinary rows.
+section, or none for a server on your network. The providers eco ships are listed there too.
 
 Then **Models**, section 04 (`Ctrl+4`). It
 is a table of the models registered: each one's name, type, the provider's
-model id, what it is the default for, what else uses it and, for the models eco
-ships, nothing special: a new config starts with the preset models as ordinary
-rows, and deleting one keeps it deleted. A model whose key variable is not set
-stays in the table, dim, as disabled, with its reason on its screen.
+model id, what it is the default for, what else uses it and, for a model whose
+key is not set, STATE "disabled". It stays in the table, dim; its reason is the
+hint of the commands it cannot take. The models eco ships are added when it
+first runs; edit or delete them like yours.
 
-![The Models section: the rail of sections down the left, with 04 marked; the bar with ADD MODEL, VIEW, EDIT, the defaults by their short names, a dimmed FOR CHAT, a dimmed FOR TRANSLATION and FOR REVIEW, and a dimmed DELETE; "Register each model once — chat or transcription — with a provider from the Providers tab…"; and a table of whisper-lan (TRANSCRIPTION, whisper-large-v3-turbo, default TRANSCRIPTION, used by MEETING, CONVERSATION…), deepgram (TRANSCRIPTION, nova-3, INTERVIEW), gemini-flash (CHAT, google/gemini-2.5-flash, default CHAT · TRANSLATION, MEETING…, picked), claude-haiku (CHAT, anthropic/claude-haiku-4.5, default REVIEW, minutes), then the presets, dim where disabled.](img/46-settings-models.png)
+![The Models section: the rail of sections down the left, with 04 marked; the bar with ADD MODEL, VIEW, EDIT, the defaults by their short names, a dimmed FOR CHAT, a dimmed FOR TRANSLATION and FOR REVIEW, and a dimmed DELETE; "Register each model once — chat or transcription — with a provider from the Providers tab…"; and a table of whisper-lan (TRANSCRIPTION, whisper-large-v3-turbo, default TRANSCRIPTION, used by MEETING, CONVERSATION…), deepgram (TRANSCRIPTION, nova-3, INTERVIEW), gemini-flash (CHAT, google/gemini-2.5-flash, default CHAT · TRANSLATION, MEETING…, picked), claude-haiku (CHAT, anthropic/claude-haiku-4.5, default REVIEW, minutes), then the models eco ships, dim where disabled.](img/46-settings-models.png)
 
 **A chat model is optional.** Without one eco records, transcribes and keeps
 notes; the **Prompts**, **Context** and **Skills** sections say NO CHAT MODEL
@@ -198,8 +197,8 @@ step 4 makes it one. Fill it top to bottom:
   **HIGH**. **OFF** starts the answer at once, which is what a live
   conversation wants; some models require reasoning and fail without it. It is
   sent as OpenRouter's `reasoning` field.
-- **PROVIDER** — a chip per provider of the Providers section, the presets
-  among them (**OPENROUTER**, **GROQ**…). For any other OpenAI-compatible base
+- **PROVIDER** — a chip per provider of the Providers section
+  (**OPENROUTER**, **GROQ**…). For any other OpenAI-compatible base
   URL, add a provider first.
 - **MODEL** — the provider's id, such as `google/gemini-3.5-flash-lite`. Type
   it, or press **LIST** to ask the saved provider which models it offers and
@@ -225,9 +224,9 @@ in use has no TYPE row.
 
 ## 3. Add a transcription model
 
-**ADD MODEL** again, **TYPE** **TRANSCRIPTION**. The preset providers are:
+**ADD MODEL** again, **TYPE** **TRANSCRIPTION**. The providers eco ships are:
 
-| preset | how it transcribes | key |
+| provider | how it transcribes | key |
 |---|---|---|
 | **ELEVENLABS** (`scribe_v2_realtime`) | streaming | `ELEVEN_LABS_API_KEY` |
 | **DEEPGRAM** (`nova-3`) | streaming: words appear as they are said | `DEEPGRAM_API_KEY` |

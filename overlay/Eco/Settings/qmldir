@@ -25,7 +25,6 @@ ModelsSection 1.0 ModelsSection.qml
 NewSourceDialog 1.0 NewSourceDialog.qml
 PromptView 1.0 PromptView.qml
 PromptsSection 1.0 PromptsSection.qml
-PresetView 1.0 PresetView.qml
 ProviderView 1.0 ProviderView.qml
 ProvidersSection 1.0 ProvidersSection.qml
 SecretFields 1.0 SecretFields.qml

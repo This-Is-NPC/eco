@@ -175,7 +175,7 @@ from its cache, in 1.5 s instead of 3.7 s.
 For live transcription without the machine at home, eco ships the
 **ELEVENLABS** provider and the model `scribe-v2`: ElevenLabs Scribe v2
 Realtime, reached straight from the daemon. Put `ELEVEN_LABS_API_KEY` in the
-daemon's environment and restart eco; in **Settings › Models** the preset is
+daemon's environment and restart eco; in **Settings › Models** the model is
 enabled, and **DEFAULT FOR TRANSCRIPTION** chooses it. It uses
 `wss://api.elevenlabs.io/v1/speech-to-text/realtime` with the model
 `scribe_v2_realtime`. The session's language is chosen when it starts; `auto`

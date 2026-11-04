@@ -322,14 +322,11 @@ Singleton {
   // The error code that says why echo cancellation cannot run here, or "".
   property string echoCancelError: ""
   property string omapassPage: ""
-  // The secrets, providers and models eco ships, from the daemon:
-  // {secrets: [{name, env}], providers: [{name, base_url, secret}], models: [{name, type, provider, model, reasoning?}]}.
-  property var presets: ({ secrets: [], providers: [], models: [] })
   // The system the daemon runs on, "linux", "windows" or "macos".
   property string platform: "linux"
   // Whether each secret resolves now, by name: {resolved, code?, params?}. Never the key.
   property var secretStatus: ({})
-  // The preset models that wait for a key, by name: {code, params}.
+  // The models that wait for a key, by name: {code, params}.
   property var disabledModels: ({})
   // The test of each saved model, by name, while it runs and after: {busy: true},
   // {ok: true, ms} or {ok: false, code, params, message}. Never a key.
@@ -1482,9 +1479,6 @@ Singleton {
       break
     }
     case "config":
-      // Presets first: the settings draft is made from the config.
-      presets = event.presets
-      Draft.usePresets(event.presets)
       platform = event.platform
       config = event.config
       Theme.configure((config.ui || {}).appearance)

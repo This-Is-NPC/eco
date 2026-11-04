@@ -2,41 +2,14 @@
 
 // Reads and edits of the settings draft that several views share.
 
-// The providers, secrets and models eco ships, as the daemon lists them
-// ({secrets, providers, models}): the lists below name them like the user's own.
-var presets = { secrets: [], providers: [], models: [] }
-
-// Remember the presets the daemon lists.
-function usePresets(listed) {
-  presets = listed
-}
-
-// The presets of the draft's `list` ("secrets", "providers" or "models") that
-// the draft does not replace: one of its own name, or for a secret, one that
-// reads the same variable, which takes the preset's place.
-function shipped(draft, list) {
-  return presets[list].filter(preset => !draft[list].some(item => item.name === preset.name
-    || (list === "secrets" && item.env !== undefined && item.env === preset.env)))
-}
-
-// The name of the secret the preset provider `preset` carries in the draft:
-// the draft's own secret that reads the same variable, else the preset's.
-function shippedSecret(draft, preset) {
-  const secret = presets.secrets.find(entry => entry.name === preset.secret)
-  const own = secret && draft.secrets.find(item => item.env !== undefined && item.env === secret.env)
-  return own ? own.name : preset.secret
-}
-
-// The names of the draft's `list` and of the presets of it the draft does not replace.
+// The names of the draft's `list` ("secrets", "providers" or "models").
 function listed(draft, list) {
-  return draft[list].map(item => item.name).concat(shipped(draft, list).map(item => item.name))
+  return draft[list].map(item => item.name)
 }
 
-// The names of the registered models of `type`, "chat" or "transcription",
-// the presets among them.
+// The names of the registered models of `type`, "chat" or "transcription".
 function named(draft, type) {
   return draft.models.filter(model => model.type === type && model.name).map(model => model.name)
-    .concat(shipped(draft, "models").filter(preset => preset.type === type).map(preset => preset.name))
 }
 
 // Whether the draft has a chat model registered: answers, skills and
@@ -173,11 +146,10 @@ function rename(d, index, text, from) {
 }
 
 // The provider a new model of `type` starts from: that of the draft's last
-// model of that type, or else of the type's first preset; "" when there is none.
+// model of that type; "" when there is none.
 function provider(draft, type) {
   const last = draft.models.filter(model => model.type === type && model.provider).pop()
-  const preset = presets.models.find(model => model.type === type)
-  return last ? last.provider : preset ? preset.provider : ""
+  return last ? last.provider : ""
 }
 
 // Make the model at `index` in the draft `d` the other `type`, keeping its
@@ -217,15 +189,11 @@ function renameItem(d, list, index, text, from) {
 }
 
 // The names of what refers to the secret ("secrets") or provider ("providers")
-// called `name`: the draft's providers or models, and with `withPresets` the
-// presets of those that a name of the draft does not replace.
-function referrers(draft, list, name, withPresets) {
+// called `name`: the draft's providers or models.
+function referrers(draft, list, name) {
   const holders = list === "secrets" ? "providers" : "models"
   const field = list === "secrets" ? "secret" : "provider"
-  const own = draft[holders]
-  const named = holder => list === "secrets" && !own.includes(holder) ? shippedSecret(draft, holder) : holder[field]
-  const all = withPresets ? own.concat(shipped(draft, holders)) : own
-  return all.filter(holder => !!name && named(holder) === name).map(holder => holder.name)
+  return draft[holders].filter(holder => !!name && holder[field] === name).map(holder => holder.name)
 }
 
 // What uses the model named `name` in the draft now, as `answering` picks it:
@@ -235,7 +203,7 @@ function referrers(draft, list, name, withPresets) {
 // "transcription" and "translation"). A model with no name, or none of that
 // name, is used by nothing.
 function users(draft, name) {
-  const entry = draft.models.find(model => model.name === name) || presets.models.find(model => model.name === name)
+  const entry = draft.models.find(model => model.name === name)
   if (!name || !entry)
     return []
   const found = []

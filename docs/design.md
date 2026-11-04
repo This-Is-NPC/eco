@@ -1264,7 +1264,7 @@ lists (§11).
 
 The `models` command (§10.2) lists the models of a provider the window names
 (`{"target","provider"}`), so it reads a key only for a provider the daemon
-holds, a preset among them, with the secret that provider names, and sends it
+holds, with the secret that provider names, and sends it
 to that provider's `base_url` only. A provider that is not saved is refused with
 `models.provider_unknown` before a key is read, so whatever can write to the
 socket, an agent included, cannot send a secret to a server of its choosing. A
@@ -1272,7 +1272,7 @@ draft provider lists once it is saved. The `secrets` command answers whether
 each secret resolves, reading it as a provider build would and dropping it: the
 reply carries a boolean and why not, as a code, never the key.
 
-The `model.test` command tests one saved model, a preset among them, on an
+The `model.test` command tests one saved model on an
 explicit press only, since the request may be billed. The daemon builds the
 model's provider from its secret as a session does and makes the smallest real
 request: for a chat model a one-token completion (`max_tokens` 1, with the
@@ -1499,10 +1499,10 @@ empty lists; a client that connects while a change is held is greeted with its
 background with `{"type":"model_test","name":"gpt-6-luna","ok":true,"ms":412}` or
 `{"type":"model_test","name":"…","ok":false,"code":"model_test.credential","params":{"name":"…","secret":"…"},"message":"…"}`; §9.1),
 `session.language <json>`, `models <json>`
-(`{"target","provider"}`: the models the saved provider or preset called
+(`{"target","provider"}`: the models the saved provider called
 `provider` offers, listed with its own secret and address, as in §9.1; an unknown
 one answers `models` with `"code":"models.provider_unknown"` and `params`
-`{"provider"}`), `secrets` (whether each secret, presets among them, resolves
+`{"provider"}`), `secrets` (whether each secret resolves
 now, answered in the background:
 `{"type":"secrets","status":{"OPENROUTER":{"resolved":true},"DEEPGRAM":{"resolved":false,"code":"secret.env_unset","params":{"variable":"DEEPGRAM_API_KEY"}}}}`;
 `code` is `secret.env_unset`, `secret.omapass_missing` (`{account}`),
@@ -2310,8 +2310,7 @@ table, then closes the window. Keys show only in the shortcuts dialog
   omapass account or, on Windows, Credential Manager name), the reference and
   STATE: whether the daemon reads a key from it now, from the `secrets` reply
   (§10.2), never the key. The window asks again on each `config` event and on
-  CHECK. The presets' secrets follow the user's, dim and read only
-  (`PresetView`); a user secret with a preset's name replaces it. Edited: its
+  CHECK. The secrets eco ships are rows like any other. Edited: its
   name (the providers that use it follow, `Draft.renameItem`), its source and
   reference, typed or picked from the names the daemon lists, with, beside a
   variable, how to set it so the daemon sees it: the `config` event's
@@ -2320,8 +2319,7 @@ table, then closes the window. Keys show only in the shortcuts dialog
   provider uses is not deleted.
 - **Providers** (`ProvidersSection`, `ProviderView`): a row per provider — name,
   base URL, secret, and the models that use it. Edited: name (the models follow),
-  base URL and the secret, picked from Secrets or none. The presets' providers
-  follow, read only; a provider a model uses is not deleted.
+  base URL and the secret, picked from Secrets or none. A provider a model uses is not deleted.
 - **Models** (`ModelsSection`): the registry and the defaults — a row per
   model, chat and transcription alike: its name, type, the provider's model
   id, DEFAULT (what it is the default for: CHAT, TRANSLATION, REVIEW,
@@ -2332,10 +2330,9 @@ table, then closes the window. Keys show only in the shortcuts dialog
   and dimmed on the model that is already that default (`Draft.defaults`,
   `Draft.makeDefault`); with none picked, DEFAULT FOR CHAT, dimmed. DEFAULT
   FOR REVIEW sets `[reviewer] model` and leaves `enabled` as it is; nothing
-  else in the window picks the reviewer's model. The models eco ships follow the user's with a STATE: PRESET, or PRESET,
-  DISABLED when the snapshot's `disabled_models` names it, whose reason its
-  read-only screen gives and which cannot be made a default; the overlay names
-  them like its own (`Draft.usePresets`). Read: its type, what it is
+  else in the window picks the reviewer's model. STATE is "disabled" when the snapshot's `disabled_models` names the
+  model; its row is dim and it cannot be made a default or tested, the reason
+  being the hint of the dimmed command. Read: its type, what it is
   the default for, provider, model id, and
   for chat its REASONING and extra fields, for transcription its price per
   minute; RELATED, what else uses it, grouped by the section that sets each
@@ -2347,8 +2344,8 @@ table, then closes the window. Keys show only in the shortcuts dialog
   its NAME, for chat REASONING (the provider's — or IN EXTRA FIELDS when
   `extra` sets one —, off, low, medium or high: `reasoning`, sent as
   OpenRouter's `reasoning` field and winning over one in `extra`), the
-  provider (a chip per provider of Providers, the presets among them), model
-  (typed, with the preset's model as an example, or picked from LIST, which
+  provider (a chip per provider of Providers), model
+  (typed, with another model of the type as an example, or picked from LIST, which
   asks for the saved provider's models and closes the list again, as Esc does), for transcription a fallback price per minute and, for
   chat, the extra JSON sent with each request (EXTRA (JSON)). The chat and
   transcription defaults cannot be deleted; deleting another asks first, listing what

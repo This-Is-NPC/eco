@@ -12,7 +12,7 @@ ColumnLayout {
 
   required property string target
   required property var section
-  // The model type's first preset, as the example the id's placeholder shows.
+  // Another model of the type, as the example the id's placeholder shows.
   property var example: null
   // What is wrong with the model id.
   property string error: ""
@@ -37,8 +37,7 @@ ColumnLayout {
         dense: true
         invalid: !!frame.error
         value: frame.section.model || ""
-        // The model of the chosen preset, or of the first, as an example.
-        placeholderTextColor: Theme.placeholder
+                placeholderTextColor: Theme.placeholder
         placeholderText: frame.example ? I18n.t("provider.model_placeholder", { model: frame.example.model }) : ""
         onTextEdited: frame.edited("model", text)
       }

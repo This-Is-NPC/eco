@@ -33,7 +33,7 @@ QtObject {
       stt: { model: "", language: "auto", languages: ["auto"] }, llm: { model: "" } }
   }
   function saved(appearance) {
-    Eco.handle({ type: "config", config: config(appearance), devices: [], platform: "linux", presets: { secrets: [], providers: [], models: [] }, omapass: { installed: false, page: "" }, credential_manager: false })
+    Eco.handle({ type: "config", config: config(appearance), devices: [], platform: "linux", omapass: { installed: false, page: "" }, credential_manager: false })
   }
 
   readonly property var steps: [

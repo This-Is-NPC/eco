@@ -39,40 +39,31 @@ TestCase {
     compare(paths(draft([], "gone", "gone")), ["stt.model", "llm.model"])
   }
 
-  readonly property var shipped: ({
-    secrets: [{ name: "OPENROUTER", env: "OPENROUTER_API_KEY" }],
-    providers: [{ name: "OPENROUTER", base_url: "https://openrouter.ai/api/v1", secret: "OPENROUTER" }],
-    models: [{ name: "gpt", type: "chat", provider: "OPENROUTER", model: "openai/gpt" },
-      { name: "nova", type: "transcription", provider: "OPENROUTER", model: "nova-3" }]
-  })
-
   function test_a_new_model_starts_from_the_provider_of_the_last_one_of_its_type() {
-    Draft.usePresets(shipped)
     const d = draft(JSON.parse(JSON.stringify(registered)), "", "")
     compare(Draft.provider(d, "chat"), "llm")
-    compare(Draft.provider(draft([], "", ""), "chat"), "OPENROUTER")
+    compare(Draft.provider(draft([], "", ""), "chat"), "")
     Draft.retype(d, 0, "chat")
     compare(d.models[0], { name: "w", type: "chat", provider: "stt", model: "whisper-1" })
-    Draft.usePresets({ secrets: [], providers: [], models: [] })
   }
 
-  // The models eco ships are named like the user's own, unless the user has one by that name.
-  function test_a_default_may_name_a_preset_model() {
-    Draft.usePresets(shipped)
-    compare(paths(draft([], "nova", "gpt")), [])
-    compare(Draft.named(draft(registered, "", ""), "chat"), ["m", "gpt"])
-    compare(paths(draft([], "gpt", "nova")), ["stt.model", "llm.model"])
-    verify(Draft.chats(draft([], "", "")))
-    compare(Draft.users(draft([], "", "gpt"), "gpt").map(use => use.role), ["assistant", "translation", "kind"])
-    Draft.usePresets({ secrets: [], providers: [], models: [] })
+  // Models, providers and secrets are listed and used as the draft holds them, none from elsewhere.
+  function test_the_lists_hold_only_what_the_draft_holds() {
+    const d = draft([], "", "")
+    compare(Draft.named(d, "chat"), [])
+    verify(!Draft.chats(d))
+    compare(paths(draft([], "nova", "gpt")), ["stt.model", "llm.model"])
+    compare(Draft.users(d, "gpt"), [])
+    compare(Draft.listed(d, "providers"), ["stt", "llm"])
+    compare(Draft.listed(d, "secrets"), [])
+    compare(Draft.referrers(d, "providers", "stt"), [])
   }
 
   function test_a_model_needs_a_listed_provider_and_a_provider_a_listed_secret() {
-    Draft.usePresets(shipped)
-    const d = draft([{ name: "a", type: "chat", provider: "gone", model: "x" }, { name: "b", type: "chat", provider: "OPENROUTER", model: "x" }], "", "")
-    d.providers.push({ name: "p", base_url: "http://p", secret: "gone" }, { name: "q", base_url: " ", secret: "OPENROUTER" })
+    const d = draft([{ name: "a", type: "chat", provider: "gone", model: "x" }, { name: "b", type: "chat", provider: "stt", model: "x" }], "", "")
+    d.secrets.push({ name: "k", env: "KEY" })
+    d.providers.push({ name: "p", base_url: "http://p", secret: "gone" }, { name: "q", base_url: " ", secret: "k" })
     compare(paths(d), ["providers.2.secret", "providers.3.base_url", "models.0.provider"])
-    Draft.usePresets({ secrets: [], providers: [], models: [] })
   }
 
   function test_a_secret_has_exactly_one_reference() {
@@ -97,26 +88,13 @@ TestCase {
     compare(Draft.referrers(d, "providers", "remote"), ["a"])
   }
 
-  // A secret of the user's reading a preset secret's variable takes its place.
-  function test_a_secret_reading_a_preset_variable_replaces_the_preset() {
-    Draft.usePresets(shipped)
-    const d = draft([], "", "")
-    d.secrets = [{ name: "OPENROUTER_API_KEY", env: "OPENROUTER_API_KEY" }]
-    compare(Draft.shipped(d, "secrets").length, 0)
-    compare(Draft.listed(d, "secrets"), ["OPENROUTER_API_KEY"])
-    compare(Draft.shippedSecret(d, shipped.providers[0]), "OPENROUTER_API_KEY")
-    compare(Draft.referrers(d, "secrets", "OPENROUTER_API_KEY", true), ["OPENROUTER"])
-    compare(Draft.shipped(draft([], "", ""), "secrets").length, 1)
-    Draft.usePresets({ secrets: [], providers: [], models: [] })
-  }
-
-  function test_what_the_presets_use_counts_only_when_asked() {
-    Draft.usePresets(shipped)
-    const d = draft([], "", "")
-    compare(Draft.referrers(d, "providers", "OPENROUTER"), [])
-    compare(Draft.referrers(d, "providers", "OPENROUTER", true), ["gpt", "nova"])
-    compare(Draft.referrers(d, "secrets", "OPENROUTER", true), ["OPENROUTER"])
-    Draft.usePresets({ secrets: [], providers: [], models: [] })
+  function test_what_uses_a_secret_or_provider_is_what_the_draft_names() {
+    const d = draft([{ name: "gpt", type: "chat", provider: "OPENROUTER", model: "x" }], "", "gpt")
+    d.secrets = [{ name: "OPENROUTER", env: "OPENROUTER_API_KEY" }]
+    d.providers.push({ name: "OPENROUTER", base_url: "https://openrouter.ai/api/v1", secret: "OPENROUTER" })
+    compare(Draft.referrers(d, "providers", "OPENROUTER"), ["gpt"])
+    compare(Draft.referrers(d, "secrets", "OPENROUTER"), ["OPENROUTER"])
+    compare(Draft.users(d, "gpt").map(use => use.role), ["assistant", "translation", "kind"])
   }
 
   // With nothing registered, a model just added and not yet named serves nothing,

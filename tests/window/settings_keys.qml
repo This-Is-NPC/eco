@@ -55,8 +55,8 @@ QtObject {
   readonly property var steps: [
     () => {
       Eco.handle({ type: "config", devices: [], omapass: { installed: false, page: "" }, credential_manager: false,
-        platform: "linux", presets: { secrets: [], providers: [{ name: "LOCAL", base_url: "http://127.0.0.1/v1" }], models: [] },
-        config: { participants: [], secrets: [], providers: [], models: [], kinds: ["meeting"], actions: [], contexts: [], context: { files: [] }, ui: { language: "auto" },
+        platform: "linux",
+        config: { participants: [], secrets: [], providers: [{ name: "LOCAL", base_url: "http://127.0.0.1/v1" }], models: [], kinds: ["meeting"], actions: [], contexts: [], context: { files: [] }, ui: { language: "auto" },
           stt: { model: "", language: "auto", languages: ["auto"] }, llm: { model: "", max_context_chars: 60000, concurrency: 8 } } })
       Eco.configOpen = true
       root.keys = Qt.createQmlObject("import QtTest; TestCase { when: false }", root.window.contentItem, "keys")
