@@ -706,7 +706,7 @@ you any more. Dropping echoes and echo cancellation are under General.
 an environment variable, an omapass account or, on Windows, a Credential
 Manager name. It is never the key: eco does not create, store or show one.
 
-![Settings, 02 SECRETS: the bar with ADD SECRET, VIEW, EDIT, CHECK and a dimmed DELETE; "Where each key comes from…"; a table NAME · SOURCE · REFERENCE · STATE with DEEPGRAM_API_KEY and OPENROUTER_API_KEY (picked), each ENVIRONMENT and "resolves, a key is read", then, dim, the presets ELEVENLABS and GROQ, each saying its variable "is not set in the daemon's environment"; OPENROUTER and DEEPGRAM are not listed, the user's secrets reading the same variables.](img/41-settings-secrets.png)
+![Settings, 02 SECRETS: the bar with ADD SECRET, VIEW, EDIT, CHECK and a dimmed DELETE; "Where each key comes from…"; a table NAME · SOURCE · REFERENCE · STATE with DEEPGRAM_API_KEY and OPENROUTER_API_KEY (picked), each ENVIRONMENT and "resolves, a key is read" — entries like any other, edited or deleted from the bar.](img/41-settings-secrets.png)
 
 STATE tells whether the daemon reads a key from the reference now: "resolves,
 a key is read", or why not (the variable is not set, omapass is missing or
@@ -751,7 +751,7 @@ the Credential Manager. Here the picker is open, nothing picked from it:
 secret its requests carry, picked from the Secrets section, or none for a
 server on your network.
 
-![Settings, 03 PROVIDERS: the bar with ADD PROVIDER, VIEW, EDIT and a dimmed DELETE; a table NAME · BASE URL · SECRET · USED BY with 192.0.2.10 (none, whisper-lan), deepgram, openrouter (picked; gemini-flash, claude-haiku), then, dim, the presets OPENROUTER, ELEVENLABS, DEEPGRAM and GROQ with the preset models that use them.](img/44-settings-providers.png)
+![Settings, 03 PROVIDERS: the bar with ADD PROVIDER, VIEW, EDIT and a dimmed DELETE; a table NAME · BASE URL · SECRET · USED BY with 192.0.2.10 (none, whisper-lan), deepgram, openrouter (picked; gemini-flash, claude-haiku).](img/44-settings-providers.png)
 
 The providers eco ships — OpenRouter, ElevenLabs, Deepgram and Groq, each with
 its secret of the same name — are added when eco first runs and are rows like
@@ -767,7 +767,7 @@ one) and its secret, a chip per secret and one for none.
 name, a type, a provider picked from the Providers section and the id that
 provider knows it by; this section registers models and nothing else.
 
-![Settings, 04 MODELS: the bar with ADD MODEL, VIEW, EDIT, the defaults by their short names, a dimmed FOR CHAT, a dimmed FOR TRANSLATION and FOR REVIEW, and a dimmed DELETE; "Register each model once — chat or transcription — with a provider from the Providers tab…"; a table NAME · TYPE · MODEL ID · DEFAULT · USED BY · STATE: whisper-lan (TRANSCRIPTION · whisper-large-v3-turbo · TRANSCRIPTION · MEETING, CONVERSATION…), deepgram (TRANSCRIPTION · nova-3 · · INTERVIEW), gemini-flash (CHAT · google/gemini-2.5-flash · CHAT · TRANSLATION · MEETING, CONVERSATION…, picked), claude-haiku (CHAT · anthropic/claude-haiku-4.5 · REVIEW · minutes), then the presets gpt-6-luna and nova-3 ("preset") and scribe-v2 and whisper-turbo, dim, "preset, disabled".](img/46-settings-models.png)
+![Settings, 04 MODELS: the bar with ADD MODEL, VIEW, EDIT, the defaults by their short names, a dimmed FOR CHAT, a dimmed FOR TRANSLATION and FOR REVIEW, and a dimmed DELETE; "Register each model once — chat or transcription — with a provider from the Providers tab…"; a table NAME · TYPE · MODEL ID · DEFAULT · USED BY · STATE: whisper-lan (TRANSCRIPTION · whisper-large-v3-turbo · TRANSCRIPTION · MEETING, CONVERSATION…), deepgram (TRANSCRIPTION · nova-3 · · INTERVIEW), gemini-flash (CHAT · google/gemini-2.5-flash · CHAT · TRANSLATION · MEETING, CONVERSATION…, picked), claude-haiku (CHAT · anthropic/claude-haiku-4.5 · REVIEW · minutes); STATE is empty, for every key is set.](img/46-settings-models.png)
 
 The models eco ships — `gpt-6-luna`, `scribe-v2`, `nova-3` and
 `whisper-turbo` — are added when eco first runs and are rows like any other. A

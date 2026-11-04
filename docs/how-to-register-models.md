@@ -175,7 +175,7 @@ key is not set, STATE "disabled". It stays in the table, dim; its reason is the
 hint of the commands it cannot take. The models eco ships are added when it
 first runs; edit or delete them like yours.
 
-![The Models section: the rail of sections down the left, with 04 marked; the bar with ADD MODEL, VIEW, EDIT, the defaults by their short names, a dimmed FOR CHAT, a dimmed FOR TRANSLATION and FOR REVIEW, and a dimmed DELETE; "Register each model once — chat or transcription — with a provider from the Providers tab…"; and a table of whisper-lan (TRANSCRIPTION, whisper-large-v3-turbo, default TRANSCRIPTION, used by MEETING, CONVERSATION…), deepgram (TRANSCRIPTION, nova-3, INTERVIEW), gemini-flash (CHAT, google/gemini-2.5-flash, default CHAT · TRANSLATION, MEETING…, picked), claude-haiku (CHAT, anthropic/claude-haiku-4.5, default REVIEW, minutes), then the models eco ships, dim where disabled.](img/46-settings-models.png)
+![The Models section: the rail of sections down the left, with 04 marked; the bar with ADD MODEL, VIEW, EDIT, the defaults by their short names, a dimmed FOR CHAT, a dimmed FOR TRANSLATION and FOR REVIEW, and a dimmed DELETE; "Register each model once — chat or transcription — with a provider from the Providers tab…"; and a table of whisper-lan (TRANSCRIPTION, whisper-large-v3-turbo, default TRANSCRIPTION, used by MEETING, CONVERSATION…), deepgram (TRANSCRIPTION, nova-3, INTERVIEW), gemini-flash (CHAT, google/gemini-2.5-flash, default CHAT · TRANSLATION, MEETING…, picked), claude-haiku (CHAT, anthropic/claude-haiku-4.5, default REVIEW, minutes).](img/46-settings-models.png)
 
 **A chat model is optional.** Without one eco records, transcribes and keeps
 notes; the **Prompts**, **Context** and **Skills** sections say NO CHAT MODEL
