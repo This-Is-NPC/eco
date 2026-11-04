@@ -9,7 +9,8 @@
 //! `tests/window/timeline.qml`; a line's menu, merge and split, in
 //! `tests/window/lines.qml`; the settings window's section keys, in
 //! `tests/window/settings_keys.qml`; the secrets, providers and models tabs, in
-//! `tests/window/settings_secrets.qml`; the toast stack, in
+//! `tests/window/settings_secrets.qml`; the items the tabs open, in
+//! `tests/window/settings_presets.qml`; the toast stack, in
 //! `tests/window/toasts.qml`; the bars and tables of the views, pressed
 //! as a keyboard and a pointer press them, in `tests/window/bars.qml`; and the
 //! eco window closed with the settings open,
@@ -403,6 +404,26 @@ async fn the_secrets_providers_and_models_tabs_list_presets_and_hint_per_platfor
     let output = tokio::time::timeout(Duration::from_secs(30), run)
         .await
         .expect("the tabs did not finish")
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+/// A preset and the global context open with BACK in every tab, and Esc and
+/// BACK return to the table with the row still picked.
+#[tokio::test]
+async fn presets_open_with_back_in_every_settings_tab() {
+    let dir = tempfile::tempdir().unwrap();
+    let run = offscreen("settings_presets", dir.path())
+        .env("ECO_SOCKET", dir.path().join("no-daemon"))
+        .kill_on_drop(true)
+        .output();
+    let output = tokio::time::timeout(Duration::from_secs(30), run)
+        .await
+        .expect("the items did not finish")
         .unwrap();
     assert!(
         output.status.success(),

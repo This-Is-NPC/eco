@@ -52,4 +52,8 @@ QtObject {
   // The table's own commands, as PageBar takes them, for the row picked or
   // null: each is there either way, off until a row is picked.
   property var commands: (config, row) => []
+  // The facts of the last test of the model `name`, and its TEST command: none
+  // here, and a command that is not shown; the Models section overrides both.
+  function testFacts(name) { return [] }
+  function testCommand(name) { return { text: "", shown: false } }
 }
