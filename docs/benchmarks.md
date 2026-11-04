@@ -1031,7 +1031,7 @@ master; `src/presets.rs` and `src/session/model_test.rs` are new.
 | `src/presets.rs` | new | 100.00% | |
 | `src/session/model_test.rs` | new | 99.26% (2 of 272) | the end of the helper task that holds a stalled connection open, which never ends; the summary counts one more line than the line view shows. |
 | `src/adapters/omapass.rs` | 100.00% | 100.00% | |
-| `src/config.rs` | 99.82% (2 of 1102) | 99.88% (2 of 1613) | the closing line of `write_atomically`; the summary counts one more line than the line view shows. |
+| `src/config.rs` | 99.82% (2 of 1102) | 99.87% (2 of 1596) | the closing line of `write_atomically`; the summary counts one more line than the line view shows. The two lines are the same as before; the file has 16 fewer source lines than on the previous tip. |
 | `src/adapters/websocket.rs` | 99.16% (3 of 357) | 99.26% (3 of 403) | the line view shows no line at zero; the summary counts three, as on master. |
 | `src/adapters/session_files.rs` | 99.68% (2 of 619) | 99.73% (2 of 744) | as on master. |
 | `src/session.rs` | 96.93% (145 of 4729) | 97.21% (153 of 5480) | `run()`, which builds the real VAD model, the platform's audio, the update sources and the user's socket (it now also converts and saves an old config); and the rest as in the daemon section. |
