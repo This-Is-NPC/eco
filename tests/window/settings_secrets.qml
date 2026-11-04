@@ -125,6 +125,30 @@ QtObject {
       const text = I18n.t("secrets.set_macos", { name: "MINE_KEY" })
       root.check("on macOS the hint is launchctl setenv", text.includes("launchctl setenv MINE_KEY") && root.find(view, item => item.visible && item.text === text) !== null)
       root.check("the hint names no key", !JSON.stringify(Eco.secretStatus).includes("sk-"))
+      const section = view.sections[view.at.secrets]
+      const check = id => section.commands(Eco.config, { id: id })[0]
+      const told = () => Eco.notices.map(notice => Eco.noticeText(notice))
+      Eco.notices = []
+      root.check("CHECK is idle before it is pressed", check("mine").busy === false)
+      check("mine").run()
+      root.check("CHECK is busy while the reply is awaited, only for its secret", check("mine").busy === true && check("DEEPGRAM").busy === false)
+      Eco.handle({ type: "secrets", status: Eco.secretStatus })
+      root.check("CHECK on a resolving secret tells a key is read, once", told().length === 1 && told()[0] === I18n.t("secrets.checked_ok", { name: "mine" }))
+      root.check("CHECK is idle again after the reply", check("mine").busy === false)
+      Eco.handle({ type: "secrets", status: Eco.secretStatus })
+      root.check("a reply that CHECK did not ask for tells nothing", told().length === 1)
+      Eco.notices = []
+      check("OPENROUTER").run()
+      Eco.handle({ type: "secrets", status: Eco.secretStatus })
+      const missing = told()
+      root.check("CHECK on a missing secret gives the reason and how to set it", missing.length === 1
+        && missing[0].includes(I18n.t("error.secret.env_unset", { variable: "OPENROUTER_API_KEY" }))
+        && missing[0].includes(I18n.t("secrets.set_macos", { name: "OPENROUTER_API_KEY" })))
+      Eco.notices = []
+      check("DEEPGRAM").run()
+      Eco.handle({ type: "secrets", status: Eco.secretStatus })
+      root.check("CHECK on an omapass secret gives the reason alone", told().length === 1
+        && told()[0].includes(I18n.t("error.secret.omapass_failed", { account: "deepgram", detail: "omapass: locked" })) && !told()[0].includes("setenv"))
       Qt.exit(root.failed)
     }
   ]

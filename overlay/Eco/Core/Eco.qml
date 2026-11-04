@@ -806,6 +806,27 @@ Singleton {
   }
   // Asks whether each secret resolves now.
   function requestSecrets() { send("secrets") }
+  // The secret whose CHECK waits for the daemon's reply, "" when none does.
+  property string secretChecking: ""
+  // checkSecret asks again and, once the reply comes, tells what it found for `name`.
+  function checkSecret(name) {
+    secretChecking = name
+    requestSecrets()
+  }
+  // The text key that tells how to set a variable on the system the daemon runs on.
+  readonly property string setHintKey: platform === "windows" ? "secrets.set_windows" : platform === "macos" ? "secrets.set_macos" : "secrets.set_linux"
+  // The notice of the CHECK of the secret `name` after the reply `status`.
+  function secretChecked(name, status) {
+    const state = status[name]
+    if (state === undefined)
+      return
+    if (state.resolved)
+      return post([{ key: "secrets.checked_ok", args: { name: name } }], "success", {})
+    const parts = [{ key: "secrets.checked_no", args: { name: name } }, { key: "error." + state.code, args: state.params }]
+    if (state.code === "secret.env_unset")
+      parts.push({ key: setHintKey, args: { name: state.params.variable } })
+    post(parts, "error", {})
+  }
   function requestOmapass() { send("omapass") }
   function requestKeys() { send("keys") }
   // clearModels forgets a provider's model list: it belonged to another provider.
@@ -1478,6 +1499,11 @@ Singleton {
       break
     case "secrets":
       secretStatus = event.status
+      if (secretChecking !== "") {
+        const checked = secretChecking
+        secretChecking = ""
+        secretChecked(checked, event.status)
+      }
       break
     case "model_test":
       modelTests = Object.assign({}, modelTests, { [event.name]: event.ok ? { ok: true, ms: event.ms }

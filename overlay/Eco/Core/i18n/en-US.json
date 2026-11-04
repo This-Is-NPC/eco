@@ -1017,6 +1017,8 @@
   "secrets.check": "CHECK",
   "secrets.check_tip": "Read every secret again to see which ones resolve",
   "secrets.unknown": "checking…",
+  "secrets.checked_ok": "{name}: a key is read",
+  "secrets.checked_no": "{name}: no key is read",
   "secrets.resolved": "resolves, a key is read",
   "secrets.delete_in_use": "Used by the providers {names}; change them first.",
   "secrets.remove_title": "Delete secret",

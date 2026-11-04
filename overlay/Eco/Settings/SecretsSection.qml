@@ -31,10 +31,12 @@ SettingsSection {
     warning: I18n.t("secrets.remove_note"),
     change: d => d.secrets.splice(d.secrets.findIndex(secret => secret.name === row.id), 1)
   })
-  // CHECK reads every secret again: omapass and the Credential Manager change
-  // while eco runs; a variable does not, for the daemon reads its environment once.
+  // CHECK reads every secret again and tells what it found for the picked one:
+  // omapass and the Credential Manager change while eco runs; a variable does
+  // not, for the daemon reads its environment once. Busy until the reply.
   commands: (config, row) => [{ text: I18n.t("secrets.check"), icon: "check", tip: I18n.t("secrets.check_tip"),
-    enabled: Eco.connected, run: () => Eco.requestSecrets() }]
+    busy: Eco.secretChecking !== "" && Eco.secretChecking === row.id,
+    enabled: Eco.connected, run: () => Eco.checkSecret(row.id) }]
 
   function sourceName(source) { return I18n.t(Draft.sourceKey(source)) }
   function reference(secret) { return secret[Draft.sourceOf(secret)] || "" }

@@ -25,8 +25,7 @@ ColumnLayout {
 
   // How to set the variable `name` so the daemon sees it, on the system it runs on.
   function setHint(name) {
-    return I18n.t(Eco.platform === "windows" ? "secrets.set_windows" : Eco.platform === "macos" ? "secrets.set_macos" : "secrets.set_linux",
-      { name: name || "NAME" })
+    return I18n.t(Eco.setHintKey, { name: name || "NAME" })
   }
   function title(source) { return I18n.t(Draft.sourceKey(source)) }
   // An option's two parts: {head: "<source>" or "type", name}.

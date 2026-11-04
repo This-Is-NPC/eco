@@ -1017,6 +1017,8 @@
   "secrets.check": "再確認",
   "secrets.check_tip": "すべてのシークレットを読み直して、解決できるものを確かめます",
   "secrets.unknown": "確認中…",
+  "secrets.checked_ok": "{name}: キーを読み取れました",
+  "secrets.checked_no": "{name}: キーを読み取れません",
   "secrets.resolved": "解決済み。キーを読めます",
   "secrets.delete_in_use": "プロバイダー {names} が使っています。先にそちらを変更してください。",
   "secrets.remove_title": "シークレットを削除",

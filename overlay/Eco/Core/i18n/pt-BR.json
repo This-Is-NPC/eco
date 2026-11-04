@@ -1017,6 +1017,8 @@
   "secrets.check": "VERIFICAR",
   "secrets.check_tip": "Ler todos os segredos de novo para ver quais resolvem",
   "secrets.unknown": "verificando…",
+  "secrets.checked_ok": "{name}: uma chave é lida",
+  "secrets.checked_no": "{name}: nenhuma chave é lida",
   "secrets.resolved": "resolve, uma chave é lida",
   "secrets.delete_in_use": "Usado pelos provedores {names}; mude-os antes.",
   "secrets.remove_title": "Apagar segredo",
