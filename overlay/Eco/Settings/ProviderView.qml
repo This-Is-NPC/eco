@@ -21,7 +21,7 @@ ItemPage {
   readonly property var entry: (item.active ? item.draft.providers[at] : config ? config.providers.find(provider => provider.name === key) : null)
     || ({ name: "", base_url: "" })
   readonly property string path: "providers." + at + "."
-  readonly property var users: config ? Draft.referrers(config, "providers", entry.name, true) : []
+  readonly property var users: config ? Draft.referrers(config, "providers", entry.name) : []
   // The name the models know it by in the draft (see Draft.renameItem): its
   // saved one until another name is its own.
   property string following: ""

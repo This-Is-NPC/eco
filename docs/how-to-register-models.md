@@ -160,20 +160,22 @@ Open the settings (`SUPER+ALT+C`). A model needs a provider, and a provider
 that asks for a key needs a secret, so go **Secrets**, **Providers**, **Models**.
 
 **Secrets**, section 02 (`Ctrl+2`): each row is a name and a reference, with
-STATE saying whether the daemon reads a key from it. The presets eco ships are
-listed dim; a variable you set satisfies its preset, and `eco restart` shows it.
+STATE saying whether the daemon reads a key from it. The secrets eco ships are
+added when it first runs and listed like yours; a variable you set satisfies
+one, and `eco restart` shows it.
 For a key of your own, **ADD SECRET**, name it, pick the source and the
 reference with **PICK A KEY**, **SAVE**. **Providers**, section 03 (`Ctrl+3`):
 **ADD PROVIDER** with a name, the base URL and the secret from the Secrets
-section, or none for a server on your network. The presets are listed there too.
+section, or none for a server on your network. The providers eco ships are listed there too.
 
 Then **Models**, section 04 (`Ctrl+4`). It
 is a table of the models registered: each one's name, type, the provider's
-model id, what it is the default for, what else uses it and, for the models eco
-ships, that it is a preset. A preset whose key is not set stays in the table,
-dim, as "preset, disabled", with its reason on its screen.
+model id, what it is the default for, what else uses it and, for a model whose
+key is not set, STATE "disabled". It stays in the table, dim; its reason is the
+hint of the commands it cannot take. The models eco ships are added when it
+first runs; edit or delete them like yours.
 
-![The Models section: the rail of sections down the left, with 04 marked; the bar with ADD MODEL, VIEW, EDIT, the defaults by their short names, a dimmed FOR CHAT, a dimmed FOR TRANSLATION and FOR REVIEW, and a dimmed DELETE; "Register each model once — chat or transcription — with a provider from the Providers tab…"; and a table of whisper-lan (TRANSCRIPTION, whisper-large-v3-turbo, default TRANSCRIPTION, used by MEETING, CONVERSATION…), deepgram (TRANSCRIPTION, nova-3, INTERVIEW), gemini-flash (CHAT, google/gemini-2.5-flash, default CHAT · TRANSLATION, MEETING…, picked), claude-haiku (CHAT, anthropic/claude-haiku-4.5, default REVIEW, minutes), then the presets, dim where disabled.](img/46-settings-models.png)
+![The Models section: the rail of sections down the left, with 04 marked; the bar with ADD MODEL, VIEW, EDIT, the defaults by their short names, a dimmed FOR CHAT, a dimmed FOR TRANSLATION and FOR REVIEW, and a dimmed DELETE; "Register each model once — chat or transcription — with a provider from the Providers tab…"; and a table of whisper-lan (TRANSCRIPTION, whisper-large-v3-turbo, default TRANSCRIPTION, used by MEETING, CONVERSATION…), deepgram (TRANSCRIPTION, nova-3, INTERVIEW), gemini-flash (CHAT, google/gemini-2.5-flash, default CHAT · TRANSLATION, MEETING…, picked), claude-haiku (CHAT, anthropic/claude-haiku-4.5, default REVIEW, minutes), then the models eco ships, dim where disabled.](img/46-settings-models.png)
 
 **A chat model is optional.** Without one eco records, transcribes and keeps
 notes; the **Prompts**, **Context** and **Skills** sections say NO CHAT MODEL
@@ -195,8 +197,8 @@ step 4 makes it one. Fill it top to bottom:
   **HIGH**. **OFF** starts the answer at once, which is what a live
   conversation wants; some models require reasoning and fail without it. It is
   sent as OpenRouter's `reasoning` field.
-- **PROVIDER** — a chip per provider of the Providers section, the presets
-  among them (**OPENROUTER**, **GROQ**…). For any other OpenAI-compatible base
+- **PROVIDER** — a chip per provider of the Providers section
+  (**OPENROUTER**, **GROQ**…). For any other OpenAI-compatible base
   URL, add a provider first.
 - **MODEL** — the provider's id, such as `google/gemini-3.5-flash-lite`. Type
   it, or press **LIST** to ask the saved provider which models it offers and
@@ -432,13 +434,13 @@ reviewer turns off, then saves at once.
 
 ## Test a model
 
-Open a saved model, or a preset, and press TEST in the bar. eco makes the
+Open a saved model and press TEST in the bar. eco makes the
 smallest real request the model answers: a one-token answer for a chat model,
 one second of silence for a transcription model. The result is listed among the
 model's facts: the time it took, or why it failed (a key the provider refused,
 with the secret named; a model the provider does not have; no answer within 15
 seconds). The provider may bill the request, so it runs only when you press.
-A preset that waits for its key has TEST off and says which variable it needs.
+A model that waits for its key has TEST off and says which variable it needs.
 
 ---
 

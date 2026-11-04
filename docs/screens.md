@@ -713,12 +713,10 @@ a key is read", or why not (the variable is not set, omapass is missing or
 locked, the credential is not there). Only that crosses to the window, never
 the key. CHECK reads every secret again, for omapass and the Credential
 Manager can change while eco runs; a variable cannot, since the daemon reads
-its environment once, when it starts. The secrets eco ships follow the user's,
-dim and read only, each satisfied by setting its variable: OPENROUTER,
-ELEVENLABS, DEEPGRAM and GROQ. A secret of your own with a preset's name, or
-reading its variable, replaces it, and the preset providers name yours. A
-config of an earlier eco is converted so: a key read from a preset's variable
-is the preset's secret. A secret a provider uses is not deleted: DELETE is dimmed, with
+its environment once, when it starts. The secrets eco ships — OPENROUTER,
+ELEVENLABS, DEEPGRAM and GROQ, each satisfied by setting its variable — are
+added to the config when eco first runs and are rows like any other: edit or
+delete them. A secret a provider uses is not deleted: DELETE is dimmed, with
 the providers in its hint.
 
 ![The secret OPENROUTER_API_KEY, read: the bar with BACK, EDIT and a dimmed DELETE; ABOUT with SOURCE ENVIRONMENT, REFERENCE OPENROUTER_API_KEY, STATE "resolves, a key is read"; RELATED with PROVIDERS › openrouter.](img/42-settings-secret.png)
@@ -756,8 +754,8 @@ server on your network.
 ![Settings, 03 PROVIDERS: the bar with ADD PROVIDER, VIEW, EDIT and a dimmed DELETE; a table NAME · BASE URL · SECRET · USED BY with 192.0.2.10 (none, whisper-lan), deepgram, openrouter (picked; gemini-flash, claude-haiku), then, dim, the presets OPENROUTER, ELEVENLABS, DEEPGRAM and GROQ with the preset models that use them.](img/44-settings-providers.png)
 
 The providers eco ships — OpenRouter, ElevenLabs, Deepgram and Groq, each with
-its secret of the same name — follow the user's, dim and read only. A provider
-a model uses is not deleted.
+its secret of the same name — are added when eco first runs and are rows like
+any other. A provider a model uses is not deleted.
 
 ![The provider openrouter, read: the bar with BACK, EDIT and a dimmed DELETE; ABOUT with BASE URL https://openrouter.ai/api/v1 and SECRET OPENROUTER_API_KEY · resolves, a key is read; RELATED with SECRETS › OPENROUTER_API_KEY and MODELS › gemini-flash, claude-haiku.](img/45-settings-provider.png)
 
@@ -771,17 +769,16 @@ provider knows it by; this section registers models and nothing else.
 
 ![Settings, 04 MODELS: the bar with ADD MODEL, VIEW, EDIT, the defaults by their short names, a dimmed FOR CHAT, a dimmed FOR TRANSLATION and FOR REVIEW, and a dimmed DELETE; "Register each model once — chat or transcription — with a provider from the Providers tab…"; a table NAME · TYPE · MODEL ID · DEFAULT · USED BY · STATE: whisper-lan (TRANSCRIPTION · whisper-large-v3-turbo · TRANSCRIPTION · MEETING, CONVERSATION…), deepgram (TRANSCRIPTION · nova-3 · · INTERVIEW), gemini-flash (CHAT · google/gemini-2.5-flash · CHAT · TRANSLATION · MEETING, CONVERSATION…, picked), claude-haiku (CHAT · anthropic/claude-haiku-4.5 · REVIEW · minutes), then the presets gpt-6-luna and nova-3 ("preset") and scribe-v2 and whisper-turbo, dim, "preset, disabled".](img/46-settings-models.png)
 
-The models eco ships follow the user's: `gpt-6-luna`, `scribe-v2`, `nova-3`
-and `whisper-turbo`. STATE says PRESET; a preset whose key is not set stays in
-the list, dim, as "preset, disabled", and its screen gives the reason as the
-daemon told it (`gpt-6-luna` needs `OPENROUTER_API_KEY`). A model of your own
-with a preset's name replaces it. A preset is read only, and a disabled one
-cannot be made a default, the reason being the hint of the dimmed command.
+The models eco ships — `gpt-6-luna`, `scribe-v2`, `nova-3` and
+`whisper-turbo` — are added when eco first runs and are rows like any other. A
+model whose key is not set stays in the list, dim, with STATE "disabled"; it
+cannot be made a default or tested, the reason the daemon gave (`gpt-6-luna`
+needs `OPENROUTER_API_KEY`) being the hint of the dimmed command.
 
 ![The model gemini-flash, read: the bar with BACK, EDIT and a dimmed DELETE; ABOUT with TYPE CHAT, DEFAULT FOR CHAT · TRANSLATION, PROVIDER openrouter, MODEL ID google/gemini-2.5-flash, REASONING OFF; RELATED with SESSION KINDS · ASSISTANT + TRANSLATION › MEETING, CONVERSATION, OTHER, IDEA, INTERVIEW.](img/47-settings-model.png)
 
 Edited, it has its type while nothing uses it, its name, the reasoning for a
-chat model, the provider (a chip per provider, the presets among them), the
+chat model, the provider (a chip per provider), the
 model id (LIST shows the models the saved provider offers, with its own secret;
 an unsaved provider is asked to be saved first), the price per minute of a
 transcription model and, for a chat model, EXTRA (JSON), the extra fields sent
@@ -789,10 +786,6 @@ with each request. Where its key comes from is the provider's secret, set in
 the Secrets section.
 
 ![The model gemini-flash being edited, EDITING beside MODEL, the bar with a dimmed SAVE and CANCEL: NAME "gemini-flash"; REASONING with PROVIDER'S, OFF (lit), LOW, MEDIUM, HIGH; PROVIDER with 192.0.2.10, deepgram, openrouter (lit), OPENROUTER, ELEVENLABS, DEEPGRAM and GROQ, and a line saying to pick one from the Providers tab; MODEL "google/gemini-2.5-flash" with LIST; EXTRA (JSON) holding "{}".](img/48-settings-model-edit.png)
-
-A preset opens on a screen of its own, read only:
-
-![The preset scribe-v2, read: the bar with BACK; PRESET over the title; ABOUT with TYPE TRANSCRIPTION, DEFAULT FOR nothing, PROVIDER ELEVENLABS, MODEL ID scribe_v2_realtime; a line saying eco ships it and a same-named entry replaces it, and "Preset scribe-v2 is disabled: ELEVEN_LABS_API_KEY is not set."](img/49-settings-preset.png)
 
 Renaming a model renames it wherever it is used.
 

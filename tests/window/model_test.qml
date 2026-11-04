@@ -6,7 +6,7 @@ import Eco.Settings
 // The TEST of a model, run by tests/window.rs: the button of a saved model is
 // idle, busy while the daemon waits, and leaves its result among the model's
 // facts, an answer with its time or an error in the interface language; the
-// button of a preset that waits for a key is off, saying why. Each check that
+// button of a model that waits for a key is off, saying why. Each check that
 // fails is printed, and the exit status is how many failed.
 QtObject {
   id: root
@@ -42,17 +42,14 @@ QtObject {
   readonly property var steps: [
     () => {
       Eco.handle({ type: "config", devices: [], omapass: { installed: true, page: "" }, credential_manager: false, platform: "linux",
-        presets: {
-          secrets: [{ name: "OPENROUTER", env: "OPENROUTER_API_KEY" }],
-          providers: [{ name: "OPENROUTER", base_url: "https://openrouter.ai/api/v1", secret: "OPENROUTER" }],
-          models: [{ name: "gpt-6-luna", type: "chat", provider: "OPENROUTER", model: "openai/gpt-6-luna", reasoning: "off" }]
-        },
         config: { rules: "", participants: [], kinds: ["meeting"], actions: [], contexts: [], context: { files: [] }, ui: { language: "auto" },
-          secrets: [{ name: "mine", env: "MINE_KEY" }],
-          providers: [{ name: "lan", base_url: "http://lan:8000/v1", secret: "mine" }],
-          models: [{ name: "local", type: "chat", provider: "lan", model: "qwen" }],
+          secrets: [{ name: "mine", env: "MINE_KEY" }, { name: "OPENROUTER", env: "OPENROUTER_API_KEY" }],
+          providers: [{ name: "lan", base_url: "http://lan:8000/v1", secret: "mine" },
+            { name: "OPENROUTER", base_url: "https://openrouter.ai/api/v1", secret: "OPENROUTER" }],
+          models: [{ name: "local", type: "chat", provider: "lan", model: "qwen" },
+            { name: "gpt-6-luna", type: "chat", provider: "OPENROUTER", model: "openai/gpt-6-luna", reasoning: "off" }],
           stt: { model: "", language: "auto", languages: ["auto"] }, llm: { model: "local", max_context_chars: 60000, concurrency: 8 } } })
-      Eco.disabledModels = { "gpt-6-luna": { code: "preset.key_missing", params: { name: "gpt-6-luna", variable: "OPENROUTER_API_KEY" } } }
+      Eco.disabledModels = { "gpt-6-luna": { code: "model.disabled", params: { name: "gpt-6-luna", variable: "OPENROUTER_API_KEY" } } }
       Eco.configOpen = true
     },
     () => {
@@ -60,7 +57,7 @@ QtObject {
       root.check("idle: TEST is on and not busy", idle.text === I18n.t("model_test.button") && idle.enabled === true && idle.busy === false)
       root.check("idle: no result is listed", root.fact().length === 0)
       const off = root.button("gpt-6-luna")
-      root.check("a preset waiting for a key has TEST off, saying why", off.enabled === false && off.tip === root.models().disabledText("gpt-6-luna"))
+      root.check("a model waiting for a key has TEST off, saying why", off.enabled === false && off.tip === root.models().disabledText("gpt-6-luna"))
       root.window.choose(root.window.view.at.models)
       root.window.view.open(root.window.view.at.models, "local", false)
       Eco.modelTests = { local: { busy: true } }
@@ -90,7 +87,7 @@ QtObject {
     () => {
       root.check("a timeout is told", root.fact()[0][1] === I18n.t("error.model_test.timeout", { name: "local", seconds: 15 }))
       Eco.handle({ type: "config", devices: [], omapass: { installed: true, page: "" }, credential_manager: false, platform: "linux",
-        presets: Eco.presets, config: Eco.config })
+        config: Eco.config })
     },
     () => {
       root.check("a saved config drops the results", root.fact().length === 0)

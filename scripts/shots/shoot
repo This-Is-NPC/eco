@@ -601,8 +601,7 @@ def scenes(w, shots, stop):
     shots.take("40-settings-audio-heard", "settings")
     w.do(f"{heard}.data.find(o => d.kind(o) === 'MenuPopup').close()", 0.4)
     shots.size(*SETTINGS, which="settings")
-    # The secret OPENROUTER_API_KEY read, then written with its key picker open;
-    # the presets follow the user's rows.
+    # The secret OPENROUTER_API_KEY read, then written with its key picker open.
     section("secrets")
     item("secrets", "OPENROUTER_API_KEY", "42", "secret", ("43", "secret-edit"), listed="PICK A KEY")
     shots.take("41-settings-secrets", "settings")
@@ -613,8 +612,6 @@ def scenes(w, shots, stop):
     item("models", "gemini-flash", "47", "model", ("48", "model-edit"))
     # Back on the table with gemini-flash picked: the chat model's defaults on the bar.
     shots.take("46-settings-models", "settings")
-    # A preset that waits for its key, read only, with the reason.
-    item("models", "scribe-v2", "49", "preset")
     section("languages")
     shots.take("50-settings-languages", "settings")
     section("kinds")

@@ -2307,8 +2307,7 @@ table, then closes the window. Keys show only in the shortcuts dialog
   omapass account or, on Windows, Credential Manager name), the reference and
   STATE: whether the daemon reads a key from it now, from the `secrets` reply
   (§10.2), never the key. The window asks again on each `config` event and on
-  CHECK. The presets' secrets follow the user's, dim and read only
-  (`PresetView`); a user secret with a preset's name replaces it. Edited: its
+  CHECK. The secrets eco ships are rows like any other. Edited: its
   name (the providers that use it follow, `Draft.renameItem`), its source and
   reference, typed or picked from the names the daemon lists, with, beside a
   variable, how to set it so the daemon sees it: the `config` event's
@@ -2317,8 +2316,7 @@ table, then closes the window. Keys show only in the shortcuts dialog
   provider uses is not deleted.
 - **Providers** (`ProvidersSection`, `ProviderView`): a row per provider — name,
   base URL, secret, and the models that use it. Edited: name (the models follow),
-  base URL and the secret, picked from Secrets or none. The presets' providers
-  follow, read only; a provider a model uses is not deleted.
+  base URL and the secret, picked from Secrets or none. A provider a model uses is not deleted.
 - **Models** (`ModelsSection`): the registry and the defaults — a row per
   model, chat and transcription alike: its name, type, the provider's model
   id, DEFAULT (what it is the default for: CHAT, TRANSLATION, REVIEW,
@@ -2329,10 +2327,9 @@ table, then closes the window. Keys show only in the shortcuts dialog
   and dimmed on the model that is already that default (`Draft.defaults`,
   `Draft.makeDefault`); with none picked, DEFAULT FOR CHAT, dimmed. DEFAULT
   FOR REVIEW sets `[reviewer] model` and leaves `enabled` as it is; nothing
-  else in the window picks the reviewer's model. The models eco ships follow the user's with a STATE: PRESET, or PRESET,
-  DISABLED when the snapshot's `disabled_models` names it, whose reason its
-  read-only screen gives and which cannot be made a default; the overlay names
-  them like its own (`Draft.usePresets`). Read: its type, what it is
+  else in the window picks the reviewer's model. STATE is "disabled" when the snapshot's `disabled_models` names the
+  model; its row is dim and it cannot be made a default or tested, the reason
+  being the hint of the dimmed command. Read: its type, what it is
   the default for, provider, model id, and
   for chat its REASONING and extra fields, for transcription its price per
   minute; RELATED, what else uses it, grouped by the section that sets each
@@ -2344,8 +2341,8 @@ table, then closes the window. Keys show only in the shortcuts dialog
   its NAME, for chat REASONING (the provider's — or IN EXTRA FIELDS when
   `extra` sets one —, off, low, medium or high: `reasoning`, sent as
   OpenRouter's `reasoning` field and winning over one in `extra`), the
-  provider (a chip per provider of Providers, the presets among them), model
-  (typed, with the preset's model as an example, or picked from LIST, which
+  provider (a chip per provider of Providers), model
+  (typed, with another model of the type as an example, or picked from LIST, which
   asks for the saved provider's models and closes the list again, as Esc does), for transcription a fallback price per minute and, for
   chat, the extra JSON sent with each request (EXTRA (JSON)). The chat and
   transcription defaults cannot be deleted; deleting another asks first, listing what

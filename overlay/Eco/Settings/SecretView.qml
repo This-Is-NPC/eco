@@ -25,7 +25,7 @@ ItemPage {
   readonly property string source: Draft.sourceOf(entry)
   readonly property string reference: section.reference(entry)
   readonly property string path: "secrets." + at + "."
-  readonly property var users: config ? Draft.referrers(config, "secrets", entry.name, true) : []
+  readonly property var users: config ? Draft.referrers(config, "secrets", entry.name) : []
   // The name the providers know it by in the draft (see Draft.renameItem): its
   // saved one until another name is its own.
   property string following: ""

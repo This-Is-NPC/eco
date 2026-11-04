@@ -191,7 +191,7 @@ ItemPage {
     target: page.target(page.entry.type)
     error: item.errors[page.path + "model"] || ""
     section: page.entry
-    example: Eco.presets.models.find(model => model.type === page.entry.type) || null
+    example: page.config ? page.config.models.find(model => model.type === page.entry.type && model.name !== page.entry.name && model.model) || null : null
     onEdited: (key, value) => page.change(key, value)
   }
 
