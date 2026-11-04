@@ -37,6 +37,8 @@ QtObject {
     }
     return null
   }
+  property Item field: null
+  function written() { return find(window.contentItem, item => item.visible && item.cursorPosition !== undefined && !item.readOnly) }
   function rail() { return find(window.contentItem, item => String(item).startsWith("TabRail")) }
 
   // The rail's tabs sit one under the other in the order of their numbers.
@@ -45,7 +47,11 @@ QtObject {
     return tabs.length === 11 && tabs.every(tab => tab.y === tab.index * (rail().tabHeight + rail().gap))
   }
 
-  // The checks, one per tick, each after what the one before set off settled.
+  // Keys reach the window once it is active and its rail has settled.
+  function settled() { return window.active && rail() !== null && railInOrder() }
+
+  // The checks, each after what the one before set off settled: a step returns
+  // the condition the next one waits for.
   readonly property var steps: [
     () => {
       Eco.handle({ type: "config", devices: [], omapass: { installed: false, page: "" }, credential_manager: false,
@@ -54,41 +60,56 @@ QtObject {
           stt: { model: "", language: "auto", languages: ["auto"] }, llm: { model: "", max_context_chars: 60000, concurrency: 8 } } })
       Eco.configOpen = true
       root.keys = Qt.createQmlObject("import QtTest; TestCase { when: false }", root.window.contentItem, "keys")
+      return root.settled
     },
-    () => root.window.choose(1),
+    () => {
+      root.window.choose(1)
+      return () => root.window.page === 1 && root.settled()
+    },
     () => {
       root.keys.keyClick(Qt.Key_3)
       root.check("3 on a section chooses the third", root.window.page === 2)
+      return root.settled
     },
     () => {
       root.keys.keyClick(Qt.Key_5, Qt.ControlModifier)
       root.check("Ctrl+5 chooses the fifth", root.window.page === 4)
+      return root.settled
     },
     () => {
       root.keys.keyClick(Qt.Key_1, Qt.KeypadModifier)
       root.check("the keypad's 1 chooses the first", root.window.page === 0)
+      return root.settled
     },
     () => {
       root.keys.keyClick(Qt.Key_Tab, Qt.ControlModifier)
       root.check("Ctrl+Tab turns to the next", root.window.page === 1)
-    },
-    () => root.window.view.create(root.window.view.at.models),
-    () => {
-      root.find(root.window.contentItem, item => item.visible && item.cursorPosition !== undefined && !item.readOnly).forceActiveFocus()
+      return root.settled
     },
     () => {
-      const field = root.window.activeFocusItem
+      root.window.view.create(root.window.view.at.models)
+      return () => root.written() !== null
+    },
+    () => {
+      root.field = root.written()
+      root.field.forceActiveFocus()
+      return () => root.window.activeFocusItem === root.field
+    },
+    () => {
+      const field = root.field
       const before = field.text
       root.keys.keyClick(Qt.Key_3)
       root.check("3 in a field is written there", root.window.page === root.window.view.at.models && field.text === before + "3")
       root.keys.keyClick(Qt.Key_5, Qt.ControlModifier)
       root.check("Ctrl+5 in a field chooses the fifth", root.window.page === 4)
+      return root.settled
     },
     () => {
       const rail = root.rail()
       root.check("the rail is folded", !rail.unfolded)
       for (let presses = 0; presses < 20 && rail.focusedTabs === 0; presses++)
         root.keys.keyClick(Qt.Key_Backtab, Qt.ShiftModifier)
+      return () => root.rail().unfolded
     },
     () => {
       const rail = root.rail()
@@ -98,6 +119,7 @@ QtObject {
       root.keys.keyClick(Qt.Key_Return)
       root.check("Home, Down and Enter on the rail choose the second", root.window.page === 1)
       root.window.choose(root.window.view.at.kinds)
+      return root.settled
     },
     () => {
       const view = root.window.view
@@ -112,12 +134,17 @@ QtObject {
       root.check("with no row picked, DEFAULT is there and off", off("settings.default"))
       root.check("with no row picked, DELETE is there and off", off("settings.delete"))
       view.picked = view.setOf(view.picked, view.at.kinds, "meeting")
+      return root.settled
     },
-    () => root.keys.keyClick(Qt.Key_E, Qt.ControlModifier),
+    () => {
+      root.keys.keyClick(Qt.Key_E, Qt.ControlModifier)
+      return () => root.window.view.openPage !== null && root.window.view.openPage.editing
+    },
     () => {
       const page = root.window.view.openPage
       root.check("Ctrl+E on the table opens the row picked to be written", page !== null && page.key === "meeting" && page.editing && page.returns)
       root.keys.keyClick(Qt.Key_Escape)
+      return () => root.window.view.openPage === null
     },
     () => {
       const view = root.window.view
@@ -128,10 +155,12 @@ QtObject {
         === JSON.stringify(names.map(name => I18n.t("settings." + name))))
       root.check("each section has its place", names.every((name, index) => view.at[name] === index))
       root.window.choose(view.at.general)
+      return root.settled
     },
     () => {
       const view = root.window.view
       view.picked = view.setOf(view.picked, view.at.general, "concurrency")
+      return () => view.sections[view.at.general].note === I18n.t("general.concurrency_tip") && root.settled()
     },
     () => {
       const view = root.window.view
@@ -151,6 +180,7 @@ QtObject {
       root.keys.keyClick(Qt.Key_0)
       root.check("0 chooses the tenth", root.window.page === 9)
       root.check("the rail keeps its order", root.railInOrder())
+      return root.settled
     },
     () => {
       root.keys.keyClick(Qt.Key_0, Qt.ControlModifier)
@@ -158,15 +188,18 @@ QtObject {
       root.window.choose(10)
       root.check("choosing the eleventh lights the eleventh", root.window.page === 10)
       root.check("the rail keeps its order with the last chosen", root.railInOrder())
+      return root.settled
     },
     () => {
       root.keys.keyClick(Qt.Key_Tab, Qt.ControlModifier)
       root.check("Ctrl+Tab from the last wraps to the first", root.window.page === 0)
       root.check("the rail keeps its order after the wrap", root.railInOrder())
+      return root.settled
     },
     () => {
       root.keys.keyClick(Qt.Key_Backtab, Qt.ControlModifier | Qt.ShiftModifier)
       root.check("Ctrl+Shift+Tab from the first goes to the last", root.window.page === 10)
+      return root.settled
     },
     () => {
       root.keys.keyClick(Qt.Key_Backtab, Qt.ControlModifier | Qt.ShiftModifier)
@@ -180,11 +213,19 @@ QtObject {
     }
   ]
 
+  property var ready: () => true
   property Timer step: Timer {
     property int at: 0
-    interval: 400
+    interval: 10
     repeat: true
     running: true
-    onTriggered: root.steps[at++]()
+    onTriggered: {
+      if (!root.ready() || at >= root.steps.length)
+        return
+      // A key click runs the event loop, which can fire this timer again.
+      const step = root.steps[at++]
+      root.ready = () => false
+      root.ready = step() || (() => true)
+    }
   }
 }
