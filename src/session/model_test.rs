@@ -306,21 +306,31 @@ mod tests {
         }
     }
 
-    #[tokio::test(start_paused = true)]
+    #[tokio::test]
     async fn a_provider_that_stalls_is_given_up_on_after_fifteen_seconds() {
         let stalled = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}/v1", stalled.local_addr().unwrap());
+        let (accepted, connected) = tokio::sync::oneshot::channel();
         let held = tokio::spawn(async move {
-            let mut held = Vec::new();
-            while let Ok((socket, _)) = stalled.accept().await {
-                held.push(socket);
-            }
+            let (socket, _) = stalled.accept().await.unwrap();
+            let _ = accepted.send(());
+            std::future::pending::<()>().await;
+            drop(socket);
         });
         let started = Instant::now();
-        let reply = test(&config_at(&url, true), "c").await;
+        let reply = tokio::spawn(async move { test(&config_at(&url, true), "c").await });
+        // The clock runs until the connection is made, so the connect timeout
+        // never fires on a loopback connect that completes later (macOS).
+        connected.await.unwrap();
+        tokio::time::pause();
+        let reply = reply.await.unwrap();
         assert_eq!(reply["code"], "model_test.timeout");
         assert_eq!(reply["params"], json!({"name": "c", "seconds": 15}));
-        assert_eq!(started.elapsed(), LIMIT);
+        let elapsed = started.elapsed();
+        assert!(
+            elapsed >= LIMIT && elapsed < LIMIT + Duration::from_secs(1),
+            "{elapsed:?}"
+        );
         held.abort();
     }
 
