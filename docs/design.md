@@ -512,9 +512,9 @@ matters.
 - **Default model:** `[llm] model` names the assistant's, `[stt] model` the
   transcription model, `[translation] model` the translator and
   `[reviewer] model` the reviewer's. A role left empty is automatic: it takes
-  the first usable model of its type, the user's in registration order and
-  then the presets (usable: it needs no key, or its key resolves), or else
-  the first one of the type. The choice is made when the daemon composes the
+  the first usable model of its type in registration order (usable: it needs
+  no key, or its key resolves), or else the first one of the type
+  (`src/automatic.rs`). The choice is made when the daemon composes the
   config and is never saved; a default naming no registered model of its type
   is dropped when saved and is automatic again. The reviewer's `enabled`
   stays as the user set it. An action's `model`
@@ -1141,17 +1141,20 @@ ElevenLabs and Groq, each with a secret of the same name that reads its
 variable (`OPENROUTER_API_KEY`, `DEEPGRAM_API_KEY`, `ELEVEN_LABS_API_KEY`,
 `GROQ_API_KEY`), and one model per provider and type, picked from
 [benchmarks](benchmarks.md) and reviewed each release: `gpt-6-luna` (chat),
-`scribe-v2`, `nova-3` and `whisper-turbo` (transcription). The daemon lays them
-under the user's config each time it builds the pipeline, imports a file or lists
-models (`presets::overlay`); an entry of the user's with the same name replaces
-the preset's, a secret or provider included, and a secret of the user's that
-reads a preset secret's variable takes its place, the preset providers naming it. They are never in the `config`
-snapshot's `config` and never saved: the file keeps only what the user wrote,
-and a default may name a preset model. A default model of a type the user has not
-chosen is the first usable model of that type, a preset or the user's (§9). A preset whose variable is not set stays and is `disabled`: the snapshot's
-`disabled_models` is `{name: {code: "preset.key_missing", params: {name,
+`scribe-v2`, `nova-3` and `whisper-turbo` (transcription). They are ordinary
+entries of the config file, which the user edits and deletes. `presets::seed`
+adds them, after the user's entries, only when there is no config file (the
+first run) and when an old file is converted; it skips a preset whose name an
+entry already has, and a secret that reads a preset secret's variable takes
+the preset's place, the preset providers naming it. A file in the new shape
+is taken as it is, so a deleted preset stays deleted, and the first save
+writes the seeded entries like any other. A default model of a type the user
+has not chosen is the first usable model of that type (§9), filled when the
+daemon composes the config (`automatic::filled`) and never saved. A model
+whose key is read from a variable that is not set stays and is `disabled`: the
+snapshot's `disabled_models` is `{name: {code: "model.disabled", params: {name,
 variable}}}`, and when a default or a kind names it, building it tells
-`stt.preset_disabled` or `model.preset_disabled` (`{name, variable}`) with the
+`stt.variable_unset` or `model.variable_unset` (`{name, variable}`) with the
 setup and again on `session.start` (`session.resume` checks the defaults); the model is not replaced by another. The variable is read when the
 provider is built, so one set before the next build is used then.
 
@@ -1287,7 +1290,7 @@ model `model_test.model_missing`, any other failure `model_test.failed` with
 the transport's words as `detail` (a network that is down is one), a stall
 `model_test.timeout`, an unsaved name `model_test.unknown`; a provider that
 cannot be built answers with the `model.unavailable`, `model.credential_missing`
-or `model.preset_disabled` codes (`stt.` for a transcription model) a session
+or `model.variable_unset` codes (`stt.` for a transcription model) a session
 tells.
 
 ---
@@ -1395,7 +1398,7 @@ session it shows:
 {"type":"import_started","session":{…},"total_s":1834.2}
 {"type":"import_progress","id":"…","done_s":612.5,"total_s":1834.2}
 {"type":"import_done","id":"…","complete":true}
-{"type":"config","config":{...},"devices":[{"id":"@default-input","label":"...","kind":"input"}],"omapass":{"installed":false,"page":"https://plugins.omarchy.org/..."},"credential_manager":false,"platform":"linux","presets":{"secrets":[{"name":"OPENROUTER","env":"OPENROUTER_API_KEY"},…],"providers":[{"name":"OPENROUTER","base_url":"https://openrouter.ai/api/v1","secret":"OPENROUTER"},…],"models":[{"name":"gpt-6-luna","type":"chat","provider":"OPENROUTER","model":"openai/gpt-6-luna","reasoning":"off"},…]},"echo_cancel":null}
+{"type":"config","config":{...},"devices":[{"id":"@default-input","label":"...","kind":"input"}],"omapass":{"installed":false,"page":"https://plugins.omarchy.org/..."},"credential_manager":false,"platform":"linux","echo_cancel":null}
 {"type":"config_saved"}
 {"type":"config_pending","id":"1","hooks":[{"action":"minutes","command":"~/bin/crm-push"}],"files":["~/notes/cv.md"],"secrets":[{"name":"bank","omapass":"openrouter"}],"providers":[{"name":"fast","base_url":"http://192.0.2.10:8000/v1","secret":"bank"}]}
 {"type":"models","target":"llm","models":["..."],"error":"..."}

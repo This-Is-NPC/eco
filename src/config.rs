@@ -609,7 +609,7 @@ impl Config {
     }
 
     /// Build a Config from its JSON shape (what the overlay sends); validate it.
-    /// An empty default model stays empty: it is automatic (see `presets::overlay`).
+    /// An empty default model stays empty: it is automatic (see `automatic::filled`).
     pub fn from_value(value: Value) -> Result<Self, ConfigError> {
         let raw: Raw = serde_json::from_value(value)
             .map_err(|error| ConfigError(format!("invalid config: {error}")))?;
@@ -671,7 +671,7 @@ impl Config {
             update: raw.update,
             shortcuts: raw.shortcuts,
         };
-        crate::presets::overlay(&config).validate()?;
+        crate::automatic::filled(&config).validate()?;
         Ok(config)
     }
 
@@ -959,7 +959,7 @@ fn system_language(locale: Option<&str>) -> &'static (&'static str, &'static str
         .unwrap_or(&FIRST_LANGUAGES[0])
 }
 
-/// The empty config in the system language `locale` (`pt_BR.UTF-8`, `ja-JP`):
+/// The config of a first run, with the presets, in the system language `locale` (`pt_BR.UTF-8`, `ja-JP`):
 /// its interface, its transcription language and its rules; English for a
 /// language eco has no pack for, or none. Its audio sources are `Me` on the
 /// default input, marked as the user, and `Them` on the default output.
@@ -999,12 +999,14 @@ fn first_run(locale: Option<&str>) -> Config {
         },
         ..toml::from_str("").expect("the empty file is a config")
     };
-    Config::from_raw(raw).expect("a first config is valid")
+    let mut config = Config::from_raw(raw).expect("a first config is valid");
+    crate::presets::seed(&mut config);
+    config
 }
 
-/// The config at `path`; no file there is the empty config in the system
-/// language, which registers no model, until the first save writes it. An old
-/// file is converted in memory only (see `convert`).
+/// The config at `path`; no file there is the first-run config in the system
+/// language with the presets, until the first save writes it. An old file is
+/// converted and given the presets in memory only (see `convert`).
 pub fn load(path: &Path) -> Result<Config, ConfigError> {
     read(path, sys_locale::get_locale().as_deref()).map(|(config, _)| config)
 }
@@ -1040,7 +1042,11 @@ fn read(path: &Path, locale: Option<&str>) -> Result<(Config, Option<String>), C
     let converted = convert(&mut value);
     let raw: Raw = serde_json::from_value(value)
         .map_err(|error| ConfigError(format!("invalid config: {error}")))?;
-    Ok((Config::from_raw(raw)?, converted.then_some(text)))
+    let mut config = Config::from_raw(raw)?;
+    if converted {
+        crate::presets::seed(&mut config);
+    }
+    Ok((config, converted.then_some(text)))
 }
 
 /// The fields a model had before providers and secrets: its address and its key source.
@@ -1600,7 +1606,7 @@ mod tests {
         let empty = read(&directory.path().join("nope.toml"), Some("pt_BR.UTF-8"))
             .unwrap()
             .0;
-        assert!(empty.models.is_empty());
+        assert_eq!(model_names(&empty), PRESET_MODELS);
         assert!(empty.actions.is_empty());
         assert_eq!(
             (empty.stt.model.as_str(), empty.llm.model.as_str()),
@@ -1610,6 +1616,7 @@ mod tests {
         assert_eq!(empty.transcriber("meeting"), None);
         assert_eq!(empty.translator("meeting"), None);
         let mut written_empty = from_old(json!({})).unwrap();
+        crate::presets::seed(&mut written_empty);
         written_empty.participants = empty.participants.clone();
         written_empty.ui_language = "pt-BR".into();
         assert_eq!(written_empty, empty);
@@ -2142,7 +2149,9 @@ translates = ["meeting"]
             [
                 "DEEPGRAM=DEEPGRAM_API_KEY",
                 "OPENROUTER=OPENROUTER_API_KEY",
-                "openrouter=openrouter"
+                "openrouter=openrouter",
+                "ELEVENLABS=ELEVEN_LABS_API_KEY",
+                "GROQ=GROQ_API_KEY"
             ]
         );
         let providers: Vec<_> = config
@@ -2169,6 +2178,12 @@ translates = ["meeting"]
                     "https://openrouter.ai/api/v1",
                     Some("openrouter")
                 ),
+                (
+                    "ELEVENLABS",
+                    "wss://api.elevenlabs.io/v1/speech-to-text/realtime",
+                    Some("ELEVENLABS")
+                ),
+                ("GROQ", "https://api.groq.com/openai/v1", Some("GROQ")),
             ]
         );
         let used: Vec<&str> = config.models.iter().map(|m| m.provider.as_str()).collect();
@@ -2179,7 +2194,11 @@ translates = ["meeting"]
                 "DEEPGRAM",
                 "OPENROUTER",
                 "OPENROUTER-2",
-                "OPENROUTER"
+                "OPENROUTER",
+                "OPENROUTER",
+                "ELEVENLABS",
+                "DEEPGRAM",
+                "GROQ"
             ]
         );
         let deep = &config.models[3];
@@ -2325,6 +2344,57 @@ translates = ["meeting"]
         );
     }
 
+    const PRESET_MODELS: [&str; 4] = ["gpt-6-luna", "scribe-v2", "nova-3", "whisper-turbo"];
+
+    fn model_names(config: &Config) -> Vec<&str> {
+        config.models.iter().map(|m| m.name.as_str()).collect()
+    }
+
+    #[test]
+    fn a_first_run_has_the_presets_as_ordinary_entries() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("config.toml");
+        let config = read(&path, None).unwrap().0;
+        assert_eq!(model_names(&config), PRESET_MODELS);
+        assert_eq!(config.providers.len(), 4);
+        assert_eq!(config.secrets.len(), 4);
+        assert!(!path.exists());
+        save(&config, &path).unwrap();
+        assert_eq!(read(&path, None).unwrap().0, config);
+    }
+
+    #[test]
+    fn an_old_file_is_converted_and_given_the_presets_and_the_save_writes_them() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("config.toml");
+        fs::write(&path, OLD).unwrap();
+        let (config, failure) = load_converting(&path).unwrap();
+        assert!(failure.is_none());
+        let names = model_names(&config);
+        assert!(PRESET_MODELS.iter().all(|preset| names.contains(preset)));
+        let saved = fs::read_to_string(&path).unwrap();
+        for preset in PRESET_MODELS {
+            assert!(saved.contains(preset), "{preset} in {saved}");
+        }
+        assert_eq!(load(&path).unwrap(), config);
+    }
+
+    #[test]
+    fn a_file_in_the_new_shape_is_taken_as_it_is_so_a_deleted_preset_stays_deleted() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("config.toml");
+        let mut config = read(&path, None).unwrap().0;
+        config.models.retain(|m| m.name != "nova-3");
+        save(&config, &path).unwrap();
+        let (loaded, failure) = load_converting(&path).unwrap();
+        assert!(failure.is_none());
+        assert_eq!(
+            model_names(&loaded),
+            ["gpt-6-luna", "scribe-v2", "whisper-turbo"]
+        );
+        assert_eq!(loaded, config);
+    }
+
     #[test]
     fn a_conversion_that_cannot_be_saved_is_told_and_kept_in_memory() {
         let directory = tempfile::tempdir().unwrap();
@@ -2334,7 +2404,7 @@ translates = ["meeting"]
         fs::create_dir(directory.path().join("config.toml.tmp")).unwrap();
         let (config, failure) = load_converting(&path).unwrap();
         assert!(failure.unwrap().0.contains("config.toml"));
-        assert_eq!(config.providers.len(), 4);
+        assert_eq!(config.providers.len(), 6);
         assert_eq!(fs::read_to_string(&path).unwrap(), OLD);
         fs::remove_dir(directory.path().join("config.toml.tmp")).unwrap();
         // Without a backup the old file is left alone.

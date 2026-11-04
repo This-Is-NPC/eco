@@ -3,6 +3,7 @@
 
 mod adapters;
 mod apply;
+mod automatic;
 mod bench;
 mod cli;
 mod config;

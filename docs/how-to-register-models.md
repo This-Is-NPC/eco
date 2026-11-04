@@ -55,13 +55,14 @@ per provider and type:
 | `whisper-turbo` | transcription | Groq | not measured on Groq |
 
 The numbers are in [benchmarks](benchmarks.md); the choice is reviewed each
-release. These models are not in `config.toml`: eco adds them when it reads it,
-and a model, provider or secret of yours with the same name replaces the
-shipped one. When you have not chosen a default chat or transcription model, the
-first shipped one whose variable is set is the default, in the order of the table.
+release. A new `config.toml` starts with these models, their providers and their
+secrets, and a config of an earlier eco gets them when it is converted: they
+are ordinary entries, so edit or delete them, and a deleted one stays deleted.
+When you have not chosen a default chat or transcription model, the first one
+whose variable is set is the default, in the registration order.
 
-A shipped model whose variable is not set is listed and disabled, never hidden.
-If a default names it, the daemon tells `Transcription unavailable: the preset
+A model whose variable is not set is listed and disabled, never hidden.
+If a default names it, the daemon tells `Transcription unavailable: the model
 scribe-v2 needs ELEVEN_LABS_API_KEY, which is not set. …` (for a chat model,
 `Model gpt-6-luna unavailable: …`) and does not switch to another. Set the
 variable, then `eco restart`.
@@ -160,18 +161,20 @@ Open the settings (`SUPER+ALT+C`). A model needs a provider, and a provider
 that asks for a key needs a secret, so go **Secrets**, **Providers**, **Models**.
 
 **Secrets**, section 02 (`Ctrl+2`): each row is a name and a reference, with
-STATE saying whether the daemon reads a key from it. The presets eco ships are
-listed dim; a variable you set satisfies its preset, and `eco restart` shows it.
+STATE saying whether the daemon reads a key from it. A new config starts with
+the secrets of the presets eco ships, as ordinary rows you edit or delete; a
+variable you set satisfies its secret, and `eco restart` shows it.
 For a key of your own, **ADD SECRET**, name it, pick the source and the
 reference with **PICK A KEY**, **SAVE**. **Providers**, section 03 (`Ctrl+3`):
 **ADD PROVIDER** with a name, the base URL and the secret from the Secrets
-section, or none for a server on your network. The presets are listed there too.
+section, or none for a server on your network. A new config starts with the preset providers there too, as ordinary rows.
 
 Then **Models**, section 04 (`Ctrl+4`). It
 is a table of the models registered: each one's name, type, the provider's
 model id, what it is the default for, what else uses it and, for the models eco
-ships, that it is a preset. A preset whose key is not set stays in the table,
-dim, as "preset, disabled", with its reason on its screen.
+ships, nothing special: a new config starts with the preset models as ordinary
+rows, and deleting one keeps it deleted. A model whose key variable is not set
+stays in the table, dim, as disabled, with its reason on its screen.
 
 ![The Models section: the rail of sections down the left, with 04 marked; the bar with ADD MODEL, VIEW, EDIT, the defaults by their short names, a dimmed FOR CHAT, a dimmed FOR TRANSLATION and FOR REVIEW, and a dimmed DELETE; "Register each model once — chat or transcription — with a provider from the Providers tab…"; and a table of whisper-lan (TRANSCRIPTION, whisper-large-v3-turbo, default TRANSCRIPTION, used by MEETING, CONVERSATION…), deepgram (TRANSCRIPTION, nova-3, INTERVIEW), gemini-flash (CHAT, google/gemini-2.5-flash, default CHAT · TRANSLATION, MEETING…, picked), claude-haiku (CHAT, anthropic/claude-haiku-4.5, default REVIEW, minutes), then the presets, dim where disabled.](img/46-settings-models.png)
 
@@ -432,13 +435,13 @@ reviewer turns off, then saves at once.
 
 ## Test a model
 
-Open a saved model, or a preset, and press TEST in the bar. eco makes the
+Open a saved model and press TEST in the bar. eco makes the
 smallest real request the model answers: a one-token answer for a chat model,
 one second of silence for a transcription model. The result is listed among the
 model's facts: the time it took, or why it failed (a key the provider refused,
 with the secret named; a model the provider does not have; no answer within 15
 seconds). The provider may bill the request, so it runs only when you press.
-A preset that waits for its key has TEST off and says which variable it needs.
+A model that waits for its key has TEST off and says which variable it needs.
 
 ---
 

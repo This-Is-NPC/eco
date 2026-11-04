@@ -1037,3 +1037,19 @@ master; `src/presets.rs` and `src/session/model_test.rs` are new.
 | `src/session.rs` | 96.93% (145 of 4729) | 97.21% (153 of 5480) | `run()`, which builds the real VAD model, the platform's audio, the update sources and the user's socket (it now also converts and saves an old config); and the rest as in the daemon section. |
 | `src/domain/session.rs` | 98.24% (46 of 2610) | 98.36% (47 of 2864) | as in the diarization section. |
 | `src/adapters/diarizer_process.rs`, `http.rs`, `llm_openai.rs`, `overlay.rs`, `stt_deepgram.rs`, `stt_openai.rs`, `domain/assistant.rs`, `domain/channel.rs`, `domain/events.rs`, `domain/transcribers.rs`, `credentials.rs`, `import.rs`, `lib.rs`, `ports.rs`, `doctor.rs` | 88.92–100.00% | the same or higher | as on master. |
+
+## Presets as config entries coverage (2026-11-03)
+
+Measured on Linux with `cargo llvm-cov --lib --summary-only` (the unit tests;
+`mise run coverage` also runs the integration tests, and `tests/i18n.rs`
+fails until the language packs carry the renamed `stt.variable_unset` and
+`model.variable_unset` texts). `src/automatic.rs` is new: the automatic roles
+and the disabled models moved out of `src/presets.rs`.
+
+| File | Before | This tree | Left without a test, and why |
+|---|---|---|---|
+| `src/presets.rs` | 100.00% | 100.00% | |
+| `src/automatic.rs` | new | 100.00% | |
+| `src/config.rs` | 99.87% (2 of 1596) | 99.88% (2 of 1645) | as before: the closing line of `write_atomically`; the summary counts one more line than the line view shows. |
+| `src/session.rs` | 97.21% (153 of 5480) | 97.25% (153 of 5557) | as in the section above. |
+| `src/session/model_test.rs` | 99.26% (2 of 272) | 99.26% (2 of 272) | as in the section above. |

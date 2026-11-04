@@ -328,8 +328,8 @@ mod tests {
     async fn a_model_that_cannot_be_built_is_told_as_a_session_would() {
         let mut config = config_at("http://lan/v1", true);
         config.secrets[0].env = Some("ECO_TEST_MODEL_TEST_UNSET".into());
-        assert_eq!(test(&config, "c").await["code"], "model.unavailable");
-        assert_eq!(test(&config, "t").await["code"], "stt.unavailable");
+        assert_eq!(test(&config, "c").await["code"], "model.variable_unset");
+        assert_eq!(test(&config, "t").await["code"], "stt.variable_unset");
     }
 
     #[tokio::test]
