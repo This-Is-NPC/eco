@@ -8,7 +8,8 @@ import Eco.Settings
 // written holds the keyboard, Ctrl with it chooses it anywhere, and the rail
 // unfolds while the keyboard is on it; a table's row commands are there and off
 // with no row picked, Ctrl+E writes the row picked, and Esc then goes back to
-// the table with it still picked. The sections come in their order, and on
+// the table with it still picked. The rail keeps its order whatever is chosen, 0 is the tenth section, Ctrl+Tab
+// and Ctrl+Shift+Tab wrap round the ends. The sections come in their order, and on
 // General Enter on a number starts writing it and Esc puts it back. Each check
 // that fails is printed, and the exit status is how many failed.
 QtObject {
@@ -37,6 +38,12 @@ QtObject {
     return null
   }
   function rail() { return find(window.contentItem, item => String(item).startsWith("TabRail")) }
+
+  // The rail's tabs sit one under the other in the order of their numbers.
+  function railInOrder() {
+    const tabs = rail().children.filter(item => item.lit !== undefined)
+    return tabs.length === 11 && tabs.every(tab => tab.y === tab.index * (rail().tabHeight + rail().gap))
+  }
 
   // The checks, one per tick, each after what the one before set off settled.
   readonly property var steps: [
@@ -89,7 +96,7 @@ QtObject {
       root.keys.keyClick(Qt.Key_Home)
       root.keys.keyClick(Qt.Key_Down)
       root.keys.keyClick(Qt.Key_Return)
-      root.check("Home, Down and Enter on the rail choose the one after the head", root.window.page === 5)
+      root.check("Home, Down and Enter on the rail choose the second", root.window.page === 1)
       root.window.choose(root.window.view.at.kinds)
     },
     () => {
@@ -141,6 +148,34 @@ QtObject {
     () => {
       root.keys.keyClick(Qt.Key_9, Qt.ControlModifier)
       root.check("Ctrl+9 chooses the ninth", root.window.page === root.window.view.at.skills)
+      root.keys.keyClick(Qt.Key_0)
+      root.check("0 chooses the tenth", root.window.page === 9)
+      root.check("the rail keeps its order", root.railInOrder())
+    },
+    () => {
+      root.keys.keyClick(Qt.Key_0, Qt.ControlModifier)
+      root.check("Ctrl+0 chooses the tenth", root.window.page === 9)
+      root.window.choose(10)
+      root.check("choosing the eleventh lights the eleventh", root.window.page === 10)
+      root.check("the rail keeps its order with the last chosen", root.railInOrder())
+    },
+    () => {
+      root.keys.keyClick(Qt.Key_Tab, Qt.ControlModifier)
+      root.check("Ctrl+Tab from the last wraps to the first", root.window.page === 0)
+      root.check("the rail keeps its order after the wrap", root.railInOrder())
+    },
+    () => {
+      root.keys.keyClick(Qt.Key_Backtab, Qt.ControlModifier | Qt.ShiftModifier)
+      root.check("Ctrl+Shift+Tab from the first goes to the last", root.window.page === 10)
+    },
+    () => {
+      root.keys.keyClick(Qt.Key_Backtab, Qt.ControlModifier | Qt.ShiftModifier)
+      root.check("Ctrl+Shift+Tab goes to the one before", root.window.page === 9)
+      for (const [digit, page] of [[Qt.Key_4, 3], [Qt.Key_9, 8], [Qt.Key_2, 1], [Qt.Key_7, 6], [Qt.Key_1, 0]]) {
+        root.keys.keyClick(digit)
+        root.check("a digit chooses its section " + (page + 1), root.window.page === page)
+      }
+      root.check("the rail keeps its order after every digit", root.railInOrder())
       Qt.exit(root.failed)
     }
   ]

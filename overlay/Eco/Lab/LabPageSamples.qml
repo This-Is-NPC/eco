@@ -42,7 +42,7 @@ Column {
     PageBar {
       x: rail.foldedWidth + rail.gap
       width: parent.width - x
-      height: rail.headHeight
+      height: rail.tabHeight
       commands: samples.commands
       section: samples.page
       readout: I18n.t("lab.readout")

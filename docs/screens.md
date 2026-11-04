@@ -595,16 +595,16 @@ its own**, and the daemon validates the whole config and writes it.
 
 Down the left are the eleven sections, numbered from `01`, each named for the
 question it answers: AUDIO, SECRETS, PROVIDERS, MODELS, LANGUAGES, SESSION
-KINDS, PROMPTS, CONTEXT, SKILLS, GENERAL and APPEARANCE. The rail is a carousel: the one on screen at its head, in
-the accent, beside the bar, the others after it in order, the ones before it
-coming round after the last. Folded, it shows only their numbers; under the
+KINDS, PROMPTS, CONTEXT, SKILLS, GENERAL and APPEARANCE. The rail keeps this order: `01` at the top to `11` at the
+bottom, and the one on screen is lit in the accent. Folded, it shows only their numbers; under the
 pointer, with the keyboard on it, or after a tap on its head, it unfolds over
 the section with their names. `Tab` moves from the rail to the bar of commands
 and then into the section; on the rail, `↑`, `↓`, `Home` and `End` move along
-it and `Enter` or `Space` opens the section. A section's number opens it,
-unless you are writing in a field, which keeps the digit; `Ctrl` with the
-number opens it anywhere in the window. The numbers reach the first nine;
-GENERAL and APPEARANCE are reached with `Ctrl+Tab` or the rail. The bar holds BACK first, then the main
+it, stopping at the ends, and `Enter` or `Space` opens the section. A section's digit opens it (`1` to `9`,
+and `0` for the tenth), unless you are writing in a field, which keeps the
+digit; `Ctrl` with the digit opens it anywhere in the window. `Ctrl+Tab` and
+`Ctrl+Shift+Tab` go to the next and the previous section, round the ends, and
+reach APPEARANCE, the eleventh. The bar holds BACK first, then the main
 action, solid, on the left, and the other actions on the right, DELETE or
 DISCARD last, behind a thin rule. `×` in the top-right corner closes the
 window; its messages are toasts in the bottom-right corner (section 1).

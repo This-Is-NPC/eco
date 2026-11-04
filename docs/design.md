@@ -1741,11 +1741,11 @@ kit lives in `overlay/Eco/Kit/` (`Panel`, `SurfaceFrame`, `TraceButton`, `Chip`,
 `TextBox`, `Field`, `NumberField`, `Kicker`, `Masthead`, `ToastStack`,
 `Icon`, `EcgTrace`, `DataTable`, `TabRail`, `PageBar`, `CommandRow`); views
 compose it and hold no logic beyond binding `Eco`, the singleton that owns the
-socket. `TabRail` is an app's pages as a carousel down the left edge, the
-one on screen at its head and the others after it in order, folded to their
+socket. `TabRail` is an app's pages down the left edge, always in the same order,
+the one on screen lit, folded to their
 numbers and unfolding over what is beside it, with their names, under the
 pointer, with the keyboard on it or after a tap on its head; a page `marked`
-shows a dot, and ↑/↓/Home/End move along the carousel;
+shows a dot, and ↑/↓/Home/End move along the rail;
 `PageBar`, beside its head, the commands of the page on screen, and at its end
 the page's readout (a count, such as `7 SESSIONS`), which gives way first when
 the bar is narrow; `CommandRow`, a
@@ -2102,17 +2102,16 @@ the one question it answers: 01 Audio, 02 Secrets, 03 Providers, 04 Models,
 Audio first, then the three lists a model is made of in the order they link,
 since the sections after them pick from Models, and
 Models sets the defaults: the chat, translation, review and transcription
-models used where nothing more specific picks one. The rail is a carousel in that order: the section on screen at
-its head beside the bar, the ones after it below, the ones before it coming
-round after the last. Folded, each tab shows only its number; under the
+models used where nothing more specific picks one. The rail keeps that order, `01` at the top, and only
+highlights the section on screen. Folded, each tab shows only its number; under the
 pointer, with the keyboard on one of its tabs, or after a tap on its head, it
 unfolds over the bar and the section with the names. Each tab is a stop of the
 Tab chain (rail, bar, section, then the close button): ↑/↓/Home/End move along
-the carousel, Enter or Space chooses, and the chosen section takes the
-keyboard, so the rail folds. A section's number chooses it unless a field
-being written holds the keyboard and takes the digit; Ctrl with the number
-chooses it anywhere in the window, and `Ctrl+Tab` and `Ctrl+Shift+Tab` turn
-to the next or the one before. Each section
+the rail, Enter or Space chooses, and the chosen section takes the
+keyboard, so the rail folds. A section's digit (1–9, and 0 for the tenth)
+chooses it unless a field being written holds the keyboard and takes the digit;
+Ctrl with the digit chooses it anywhere in the window, and `Ctrl+Tab` and
+`Ctrl+Shift+Tab` go to the next or the one before, round the ends. Each section
 owns its own fields: no section edits another's, and what another decides is
 only read there, as a link to it. A section whose open item has changes not
 saved shows a dot on its tab.
