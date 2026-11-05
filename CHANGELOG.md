@@ -1,5 +1,49 @@
 # Changelog
 
+## [0.14.0](https://github.com/This-Is-NPC/eco/compare/v0.13.0...v0.14.0) (2026-11-05)
+
+
+### ⚠ BREAKING CHANGES
+
+* **overlay:** the config event has no presets field; the error codes stt.preset_disabled, model.preset_disabled and preset.key_missing are now stt.variable_unset, model.variable_unset and model.disabled.
+
+### Features
+
+* **config:** link models to providers and secrets ([27c24db](https://github.com/This-Is-NPC/eco/commit/27c24dbaa7570b054857af9a4a266c59ccda76ef))
+* **config:** resolve secrets, list by provider ([2aed486](https://github.com/This-Is-NPC/eco/commit/2aed48629ee2e2c8355127e09fe2db2c67fade4b))
+* **config:** seed presets as ordinary config entries ([29a064c](https://github.com/This-Is-NPC/eco/commit/29a064c82844ddc8a236df16b2377a152634c5b7))
+* **config:** ship provider and model presets ([adff365](https://github.com/This-Is-NPC/eco/commit/adff3655bbad0141224bb6f7a71fb1e418186524))
+* **session:** add the model.test command ([95ae760](https://github.com/This-Is-NPC/eco/commit/95ae760def97b1a621b3f30ccf67197ae2d4cc0f))
+* **settings:** add Secrets and Providers tabs ([ea0ece2](https://github.com/This-Is-NPC/eco/commit/ea0ece2ce98d20d992388f3c7f91e1560962a9f7))
+* **settings:** add TEST to a model ([7bcc9e8](https://github.com/This-Is-NPC/eco/commit/7bcc9e838550a8e8658f85fa2ce80e5f423c2c32))
+
+
+### Bug Fixes
+
+* **channel:** stop retrying a provider that refuses the key ([cf7e1c1](https://github.com/This-Is-NPC/eco/commit/cf7e1c146a5250bfca0cebeb48cf129c06878912))
+* **config:** fill every role with the usable model ([9d91a17](https://github.com/This-Is-NPC/eco/commit/9d91a17b5cb2cda7c97ba8b8c820577f76304f17))
+* **config:** start a fresh install with Me and Them ([fcc4cc2](https://github.com/This-Is-NPC/eco/commit/fcc4cc23bde99cd76f88663a679dc20a031ee2a1))
+* **diarization:** run its callback inside the runtime ([0d76527](https://github.com/This-Is-NPC/eco/commit/0d765275b1f65c8ecf8b4dbe66eb81b2a80ff5c8))
+* **diarizer:** tell clients when it falls behind ([e1a5e93](https://github.com/This-Is-NPC/eco/commit/e1a5e9396ba0f1fc0661c69ffbc75e380f15cd2f))
+* **omapass:** keep the test stand-in to unix ([8ee8888](https://github.com/This-Is-NPC/eco/commit/8ee8888f7eb9beb363f05e37a3505a09bdeec113))
+* **overlay:** show when a session log is saved again ([bf24b50](https://github.com/This-Is-NPC/eco/commit/bf24b508fc39a2083745596ba9b6dccd5276baaa))
+* **overlay:** stop restarting a tray that keeps crashing ([72ce905](https://github.com/This-Is-NPC/eco/commit/72ce905fa3c06677a7f6df51f6b80eb0d20ad4a3))
+* **presets:** let a user secret take a preset's place ([d1702cf](https://github.com/This-Is-NPC/eco/commit/d1702cfb9ccc651728fdc3f51390b6681c21d5fc))
+* **session:** recover live transcription and simplify setup ([2b71340](https://github.com/This-Is-NPC/eco/commit/2b71340ada647ed3de8dfc801a097f1e2b449b60))
+* **session:** restart a transcriber that panics ([ce3418c](https://github.com/This-Is-NPC/eco/commit/ce3418c577ee499f96e469d1845873fe898cda6d))
+* **session:** stamp live lines apart so a cut fits ([5be88ab](https://github.com/This-Is-NPC/eco/commit/5be88abddf1f11022bf69bbf90cfa933a267af94))
+* **session:** tell clients when a log cannot be saved ([d98b555](https://github.com/This-Is-NPC/eco/commit/d98b5552f76570b1551e24690109182172fe7205))
+* **settings:** give the Linux hint two steps ([ce67c74](https://github.com/This-Is-NPC/eco/commit/ce67c74facddee6aed82ff20333696c131a43f19))
+* **settings:** keep the rail in a fixed order ([ba280d4](https://github.com/This-Is-NPC/eco/commit/ba280d4b7118e35e2c53e66e0f3fd293be00ba6d))
+* **settings:** open presets with BACK in every tab ([eb3120a](https://github.com/This-Is-NPC/eco/commit/eb3120aea22f678057bd43812b73a73e9161d49a))
+* **settings:** tell what CHECK found ([659e9a7](https://github.com/This-Is-NPC/eco/commit/659e9a7362c404b45405f4d8fecf52c0981e32e8))
+* **shots:** drive a session through its tabs ([26369f7](https://github.com/This-Is-NPC/eco/commit/26369f7be9c86f43d15fff346af88a9acf3df6e1))
+
+
+### Code Refactoring
+
+* **overlay:** show shipped entries as ordinary rows ([f1e8d56](https://github.com/This-Is-NPC/eco/commit/f1e8d5667a859b2806b3b1f07807251ba1381ae8))
+
 ## [0.13.0](https://github.com/This-Is-NPC/eco/compare/v0.12.0...v0.13.0) (2026-11-03)
 
 
