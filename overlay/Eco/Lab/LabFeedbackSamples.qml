@@ -91,7 +91,8 @@ Column {
         width: Math.min(420, samples.width - 210)
         sources: [
           { who: I18n.t("lab.sample_speaker"), color: Theme.inputPalette[0], state: samples.linkBack ? "back" : "down", code: "stt.down", detail: I18n.t("lab.sample_outage"), dropped_s: 0 },
-          { who: I18n.t("lab.sample_person"), color: Theme.inputPalette[1], state: samples.linkBack ? "down" : "back", code: "stt.down", detail: I18n.t("lab.sample_outage"), dropped_s: 31 }
+          { who: I18n.t("lab.sample_person"), color: Theme.inputPalette[1], state: samples.linkBack ? "down" : "back", code: "stt.down", detail: I18n.t("lab.sample_outage"), dropped_s: 31 },
+          { who: I18n.t("lab.sample_person"), color: Theme.inputPalette[1], state: "down", code: "stt.credential", detail: "401", model: "deepgram-nova", secret: "deepgram", dropped_s: 0 }
         ]
       }
     }

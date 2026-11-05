@@ -310,8 +310,10 @@ eco/
   its turns, and later speech goes where the child puts it. A voice is kept (§7.3) when it first comes and again whenever it
   moved (cosine below 0.98 to the one kept), and the session's speakers are
   told again, so guesses come during the meeting. At most 32 regions wait for
-  the child; past that, regions go without diarization and the daemon's log
-  says so. The child's stderr is read as it comes, and its last 4 kB are the
+  the child; past that, regions go without diarization and clients are told
+  with a `transcription` event of the source: `down` with the code
+  `diarization.behind` (replayed to clients that connect later), then `back`
+  with `diarization.caught_up` and the count of regions that went without. The child's stderr is read as it comes, and its last 4 kB are the
   error when it fails.
 - **Echoes:** without headphones, or with headphones loud, the user's
   microphone hears the call and duplicates "their" speech as "me". Headphones
@@ -346,6 +348,13 @@ eco/
   meanwhile, and the device's frames go on from where they stopped, so its
   time never restarts. A file replayed is not opened again: its failure ends
   the capture, as `capture.stopped`.
+- **A transcriber that panics restarts the pipeline:** its input would
+  otherwise stop transcribing silently, and the voices it shares with the
+  diarizer may be poisoned. The run is dropped and built again, as when
+  recording starts again, and clients get an `error` event with
+  `"code":"transcription.restarted"`. The first restart waits 1 s, the wait
+  doubling up to 30 s while it keeps panicking, and resetting after a run that
+  lasts 30 s; every restart is told.
 
 ---
 
@@ -360,7 +369,7 @@ eco/
 | **Gemini (audio straight into the LLM)** | Removes the STT | Audio input via OpenRouter unverified — not built until validated |
 
 - `faster-whisper` dropped: CTranslate2 only accelerates on CUDA (NVIDIA).
-- **Choice:** the transcription model's `base_url` picks the adapter. An
+- **Choice:** the transcription model's provider `base_url` picks the adapter. An
   `http(s)://` URL is the
   OpenAI-compatible endpoint, segment by segment (up to four segments in
   flight, lines kept in order). A segment that fails is sent again after 1,
@@ -396,7 +405,25 @@ eco/
   minutes the oldest audio is dropped, and the seconds dropped are said by
   `back`; dropped by an outage still under way when the capture ends, they
   are a `transcription.failed` error. Outages are not written to the session
-  log, which keeps no errors either. An import
+  log, which keeps no errors either. One classification of a provider's HTTP
+  status (`Refusal::of` in `src/ports.rs`, used by every adapter that talks
+  to a provider: Deepgram, Scribe, the OpenAI-compatible transcription and
+  the chat adapter, and the WebSocket handshake) tells a refused key (401,
+  402, 403) and a model the provider does not have (404) from everything
+  else, which stays an outage that may pass (5xx, 429, a dropped or stalled
+  connection). A refusal is not retried: the stream stops opening
+  connections, the audio heard goes on being held within the same five
+  minutes and bound, and the clients are told once with a `transcription`
+  event `"state":"down"` and `"code":"stt.credential"` or
+  `"stt.model_missing"`, with the `model` (the name the user registered) and
+  the `secret` its key comes from; a model with no secret gets `"stt.refused"`
+  and no `secret`, so the text names none; the overlay says so in the strip and points
+  to Settings › Secrets or Settings › Models. A segment-by-segment model
+  stops the same way: the refused segment is not sent again and the segments
+  after it are not sent. The stopped state is kept for clients that connect
+  later. Saving the config restarts the transcription, which tries the model
+  again at once, without pausing and playing the session; clients get a
+  `"state":"back"` event with `"code":"stt.rearmed"` meanwhile. An import
   streams to Scribe with waiting frames joined into chunks of up to a second
   (frame by frame it refuses them as too frequent); Deepgram streams only as
   fast as the audio plays, so an import posts each segment to the same path
@@ -482,11 +509,15 @@ matters.
   up fails answers with that reason until it is fixed or turned off.
   In the window, Models' DEFAULT FOR REVIEW picks `model`, General turns
   `enabled` and `verbose` on, and Prompts holds `prompt`.
-- **Default model:** `[llm] model` names the assistant's, and `[stt] model` the
-  transcription model; saving a config whose default is empty, or names no
-  registered model of its type, sets it to the first registered model of that
-  type, in registration order (empty while there is none; a file read at
-  startup is not changed). An action's `model`
+- **Default model:** `[llm] model` names the assistant's, `[stt] model` the
+  transcription model, `[translation] model` the translator and
+  `[reviewer] model` the reviewer's. A role left empty is automatic: it takes
+  the first usable model of its type in registration order (usable: it needs
+  no key, or its key resolves), or else the first one of the type
+  (`src/automatic.rs`). The choice is made when the daemon composes the
+  config and is never saved; a default naming no registered model of its type
+  is dropped when saved and is automatic again. The reviewer's `enabled`
+  stays as the user set it. An action's `model`
   names another (e.g. a slower, better model for a deep action). Only the models
   something uses are set up. Latency measurements: [benchmarks.md](benchmarks.md).
 - **Prompt, built for the provider's cache:** a request is a conversation that
@@ -874,6 +905,17 @@ A session log holds `session`, `state`, `speech`, `suggestion`, `removed`,
 `--no-save` keeps it in memory. A removed suggestion is a `removed` record, and
 it leaves the context of later actions as well as the screen.
 
+**A log that cannot be written** (disk full, permissions) is told, not only
+printed: each session's sink keeps its own state, and clients get one `error`
+event with `"code":"session.unsaved"` and `params` `{session, path, detail}`
+when writes start failing, then one `{"type":"session_saved","session","path"}`
+event (with `dropped`, the records lost past the bound) when they work
+again, never one per record. The overlay keeps the error as a pinned notice
+while it lasts and replaces it with a success notice on recovery. Records that cannot be
+written wait in memory, in order, and are written first once a write works;
+at most 10,000 are held per session, and the ones after that are dropped and
+counted, so the file stays a prefix of the session.
+
 A daemon that stops mid-session leaves it open; the next start marks it
 `paused` and opens with no session. A stored session left open that no daemon
 holds is listed and shown as `interrupted`, never reopened by itself.
@@ -906,7 +948,8 @@ The index holds no line of what was said; it is as private as the logs.
 
 `~/.config/eco/config.toml` (written by the config window; hand edits work too,
 but comments are not kept). No file is the empty config: no model, no
-participant, no action, the defaults for the rest — in the system language
+action, the audio sources `Me` (`@default-input`, the user) and `Them`
+(`@default-output`) written at the first save, the defaults for the rest — in the system language
 (`sys-locale`: `LANGUAGE`, `LC_ALL`, `LC_MESSAGES`, `LANG` on Linux, the
 user's display language on Windows): `ui.language` its pack (`pt-BR`,
 `ja-JP`, `en-US`), `stt.language` its code, first after `auto` in
@@ -950,43 +993,79 @@ model = "grok"
 verbose = false                             # true: show and keep the draft it rewrote
 # prompt = "…"                              # what it is asked; a default cuts unsupported facts
 
+# Where a key lives: a reference, never the key. Exactly one of `env`,
+# `omapass` or `credential` (Windows); a store added later gets its own field.
+[[secrets]]
+name = "deepgram"
+env = "DEEPGRAM_API_KEY"
+
+[[secrets]]
+name = "openrouter"
+env = "OPENROUTER_API_KEY"
+
+[[secrets]]
+name = "openrouter-omapass"
+omapass = "openrouter"                      # or credential = "<name>" on Windows
+
+# A provider: an address and the secret its requests carry. A server on the
+# LAN has no secret.
+[[providers]]
+name = "deepgram"
+base_url = "wss://api.deepgram.com/v1/listen" # streaming; or an OpenAI-compatible URL
+secret = "deepgram"
+
+[[providers]]
+name = "lan"
+base_url = "http://192.168.0.200:8081/v1"   # LAN whisper.cpp server
+
+[[providers]]
+name = "lan-llm"
+base_url = "http://192.168.0.200:8080/v1"   # LAN llama-server
+
+[[providers]]
+name = "openrouter"
+base_url = "https://openrouter.ai/api/v1"
+secret = "openrouter"
+
+[[providers]]
+name = "openrouter-2"
+base_url = "https://openrouter.ai/api/v1"   # the same address with another key
+secret = "openrouter-omapass"
+
 # A model, registered once: [stt] names a transcription one; [llm], [reviewer]
 # and actions name chat ones; `kinds` gives it the sessions of those kinds.
 [[models]]
 name = "deepgram"
 type = "transcription"
-base_url = "wss://api.deepgram.com/v1/listen" # streaming; or an OpenAI-compatible URL
+provider = "deepgram"
 model = "nova-3"
-api_key_env = "DEEPGRAM_API_KEY"
 # price_per_minute = 0.0077                 # optional: USD per minute, only where the provider reports no cost
 
 [[models]]
 name = "whisper-lan"
 type = "transcription"
-base_url = "http://192.168.0.200:8081/v1"   # LAN whisper.cpp server
+provider = "lan"
 model = "whisper-1"
 kinds = ["idea"]                            # idea sessions transcribe here
 
 [[models]]
 name = "qwen-lan"
 type = "chat"
-base_url = "http://192.168.0.200:8080/v1"   # LAN llama-server
+provider = "lan-llm"
 model = "qwen3-14b"
 kinds = ["idea"]                            # and answer here unless the action names a model
 
 [[models]]
 name = "gemini"
 type = "chat"
-base_url = "https://openrouter.ai/api/v1"
-api_key_env = "OPENROUTER_API_KEY"          # or api_key_omapass = "<account>", or api_key_credential = "<name>"; one
+provider = "openrouter"
 model = "google/gemini-3.5-flash-lite"      # the provider's id
 extra = { reasoning = { effort = "minimal" } }
 
 [[models]]
 name = "grok"
 type = "chat"
-base_url = "https://openrouter.ai/api/v1"
-api_key_omapass = "openrouter"
+provider = "openrouter-2"
 model = "x-ai/grok-4.20"
 extra = { reasoning = { enabled = false } }
 
@@ -1043,6 +1122,42 @@ hook = "~/bin/crm-push --board leads"       # run with ECO_SESSION and ECO_TITLE
 hook_auto = true                            # after every answer; else from its send button
 ```
 
+A model names its provider, and a provider its secret, so the key source of
+several models is kept once. A config whose models carry `base_url` and
+`api_key_env`, `api_key_omapass` or `api_key_credential` (eco before 0.14) is
+converted when read: one provider per distinct (base URL, key source), one
+secret per key source, named after the preset with the same variable or base URL, else from the host and the source, and numbered when a
+name is taken; the model's other fields stay, and a model naming several key
+sources takes the credential, then omapass, then the variable. Only the daemon
+writes: at start it keeps the old file as `config.toml.bak`, saves the new shape
+atomically, and when either fails it keeps the converted config in memory and
+tells every client `config.convert_failed` (`{detail}`). The CLI and `eco
+doctor` convert in memory and write nothing. The `config`
+snapshot and a `config.set` carry the three lists as they are: a model that
+still carries those fields is refused.
+
+eco ships presets, in `src/presets.rs`: the providers OpenRouter, Deepgram,
+ElevenLabs and Groq, each with a secret of the same name that reads its
+variable (`OPENROUTER_API_KEY`, `DEEPGRAM_API_KEY`, `ELEVEN_LABS_API_KEY`,
+`GROQ_API_KEY`), and one model per provider and type, picked from
+[benchmarks](benchmarks.md) and reviewed each release: `gpt-6-luna` (chat),
+`scribe-v2`, `nova-3` and `whisper-turbo` (transcription). They are ordinary
+entries of the config file, which the user edits and deletes. `presets::seed`
+adds them, after the user's entries, only when there is no config file (the
+first run) and when an old file is converted; it skips a preset whose name an
+entry already has, and a secret that reads a preset secret's variable takes
+the preset's place, the preset providers naming it. A file in the new shape
+is taken as it is, so a deleted preset stays deleted, and the first save
+writes the seeded entries like any other. A default model of a type the user
+has not chosen is the first usable model of that type (§9), filled when the
+daemon composes the config (`automatic::filled`) and never saved. A model
+whose key is read from a variable that is not set stays and is `disabled`: the
+snapshot's `disabled_models` is `{name: {code: "model.disabled", params: {name,
+variable}}}`, and when a default or a kind names it, building it tells
+`stt.variable_unset` or `model.variable_unset` (`{name, variable}`) with the
+setup and again on `session.start` (`session.resume` checks the defaults); the model is not replaced by another. The variable is read when the
+provider is built, so one set before the next build is used then.
+
 The config window saves one item or value at a time, sending the saved config with
 that item's change whole (§12.6); the daemon validates it, writes
 `config.toml` and restarts capture. A restart first stops the running pipeline
@@ -1050,14 +1165,14 @@ and its capture or monitor task completely, then starts the new one, so a save
 never leaves a second `pw-record` duplicating frames or transcribing twice.
 
 A hook runs a shell command, a context file is sent to a model, and a model's
-key is sent to its `base_url`, so only the user adds them. The daemon starts
+key is sent to its provider's `base_url`, so only the user adds them. The daemon starts
 every window with one random token per run in `ECO_TOKEN`, and the window's
 `config.set` carries it. A `config.set` from any other socket client that adds
 or changes an action's `hook`, adds a file to `[context]` or a `[[contexts]]`
-slot, or adds a model or changes a model's `base_url`, `api_key_env` or
-`api_key_omapass`, is not saved: the daemon holds it, announces
-`config_pending` with its `id` and each hook command, file path, and model's
-address and key source (a variable's or an omapass account's name, never a
+slot, or adds a provider or changes its address or its secret's key source,
+is not saved: the daemon holds it, announces
+`config_pending` with its `id` and each hook command, file path, and provider's
+address and secret (a variable's, an omapass account's or a credential's name, never a
 key), and answers the error `config.pending`. The window shows them in a
 dialog; APPROVE sends `config.approve <token> <id>` and saves it, REJECT sends
 `config.reject <token> <id>`, which drops it with the error `config.rejected`.
@@ -1092,8 +1207,8 @@ processes.
 
 Secrets come from environment variables: `OPENROUTER_API_KEY`,
 `DEEPGRAM_API_KEY`, `ELEVEN_LABS_API_KEY`, `GROQ_API_KEY` — or from omapass, the
-user's password plugin over gnome-keyring: `api_key_omapass = "<account>"`
-instead of `api_key_env` makes the daemon run `omapass get -- <account>` (piped,
+user's password plugin over gnome-keyring: `omapass = "<account>"` in
+a `[[secrets]]` entry instead of `env` makes the daemon run `omapass get -- <account>` (piped,
 never logged) each time it builds that provider. omapass is found on `PATH` or
 in `~/.config/omarchy/plugins/io.github.this-is-npc.omapass/bin/`, and is
 optional: the `config` event says whether it is there and where its install page
@@ -1106,7 +1221,7 @@ them. During development, mise loads them from `.env` at the project root
 (git-ignored).
 
 On Windows a key may come from the Windows Credential Manager instead:
-`api_key_credential = "<name>"` makes the daemon read the generic credential
+`credential = "<name>"` in a `[[secrets]]` entry makes the daemon read the generic credential
 whose target is `eco:<name>` each time it builds that provider
 (`src/adapters/credentials.rs`, through the `keyring-core` crate and its
 Windows store, `windows-native-keyring-store`; the
@@ -1130,32 +1245,53 @@ login by key — gets `NoStore`, said as such; the tests that need the real
 store stop there with a line on stderr. On Linux the field parses and the
 provider fails with the message that names omapass and the environment.
 
-The window's KEY FROM picks a key by name from one list: the `keys` command
+The Secrets section's PICK A KEY picks a reference by name from one list: the `keys` command
 (§10.2) answers the names of the daemon's environment variables that may hold a
 key and of the Credential Manager's `eco:<name>` credentials, and the `omapass`
 command the accounts. Only names cross the socket; no value is kept or sent.
 A variable may hold a key when it is named `ECO_<NAME>` — the convention
-for a key of the user's own — or is one of the presets' variables (`PRESETS` in
-`src/session.rs`) and is set, even empty (the provider build then says it is
+for a key of the user's own — or is one of the presets' variables (`presets::variables`) and is set, even empty (the provider build then says it is
 empty). The `ECO_` variables eco itself sets or reads for its own work
 (`ECO_SOCKET`, `ECO_TOKEN`, `ECO_WINDOW`, `ECO_SESSION`, `ECO_TITLE`, …) are
 `OWN_VARIABLES` in `src/session.rs`, one list, and are never offered. The daemon
 reads its environment when it starts, so a new `ECO_` variable is listed after
-`eco restart`: on Linux set it in `~/.config/uwsm/env`, on Windows among the
-user's environment variables. A credential added on Windows is listed at once,
+`eco restart`: on Linux set it in `~/.config/environment.d/eco.conf` (read at
+login; `systemctl --user set-environment` for now), on Windows
+with `setx` or among the user's environment variables, on macOS with
+`launchctl setenv`. A credential added on Windows is listed at once,
 since the store is searched on each request. `eco key list` prints the three
 lists (§11).
 
-The `models` command (§10.2) lists a provider's models with a key, so it reads a
-key only where a saved provider would: the key source of a saved model, sent to
-that model's `base_url` (a trailing `/` aside), or one of the window's presets —
-`DEEPGRAM_API_KEY`, `ELEVEN_LABS_API_KEY`, `GROQ_API_KEY`, `OPENAI_API_KEY`,
-`OPENROUTER_API_KEY` — sent to that preset's own URL. The presets are `PRESETS`
-in `src/session.rs`, and the window gets them from the `config` event (§10.1),
-so the window and this rule read one table. Any other request
-is refused before a key is read, so whatever can write to the socket, an agent
-included, cannot send a secret to a server of its choosing. A draft model with a
-custom URL and a key, or an omapass key, lists once it is saved.
+The `models` command (§10.2) lists the models of a provider the window names
+(`{"target","provider"}`), so it reads a key only for a provider the daemon
+holds, with the secret that provider names, and sends it
+to that provider's `base_url` only. A provider that is not saved is refused with
+`models.provider_unknown` before a key is read, so whatever can write to the
+socket, an agent included, cannot send a secret to a server of its choosing. A
+draft provider lists once it is saved. The `secrets` command answers whether
+each secret resolves, reading it as a provider build would and dropping it: the
+reply carries a boolean and why not, as a code, never the key.
+
+The `model.test` command tests one saved model on an
+explicit press only, since the request may be billed. The daemon builds the
+model's provider from its secret as a session does and makes the smallest real
+request: for a chat model a one-token completion (`max_tokens` 1, with the
+model's own reasoning and extra fields); for a transcription model one second
+of silence made in memory (never user audio, never written) through the batch
+request, and, for a provider that only streams (ElevenLabs), a stream opened
+and closed with no audio. It waits 15 s. A saved model is tested, not a draft:
+the window offers TEST only while the model is read, and the secret and
+address come from the saved config, so a draft cannot send a key to a server
+the daemon does not hold. The reply is one `model_test` event, which carries
+no key and no body of the provider's reply. A failure is classified by the same
+`Refusal::of` as a session's: a refused key is `model_test.credential` (it
+names the secret, or `model_test.refused` for a model with none), a missing
+model `model_test.model_missing`, any other failure `model_test.failed` with
+the transport's words as `detail` (a network that is down is one), a stall
+`model_test.timeout`, an unsaved name `model_test.unknown`; a provider that
+cannot be built answers with the `model.unavailable`, `model.credential_missing`
+or `model.variable_unset` codes (`stt.` for a transcription model) a session
+tells.
 
 ---
 
@@ -1217,7 +1353,7 @@ A new client first receives `snapshot`; a window asks for the timeline of the
 session it shows:
 
 ```json
-{"type":"snapshot","session":{"id":"…","title":"Entrevista","kind":"meeting","source":"live","language":"pt","state":"recording","started_at":1791083833.3,"active_s":312.4,"running_since":1791084400.0,"counts":{"lines":40,"answers":2,"notes":1}},"kinds":["meeting","conversation","other","idea"],"kind_models":{"meeting":{"transcription":"deepgram","chat":"gemini","translation":"gemini","actions":["ask","probe"]},"idea":{"transcription":"whisper-lan","chat":"qwen-lan","translation":"gemini","actions":["ask","probe"]}},"default_models":{"transcription":"deepgram","chat":"gemini","translation":"gemini","actions":["ask","probe"]},"actions":["ask","probe"],"hooks":["probe"],"participants":[{"name":"Eu","user":true},{"name":"Eles","user":false}],"inputs":[{"id":"@default-input","label":"Default microphone","participant":"Eu","color":"#ffb000"}]}
+{"type":"snapshot","session":{"id":"…","title":"Entrevista","kind":"meeting","source":"live","language":"pt","state":"recording","started_at":1791083833.3,"active_s":312.4,"running_since":1791084400.0,"counts":{"lines":40,"answers":2,"notes":1}},"kinds":["meeting","conversation","other","idea"],"kind_models":{"meeting":{"transcription":"deepgram","chat":"gemini","translation":"gemini","actions":["ask","probe"]},"idea":{"transcription":"whisper-lan","chat":"qwen-lan","translation":"gemini","actions":["ask","probe"]}},"default_models":{"transcription":"deepgram","chat":"gemini","translation":"gemini","actions":["ask","probe"]},"disabled_models":{},"actions":["ask","probe"],"hooks":["probe"],"participants":[{"name":"Eu","user":true},{"name":"Eles","user":false}],"inputs":[{"id":"@default-input","label":"Default microphone","participant":"Eu","color":"#ffb000"}]}
 {"type":"signal","input":"@default-input","level":0.42,"speech":true}
 {"type":"session","session":{…} or null,"live":[{…} for each live session],"transcribers":[{"model":"deepgram","language":"pt","sessions":2}]}
 {"type":"session_opened","id":"…","window":2}
@@ -1229,6 +1365,7 @@ session it shows:
 {"type":"transcript","session":"…","who":"Eles","name":"Ana","text":"...","at":1791083840.1,"latency_ms":990,"counts":{"lines":41,"answers":2,"notes":1}}
 {"type":"transcript_partial","session":"…","who":"Eles","name":"Ana","text":"so the next…"}
 {"type":"transcription","who":"Eles","state":"down","code":"stt.down","detail":"stalled: nothing heard for 15s"}
+{"type":"transcription","who":"Ana","state":"down","code":"stt.credential","detail":"HTTP error: 401 Unauthorized","model":"deepgram-nova","secret":"deepgram"}
 {"type":"transcription","who":"Eu","state":"down","code":"capture.down","detail":"Default microphone: not connected"}
 {"type":"transcription","who":"Eles","state":"back","down_s":318.4,"dropped_s":18.2}
 {"type":"suggestion_start","id":"54401f25","session":"…","action":"chat","model":"google/gemini-3.5-flash-lite","prompt":"Ele citou Kafka?","at":1791083860.0,"counts":{"lines":41,"answers":3,"notes":1}}
@@ -1261,9 +1398,9 @@ session it shows:
 {"type":"import_started","session":{…},"total_s":1834.2}
 {"type":"import_progress","id":"…","done_s":612.5,"total_s":1834.2}
 {"type":"import_done","id":"…","complete":true}
-{"type":"config","config":{...},"devices":[{"id":"@default-input","label":"...","kind":"input"}],"omapass":{"installed":false,"page":"https://plugins.omarchy.org/..."},"credential_manager":false,"presets":{"transcription":[{"name":"DEEPGRAM","values":{"base_url":"wss://api.deepgram.com/v1/listen","model":"nova-3","api_key_env":"DEEPGRAM_API_KEY"}},…],"chat":[{"name":"OPENROUTER","values":{"base_url":"https://openrouter.ai/api/v1","model":"…","api_key_env":"OPENROUTER_API_KEY","extra":{}}},…]},"echo_cancel":null}
+{"type":"config","config":{...},"devices":[{"id":"@default-input","label":"...","kind":"input"}],"omapass":{"installed":false,"page":"https://plugins.omarchy.org/..."},"credential_manager":false,"platform":"linux","echo_cancel":null}
 {"type":"config_saved"}
-{"type":"config_pending","id":"1","hooks":[{"action":"minutes","command":"~/bin/crm-push"}],"files":["~/notes/cv.md"],"models":[{"name":"fast","base_url":"http://192.0.2.10:8000/v1","api_key_env":null,"api_key_omapass":"openrouter","api_key_credential":null}]}
+{"type":"config_pending","id":"1","hooks":[{"action":"minutes","command":"~/bin/crm-push"}],"files":["~/notes/cv.md"],"secrets":[{"name":"bank","omapass":"openrouter"}],"providers":[{"name":"fast","base_url":"http://192.0.2.10:8000/v1","secret":"bank"}]}
 {"type":"models","target":"llm","models":["..."],"error":"..."}
 {"type":"keys","env":["ECO_LAN_KEY","OPENROUTER_API_KEY"],"credentials":null,"credential_error":""}
 {"type":"update","current":"0.4.0","latest":"0.5.0","newer":true,"notes":"https://github.com/This-Is-NPC/eco/releases/tag/v0.5.0","checked_at":1791083833,"check":true,"error":""}
@@ -1352,17 +1489,27 @@ pages of 1000.
 `action <name>`, `ask <question>`,
 `config` (current config and devices, and in `echo_cancel` the error code that says why echo cancellation cannot run on this platform, `echo_cancel.unavailable` on Windows, or `null`; General's ECHO CANCELLATION row is disabled with that code's text as its tip), `config.set <json>` (the config whole;
 a window adds `"token"`; one from another client that adds a hook, a context
-file or a model, or moves a model's key, is held, §9; while one is held, any
+file or a provider, or moves a provider's key, is held, §9; while one is held, any
 other client's answers `config.busy`), `config.approve <token> <id>` and
 `config.reject <token> <id>` (the held change `id`; another id answers
 `config.stale`; once nothing is held, `config_pending` with a null `id` and
 empty lists; a client that connects while a change is held is greeted with its
 `config_pending`),
+`model.test <json>` (`{"name"}`: test the saved model, answered in the
+background with `{"type":"model_test","name":"gpt-6-luna","ok":true,"ms":412}` or
+`{"type":"model_test","name":"…","ok":false,"code":"model_test.credential","params":{"name":"…","secret":"…"},"message":"…"}`; §9.1),
 `session.language <json>`, `models <json>`
-(`{"target","base_url","api_key_env","api_key_omapass","api_key_credential"}`; the key is read only
-with no key source, a saved model's own source at that model's `base_url`, or a
-preset's variable at the preset's URL, as in §9.1; anything else answers `models`
-with `"code":"models.key_refused"` and `params` `{"base_url"}`), `omapass` (its
+(`{"target","provider"}`: the models the saved provider called
+`provider` offers, listed with its own secret and address, as in §9.1; an unknown
+one answers `models` with `"code":"models.provider_unknown"` and `params`
+`{"provider"}`), `secrets` (whether each secret resolves
+now, answered in the background:
+`{"type":"secrets","status":{"OPENROUTER":{"resolved":true},"DEEPGRAM":{"resolved":false,"code":"secret.env_unset","params":{"variable":"DEEPGRAM_API_KEY"}}}}`;
+`code` is `secret.env_unset`, `secret.omapass_missing` (`{account}`),
+`secret.omapass_failed` (`{account,detail}`), `secret.credential_missing`
+(`{credential}`) or `secret.unreadable` (`{detail}`), each with an
+`error.<code>` text; the daemon reads the key to tell and drops it, and no key
+is ever sent), `omapass` (its
 passwords: `{"type":"omapass","installed","accounts":[{"account","folder"}],"error"?}`;
 not installed is `"installed":false`, not an error), `keys` (the names a
 model's key can come from, answered in the background:
@@ -1514,7 +1661,10 @@ How the commands are built:
   which could end the command line early; nothing is sent),
   `daemon.offline`, `daemon.access_denied`, `daemon.unavailable`,
   `session.not_found`, `session.delete_failed`, `action.unknown`, `chat.none`,
-  `completion.failed`, `suggestion.removed` (replaced by a newer request),
+  `completion.failed`, `completion.credential` (with the model and its secret),
+  `completion.refused` (a model with no secret) and `completion.model_missing`
+  (the provider refused the key, or has no such model; `translation.failed`
+  has the same three), `suggestion.removed` (replaced by a newer request),
   `translation.none`, `import.busy`,
   `import.failed`, `person.not_found`, `person.invalid`, `person.exists`,
   `people.failed`, `line.not_found`, `tag.invalid`, `tag.not_found`.
@@ -1597,11 +1747,11 @@ kit lives in `overlay/Eco/Kit/` (`Panel`, `SurfaceFrame`, `TraceButton`, `Chip`,
 `TextBox`, `Field`, `NumberField`, `Kicker`, `Masthead`, `ToastStack`,
 `Icon`, `EcgTrace`, `DataTable`, `TabRail`, `PageBar`, `CommandRow`); views
 compose it and hold no logic beyond binding `Eco`, the singleton that owns the
-socket. `TabRail` is an app's pages as a carousel down the left edge, the
-one on screen at its head and the others after it in order, folded to their
+socket. `TabRail` is an app's pages down the left edge, always in the same order,
+the one on screen lit, folded to their
 numbers and unfolding over what is beside it, with their names, under the
 pointer, with the keyboard on it or after a tap on its head; a page `marked`
-shows a dot, and ↑/↓/Home/End move along the carousel;
+shows a dot, and ↑/↓/Home/End move along the rail;
 `PageBar`, beside its head, the commands of the page on screen, and at its end
 the page's readout (a count, such as `7 SESSIONS`), which gives way first when
 the bar is narrow; `CommandRow`, a
@@ -1746,7 +1896,11 @@ reconnects to the socket on its own.
   says which models a kind runs on once it is picked (`kind_models` in the
   snapshot: `{kind: {"transcription", "chat", "translation", "actions"}}`, each
   model by name or `""` for none, and the actions a model answers there;
-  `default_models` the same for a kind no longer configured; `actions` lists
+  `default_models` the same for a kind no longer configured, with `review`
+  (the reviewer's model, on or off) and `automatic`, the roles among
+  `"transcription"`, `"chat"`, `"translation"` and `"review"` whose model the
+  user did not choose and eco picked; the settings window marks those
+  "(automatic)"; `actions` lists
   every skill, those no model answers too), scrolls in a short window with
   its buttons kept below, and without an input it cannot start: it says so and
   offers the Audio settings.
@@ -1950,23 +2104,24 @@ the rule in `packaging/hypr/eco.lua` gives it no size, so it keeps that one, and
 centres it on the screen (without `center`, Hyprland would centre it on the
 overlay, past the screen's edge).
 
-**Sections.** Eight, down the left in the kit's `TabRail`, each named for
-the one question it answers: 01 Audio, 02 Models, 03 Languages, 04 Session
-kinds, 05 Prompts, 06 Context, 07 Skills, 08 General (`settings.at`: `audio`,
-`models`, `languages`, `kinds`, `prompts`, `context`, `skills`, `general`) —
-Audio first and Models second, since the sections after it pick from it, and
+**Sections.** Eleven, down the left in the kit's `TabRail`, each named for
+the one question it answers: 01 Audio, 02 Secrets, 03 Providers, 04 Models,
+05 Languages, 06 Session kinds, 07 Prompts, 08 Context, 09 Skills, 10 General,
+11 Appearance (`settings.at`: `audio`, `secrets`, `providers`, `models`,
+`languages`, `kinds`, `prompts`, `context`, `skills`, `general`, `appearance`) —
+Audio first, then the three lists a model is made of in the order they link,
+since the sections after them pick from Models, and
 Models sets the defaults: the chat, translation, review and transcription
-models used where nothing more specific picks one. The rail is a carousel in that order: the section on screen at
-its head beside the bar, the ones after it below, the ones before it coming
-round after the last. Folded, each tab shows only its number; under the
+models used where nothing more specific picks one. The rail keeps that order, `01` at the top, and only
+highlights the section on screen. Folded, each tab shows only its number; under the
 pointer, with the keyboard on one of its tabs, or after a tap on its head, it
 unfolds over the bar and the section with the names. Each tab is a stop of the
 Tab chain (rail, bar, section, then the close button): ↑/↓/Home/End move along
-the carousel, Enter or Space chooses, and the chosen section takes the
-keyboard, so the rail folds. A section's number chooses it unless a field
-being written holds the keyboard and takes the digit; Ctrl with the number
-chooses it anywhere in the window, and `Ctrl+Tab` and `Ctrl+Shift+Tab` turn
-to the next or the one before. Each section
+the rail, Enter or Space chooses, and the chosen section takes the
+keyboard, so the rail folds. A section's digit (1–9, and 0 for the tenth)
+chooses it unless a field being written holds the keyboard and takes the digit;
+Ctrl with the digit chooses it anywhere in the window, and `Ctrl+Tab` and
+`Ctrl+Shift+Tab` go to the next or the one before, round the ends. Each section
 owns its own fields: no section edits another's, and what another decides is
 only read there, as a link to it. A section whose open item has changes not
 saved shows a dot on its tab.
@@ -2104,10 +2259,10 @@ title until the item changes again; a refused DELETE or quick change shows as an
 error toast (§12.2). The default models are not required, as the daemon does not
 require them (§9): a config with no model registered saves, and a default it
 names must be a registered model of its type (`overlay/Eco/Core/draft.js`,
-`problems`). The daemon makes the first registered model of a type the default
-of that type when a saved config leaves it empty or names no model of that
-type, so a new model is a default only when it is the first of its type; the
-others are set on the Models table.
+`problems`). A default left empty is automatic: the daemon takes the first
+usable model of its type for it (§9), the window shows it marked
+"(automatic)" and a save leaves it empty; the Models table makes a model the
+default of a role.
 
 Closing the window with an item unsaved asks first: SAVE AND CLOSE saves
 each changed item in turn, the one on screen first, and closes once none is
@@ -2118,7 +2273,7 @@ asking: unsaved changes are dropped. Leaving is what the user asked for, and
 Qt's own quit, which asks every window first, would stop at the kept settings
 window, which never closes, and leave the process running unseen.
 
-**Keys.** `Ctrl+1`…`Ctrl+8` a section, `Ctrl+Tab` / `Ctrl+Shift+Tab` the next
+**Keys.** `Ctrl+1`…`Ctrl+9` one of the first nine sections, `Ctrl+Tab` / `Ctrl+Shift+Tab` the next
 or previous one; on the rail ↑/↓/Home/End move and Enter or Space opens the
 section. In a section's table ↑/↓ pick a row, Enter or Space opens it, Delete
 deletes it (asking first); in a child table ↑/↓ pick, Delete removes the
@@ -2150,6 +2305,21 @@ table, then closes the window. Keys show only in the shortcuts dialog
   naming the devices no longer heard, whether nobody else is heard (it held the
   only output device) and whether nobody is the user any more. Echoes are set
   under General.
+- **Secrets** (`SecretsSection`, `SecretView`, `SecretFields`): where each
+  key comes from, a row per secret — name, source (environment variable,
+  omapass account or, on Windows, Credential Manager name), the reference and
+  STATE: whether the daemon reads a key from it now, from the `secrets` reply
+  (§10.2), never the key. The window asks again on each `config` event and on
+  CHECK. The secrets eco ships are rows like any other. Edited: its
+  name (the providers that use it follow, `Draft.renameItem`), its source and
+  reference, typed or picked from the names the daemon lists, with, beside a
+  variable, how to set it so the daemon sees it: the `config` event's
+  `platform` only chooses the text (Linux `~/.config/environment.d/eco.conf`
+  then `eco restart`, Windows `setx`, macOS `launchctl setenv`). A secret a
+  provider uses is not deleted.
+- **Providers** (`ProvidersSection`, `ProviderView`): a row per provider — name,
+  base URL, secret, and the models that use it. Edited: name (the models follow),
+  base URL and the secret, picked from Secrets or none. A provider a model uses is not deleted.
 - **Models** (`ModelsSection`): the registry and the defaults — a row per
   model, chat and transcription alike: its name, type, the provider's model
   id, DEFAULT (what it is the default for: CHAT, TRANSLATION, REVIEW,
@@ -2160,23 +2330,23 @@ table, then closes the window. Keys show only in the shortcuts dialog
   and dimmed on the model that is already that default (`Draft.defaults`,
   `Draft.makeDefault`); with none picked, DEFAULT FOR CHAT, dimmed. DEFAULT
   FOR REVIEW sets `[reviewer] model` and leaves `enabled` as it is; nothing
-  else in the window picks the reviewer's model. Read: its type, what it is
-  the default for, provider, base URL, model id, where its key comes from, and
+  else in the window picks the reviewer's model. STATE is "disabled" when the snapshot's `disabled_models` names the
+  model; its row is dim and it cannot be made a default or tested, the reason
+  being the hint of the dimmed command. Read: its type, what it is
+  the default for, provider, model id, and
   for chat its REASONING and extra fields, for transcription its price per
   minute; RELATED, what else uses it, grouped by the section that sets each
   use (the skills that name it, and each kind once, under a
   group that says what the kinds in it use it for: assistant, translation or
   both, as the overlay's one resolver, `answering` in
   `overlay/Eco/Core/draft.js`, mirrors the daemon's precedence). Edited: its
-  TYPE while nothing uses it (changing it keeps the name and model id; the
-  provider and key change only when its base URL does not fit the new type),
+  TYPE while nothing uses it (changing it keeps the name, provider and model id),
   its NAME, for chat REASONING (the provider's — or IN EXTRA FIELDS when
   `extra` sets one —, off, low, medium or high: `reasoning`, sent as
   OpenRouter's `reasoning` field and winning over one in `extra`), the
-  provider (a preset of its type or CUSTOM, which shows the base URL), model
-  (typed, with the preset's model as an example, or picked from LIST, which
-  closes the list again, as Esc does), key from an environment variable or an
-  omapass password, for transcription a fallback price per minute and, for
+  provider (a chip per provider of Providers), model
+  (typed, with another model of the type as an example, or picked from LIST, which
+  asks for the saved provider's models and closes the list again, as Esc does), for transcription a fallback price per minute and, for
   chat, the extra JSON sent with each request (EXTRA (JSON)). The chat and
   transcription defaults cannot be deleted; deleting another asks first, listing what
   falls back to which model (as `answering` picks it) and whether the reviewer
@@ -2277,7 +2447,11 @@ and after any line that leaves it on, ends it (`SIGTERM`, terminated on
 Windows) after a line that turns it off, and ends it with the windows when it
 stops. A tray process that exits, or cannot start, starts again after 1 s,
 then a pause that doubles to at most 60 s; one that ran a minute starts the
-count again.
+count again. After 5 starts in a row that failed, it is not started again: the
+daemon sends one `tray.stopped` error event (the desktop notification comes
+from it, since the tray cannot show one), and the count starts over, with the
+tray started at once, on a config save, `overlay.open` or `window.call` (an
+`eco window` command).
 
 ---
 
@@ -2898,6 +3072,6 @@ is `src/adapters/unsupported.rs`, which says so whenever it is used.
 | System notifications | the `Notifier` port, adapter `notify-send`: `notify-send` with the app name `eco`, the installed eco icon and the urgency (`normal`, or `critical` for an error); a missing `notify-send` is written to the daemon's log | adapter `Toasts`: a Windows toast notification through the WinRT `ToastNotificationManager` of the `windows` crate's safe projection, `long` for an error, under eco's app id `This-Is-NPC.eco`. eco is not a packaged app, so the app id is registered for the user in `HKCU\Software\Classes\AppUserModelId\This-Is-NPC.eco`, `DisplayName` `eco` and `IconUri` the shipped `share\eco\eco.ico`, through the `windows-registry` crate's safe interface: Windows then labels the toast "eco" with eco's icon, with no Start-menu shortcut. `eco setup` writes the key (adapter `ToastName`), and the notifier writes it again before each toast, writing nothing when it holds these values, so a daemon whose setup never ran or whose key was deleted still shows "eco"; a build that is not installed ships no icon and leaves a registered one alone. A key it cannot write sends the toast under Windows PowerShell's app id, which Windows always has, labelled "Windows PowerShell", and says why in the daemon's log. The MSI registers the same key for all users (§13), and `install.ps1` deletes the per-user one when it removes an older install. Both chosen with `#[cfg]` in `src/session.rs`. Only with `[ui] notifications` on and no eco window active (§12.2) | adapter `Osascript`: `osascript` runs `display notification` with the title and body handed as its arguments after `--`, so no text is read as AppleScript; macOS has no urgency, so a critical notification also plays the alert sound `Basso`, and whether it shows as a banner or an alert is the user's setting. It is run on a thread of its own, as on Linux (`src/adapters/notify_program.rs`, shared), and a failure is written to the daemon's log. The arguments are tested; `osascript` exiting 0 was seen, the notification on screen was not | `src/ports.rs`, `src/domain/notifications.rs`, `src/session.rs`, `src/adapters/notify_linux.rs`, `src/adapters/notify_windows.rs`, `src/adapters/notify_macos.rs`, `src/adapters/notify_program.rs` (Linux and macOS) |
 | Shortcuts | a global Hyprland bind that runs an `eco window` command, which sends one line to the socket and returns once the daemon has read it: `window.call` for those that open a view, the daemon giving that window the keyboard | the daemon registers `[shortcuts]` (§9) itself, `Win+Alt+A`, `Q`, `C`, `N`, `P`, `H` and `E` by default, the keys of `eco.lua` with the Windows key for SUPER, none of them one Microsoft documents for Windows (`Win+Alt` with a digit opens a taskbar jump list, and was refused on a desktop; the Game Bar holds `G`, `M`, `R` and `T`; Omarchy binds `SUPER+ALT+1` to `5` to a group's windows), through the `windows-hotkeys` crate: `RegisterHotKey` on a hidden message-only window of a thread of its own, which waits for `WM_HOTKEY` in the crate's loop. A pressed key hands the daemon's loop the very line `eco window` builds (`cli::Window::line`), so it is routed as the command would be. A key the system refuses, another program holding it, is written to the daemon's log and greets every client in a `shortcuts` event (§10.1) listing the keys left off, which is no error: the shortcuts are optional, the others still work, and `eco doctor` passes with the keys named; the settings window has no place for shortcuts, so others go in the config file, created if missing. Chosen over `global-hotkey`, which registers the same way but leaves the message loop to the application, and that loop is `unsafe` code eco forbids, and over `livesplit-hotkey`, which installs a low-level keyboard hook: it sees every key pressed in every program, passes the shortcut on to the program in front as well (Win+Alt+1 would also open the first taskbar program's jump list) and cannot tell a key another program holds (read in the crates' sources). The keys are read when the daemon starts. Over ssh the system refuses every key: that session has no interactive window station (`RegisterHotKey` fails with error 1459, `ERROR_REQUIRES_INTERACTIVE_WINDOWSTATION`, measured), so each is reported; on a desktop, `Win+Alt+C`, `N`, `H` and `E` registered and worked when pressed (seen in a desktop test). `eco window` works as on Linux, knowing the daemon has read its line from the `synced` answer to `sync` (§10) | none, a known limitation: macOS reaches a global key only through the main thread's event loop, which the daemon does not run, so it registers none and greets with every key in `shortcuts` `unavailable`; `eco doctor` fails the check and says to bind a key to an `eco window` command in the Shortcuts app, which reaches the running daemon as Hyprland's bindings do | `packaging/hypr/eco.lua`, `src/cli.rs`, `src/shortcuts.rs`, `src/adapters/shortcuts_windows.rs` |
 | The hook shell | `shell()` runs each hook with `sh -c` | `shell()` runs each hook with `cmd /S /C "<command>"`, the command handed over as written, for cmd does not read its line by the quoting rules other programs use; a hook reads `%ECO_SESSION%` and `%ECO_TITLE%`. cmd is on every Windows | as on Linux: `sh -c` | `src/adapters/hook_shell.rs` |
-| The omapass keyring | `api_key_omapass` reads a key through the omapass CLI | omapass does not exist: it is never installed, and a key from it fails | as on Linux, looked up on `PATH`; Omarchy does not exist there, so it is not installed | `src/adapters/omapass.rs` |
+| The omapass keyring | a secret with `omapass` reads a key through the omapass CLI | omapass does not exist: it is never installed, and a key from it fails | as on Linux, looked up on `PATH`; Omarchy does not exist there, so it is not installed | `src/adapters/omapass.rs` |
 | Installing a release | `pkexec pacman -U --noconfirm` on the Arch package, else `sudo pacman -U` from a terminal; Hyprland's binds are what `eco doctor` checks for shortcuts | the per-machine MSI in `%ProgramFiles%\eco`, installed by `msiexec` from a copy of eco once the daemon has stopped (`eco apply-update`); the registered keys are what `eco doctor` checks | adapter `Folder`: `~/Applications/eco`, which `install-macos.sh` fills, replaced in place by a rename, the folder moved aside deleted at once (§13); the restart after an update runs `eco restart` as a process of its own. Tested against an archive served by a test server; `eco update` against the published 0.10.1, which carries no macOS archive, failed with `the SHA256SUMS of v0.10.1 names no package for this system` and left the install as it was (seen) | `src/ports.rs` (`Releases`, `Installer`), `src/installer.rs`, `src/adapters/releases_github.rs`, `src/adapters/installer_linux.rs`, `src/adapters/installer_windows.rs`, `src/apply.rs`, `src/session/update.rs`, `src/doctor.rs` (§13), `src/adapters/installer_macos.rs`, `install-macos.sh` |
-| The Windows Credential Manager | none: `api_key_credential` and `eco key set`/`remove` fail, naming omapass and the environment; the `keys` event's `credentials` is `null` | `api_key_credential` reads the generic credential `eco:<name>`; `eco key set`/`remove` write and delete it; the `keys` command lists them by name (§9.1) | as on Linux: none. The macOS Keychain is not used: it ties a key to the program's signature, and eco is not signed, so each new build would ask for every key again; keys come from the environment | `src/adapters/credentials.rs` |
+| The Windows Credential Manager | none: a secret with `credential` and `eco key set`/`remove` fail, naming omapass and the environment; the `keys` event's `credentials` is `null` | a secret with `credential` reads the generic credential `eco:<name>`; `eco key set`/`remove` write and delete it; the `keys` command lists them by name (§9.1) | as on Linux: none. The macOS Keychain is not used: it ties a key to the program's signature, and eco is not signed, so each new build would ask for every key again; keys come from the environment | `src/adapters/credentials.rs` |

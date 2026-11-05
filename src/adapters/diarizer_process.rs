@@ -10,9 +10,9 @@
 use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
+use std::sync::{Arc, OnceLock};
 use std::thread;
 
 use serde_json::{Value, json};
@@ -39,12 +39,25 @@ pub enum Diarized {
     Failed(String),
 }
 
+/// Whether the child keeps up with live speech.
+#[derive(Debug, PartialEq)]
+pub enum Backlog {
+    /// The bound filled: regions go without the diarizer from here.
+    Behind,
+    /// A region waits again; this many went without it meanwhile.
+    CaughtUp(usize),
+}
+
+/// Told on the thread that offers the speech, so it must not need a runtime.
+type Told = Box<dyn Fn(Backlog) + Send + Sync>;
+
 /// Where speech goes to a child diarizer: at most a bound of regions wait for it.
 #[derive(Clone)]
 pub struct Regions {
     sender: SyncSender<Segment>,
     /// Regions offered since the diarizer fell behind.
     dropped: Arc<AtomicUsize>,
+    told: Arc<OnceLock<Told>>,
 }
 
 /// Regions that wait, at most `bound` at once, and the end they are read from.
@@ -53,28 +66,37 @@ pub fn channel(bound: usize) -> (Regions, Receiver<Segment>) {
     let regions = Regions {
         sender,
         dropped: Arc::default(),
+        told: Arc::default(),
     };
     (regions, received)
 }
 
 impl Regions {
+    /// Tell `told` when live speech starts going without the diarizer and when
+    /// it catches up; once.
+    pub fn tell(&self, told: impl Fn(Backlog) + Send + Sync + 'static) {
+        let _ = self.told.set(Box::new(told));
+    }
+
+    fn say(&self, backlog: Backlog) {
+        if let Some(told) = self.told.get() {
+            told(backlog);
+        }
+    }
+
     /// Offer live speech: while the diarizer is behind by the bound, a region
-    /// goes without it, and the log says so when that starts and when it ends.
+    /// goes without it, and `tell` hears when that starts and when it ends.
     pub fn offer(&self, region: Segment) {
         match self.sender.try_send(region) {
             Ok(()) => {
                 let dropped = self.dropped.swap(0, Ordering::Relaxed);
                 if dropped > 0 {
-                    eprintln!(
-                        "eco: the diarizer caught up; {dropped} speech regions went without it"
-                    );
+                    self.say(Backlog::CaughtUp(dropped));
                 }
             }
             Err(TrySendError::Full(_)) => {
                 if self.dropped.fetch_add(1, Ordering::Relaxed) == 0 {
-                    eprintln!(
-                        "eco: the diarizer is behind; speech regions go without it until it catches up"
-                    );
+                    self.say(Backlog::Behind);
                 }
             }
             Err(TrySendError::Disconnected(_)) => {}
@@ -403,6 +425,31 @@ mod tests {
         regions.offer(segment(4));
         regions.send(segment(5));
         assert_eq!(regions.dropped.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn a_thread_without_a_runtime_hears_behind_once_and_caught_up_with_the_count() {
+        let segment = |start| Segment {
+            pcm: vec![1],
+            start,
+        };
+        let (regions, received) = channel(1);
+        let (tell, told) = mpsc::channel();
+        regions.tell(move |backlog| tell.send(backlog).unwrap());
+        let offering = regions.clone();
+        thread::spawn(move || {
+            for start in 0..4 {
+                offering.offer(segment(start));
+            }
+        })
+        .join()
+        .unwrap();
+        assert_eq!(told.try_iter().collect::<Vec<_>>(), [Backlog::Behind]);
+        received.recv().unwrap();
+        thread::spawn(move || regions.offer(segment(4)))
+            .join()
+            .unwrap();
+        assert_eq!(told.try_iter().collect::<Vec<_>>(), [Backlog::CaughtUp(3)]);
     }
 
     #[test]

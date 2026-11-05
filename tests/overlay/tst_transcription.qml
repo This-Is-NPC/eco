@@ -8,7 +8,7 @@ TestCase {
   name: "Transcription"
 
   function draft() {
-    return { participants: [], models: [], contexts: [], actions: [], kinds: ["meeting"],
+    return { participants: [], secrets: [], providers: [], models: [], contexts: [], actions: [], kinds: ["meeting"],
       stt: { model: "", language: "pt", languages: ["en", "pt", "auto"] }, llm: { model: "" } }
   }
 

@@ -29,10 +29,10 @@ QtObject {
         return
       stop()
       Eco.handle({ type: "config", devices: [], omapass: { installed: false, page: "" }, credential_manager: false,
-        presets: { chat: [{ name: "LOCAL", values: { base_url: "http://127.0.0.1/v1" } }], transcription: [] },
-        config: { participants: [], models: [], kinds: ["meeting"], actions: [], contexts: [], context: { files: [] }, ui: { language: "auto" },
+        platform: "linux",
+        config: { participants: [], secrets: [], providers: [{ name: "LOCAL", base_url: "http://127.0.0.1/v1" }], models: [], kinds: ["meeting"], actions: [], contexts: [], context: { files: [] }, ui: { language: "auto" },
           stt: { model: "", language: "auto", languages: ["auto"] }, llm: { model: "" } } })
-      window.view.create(1)
+      window.view.create(window.view.at.models)
       if (!window.dirty)
         return Qt.exit(4)
       console.error("closing")

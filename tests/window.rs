@@ -8,7 +8,9 @@
 //! `tests/window/counts.qml`; a long timeline read in pages, in
 //! `tests/window/timeline.qml`; a line's menu, merge and split, in
 //! `tests/window/lines.qml`; the settings window's section keys, in
-//! `tests/window/settings_keys.qml`; the toast stack, in
+//! `tests/window/settings_keys.qml`; the secrets, providers and models tabs, in
+//! `tests/window/settings_secrets.qml`; the items the tabs open, in
+//! `tests/window/settings_entries.qml`; the toast stack, in
 //! `tests/window/toasts.qml`; the bars and tables of the views, pressed
 //! as a keyboard and a pointer press them, in `tests/window/bars.qml`; and the
 //! eco window closed with the settings open,
@@ -382,6 +384,67 @@ async fn the_settings_keys_choose_sections() {
     let output = tokio::time::timeout(Duration::from_secs(30), run)
         .await
         .expect("the keys did not finish")
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+/// The Secrets, Providers and Models tabs: their rows, the entries eco ships as ordinary rows,
+/// a disabled model's reason, and the hint of the system the daemon runs on.
+#[tokio::test]
+async fn the_secrets_providers_and_models_tabs_list_shipped_entries_and_hint_per_platform() {
+    let dir = tempfile::tempdir().unwrap();
+    let run = offscreen("settings_secrets", dir.path())
+        .env("ECO_SOCKET", dir.path().join("no-daemon"))
+        .kill_on_drop(true)
+        .output();
+    let output = tokio::time::timeout(Duration::from_secs(30), run)
+        .await
+        .expect("the tabs did not finish")
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+/// An entry eco ships, held in the config like any other, and the global
+/// context open with BACK in every tab, Esc and BACK return to the table with
+/// the row still picked, and EDIT and DELETE are on.
+#[tokio::test]
+async fn shipped_entries_open_and_delete_like_any_other_in_every_settings_tab() {
+    let dir = tempfile::tempdir().unwrap();
+    let run = offscreen("settings_entries", dir.path())
+        .env("ECO_SOCKET", dir.path().join("no-daemon"))
+        .kill_on_drop(true)
+        .output();
+    let output = tokio::time::timeout(Duration::from_secs(30), run)
+        .await
+        .expect("the items did not finish")
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+/// The TEST of a model: idle, busy, answered or failed, and off for a model
+/// that waits for a key.
+#[tokio::test]
+async fn testing_a_model_shows_its_busy_state_and_its_result() {
+    let dir = tempfile::tempdir().unwrap();
+    let run = offscreen("model_test", dir.path())
+        .env("ECO_SOCKET", dir.path().join("no-daemon"))
+        .kill_on_drop(true)
+        .output();
+    let output = tokio::time::timeout(Duration::from_secs(30), run)
+        .await
+        .expect("the test did not finish")
         .unwrap();
     assert!(
         output.status.success(),

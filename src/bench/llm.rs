@@ -75,7 +75,7 @@ async fn measure(chat: &OpenAIChat, model: &str) -> Result<(Option<Duration>, Du
     let (mut first, mut answer) = (None, String::new());
     let mut chunks = chat.stream(model, messages);
     while let Some(chunk) = chunks.next().await {
-        if let Chunk::Text(text) = chunk.map_err(|e| anyhow::anyhow!(e.0))? {
+        if let Chunk::Text(text) = chunk.map_err(|e| anyhow::anyhow!(e.why))? {
             first.get_or_insert_with(|| started.elapsed());
             answer.push_str(&text);
         }

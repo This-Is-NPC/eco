@@ -563,6 +563,11 @@ pub enum LineError {
 /// is closer; then half the way to it.
 const SPLIT_STEP: f64 = 0.001;
 
+/// How far after the line before it a live line is stamped, at least: a cut
+/// puts each new part `SPLIT_STEP` after the last, so lines this far apart
+/// always leave room for it, however close their audio was heard.
+const LINE_APART: f64 = 10.0 * SPLIT_STEP;
+
 /// At most this many cut lines are followed.
 const CUTS: usize = 256;
 
@@ -1266,6 +1271,16 @@ impl Session {
                 json!({"type": "language", "language": language, "at": now()}),
             ));
         }
+    }
+
+    /// The time to give a live line heard at `at`: `at`, or `LINE_APART` after
+    /// the latest line when that is later.
+    pub fn stamp(&self, at: f64) -> f64 {
+        let latest = self.timeline.iter().rev().find_map(|entry| match entry {
+            Entry::Speech(speech) => Some(speech.at),
+            Entry::Note(_) | Entry::Suggestion(_) => None,
+        });
+        latest.map_or(at, |latest| at.max(latest + LINE_APART))
     }
 
     /// Speech heard at `at`: an imported file's speech is placed at its time in
@@ -3163,6 +3178,23 @@ mod tests {
             2,
             "the merged line lacks English again, beside the one never translated"
         );
+    }
+
+    #[test]
+    fn lines_heard_at_the_same_instant_are_stamped_apart_and_both_split() {
+        let (sink, _) = collecting();
+        let mut session = Session::begin("Call", "meeting", LIVE, "pt", sink);
+        let first = session.stamp(50.0);
+        session.hear_at("Eles", "Tudo bem? Sim e voce", first);
+        let second = session.stamp(50.0);
+        session.hear_at("Eles", "Outra. Linha dois", second);
+        assert!(second - first > LINE_APART * 0.99);
+        let (_, new) = session.split_line("Eles", first, 10).unwrap();
+        assert!(new.at > first && new.at < second);
+        let (_, new) = session.split_line("Eles", second, 7).unwrap();
+        assert!(new.at > second);
+        // A later instant keeps its own time.
+        assert_eq!(session.stamp(60.0), 60.0);
     }
 
     #[test]

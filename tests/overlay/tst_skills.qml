@@ -10,7 +10,7 @@ TestCase {
   function draft() {
     return { participants: [], contexts: [{ name: "notes", kinds: ["talk"] }], kinds: ["meeting", "talk"],
       actions: [{ name: "a" }, { name: "b" }, { name: "c" }],
-      models: [{ name: "m", type: "chat", base_url: "http://llm", model: "m", kinds: ["meeting", "talk"], translates: ["talk"] }],
+      models: [{ name: "m", type: "chat", provider: "llm", model: "m", kinds: ["meeting", "talk"], translates: ["talk"] }],
       stt: { model: "", language: "auto", languages: ["auto"] }, llm: { model: "m" } }
   }
 

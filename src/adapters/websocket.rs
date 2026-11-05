@@ -60,6 +60,17 @@ pub struct Protocol<Audio, Read> {
     pub request: Option<&'static str>,
 }
 
+/// A failed handshake; a refusal when the server answered the upgrade with a
+/// status that classifies as one.
+fn refused(error: tokio_tungstenite::tungstenite::Error) -> TranscriptionError {
+    match &error {
+        tokio_tungstenite::tungstenite::Error::Http(response) => {
+            TranscriptionError::replied(response.status().as_u16(), error.to_string())
+        }
+        _ => TranscriptionError::new(error.to_string()),
+    }
+}
+
 fn tls() -> Result<Arc<rustls::ClientConfig>, String> {
     use rustls_platform_verifier::ConfigVerifierExt;
     // Fails only when a provider is already installed, which is the goal.
@@ -121,7 +132,7 @@ where
         let (socket, response) = tokio::time::timeout(heard_within, opening)
             .await
             .map_err(|_| format!("stalled: no handshake within {heard_within:?}"))?
-            .map_err(|e| e.to_string())?;
+            .map_err(refused)?;
         let id = billed.and_then(|name| response.headers().get(name)?.to_str().ok());
         if let Some(id) = id {
             let _ = found.unbounded_send(Ok(Heard::Request(id.into())));
@@ -175,7 +186,7 @@ where
                     Reading::Nothing => {}
                 }
             }
-            Ok::<_, String>(())
+            Ok::<_, TranscriptionError>(())
         };
         // Receiving runs until the provider closes, stalls, or goes quiet once
         // the audio is over.
@@ -190,7 +201,7 @@ where
     };
     let session = async move {
         if let Err(detail) = session.await {
-            let _ = failed.unbounded_send(Err(TranscriptionError(detail)));
+            let _ = failed.unbounded_send(Err(detail));
         }
     };
     // The session runs as the phrases are read; both end together.
@@ -274,7 +285,32 @@ mod tests {
 
     /// The error a stream ended with.
     fn last_error(heard: &[Result<Heard, TranscriptionError>]) -> &str {
-        &heard.last().expect("a result").as_ref().unwrap_err().0
+        &heard.last().expect("a result").as_ref().unwrap_err().why
+    }
+
+    #[tokio::test]
+    async fn a_handshake_answered_with_a_status_is_classified() {
+        use crate::ports::Refusal;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        for (status, refusal) in [
+            (401, Some(Refusal::Credential)),
+            (403, Some(Refusal::Credential)),
+            (404, Some(Refusal::NotFound)),
+            (503, None),
+        ] {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            tokio::spawn(async move {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let _ = socket.read(&mut [0; 2048]).await.unwrap();
+                let reply = format!("HTTP/1.1 {status} No\r\nContent-Length: 0\r\n\r\n");
+                socket.write_all(reply.as_bytes()).await.unwrap();
+            });
+            let heard: Vec<_> = alive(format!("ws://{address}"), live(3)).collect().await;
+            assert_eq!(heard.len(), 1, "{heard:?}");
+            let error = heard[0].as_ref().unwrap_err();
+            assert_eq!(error.refusal, refusal, "{status}: {}", error.why);
+        }
     }
 
     #[tokio::test]
@@ -365,7 +401,7 @@ mod tests {
             .map(|heard| match heard {
                 Ok(Heard::Phrase(phrase)) => phrase.text.clone(),
                 Ok(other) => format!("{other:?}"),
-                Err(TranscriptionError(why)) => format!("error: {why}"),
+                Err(TranscriptionError { why, .. }) => format!("error: {why}"),
             })
             .collect()
     }

@@ -35,8 +35,11 @@ audio source: its name, and **YOU** on yours.
 
 ![Settings, 01 AUDIO: the bar with REFRESH DEVICES and a dimmed DELETE; under DEVICES a table DEVICE · KIND · LEVEL · HEARD AS · COLOUR with Default microphone (MIC, heard as Me), Default output (OUT, heard as Them), H390 headset microphone (MIC, Not heard), H390 headset (OUT, Not heard) and Built-in microphone (MIC, Not heard), each with an automatic grey swatch; below it AUDIO SOURCES, a table NAME · YOU with Me (a lit ON) and Them (a dim OFF).](img/39-settings-audio.png)
 
-A first config written by hand may already have both sources. Then check each
-device's HEARD AS against the steps below, and skip to step 4.
+A fresh install, with no config file, already has both sources: `Me` on
+Default microphone, marked as you, and `Them` on Default output. They are
+written to the config at its first save. Skip to step 4. A config file that
+exists and has no sources is left as it is, so deleting them stays deleted;
+follow steps 2 and 3 to add them again.
 
 ## 2. Add yourself
 
@@ -89,7 +92,7 @@ has signal, its row draws its live trace, in its colour, under **LEVEL**.
 
 ## 4. Choose what to do about echoes
 
-Open **General** (`Ctrl+8`). Under its title **AUDIO**, each is an ON/OFF in
+Open **General** (section 10: `Ctrl+Tab`, or the rail). Under its title **AUDIO**, each is an ON/OFF in
 its row, saved at once:
 
 - **DROP ECHOES** — on by default. A line of yours whose words mostly repeat, in

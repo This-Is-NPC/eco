@@ -1,6 +1,6 @@
 # How do I change the appearance?
 
-Open Settings and choose Appearance (Ctrl+9).
+Open Settings and choose Appearance, the eleventh section (Ctrl+Tab, or the rail).
 
 Choose a preset:
 

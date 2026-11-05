@@ -3,6 +3,7 @@
 
 mod adapters;
 mod apply;
+mod automatic;
 mod bench;
 mod cli;
 mod config;
@@ -13,6 +14,7 @@ mod installer;
 mod lifecycle;
 mod paths;
 mod ports;
+mod presets;
 mod session;
 mod setup;
 mod shortcuts;
@@ -332,8 +334,8 @@ enum KeyCommand {
 
 #[derive(Debug, Subcommand)]
 enum KeyChange {
-    /// Store a key as the credential eco:<name>, which a model names with
-    /// api_key_credential; typed hidden, or read from stdin when it is not a terminal.
+    /// Store a key as the credential eco:<name>, which a secret names with
+    /// `credential`; typed hidden, or read from stdin when it is not a terminal.
     Set { name: String },
     /// Delete the credential eco:<name>.
     Remove { name: String },

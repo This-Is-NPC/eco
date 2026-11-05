@@ -19,7 +19,7 @@ use crate::domain::channel::{
     Listeners, SpeechProbability, Transcriber, Trouble, Utterance, transcribe_channel,
 };
 use crate::domain::diarization::{Diarization, Recording, label_lines};
-use crate::domain::events::{Event, Outages, error};
+use crate::domain::events::{Event, Outages, error, log_alert};
 use crate::domain::segmenter::{Segment, SegmenterConfig};
 use crate::domain::session::{ENDED, HeardBy, IMPORT, Session, now, recorded_at};
 use crate::paths;
@@ -103,7 +103,7 @@ fn begin(
         IMPORT,
         &request.language,
         started_at,
-        log.writer(),
+        log.writer(log_alert(emit)),
     );
     session.transcribe_with(heard);
     emit(json!({
@@ -430,7 +430,7 @@ mod tests {
             let call = self.calls.fetch_add(1, Ordering::SeqCst) + 1;
             Box::pin(async move {
                 if self.down {
-                    return Err(TranscriptionError("down".into()));
+                    return Err(TranscriptionError::new("down"));
                 }
                 Ok(Transcript {
                     phrases: vec![Phrase {
@@ -1019,7 +1019,7 @@ mod tests {
             _: BoxStream<'a, Frame>,
         ) -> BoxStream<'a, Result<Heard, TranscriptionError>> {
             if self.calls.fetch_add(1, Ordering::SeqCst) == 0 {
-                let refused = TranscriptionError("refused".into());
+                let refused = TranscriptionError::new("refused");
                 return stream::iter([Err(refused)]).boxed();
             }
             self.reopened.notify_one();

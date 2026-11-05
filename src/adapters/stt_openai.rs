@@ -7,7 +7,7 @@ use futures::future::BoxFuture;
 use reqwest::multipart::{Form, Part};
 use serde_json::Value;
 
-use crate::adapters::http::Endpoint;
+use crate::adapters::http::{self, Endpoint};
 use crate::ports::{Phrase, SAMPLE_RATE, SpeechToText, Transcript, TranscriptionError};
 
 pub fn wav_bytes(pcm: &[i16]) -> Vec<u8> {
@@ -93,7 +93,7 @@ impl OpenAITranscriber {
         }
     }
 
-    async fn request(&self, pcm: &[i16]) -> Result<Vec<Phrase>, String> {
+    async fn request(&self, pcm: &[i16]) -> Result<Vec<Phrase>, TranscriptionError> {
         loop {
             let plain = self.plain.load(Ordering::Relaxed);
             let file = Part::bytes(wav_bytes(pcm))
@@ -119,13 +119,14 @@ impl OpenAITranscriber {
                 self.plain.store(true, Ordering::Relaxed);
                 continue;
             }
+            let failed = |e: reqwest::Error| http::transcription_error(&e);
             let body: Value = response
                 .error_for_status()
-                .map_err(|e| e.to_string())?
+                .map_err(failed)?
                 .json()
                 .await
-                .map_err(|e| e.to_string())?;
-            return phrases(&body, pcm.len() as f64 / f64::from(SAMPLE_RATE));
+                .map_err(failed)?;
+            return Ok(phrases(&body, pcm.len() as f64 / f64::from(SAMPLE_RATE))?);
         }
     }
 }
@@ -136,7 +137,7 @@ impl SpeechToText for OpenAITranscriber {
         pcm: &'a [i16],
     ) -> BoxFuture<'a, Result<Transcript, TranscriptionError>> {
         Box::pin(async move {
-            let phrases = self.request(pcm).await.map_err(TranscriptionError)?;
+            let phrases = self.request(pcm).await?;
             Ok(Transcript {
                 phrases,
                 request: None,
@@ -151,6 +152,7 @@ mod tests {
 
     use super::*;
     use crate::adapters::http::testing::serve_once;
+    use crate::ports::Refusal;
 
     async fn transcribe(
         status: u16,
@@ -194,9 +196,18 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn wraps_http_errors() {
-        let (result, _) = transcribe(503, "busy", "pt").await;
-        assert!(result.is_err());
+    async fn classifies_http_errors() {
+        for (status, refusal) in [
+            (401, Some(Refusal::Credential)),
+            (402, Some(Refusal::Credential)),
+            (403, Some(Refusal::Credential)),
+            (404, Some(Refusal::NotFound)),
+            (500, None),
+            (503, None),
+        ] {
+            let (result, _) = transcribe(status, "no", "pt").await;
+            assert_eq!(result.unwrap_err().refusal, refusal, "{status}");
+        }
     }
 
     #[tokio::test]
@@ -204,7 +215,7 @@ mod tests {
         let (result, _) = transcribe(200, r#"{"text": " \n "}"#, "pt").await;
         assert_eq!(result.unwrap(), []);
         let (result, _) = transcribe(200, r#"{"segments": []}"#, "pt").await;
-        assert_eq!(result.unwrap_err().0, "the reply has no text");
+        assert_eq!(result.unwrap_err().why, "the reply has no text");
     }
 
     #[tokio::test]

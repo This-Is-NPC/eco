@@ -28,12 +28,12 @@ QtObject {
     }
   }
   function config(appearance) {
-    return { rules: "", participants: [], models: [], kinds: ["meeting"], actions: [], contexts: [], context: { files: [] },
+    return { rules: "", participants: [], secrets: [], providers: [], models: [], kinds: ["meeting"], actions: [], contexts: [], context: { files: [] },
       ui: { language: "auto", appearance: appearance },
       stt: { model: "", language: "auto", languages: ["auto"] }, llm: { model: "" } }
   }
   function saved(appearance) {
-    Eco.handle({ type: "config", config: config(appearance), devices: [], presets: {}, omapass: { installed: false, page: "" }, credential_manager: false })
+    Eco.handle({ type: "config", config: config(appearance), devices: [], platform: "linux", omapass: { installed: false, page: "" }, credential_manager: false })
   }
 
   readonly property var steps: [
@@ -86,7 +86,7 @@ QtObject {
       saved({ preset: "dark", colors: { accent: "#abcdef" } })
     },
     () => {
-      check("appearance is the ninth settings tab", settings.at.appearance === 8 && settings.sections[8].name === I18n.t("settings.appearance"))
+      check("appearance is the last settings tab", settings.at.appearance === 10 && settings.sections[10].name === I18n.t("settings.appearance"))
       check("all theme roles have controls", section.rows(Eco.config).length === 10)
       check("custom colors cannot be edited under dark", !section.custom)
       section.choose("custom")

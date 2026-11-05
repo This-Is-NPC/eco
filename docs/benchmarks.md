@@ -1016,3 +1016,40 @@ outside `src/bench/` has a lower percentage than on master.
 | `src/lib.rs` | 88.66% (87 of 767) | 89.19% (87 of 805) | as in the daemon section. |
 | `src/ports.rs` | 78.57% (3 of 14) | 90.00% (3 of 30) | as on master. |
 | `src/session.rs` | 96.93% (145 of 4725) | 96.93% (145 of 4729) | as in the daemon section. |
+
+## Secrets, providers and models coverage (2026-11-03)
+
+Measured on Linux with `mise run coverage` on the tree that links models to
+providers and secrets, restarts a transcription that panics and tests a model,
+against a checkout of master measured the same way. Whole crate: 97.05% of
+lines (1,175 of 39,875 without a test), against 96.84% (1,175 of 37,158) on
+master. No file of `src/` outside `src/bench/` has a lower percentage than on
+master; `src/presets.rs` and `src/session/model_test.rs` are new.
+
+| File | Master | This tree | Left without a test, and why |
+|---|---|---|---|
+| `src/presets.rs` | new | 100.00% | |
+| `src/session/model_test.rs` | new | 99.26% (2 of 272) | the end of the helper task that holds a stalled connection open, which never ends; the summary counts one more line than the line view shows. |
+| `src/adapters/omapass.rs` | 100.00% | 100.00% | |
+| `src/config.rs` | 99.82% (2 of 1102) | 99.87% (2 of 1596) | the closing line of `write_atomically`; the summary counts one more line than the line view shows. The two lines are the same as before; the file has 16 fewer source lines than on the previous tip. |
+| `src/adapters/websocket.rs` | 99.16% (3 of 357) | 99.26% (3 of 403) | the line view shows no line at zero; the summary counts three, as on master. |
+| `src/adapters/session_files.rs` | 99.68% (2 of 619) | 99.73% (2 of 744) | as on master. |
+| `src/session.rs` | 96.93% (145 of 4729) | 97.21% (153 of 5480) | `run()`, which builds the real VAD model, the platform's audio, the update sources and the user's socket (it now also converts and saves an old config); and the rest as in the daemon section. |
+| `src/domain/session.rs` | 98.24% (46 of 2610) | 98.36% (47 of 2864) | as in the diarization section. |
+| `src/adapters/diarizer_process.rs`, `http.rs`, `llm_openai.rs`, `overlay.rs`, `stt_deepgram.rs`, `stt_openai.rs`, `domain/assistant.rs`, `domain/channel.rs`, `domain/events.rs`, `domain/transcribers.rs`, `credentials.rs`, `import.rs`, `lib.rs`, `ports.rs`, `doctor.rs` | 88.92–100.00% | the same or higher | as on master. |
+
+## Presets as config entries coverage (2026-11-03)
+
+Measured on Linux with `cargo llvm-cov --lib --summary-only` (the unit tests;
+`mise run coverage` also runs the integration tests, and `tests/i18n.rs`
+fails until the language packs carry the renamed `stt.variable_unset` and
+`model.variable_unset` texts). `src/automatic.rs` is new: the automatic roles
+and the disabled models moved out of `src/presets.rs`.
+
+| File | Before | This tree | Left without a test, and why |
+|---|---|---|---|
+| `src/presets.rs` | 100.00% | 100.00% | |
+| `src/automatic.rs` | new | 100.00% | |
+| `src/config.rs` | 99.87% (2 of 1596) | 99.88% (2 of 1645) | as before: the closing line of `write_atomically`; the summary counts one more line than the line view shows. |
+| `src/session.rs` | 97.21% (153 of 5480) | 97.25% (153 of 5557) | as in the section above. |
+| `src/session/model_test.rs` | 99.26% (2 of 272) | 99.26% (2 of 272) | as in the section above. |

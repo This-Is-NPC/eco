@@ -2,26 +2,28 @@ import QtQuick
 import Eco.Core
 
 // ModelsSection registers the models, chat and transcription: each row its
-// name, its type, the provider's id, what it is the default for and what else
-// uses it; a row opens ModelView. The picked model is made a default from the
-// bar, saved at once. The chat and transcription defaults are not deleted;
-// deleting another first says what falls back.
+// name, its type, the provider's id, what it is the default for, what else
+// uses it and whether it is disabled while its key is not set; a row opens
+// ModelView. The picked model is made a default from the bar, saved at once.
+// The chat and transcription defaults are not deleted; deleting another first
+// says what falls back.
 SettingsSection {
   id: section
 
   name: I18n.t("settings.models")
   note: I18n.t("settings.models_note")
-  columns: [{ title: I18n.t("settings.column_name"), weight: 0.16 }, { title: I18n.t("settings.column_type"), weight: 0.13 },
-    { title: I18n.t("settings.column_model_id"), weight: 0.22 }, { title: I18n.t("settings.column_default"), weight: 0.26 },
-    { title: I18n.t("settings.column_used_by"), weight: 0.23 }]
-  stacked: [[0], [1, 2], [3], [4]]
+  columns: [{ title: I18n.t("settings.column_name"), weight: 0.15 }, { title: I18n.t("settings.column_type"), weight: 0.13 },
+    { title: I18n.t("settings.column_model_id"), weight: 0.21 }, { title: I18n.t("settings.column_default"), weight: 0.28 },
+    { title: I18n.t("settings.column_used_by"), weight: 0.13 }, { title: I18n.t("models.column_state"), weight: 0.1 }]
+  stacked: [[0], [1, 2], [3], [4, 5]]
   add: I18n.t("settings.add_model")
   file: "ModelView.qml"
   rows: config => config.models.map(model => {
     const kept = config.llm.model === model.name || config.stt.model === model.name
     return { id: model.name, removable: !kept, keptReason: kept ? I18n.t("settings.delete_in_use") : "",
       cells: [model.name, typeName(model.type), model.model, defaultsText(config, model.name),
-        links(config, model.name).map(link => link.text).join(", ")] }
+        links(config, model.name).map(link => link.text).join(", "),
+        isDisabled(model.name) ? I18n.t("models.disabled") : ""], dim: isDisabled(model.name) }
   })
   remove: (config, row) => {
     const change = Draft.removal(config, config.models.findIndex(model => model.name === row.id))
@@ -49,7 +51,8 @@ SettingsSection {
     const is = Draft.defaults(config, model.name)
     const command = (use, text, tip, isTip, short) => {
       const already = is.some(entry => entry.use === use && !entry.inherited)
-      return { text: I18n.t(text), short: short ? I18n.t(short) : "", icon: "check", tip: I18n.t(already ? isTip : tip), enabled: !already && !Eco.configSaving,
+      return { text: I18n.t(text), short: short ? I18n.t(short) : "", icon: "check", tip: isDisabled(model.name) ? disabledText(model.name) : I18n.t(already ? isTip : tip),
+        enabled: !already && !isDisabled(model.name) && !Eco.configSaving,
         run: () => settings.saveNow(d => Draft.makeDefault(d, use, model.name)) }
     }
     return model.type === "chat" ? [
@@ -60,11 +63,36 @@ SettingsSection {
     ] : [command("transcription", "settings.default_transcription", "settings.default_transcription_tip", "settings.default_transcription_is")]
   }
 
+  // Whether the model `name` waits for a key, and why, as the daemon told it.
+  function isDisabled(name) { return Eco.disabledModels[name] !== undefined }
+  function disabledText(name) {
+    const why = Eco.disabledModels[name]
+    return why === undefined ? "" : I18n.t("error." + why.code, why.params)
+  }
+  // TEST for the saved model `name`: off, saying why, while it waits for a key;
+  // busy while the daemon waits for the provider.
+  function testCommand(name) {
+    const waiting = disabledText(name)
+    const busy = !!(Eco.modelTests[name] || {}).busy
+    return { text: I18n.t(busy ? "model_test.busy" : "model_test.button"), icon: "check", busy: busy,
+      tip: waiting !== "" ? waiting : I18n.t("model_test.tip"), enabled: waiting === "",
+      run: () => Eco.testModel(name) }
+  }
+  // The facts of the saved model `name`'s last test, once there is one.
+  function testFacts(name) {
+    const test = Eco.modelTests[name]
+    if (!test || test.busy)
+      return []
+    const told = test.ok ? I18n.t("model_test.ok", { ms: test.ms })
+      : I18n.has("error." + test.code) ? I18n.t("error." + test.code, test.params) : test.message
+    return [[I18n.t("model_test.fact"), told]]
+  }
   // What the model `name` of `config` is the default for, as read: "" for nothing.
   function defaultsText(config, name) {
-    return Draft.defaults(config, name).map(entry => entry.inherited ? I18n.t("settings.translation_inherited")
+    const shown = Draft.resolved(config, Eco.defaultModels)
+    return Draft.defaults(shown.draft, name).map(entry => (entry.inherited ? I18n.t("settings.translation_inherited")
       : I18n.t(({ chat: "settings.type_chat", transcription: "settings.type_transcription", translation: "settings.translation",
-        review: "settings.use_review" })[entry.use])).join(" · ")
+        review: "settings.use_review" })[entry.use])) + (shown.automatic.includes(entry.use) ? " " + I18n.t("settings.automatic") : "")).join(" · ")
   }
   function typeName(type) {
     return I18n.t(type === "chat" ? "settings.type_chat" : "settings.type_transcription")

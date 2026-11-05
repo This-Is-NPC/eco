@@ -3,8 +3,8 @@ import QtQuick
 import Eco.Core
 import Eco.Kit
 
-// ConfigWindow is the settings: the sections a carousel down the left, the one
-// on screen at its head beside the bar of its commands, and under the bar the
+// ConfigWindow is the settings: the sections down the left in a fixed order, the
+// one on screen lit, beside the bar of its commands, and under the bar the
 // section itself (SettingsView), where each item is saved on its own; the daemon
 // validates each save, writes config.toml and restarts capture.
 Window {
@@ -37,7 +37,7 @@ Window {
 
   property int page: 0
 
-  // Chooses a section and gives it the keyboard, so the carousel folds away.
+  // Chooses a section and gives it the keyboard, so the rail folds away.
   function choose(index) {
     if (content.item === null) {
       page = index
@@ -76,31 +76,32 @@ Window {
       function askToClose() { confirmClose.open() }
 
       Shortcut { sequences: ["?", "F1"]; onActivated: shortcuts.open() }
-      // Ctrl with a section's number chooses it; Ctrl+Tab and Ctrl+Shift+Tab turn
-      // the carousel.
+      // Ctrl with a section's digit chooses it (0 is the tenth); Ctrl+Tab and
+      // Ctrl+Shift+Tab go to the next and the previous, round the ends.
       Repeater {
-        model: settings.sections.length
+        model: Math.min(10, settings.sections.length)
         delegate: Item {
           required property int index
-          Shortcut { sequence: "Ctrl+" + (index + 1); onActivated: window.choose(index) }
+          Shortcut { sequence: "Ctrl+" + (index + 1) % 10; onActivated: window.choose(index) }
         }
       }
       Shortcut { sequence: "Ctrl+Tab"; onActivated: window.choose(window.page + 1) }
       Shortcut { sequences: ["Ctrl+Shift+Tab", "Ctrl+Backtab"]; onActivated: window.choose(window.page - 1) }
 
       // Esc that nothing inside took (an open list or dialog takes its own) closes
-      // the window. A section's number that nothing inside took chooses it: a
-      // field being written takes its digits.
+      // the window. A section's digit that nothing inside took chooses it (0 is
+      // the tenth): a field being written takes its digits.
       Item {
         anchors.fill: parent
         anchors.margins: 28
         focus: true
         Keys.onEscapePressed: window.attemptClose()
         Keys.onPressed: event => {
-          const number = event.key - Qt.Key_0
-          if ((event.modifiers & ~Qt.KeypadModifier) !== Qt.NoModifier || number < 1 || number > settings.sections.length)
+          const digit = event.key - Qt.Key_0
+          const index = (digit + 9) % 10
+          if ((event.modifiers & ~Qt.KeypadModifier) !== Qt.NoModifier || digit < 0 || digit > 9 || index >= settings.sections.length)
             return
-          window.choose(number - 1)
+          window.choose(index)
           event.accepted = true
         }
 
@@ -121,12 +122,12 @@ Window {
         PageBar {
           id: bar
           anchors { left: parent.left; leftMargin: rail.foldedWidth + 16; right: parent.right; top: rail.top }
-          height: rail.headHeight
+          height: rail.tabHeight
           commands: settings.commands
           section: window.page
         }
 
-        // The section on screen, framed beside the carousel and under its bar.
+        // The section on screen, framed beside the rail and under its bar.
         Rectangle {
           id: frame
           anchors { left: bar.left; right: parent.right; top: bar.bottom; topMargin: 16; bottom: parent.bottom }

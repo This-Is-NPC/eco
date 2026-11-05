@@ -16,7 +16,7 @@ use crate::domain::billing::{Joined, Requests, priced, shares};
 use crate::domain::channel::Utterance;
 use crate::domain::diarization::{Labelled, Labels, Said, dot, normalized};
 use crate::domain::echo;
-use crate::domain::events::{Event, error};
+use crate::domain::events::{Event, error, log_alert, refusal_code};
 use crate::domain::index::Indexed;
 use crate::domain::people::{GUESSING, Match, Person, SUGGESTING, ranked};
 use crate::domain::prompts::{
@@ -29,7 +29,8 @@ use crate::domain::session::{
 };
 use crate::domain::transcribers::Listening;
 use crate::ports::{
-    Chunk, Hooks, LanguageModel, PeopleStore, Record, SessionLog, TranscriptionBilling, Usage,
+    Chunk, CompletionError, Hooks, LanguageModel, PeopleStore, Record, SessionLog,
+    TranscriptionBilling, Usage,
 };
 
 pub type Emit = Arc<dyn Fn(Event) + Send + Sync>;
@@ -146,11 +147,28 @@ impl Setup {
     }
 }
 
+fn secret_of(model: Option<&Model>) -> bool {
+    model.is_some_and(|model| model.secret.is_some())
+}
+
+fn secret_name(model: Option<&Model>) -> &str {
+    model
+        .and_then(|model| model.secret.as_deref())
+        .unwrap_or_default()
+}
+
+fn name_of(model: Option<&Model>) -> &str {
+    model.map_or("", |model| model.name.as_str())
+}
+
 /// A chat model ready to stream: its provider and the provider's id for it.
 #[derive(Clone)]
 pub struct Model {
     pub llm: Arc<dyn LanguageModel>,
     pub id: String,
+    /// The name the user registered it under, and the secret its key comes from.
+    pub name: String,
+    pub secret: Option<String>,
     /// What it was built from, so a new setup tells whether it changed.
     pub settings: String,
 }
@@ -181,6 +199,8 @@ pub struct Setup {
     pub routes: Value,
     /// The same for a session of a kind no longer configured.
     pub default_route: Value,
+    /// The preset models that wait for a key, `{name: {code, params}}`.
+    pub disabled_models: Value,
     pub translation: Translating,
     pub actions: Vec<Action>,
     /// The rules every answer follows unless its request says otherwise.
@@ -662,8 +682,13 @@ impl Assistant {
         contexts: Option<&[String]>,
     ) -> String {
         let mut state = self.state();
-        let mut session =
-            Session::begin(title.trim(), kind, LIVE, language, self.inner.log.writer());
+        let mut session = Session::begin(
+            title.trim(),
+            kind,
+            LIVE,
+            language,
+            self.inner.log.writer(log_alert(&self.inner.emit)),
+        );
         if let Some(contexts) = contexts {
             session.set_contexts(contexts);
         }
@@ -1011,7 +1036,11 @@ impl Assistant {
         }
         let log = &self.inner.log;
         let records = log.read(session_id)?;
-        let mut session = Session::restore(&records, log.append_to(session_id)?).ok()?;
+        let mut session = Session::restore(
+            &records,
+            log.append_to(session_id, log_alert(&self.inner.emit))?,
+        )
+        .ok()?;
         Some(change(&mut session))
     }
 
@@ -2544,7 +2573,7 @@ impl Assistant {
                 return None;
             }
         }
-        let speech = session.hear_at(&utterance.who, &text, at);
+        let speech = session.hear_at(&utterance.who, &text, session.stamp(at));
         self.emit(counted(
             speech_event(session, &speech, utterance.latency),
             session,
@@ -2692,7 +2721,7 @@ impl Assistant {
         let log = &self.inner.log;
         let session = log
             .read(id)
-            .zip(log.append_to(id))
+            .zip(log.append_to(id, log_alert(&self.inner.emit)))
             .and_then(|(records, sink)| Session::restore(&records, sink).ok())
             .ok_or_else(|| {
                 error(
@@ -2797,12 +2826,12 @@ impl Assistant {
             // Held until the answer ends: past the limit, an answer waits here.
             let _streaming = limit.acquire_owned().await;
             let Some(model) = model else {
-                return assistant.fail(&id, NO_CHAT);
+                return assistant.fail(&id, &CompletionError::new(NO_CHAT), None);
             };
             let started = Instant::now();
             let draft = model.llm.stream(&model.id, messages.clone());
             let (stream, by) = match reviewer {
-                None => (draft, ("answer", model.id)),
+                None => (draft, ("answer", model.clone())),
                 Some(reviewer) => match assistant
                     .draft(&id, draft, &model.id, reviewer.verbose)
                     .await
@@ -2810,9 +2839,9 @@ impl Assistant {
                     Ok(text) => {
                         let Model { llm, id, .. } = &reviewer.model;
                         let review = llm.stream(id, review(messages, &text, &reviewer.prompt));
-                        (review, ("review", id.clone()))
+                        (review, ("review", reviewer.model.clone()))
                     }
-                    Err(detail) => return assistant.fail(&id, &detail),
+                    Err(failure) => return assistant.fail(&id, &failure, Some(&model)),
                 },
             };
             assistant.run(id, stream, started, by).await
@@ -2829,11 +2858,11 @@ impl Assistant {
         mut stream: Chunks,
         model: &str,
         verbose: bool,
-    ) -> Result<String, String> {
+    ) -> Result<String, CompletionError> {
         let mut draft = String::new();
         let mut cost = None;
         while let Some(chunk) = stream.next().await {
-            match chunk.map_err(|failure| failure.0)? {
+            match chunk? {
                 Chunk::Thinking(text) => {
                     self.emit(json!({"type": "suggestion_thinking", "id": id, "text": text}));
                 }
@@ -2851,14 +2880,14 @@ impl Assistant {
         }
         self.spend(&mut self.state(), id, "answer", model, cost);
         if draft.trim().is_empty() {
-            return Err("the model sent no answer".into());
+            return Err(CompletionError::new("the model sent no answer"));
         }
         Ok(draft)
     }
 
     /// Stream the answer `id` to clients; `by` says what gives it — the answer or
     /// its review — and the model's id.
-    async fn run(&self, id: String, mut stream: Chunks, started: Instant, by: (&str, String)) {
+    async fn run(&self, id: String, mut stream: Chunks, started: Instant, by: (&str, Model)) {
         let mut first: Option<Duration> = None;
         let mut usage: Option<Usage> = None;
         while let Some(chunk) = stream.next().await {
@@ -2875,15 +2904,19 @@ impl Assistant {
                     }
                     self.emit(json!({"type": "suggestion_delta", "id": id, "text": text}));
                 }
-                Err(failure) => return self.fail(&id, &failure.0),
+                Err(failure) => return self.fail(&id, &failure, Some(&by.1)),
             }
         }
         let (what, model) = by;
         let cost = usage.as_ref().and_then(|u| u.cost_usd);
         // A stream that ends without a word is no answer: say so rather than keep an empty card.
         if first.is_none() {
-            self.spend(&mut self.state(), &id, what, &model, cost);
-            return self.fail(&id, "the model sent no answer");
+            self.spend(&mut self.state(), &id, what, &model.id, cost);
+            return self.fail(
+                &id,
+                &CompletionError::new("the model sent no answer"),
+                Some(&model),
+            );
         }
         let mut state = self.state();
         let queue = state.queued(&id);
@@ -2912,7 +2945,7 @@ impl Assistant {
             "cached_tokens": usage.as_ref().map(|u| u.cached_tokens),
             "cost_usd": cost,
         }));
-        self.spend(&mut state, &id, what, &model, cost);
+        self.spend(&mut state, &id, what, &model.id, cost);
         if let Some(setup) = state.setup.clone()
             && let Some(session) = state.holder(&id)
             && let Some(language) = session.translation().map(String::from)
@@ -3133,25 +3166,26 @@ impl Assistant {
             let mut out = String::new();
             let mut failure = None;
             let mut cost = None;
-            let translator = model.id.clone();
             while let Some(chunk) = stream.next().await {
                 match chunk {
                     Ok(Chunk::Text(piece)) => out.push_str(&piece),
                     Ok(Chunk::Usage(usage)) => cost = usage.cost_usd,
                     Ok(Chunk::Thinking(_)) => {}
                     Err(error) => {
-                        failure = Some(error.0);
+                        failure = Some(error);
                         break;
                     }
                 }
             }
             let result = match failure {
-                Some(detail) => Err(detail),
-                None if out.trim().is_empty() => Err("the model sent no translation".into()),
+                Some(error) => Err(error),
+                None if out.trim().is_empty() => {
+                    Err(CompletionError::new("the model sent no translation"))
+                }
                 None => Ok(out.trim().to_string()),
             };
             let took = started.elapsed();
-            let spent = (translator.as_str(), cost);
+            let spent = (&model, cost);
             assistant.translated(&session_id, &key, of, &language, result, took, spent);
         });
     }
@@ -3163,9 +3197,9 @@ impl Assistant {
         key: &str,
         of: Source,
         language: &str,
-        result: Result<String, String>,
+        result: Result<String, CompletionError>,
         took: Duration,
-        (model, cost): (&str, Option<f64>),
+        (model, cost): (&Model, Option<f64>),
     ) {
         self.inner
             .pending
@@ -3174,18 +3208,20 @@ impl Assistant {
             .remove(key);
         let text = match result {
             Ok(text) => text,
-            Err(detail) => {
+            Err(failure) => {
+                let detail = &failure.why;
                 return self.emit(error(
-                    "translation.failed",
+                    &refusal_code("translation", failure.refusal, secret_of(Some(model))),
                     format!("translation: {detail}"),
-                    json!({"session": session_id, "detail": detail}),
+                    json!({"session": session_id, "detail": detail,
+                        "model": model.name, "secret": secret_name(Some(model))}),
                 ));
             }
         };
         let mut state = self.state();
         let setup = state.setup.clone();
         let kept = self.edit_session(&mut state, session_id, |session| {
-            session.spend("translation", model, cost, None);
+            session.spend("translation", &model.id, cost, None);
             self.emit(cost_event(setup.as_deref(), session));
             session.translated(of.clone(), language, &text)
         });
@@ -3228,8 +3264,8 @@ impl Assistant {
         }
     }
 
-    /// The answer `id` failed for `detail`: clients read why, then it is dropped.
-    fn fail(&self, id: &str, detail: &str) {
+    /// The answer `id` from `model` failed: clients read why, then it is dropped.
+    fn fail(&self, id: &str, failure: &CompletionError, model: Option<&Model>) {
         let mut state = self.state();
         let action = suggestion_of(&state, id)
             .map(|s| s.action)
@@ -3239,10 +3275,12 @@ impl Assistant {
             queue.running = None;
         }
         // The reason first, so a client waiting on this answer reads it.
+        let detail = &failure.why;
         self.emit(error(
-            "completion.failed",
+            &refusal_code("completion", failure.refusal, secret_of(model)),
             format!("{action}: {detail}"),
-            json!({"id": id, "action": action, "detail": detail}),
+            json!({"id": id, "action": action, "detail": detail,
+                "model": name_of(model), "secret": secret_name(model)}),
         ));
         self.remove_from(&mut state, id);
         if let Some(session) = queue {
@@ -3333,6 +3371,7 @@ impl Assistant {
             "kinds": setup.map(|s| s.kinds.clone()).unwrap_or_default(),
             "kind_models": setup.map_or(Value::Null, |s| s.routes.clone()),
             "default_models": setup.map_or(Value::Null, |s| s.default_route.clone()),
+            "disabled_models": setup.map_or(Value::Null, |s| s.disabled_models.clone()),
             "contexts": setup
                 .map(|s| s.slots.iter().map(|slot| json!({"name": slot.name, "kinds": slot.kinds})).collect::<Vec<_>>())
                 .unwrap_or_default(),
@@ -3521,7 +3560,7 @@ mod tests {
 
     use super::*;
     use crate::adapters::people_files::PeopleFiles;
-    use crate::adapters::session_files::{NoSessionFiles, SessionFiles};
+    use crate::adapters::session_files::{NoSessionFiles, SessionFiles, tests::quiet};
     use crate::domain::diarization::{Part, Placed};
     use crate::domain::session::IMPORT;
     use crate::ports::{CompletionError, Message, Phrase};
@@ -3534,6 +3573,8 @@ mod tests {
         thinking: Option<&'static str>,
         deltas: Vec<&'static str>,
         fail: bool,
+        /// The HTTP status of the failure, when it is a provider's reply.
+        status: Option<u16>,
         delay: Duration,
         usage: Option<Usage>,
         calls: Calls,
@@ -3556,7 +3597,10 @@ mod tests {
                 items.push(Ok(Chunk::Usage(usage)));
             }
             if self.fail {
-                items.push(Err(CompletionError("429: rate limited".into())));
+                items.push(Err(match self.status {
+                    Some(status) => CompletionError::replied(status, format!("{status}: refused")),
+                    None => CompletionError::new("429: rate limited"),
+                }));
             }
             stream::iter(items)
                 .then(move |item| async move {
@@ -3639,17 +3683,23 @@ mod tests {
         slots: Vec<ContextSlot>,
     ) -> Arc<Setup> {
         let cheap = Model {
+            name: String::new(),
+            secret: None,
             llm: Arc::clone(&llm),
             id: "cheap/model".into(),
             settings: String::new(),
         };
         let translator = Model {
+            name: String::new(),
+            secret: None,
             llm: Arc::clone(&llm),
             id: "translate/model".into(),
             settings: String::new(),
         };
         Arc::new(Setup {
             model: Some(Model {
+                name: "default".into(),
+                secret: Some("openrouter".into()),
                 llm,
                 id: "default/model".into(),
                 settings: String::new(),
@@ -3662,6 +3712,7 @@ mod tests {
             },
             routes: json!({"meeting": {"transcription": "whisper", "chat": "default"}}),
             default_route: json!({"transcription": "whisper", "chat": "default"}),
+            disabled_models: json!({}),
             actions: vec![probe(), ask_action()],
             rules: crate::domain::prompts::DEFAULT_RULES.into(),
             reviewer: None,
@@ -3689,6 +3740,8 @@ mod tests {
         let mut setup = Arc::into_inner(setup(draft)).expect("only reference");
         setup.reviewer = Some(Reviewer {
             model: Model {
+                name: String::new(),
+                secret: None,
                 llm: Arc::new(reviewer.clone()),
                 id: "review/model".into(),
                 settings: String::new(),
@@ -3857,12 +3910,12 @@ mod tests {
     fn search_finds_what_was_said_however_it_is_written() {
         let directory = tempfile::tempdir().unwrap();
         let log: Arc<dyn SessionLog> = Arc::new(SessionFiles::new(directory.path().into()));
-        let mut said = Session::begin("Kickoff", "meeting", LIVE, "pt", log.writer());
+        let mut said = Session::begin("Kickoff", "meeting", LIVE, "pt", log.writer(quiet()));
         let heard = said.hear_at("Eles", "A reunião de prazo fica para sexta.", now());
-        let mut removed = Session::begin("Daily", "meeting", LIVE, "pt", log.writer());
+        let mut removed = Session::begin("Daily", "meeting", LIVE, "pt", log.writer(quiet()));
         let line = removed.hear_at("Eles", "O prazo mudou.", now());
         removed.unhear("Eles", line.at);
-        let mut noted = Session::begin("Ideias", "idea", LIVE, "pt", log.writer());
+        let mut noted = Session::begin("Ideias", "idea", LIVE, "pt", log.writer(quiet()));
         noted.note("Revisar PRAZOS com o time");
         let (assistant, events) = with_log(&llm(&[]), log, false);
         let found = |query: &str| {
@@ -3896,9 +3949,9 @@ mod tests {
     fn tags_are_added_renamed_and_deleted_across_stored_sessions() {
         let directory = tempfile::tempdir().unwrap();
         let log: Arc<dyn SessionLog> = Arc::new(SessionFiles::new(directory.path().into()));
-        let first = Session::begin("Kickoff", "meeting", LIVE, "pt", log.writer()).id;
-        let second = Session::begin("Daily", "meeting", LIVE, "pt", log.writer()).id;
-        let third = Session::begin("Ideias", "idea", LIVE, "pt", log.writer()).id;
+        let first = Session::begin("Kickoff", "meeting", LIVE, "pt", log.writer(quiet())).id;
+        let second = Session::begin("Daily", "meeting", LIVE, "pt", log.writer(quiet())).id;
+        let third = Session::begin("Ideias", "idea", LIVE, "pt", log.writer(quiet())).id;
         let (assistant, events) = with_log(&llm(&[]), Arc::clone(&log), false);
         let last = || events.lock().unwrap().last().unwrap().clone();
         let tags_of = |id: &str| {
@@ -3996,6 +4049,8 @@ mod tests {
         let (assistant, events) = with_log(&answers, Arc::clone(&log), false);
         let mut on = Arc::into_inner(setup(&answers)).expect("only reference");
         on.translation.model = Some(Model {
+            name: String::new(),
+            secret: None,
             llm: Arc::new(english.clone()),
             id: "translate/model".into(),
             settings: String::new(),
@@ -4287,7 +4342,7 @@ mod tests {
         let events: Events = Arc::default();
         let sink = Arc::clone(&events);
         let emit: Emit = Arc::new(move |event| sink.lock().unwrap().push(event));
-        let mut stored = Session::begin("Entrevista", "meeting", LIVE, "pt", log.writer());
+        let mut stored = Session::begin("Entrevista", "meeting", LIVE, "pt", log.writer(quiet()));
         stored.hear_at("Recrutador", "Como você migrou?", now());
         let fake = llm(&["ok"]);
         let assistant = Assistant::new(emit, log.clone(), store, no_hooks());
@@ -4322,8 +4377,13 @@ mod tests {
         let (assistant, _) = with_log(&fake, log.clone(), false);
         let ids: Vec<String> = (0..=LOADED_STORED)
             .map(|n| {
-                let mut stored =
-                    Session::begin(&format!("Reunião {n}"), "meeting", LIVE, "pt", log.writer());
+                let mut stored = Session::begin(
+                    &format!("Reunião {n}"),
+                    "meeting",
+                    LIVE,
+                    "pt",
+                    log.writer(quiet()),
+                );
                 stored.hear_at("Ana", &format!("Linha {n}."), now());
                 stored.id.clone()
             })
@@ -4368,8 +4428,13 @@ mod tests {
         let (assistant, events) = with_log(&fake, log.clone(), false);
         let ids: Vec<String> = (0..=LOADED_STORED)
             .map(|n| {
-                let mut stored =
-                    Session::begin(&format!("Reunião {n}"), "meeting", LIVE, "pt", log.writer());
+                let mut stored = Session::begin(
+                    &format!("Reunião {n}"),
+                    "meeting",
+                    LIVE,
+                    "pt",
+                    log.writer(quiet()),
+                );
                 stored.hear_at("Ana", "Bom dia.", now());
                 stored.id.clone()
             })
@@ -4395,7 +4460,7 @@ mod tests {
         let events: Events = Arc::default();
         let sink = Arc::clone(&events);
         let emit: Emit = Arc::new(move |event| sink.lock().unwrap().push(event));
-        let mut stored = Session::begin("Daily", "meeting", LIVE, "pt", log.writer());
+        let mut stored = Session::begin("Daily", "meeting", LIVE, "pt", log.writer(quiet()));
         let answer = stored.suggest("probe", "m", "probe", "Pedido");
         stored.finish(&answer.id);
         // A daemon started after the answer was kept: nothing is loaded.
@@ -4744,6 +4809,8 @@ mod tests {
         named.models.insert(
             "cheap".into(),
             Model {
+                name: String::new(),
+                secret: None,
                 llm: Arc::new(cheap.clone()),
                 id: "cheap/model".into(),
                 settings: String::new(),
@@ -4820,7 +4887,7 @@ mod tests {
         assert!(costed, "clients are told what it cost now");
 
         // A request billed before the daemon stopped is priced with the next setup.
-        let mut stopped = Session::begin("Call", "meeting", LIVE, "pt", log.writer());
+        let mut stopped = Session::begin("Call", "meeting", LIVE, "pt", log.writer(quiet()));
         stopped.bill("r0", "whisper", (30.0, 1.0), now());
         assistant.configure(billed_by(&llm, &charges));
         tokio::time::sleep(Duration::from_secs(6)).await;
@@ -4831,7 +4898,7 @@ mod tests {
         assert_eq!(summary["cost"]["transcription_unknown"], false);
 
         // An imported file, a request per segment, is priced once it is in.
-        let mut imported = Session::begin("Aula", "other", IMPORT, "pt", log.writer());
+        let mut imported = Session::begin("Aula", "other", IMPORT, "pt", log.writer(quiet()));
         imported.transcribe_with(HeardBy::Model("whisper".into(), 1, None));
         imported.bill("s1", "whisper", (9.0, 1.0), now());
         imported.bill("s2", "whisper", (4.0, 1.0), now());
@@ -4955,6 +5022,8 @@ mod tests {
 
     fn named(id: &str) -> Model {
         Model {
+            name: String::new(),
+            secret: None,
             llm: Arc::new(llm(&[])),
             id: id.into(),
             settings: String::new(),
@@ -5044,6 +5113,8 @@ mod tests {
         let (assistant, events) = make(&answers, false);
         let mut answering = Arc::into_inner(chatless(&answers)).expect("only reference");
         let local = Model {
+            name: String::new(),
+            secret: None,
             llm: Arc::new(answers.clone()),
             id: "local/model".into(),
             settings: String::new(),
@@ -5082,6 +5153,8 @@ mod tests {
         let (assistant, _) = make(&paid, false);
         let mut own = Arc::into_inner(reviewed(&paid, &paid, false)).expect("only reference");
         let model = Model {
+            name: String::new(),
+            secret: None,
             llm: Arc::new(local.clone()),
             id: "local/model".into(),
             settings: String::new(),
@@ -5188,8 +5261,13 @@ mod tests {
     fn stored(log: &SessionFiles) -> Vec<String> {
         (0..3)
             .map(|n| {
-                let mut session =
-                    Session::begin(&format!("Reunião {n}"), "meeting", LIVE, "pt", log.writer());
+                let mut session = Session::begin(
+                    &format!("Reunião {n}"),
+                    "meeting",
+                    LIVE,
+                    "pt",
+                    log.writer(quiet()),
+                );
                 session.hear_at("Ana", "Bom dia.", now());
                 session.id.clone()
             })
@@ -5366,7 +5444,8 @@ mod tests {
         // It names the answer that failed, so a client can show why on that answer.
         assert_eq!(
             failure["params"],
-            json!({"id": removed["id"], "action": "ask", "detail": "429: rate limited"})
+            json!({"id": removed["id"], "action": "ask", "detail": "429: rate limited",
+                "model": "default", "secret": "openrouter"})
         );
         assert!(shown_timeline(&assistant).is_empty());
     }
@@ -5810,7 +5889,7 @@ mod tests {
     async fn a_stored_session_left_open_that_no_daemon_holds_is_interrupted() {
         let directory = tempfile::tempdir().unwrap();
         let log = Arc::new(SessionFiles::new(directory.path().into()));
-        let mut left = Session::begin("Left", "meeting", LIVE, "pt", log.writer());
+        let mut left = Session::begin("Left", "meeting", LIVE, "pt", log.writer(quiet()));
         left.set_state(PAUSED);
         let fake = llm(&[]);
         let (assistant, events) = with_log(&fake, log.clone(), false);
@@ -5908,7 +5987,7 @@ mod tests {
             ("Retro", [[0.95, 0.05], [0.0, 1.0]]),
         ];
         for (title, voices) in sessions {
-            let mut session = Session::begin(title, "meeting", IMPORT, "pt", log.writer());
+            let mut session = Session::begin(title, "meeting", IMPORT, "pt", log.writer(quiet()));
             session.hear_at("Eu", "Bom dia.", now());
             session.hear_at("Eu", "Oi.", now());
             session.assign_speakers(&["Speaker 1".into(), "Speaker 2".into()]);
@@ -6043,7 +6122,7 @@ mod tests {
         let sink = Arc::clone(&events);
         let emit: Emit = Arc::new(move |event| sink.lock().unwrap().push(event));
         let assistant = Assistant::new(emit, log.clone(), store.clone(), no_hooks());
-        let mut session = Session::begin("Aula", "meeting", IMPORT, "en", log.writer());
+        let mut session = Session::begin("Aula", "meeting", IMPORT, "en", log.writer(quiet()));
         session.hear_at("Eu", "Hello.", now());
         session.assign_speakers(&["Speaker 1".into()]);
         let id = session.id.clone();
@@ -6092,7 +6171,7 @@ mod tests {
 
         // Two voices among the others: the input's first keeps its label, the
         // other's lines move as they are known, and nobody is named.
-        let mut call = Session::begin("Call", "meeting", LIVE, "pt", log.writer());
+        let mut call = Session::begin("Call", "meeting", LIVE, "pt", log.writer(quiet()));
         call.hear_at("Eles", "Oi.", 10.0);
         call.hear_at("Eu", "Olá.", 11.0);
         call.hear_at("Eles", "Tudo bem?", 12.0);
@@ -6179,7 +6258,7 @@ mod tests {
         assert_eq!(prints[1].voice, normalized(vec![0.8, 0.6, 0.0]));
 
         // One voice keeps the participant's label, and is guessed too.
-        let mut chat = Session::begin("Chat", "meeting", LIVE, "pt", log.writer());
+        let mut chat = Session::begin("Chat", "meeting", LIVE, "pt", log.writer(quiet()));
         chat.hear_at("Eles", "Bom dia.", 30.0);
         let mut labels = Labels::default();
         assistant.voices_heard(
@@ -6269,7 +6348,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let people = people_in(directory.path());
         let (assistant, events, log) = stored_with(directory.path(), people.clone());
-        let mut call = Session::begin("Call", "meeting", LIVE, "pt", log.writer());
+        let mut call = Session::begin("Call", "meeting", LIVE, "pt", log.writer(quiet()));
         call.hear_at("Eles", "Oi.", 10.0);
         call.hear_at("Eles", "Tudo bem?", 12.0);
         call.hear_at("Eles", "Vamos.", 14.0);
@@ -6363,7 +6442,7 @@ mod tests {
     fn lines_a_recluster_moved_change_speaker_unless_both_are_named() {
         let directory = tempfile::tempdir().unwrap();
         let (assistant, events, log) = stored_with(directory.path(), people_in(directory.path()));
-        let mut call = Session::begin("Call", "meeting", LIVE, "pt", log.writer());
+        let mut call = Session::begin("Call", "meeting", LIVE, "pt", log.writer(quiet()));
         for (at, text) in [
             (10.0, "Oi."),
             (12.0, "Tudo bem?"),
@@ -6429,7 +6508,7 @@ mod tests {
         let emit: Emit = Arc::new(move |event| sink.lock().unwrap().push(event));
         let assistant = Assistant::new(emit, log.clone(), people.clone(), no_hooks());
         for source in [LIVE, IMPORT] {
-            let mut session = Session::begin(source, "meeting", source, "en", log.writer());
+            let mut session = Session::begin(source, "meeting", source, "en", log.writer(quiet()));
             session.hear_at("Others", "Hello.", now());
             session.rename_speaker("Others", "Ana");
         }
@@ -7069,12 +7148,48 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn clients_hear_once_that_a_log_cannot_be_written_and_once_that_it_can() {
+        let directory = tempfile::tempdir().unwrap();
+        let sessions = directory.path().join("sessions");
+        std::fs::write(&sessions, "not a directory").unwrap();
+        let log: Arc<dyn SessionLog> = Arc::new(SessionFiles::new(sessions.clone()));
+        let (assistant, events) = with_log(&llm(&[]), log, false);
+        let id = assistant.start("Kickoff", "meeting", "pt", None);
+        assistant.pause(Some(&id));
+        let told = |kind: &str| -> Vec<Event> {
+            events
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|e| e["type"] == kind)
+                .cloned()
+                .collect()
+        };
+        let unsaved: Vec<_> = told("error")
+            .into_iter()
+            .filter(|e| e["code"] == "session.unsaved")
+            .collect();
+        assert_eq!(unsaved.len(), 1);
+        assert_eq!(unsaved[0]["params"]["session"], id);
+        assert!(told("session_saved").is_empty());
+
+        std::fs::remove_file(&sessions).unwrap();
+        std::fs::create_dir(&sessions).unwrap();
+        assistant.end(Some(&id));
+        assistant.end(Some(&id));
+        let saved = told("session_saved");
+        assert_eq!(saved.len(), 1);
+        assert_eq!(saved[0]["session"], id);
+        assert_eq!(saved[0]["dropped"], 0);
+    }
+
     /// A session log that cannot delete.
     struct Undeletable(SessionFiles);
 
     impl SessionLog for Undeletable {
-        fn writer(&self) -> crate::ports::RecordSink {
-            self.0.writer()
+        fn writer(&self, alert: crate::ports::LogAlert) -> crate::ports::RecordSink {
+            self.0.writer(alert)
         }
 
         fn index(
@@ -7089,8 +7204,12 @@ mod tests {
             self.0.read(session_id)
         }
 
-        fn append_to(&self, session_id: &str) -> Option<crate::ports::RecordSink> {
-            self.0.append_to(session_id)
+        fn append_to(
+            &self,
+            session_id: &str,
+            alert: crate::ports::LogAlert,
+        ) -> Option<crate::ports::RecordSink> {
+            self.0.append_to(session_id, alert)
         }
 
         fn storage(&self, session_id: &str) -> Option<crate::ports::SessionStorage> {
@@ -7175,7 +7294,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let people = people_in(directory.path());
         let (assistant, events, log) = stored_with(directory.path(), people.clone());
-        let mut call = Session::begin("Call", "meeting", LIVE, "pt", log.writer());
+        let mut call = Session::begin("Call", "meeting", LIVE, "pt", log.writer(quiet()));
         call.hear_at("Eles", "Oi.", 10.0);
         people.keep_voices(&call.id, &voice(&[1.0, 0.0])).unwrap();
         assistant.assign_person(&call.id, "Eles", None, "Ana", None);
@@ -7211,7 +7330,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let people = people_in(directory.path());
         let (assistant, events, log) = stored_with(directory.path(), people.clone());
-        let mut call = Session::begin("Call", "meeting", LIVE, "pt", log.writer());
+        let mut call = Session::begin("Call", "meeting", LIVE, "pt", log.writer(quiet()));
         call.hear_at("Eles", "Oi.", 10.0);
         let id = call.id.clone();
 
@@ -7272,10 +7391,10 @@ mod tests {
             refusing: Default::default(),
         });
         let (assistant, events, log) = stored_with(directory.path(), people.clone());
-        let mut call = Session::begin("Call", "meeting", LIVE, "pt", log.writer());
+        let mut call = Session::begin("Call", "meeting", LIVE, "pt", log.writer(quiet()));
         call.hear_at("Eles", "Oi.", 10.0);
         call.hear_at("Eu", "Olá.", 11.0);
-        let mut other = Session::begin("Other", "meeting", LIVE, "pt", log.writer());
+        let mut other = Session::begin("Other", "meeting", LIVE, "pt", log.writer(quiet()));
         other.hear_at("Eles", "Bom dia.", 5.0);
         people.keep_voices(&call.id, &voice(&[1.0, 0.0])).unwrap();
         people.keep_voices(&other.id, &voice(&[1.0, 0.0])).unwrap();
@@ -7321,7 +7440,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let people = people_in(directory.path());
         let (assistant, events, log) = stored_with(directory.path(), people.clone());
-        let mut call = Session::begin("Call", "meeting", LIVE, "pt", log.writer());
+        let mut call = Session::begin("Call", "meeting", LIVE, "pt", log.writer(quiet()));
         call.hear_at("Eles", "Oi.", 10.0);
         let mut labels = Labels::default();
         assistant.voices_heard(&call.id, "Eles", &alone(10.0, &[1.0, 0.0]), &mut labels);
@@ -7364,7 +7483,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let log = Arc::new(Undeletable(SessionFiles::new(directory.path().into())));
         let (assistant, events, log) = stored_in(log, people_in(directory.path()));
-        let id = Session::begin("Call", "meeting", LIVE, "pt", log.writer()).id;
+        let id = Session::begin("Call", "meeting", LIVE, "pt", log.writer(quiet())).id;
         assistant.delete_session(&id);
         let failed = events.lock().unwrap().last().unwrap().clone();
         assert_eq!(
@@ -7388,7 +7507,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let people = people_in(directory.path());
         let (assistant, events, log) = stored_with(directory.path(), people.clone());
-        let mut call = Session::begin("Call", "meeting", LIVE, "pt", log.writer());
+        let mut call = Session::begin("Call", "meeting", LIVE, "pt", log.writer(quiet()));
         for at in [10.0, 11.0, 12.0] {
             call.hear_at("Eles", "Oi.", at);
         }
@@ -7482,7 +7601,7 @@ mod tests {
     async fn a_timeline_comes_in_pages_that_say_what_is_left() {
         let directory = tempfile::tempdir().unwrap();
         let (assistant, events, log) = stored_with(directory.path(), people_in(directory.path()));
-        let mut stored = Session::begin("Long", "meeting", LIVE, "pt", log.writer());
+        let mut stored = Session::begin("Long", "meeting", LIVE, "pt", log.writer(quiet()));
         for i in 0..5 {
             stored.hear_at("Eles", &format!("fala {i}"), 100.0 + f64::from(i));
         }
@@ -7577,7 +7696,7 @@ mod tests {
         assert_eq!(count(&events, "translated"), 1, "the line, not the note");
 
         // A stored session that translates gets what it lacks when shown.
-        let mut kept = Session::begin("Kept", "meeting", LIVE, "pt", log.writer());
+        let mut kept = Session::begin("Kept", "meeting", LIVE, "pt", log.writer(quiet()));
         kept.set_translation("en");
         kept.hear_at("Eles", "Bom dia.", now());
         kept.set_state(ENDED);
@@ -7586,7 +7705,7 @@ mod tests {
         assert_eq!(last_of(&events, "translated")["session"], json!(kept.id));
 
         // An import still running is not resumed.
-        let importing = Session::begin("Import", "meeting", IMPORT, "pt", log.writer());
+        let importing = Session::begin("Import", "meeting", IMPORT, "pt", log.writer(quiet()));
         assistant.reopen(&importing.id);
         assert_eq!(last_code(&events), "session.not_resumable");
 
@@ -7606,7 +7725,7 @@ mod tests {
             .map(|tag| {
                 // Titles apart: one second and one title name one file.
                 let title = format!("Call {tag}");
-                let id = Session::begin(&title, "meeting", LIVE, "pt", log.writer()).id;
+                let id = Session::begin(&title, "meeting", LIVE, "pt", log.writer(quiet())).id;
                 assistant.tag(&id, tag, true);
                 id
             })
@@ -7791,6 +7910,59 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn an_answer_refused_for_its_key_or_model_says_which_in_its_code() {
+        for (status, code) in [
+            (401, "completion.credential"),
+            (402, "completion.credential"),
+            (403, "completion.credential"),
+            (404, "completion.model_missing"),
+            (500, "completion.failed"),
+        ] {
+            let fake = FakeLlm {
+                fail: true,
+                status: Some(status),
+                ..llm(&[])
+            };
+            let (assistant, events) = make(&fake, true);
+            assistant.trigger(None, "ask");
+            settle().await;
+            let failed = last_of(&events, "error");
+            assert_eq!(failed["code"], code, "{status}");
+            assert_eq!(failed["params"]["model"], "default");
+            assert_eq!(failed["params"]["secret"], "openrouter");
+            assert_eq!(failed["params"]["detail"], format!("{status}: refused"));
+        }
+    }
+
+    #[tokio::test]
+    async fn a_translation_refused_for_its_key_says_so_in_its_code() {
+        let answers = llm(&[]);
+        let broken = FakeLlm {
+            fail: true,
+            status: Some(401),
+            ..llm(&[])
+        };
+        let (assistant, events) = make(&answers, false);
+        let mut on = Arc::into_inner(setup(&answers)).expect("only reference");
+        on.translation.model = Some(Model {
+            name: "translator".into(),
+            secret: None,
+            llm: Arc::new(broken),
+            id: "translate/model".into(),
+            settings: String::new(),
+        });
+        assistant.configure(Arc::new(on));
+        let id = assistant.start("Daily", "meeting", "pt", None);
+        assistant.set_translation(&id, "en");
+        assistant.hear(&heard(), &utterance("Recrutador", "Bom dia."));
+        settle().await;
+        let failed = last_of(&events, "error");
+        // A model with no secret has its own code, so the text names none.
+        assert_eq!(failed["code"], "translation.refused");
+        assert_eq!(failed["params"]["model"], "translator");
+    }
+
+    #[tokio::test]
     async fn a_translation_that_fails_says_why_and_keeps_nothing() {
         let answers = llm(&[]);
         let broken = FakeLlm {
@@ -7801,6 +7973,8 @@ mod tests {
         let (assistant, events) = make(&answers, false);
         let mut on = Arc::into_inner(setup(&answers)).expect("only reference");
         on.translation.model = Some(Model {
+            name: String::new(),
+            secret: None,
             llm: Arc::new(broken.clone()),
             id: "translate/model".into(),
             settings: String::new(),
@@ -7859,7 +8033,7 @@ mod tests {
         let ana = Person::new("Ana");
         people.save(&ana).unwrap();
         let (assistant, _, log) = stored_with(directory.path(), people.clone());
-        let mut session = Session::begin("Kickoff", "meeting", LIVE, "pt", log.writer());
+        let mut session = Session::begin("Kickoff", "meeting", LIVE, "pt", log.writer(quiet()));
         session.tag("Q3");
         session.set_state(ENDED);
         let id = session.id.clone();

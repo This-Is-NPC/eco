@@ -1,7 +1,7 @@
 //! One audio source, segmented and transcribed — or only measured.
 
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::task::{Poll, Waker};
 use std::time::Duration;
@@ -13,8 +13,8 @@ use tokio::time::{Instant, sleep};
 use crate::domain::loudness::loudness;
 use crate::domain::segmenter::{Segment, Segmenter, SegmenterConfig};
 use crate::ports::{
-    AudioError, AudioSource, FRAME_SAMPLES, Frame, Heard, Phrase, SAMPLE_RATE, SpeechToText,
-    StreamingSpeechToText, Transcript, TranscriptionError, Word,
+    AudioError, AudioSource, FRAME_SAMPLES, Frame, Heard, Phrase, Refusal, SAMPLE_RATE,
+    SpeechToText, StreamingSpeechToText, Transcript, TranscriptionError, Word,
 };
 
 /// How a channel's speech becomes text: segment by segment, or as one stream
@@ -91,6 +91,10 @@ pub enum Trouble {
     /// A connection takes the audio again, after `down`; `dropped` seconds of
     /// audio heard meanwhile were lost. For a source, it is heard again.
     Back { down: Duration, dropped: f64 },
+    /// The provider refused the key or the model: why. It is not tried again
+    /// until the transcription starts anew; the audio goes on being held, within
+    /// its bound, until the capture ends.
+    Refused(Refusal, String),
     /// The source itself cannot be heard — it failed to open or stopped: why.
     /// It is opened again until it is back.
     Unheard(String),
@@ -284,8 +288,7 @@ pub async fn transcribe(
 
 /// Send one segment to the STT, trying again after each of `RETRY_DELAYS` while
 /// it fails, within `RETRY_WITHIN`; the clip stays in memory. Every error is
-/// tried again: a `TranscriptionError` is only the provider's text, which does
-/// not tell a refused key from a dropped connection.
+/// tried again except a refusal, which no retry changes.
 async fn transcribe_segment(
     stt: &dyn SpeechToText,
     pcm: &[i16],
@@ -295,6 +298,7 @@ async fn transcribe_segment(
     loop {
         let error = match stt.transcribe(pcm).await {
             Ok(transcript) => return Ok(transcript),
+            Err(error) if error.refusal.is_some() => return Err(error),
             Err(error) => error,
         };
         match delays.next() {
@@ -318,13 +322,22 @@ async fn by_segment(
             Captured::Frame(..) | Captured::Unheard => None,
         })
     });
+    // Set once the provider refused: the segments after it are not sent.
+    let refused = AtomicBool::new(false);
     let mut transcribed = segments
-        .map(|(segment, ended)| async move {
-            let result = transcribe_segment(stt, &segment.pcm).await;
-            (segment, ended, result)
+        .map(|(segment, ended)| {
+            let refused = &refused;
+            async move {
+                if refused.load(Ordering::Relaxed) {
+                    return (segment, ended, None);
+                }
+                let result = transcribe_segment(stt, &segment.pcm).await;
+                (segment, ended, Some(result))
+            }
         })
         .buffered(SEGMENTS_AT_ONCE);
     while let Some((segment, ended, result)) = transcribed.next().await {
+        let Some(result) = result else { continue };
         if let Ok(Transcript {
             request: Some(request),
             ..
@@ -343,7 +356,15 @@ async fn by_segment(
                 });
             }
             Ok(_) => {}
-            Err(error) => (listeners.trouble)(who, Trouble::Failed(error.0)),
+            Err(TranscriptionError {
+                why,
+                refusal: Some(refusal),
+            }) => {
+                if !refused.swap(true, Ordering::Relaxed) {
+                    (listeners.trouble)(who, Trouble::Refused(refusal, why));
+                }
+            }
+            Err(error) => (listeners.trouble)(who, Trouble::Failed(error.why)),
         }
     }
 }
@@ -505,7 +526,7 @@ async fn streamed(
                             latency: since.saturating_sub(spoken),
                         });
                     }
-                    Err(error) => failure = Some(error.0),
+                    Err(error) => failure = Some(error),
                 }
             }
             drop(heard);
@@ -517,8 +538,19 @@ async fn streamed(
                 let held = held.lock().unwrap();
                 (held.ended && held.frames.is_empty(), held.unheard)
             };
+            if let Some(TranscriptionError {
+                why,
+                refusal: Some(refusal),
+            }) = &failure
+            {
+                // No connection can change this: tell once, and hold the audio
+                // within its bound until the capture ends.
+                (listeners.trouble)(who, Trouble::Refused(*refusal, why.clone()));
+                capture_ended(&held).await;
+                break;
+            }
             if down.is_none() && !unheard && (failure.is_some() || !over) {
-                let why = failure.unwrap_or_else(|| CLOSED.into());
+                let why = failure.map_or_else(|| CLOSED.into(), |error| error.why);
                 (listeners.trouble)(who, Trouble::Down(why));
                 down = Some(Instant::now());
             }
@@ -562,10 +594,9 @@ async fn heard(held: &Mutex<Held>) -> bool {
     .await
 }
 
-/// Wait `wait` before a stream is opened again; false as soon as the capture
-/// ends.
-async fn pause(held: &Mutex<Held>, wait: Duration) -> bool {
-    let ended = futures::future::poll_fn(|context| {
+/// Wait until the capture ends.
+async fn capture_ended(held: &Mutex<Held>) {
+    futures::future::poll_fn(|context| {
         let mut held = held.lock().unwrap();
         if held.ended {
             Poll::Ready(())
@@ -573,10 +604,16 @@ async fn pause(held: &Mutex<Held>, wait: Duration) -> bool {
             held.waiting = Some(context.waker().clone());
             Poll::Pending
         }
-    });
+    })
+    .await;
+}
+
+/// Wait `wait` before a stream is opened again; false as soon as the capture
+/// ends.
+async fn pause(held: &Mutex<Held>, wait: Duration) -> bool {
     tokio::select! {
         () = sleep(wait) => true,
-        () = ended => false,
+        () = capture_ended(held) => false,
     }
 }
 
@@ -618,6 +655,8 @@ mod tests {
     /// `failing` fails that many times first, each failure after `slow`.
     #[derive(Default)]
     struct FakeStt {
+        /// The HTTP status its failures carry, if any.
+        status: Option<u16>,
         calls: Mutex<Vec<usize>>,
         failing: Mutex<HashMap<i16, usize>>,
         slow: Duration,
@@ -644,7 +683,10 @@ mod tests {
                     .is_some();
                 if fails {
                     sleep(self.slow).await;
-                    return Err(TranscriptionError("down".into()));
+                    return Err(match self.status {
+                        Some(status) => TranscriptionError::replied(status, "down"),
+                        None => TranscriptionError::new("down"),
+                    });
                 }
                 if pcm.iter().all(|&sample| sample == 0) {
                     return Ok(Transcript {
@@ -703,6 +745,7 @@ mod tests {
             Trouble::Failed(why) => format!("{who}: {why}"),
             Trouble::Down(why) => format!("{who}: down: {why}"),
             Trouble::Unheard(why) => format!("{who}: unheard: {why}"),
+            Trouble::Refused(refusal, why) => format!("{who}: refused {refusal:?}: {why}"),
             Trouble::Back { down, dropped } => format!(
                 "{who}: back after {:.3} s, dropped {dropped:.3} s",
                 down.as_secs_f64()
@@ -877,6 +920,34 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
+    async fn a_refused_key_is_not_tried_again_nor_the_segments_after_it() {
+        let stt = FakeStt {
+            status: Some(401),
+            ..failing(1, usize::MAX)
+        };
+        let run = segments_run(&stt, &[1; 6]).await;
+        // Told at once and once; the segments after it are not sent.
+        assert_eq!(
+            run.errors,
+            [("them: refused Credential: down".to_string(), Duration::ZERO)]
+        );
+        assert_eq!(stt.calls.lock().unwrap().len(), 1);
+        assert!(run.utterances.is_empty());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_segment_failing_with_a_server_error_is_tried_again() {
+        let stt = FakeStt {
+            status: Some(503),
+            ..failing(1, 2)
+        };
+        let run = segments_run(&stt, &[1]).await;
+        assert!(run.errors.is_empty());
+        assert_eq!(stt.calls.lock().unwrap().len(), 3);
+        assert_eq!(run.utterances.len(), 1);
+    }
+
+    #[tokio::test(start_paused = true)]
     async fn a_segment_that_keeps_failing_is_reported_once_and_the_next_is_heard() {
         let stt = failing(1, usize::MAX);
         let run = segments_run(&stt, &[1, 2]).await;
@@ -986,6 +1057,9 @@ mod tests {
         closes: bool,
         slow_open: Duration,
         idle: Option<Duration>,
+        /// From which connection on the provider answers the handshake with
+        /// this HTTP status.
+        answers: Option<(usize, u16)>,
         /// When each connection was opened.
         opened: Mutex<Vec<Instant>>,
     }
@@ -998,6 +1072,7 @@ mod tests {
             closes,
             slow_open: Duration::ZERO,
             idle: None,
+            answers: None,
             opened: Mutex::new(Vec::new()),
         }
     }
@@ -1013,9 +1088,13 @@ mod tests {
                 *connections += 1;
                 *connections
             };
-            if connection <= self.refused {
-                return stream::once(async { Err(TranscriptionError("unreachable".into())) })
+            if let Some((_, status)) = self.answers.filter(|(from, _)| connection >= *from) {
+                let why = format!("HTTP error: {status}");
+                return stream::once(async move { Err(TranscriptionError::replied(status, why)) })
                     .boxed();
+            }
+            if connection <= self.refused {
+                return stream::once(async { Err(TranscriptionError::new("unreachable")) }).boxed();
             }
             let limit = self
                 .drop_after
@@ -1025,7 +1104,7 @@ mod tests {
                 let mut frames = frames?;
                 match tokio::time::timeout(idle, frames.next()).await {
                     Ok(frame) => frame.map(|frame| (Ok(frame), Some(frames))),
-                    Err(_) => Some((Err(TranscriptionError("no audio".into())), None)),
+                    Err(_) => Some((Err(TranscriptionError::new("no audio")), None)),
                 }
             });
             let counted = frames.enumerate().take_while(move |(index, _)| {
@@ -1062,7 +1141,7 @@ mod tests {
             match limit {
                 Some(_) if !self.closes => phrases
                     .chain(stream::once(async {
-                        Err(TranscriptionError("connection reset".into()))
+                        Err(TranscriptionError::new("connection reset"))
                     }))
                     .boxed(),
                 _ => phrases.boxed(),
@@ -1245,6 +1324,83 @@ mod tests {
         assert_eq!(run.ends[..2], ["0.80", "1.60"]);
         assert_eq!(run.ends[2], format!("{:.2}", (61 + 25) as f64 * 0.032));
         assert_eq!(run.ends.len(), 2 + (300 - 61) / 25);
+    }
+
+    /// A provider that drops its first connection and answers every one after
+    /// it with `status`, over 300 frames.
+    async fn answering(status: u16) -> Paced {
+        let stt = FakeStream {
+            answers: Some((2, status)),
+            ..fake_stream(0, Some(60), false)
+        };
+        paced_run(&stt, 300).await
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_key_refused_on_reconnect_stops_the_stream_and_tells_once() {
+        for (status, refusal) in [
+            (401, "Credential"),
+            (402, "Credential"),
+            (403, "Credential"),
+            (404, "NotFound"),
+        ] {
+            let run = answering(status).await;
+            // No third connection, however long the capture runs on.
+            assert_eq!(run.opened, [0.032, 2.952], "{status}");
+            assert_eq!(
+                run.errors,
+                [
+                    "1.952 them: down: connection reset".to_string(),
+                    format!("2.952 them: refused {refusal}: HTTP error: {status}"),
+                ],
+            );
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_provider_that_fails_with_a_server_error_is_still_tried_again() {
+        for status in [429, 500, 502, 503] {
+            let run = answering(status).await;
+            assert!(run.opened.len() > 3, "{status}: {:?}", run.opened);
+            assert_eq!(
+                run.errors,
+                ["1.952 them: down: connection reset"],
+                "one outage, told once"
+            );
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_stream_refused_from_its_first_connection_stops_without_waiting() {
+        let stt = FakeStream {
+            answers: Some((1, 401)),
+            ..fake_stream(0, None, false)
+        };
+        let run = paced_run(&stt, 300).await;
+        assert_eq!(run.opened, [0.032]);
+        assert_eq!(
+            run.errors,
+            ["0.032 them: refused Credential: HTTP error: 401"]
+        );
+        // The capture ends by itself; nothing waits on the provider.
+        assert!(run.over < 10.0, "{}", run.over);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn audio_held_by_a_stopped_stream_is_dropped_and_said_at_the_bound() {
+        let stt = FakeStream {
+            answers: Some((1, 401)),
+            ..fake_stream(0, None, false)
+        };
+        // Past the bound of 5 minutes: the oldest audio goes and is said once.
+        let run = paced_run(&stt, HELD_FRAMES + 100).await;
+        assert_eq!(run.opened, [0.032]);
+        assert_eq!(run.errors.len(), 2, "{:?}", run.errors);
+        assert!(
+            run.errors[1].contains("dropped 3 s of audio"),
+            "{:?}",
+            run.errors
+        );
     }
 
     #[tokio::test(start_paused = true)]

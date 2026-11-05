@@ -77,7 +77,7 @@ ModalDialog {
       ["Esc", "keys.close"]
     ]],
     ["keys.settings_window", [
-      ["1…9 · Ctrl+1…9", "keys.tabs"],
+      ["1…9 · 0 · Ctrl+1…9 · Ctrl+0", "keys.tabs"],
       ["Ctrl+Tab · Ctrl+Shift+Tab", "keys.tabs_turn"],
       ["↑ · ↓ · Home · End", "keys.rail_move"],
       ["Enter · Space", "keys.rail_choose"],

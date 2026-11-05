@@ -81,17 +81,19 @@ Then, in the window:
 
 1. `SUPER+ALT+C` opens the settings, a section at a time down the left, each
    a table: a value in a row saves at once; an item opens, **EDIT**, **SAVE**.
-   **Audio** first: a row per device. On the default microphone, **HEARD AS**
-   › **New source…** names a source for you; under **AUDIO SOURCES**, light its
-   **YOU**. On the default output — what the laptop plays — **New source…**
-   names one for everybody else.
-2. **Models**: a transcription model and, for answers and translation, a chat
-   model, each named once; pick one and press **DEFAULT FOR TRANSCRIPTION**,
-   or **DEFAULT FOR CHAT**. eco records and transcribes with no chat model. Their
-   keys come from the daemon's environment (`OPENROUTER_API_KEY`,
-   `DEEPGRAM_API_KEY`, `ELEVEN_LABS_API_KEY`, `GROQ_API_KEY`, `OPENAI_API_KEY`,
-   or one of yours named `ECO_<NAME>`, kept in `~/.config/uwsm/env`) or from
-   your omapass keyring, and **PICK A KEY** lists their names
+   **Audio** first: a row per device. A fresh install already hears you on the
+   default microphone (`Me`) and everybody else on the default output
+   (`Them`); change them there if you want other sources.
+2. **Secrets**, **Providers**, **Models**: a secret says where a key lives
+   (the daemon's environment — `OPENROUTER_API_KEY`, `DEEPGRAM_API_KEY`,
+   `ELEVEN_LABS_API_KEY`, `GROQ_API_KEY`, or one of yours named `ECO_<NAME>`,
+   kept in `~/.config/uwsm/env` — or your omapass keyring; **PICK A KEY**
+   lists the names); a provider is an address and the secret its requests
+   carry; a model is registered once on a provider, chat or transcription.
+   eco adds entries for OpenRouter, Deepgram, ElevenLabs and Groq when it first runs,
+   which you edit or delete like your own, so with only a key set a session already transcribes and answers. In Models, pick
+   one and press **DEFAULT FOR TRANSCRIPTION** or **DEFAULT FOR CHAT**; **TEST**
+   checks it. eco records and transcribes with no chat model
    ([how to register models](docs/how-to-register-models.md)).
 3. **NEW SESSION** on the start screen, or `SUPER+ALT+N` from anywhere: a title,
    a kind, a language, START.

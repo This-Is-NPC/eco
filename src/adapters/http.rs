@@ -6,6 +6,7 @@ use reqwest::{Client, ClientBuilder, RequestBuilder};
 use serde_json::Value;
 
 use crate::config::ConfigError;
+use crate::ports::TranscriptionError;
 
 /// How long a server may take to accept a connection.
 const CONNECT: Duration = Duration::from_secs(10);
@@ -24,6 +25,14 @@ pub fn client(timeout: Option<Duration>) -> reqwest::Result<Client> {
         None => builder(),
     }
     .build()
+}
+
+/// A failed request as a transcription error, classified by the status it carries.
+pub fn transcription_error(error: &reqwest::Error) -> TranscriptionError {
+    match error.status() {
+        Some(status) => TranscriptionError::replied(status.as_u16(), error.to_string()),
+        None => TranscriptionError::new(error.to_string()),
+    }
 }
 
 #[derive(Clone)]

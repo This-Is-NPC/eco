@@ -162,15 +162,15 @@ Singleton {
   // What each speaker of the open session is saying right now, not yet a line:
   // [{who, name, text}], from a streaming STT.
   property var partials: []
-  // Who -> its streaming transcription while down or just back: {state, code,
-  // detail, dropped_s, at}. Back goes with its next line, or ten seconds on.
+  // Who -> its streaming transcription (and "who · diarization" -> its diarizer)
+  // while down or just back: {who, state, code, detail, dropped_s, count, at}. Back goes with its next line, or ten seconds on.
   property var links: ({})
   // The sources to tell about, for TranscriptionStrip: {who, color, state, …}.
   readonly property var outages: Object.keys(links)
-    .filter(who => links[who].state === "down" || clock - links[who].at < 10)
-    .map(who => {
-      const input = inputs.find(item => item.participant === who)
-      return Object.assign({ who: who, color: input ? inputColor(input.id) : Theme.dim }, links[who])
+    .filter(key => links[key].state === "down" || clock - links[key].at < 10)
+    .map(key => {
+      const input = inputs.find(item => item.participant === links[key].who)
+      return Object.assign({ color: input ? inputColor(input.id) : Theme.dim }, links[key])
     })
   // Session id -> its speakers as the daemon last said: {label, name, person, voice, suggestions, guess, lines}.
   property var sessionSpeakers: ({})
@@ -269,14 +269,17 @@ Singleton {
   // The token the daemon gave this window: its config.set is the user's own.
   readonly property string token: Host.env("ECO_TOKEN") || ""
   // A change another client asked for, held until the user approves or rejects
-  // it ({id, hooks: [{action, command}], files, models: [{name, base_url,
-  // api_key_env, api_key_omapass, api_key_credential}]}), or null. The daemon says it again on
-  // connecting.
+  // it ({id, hooks: [{action, command}], files, secrets: [{name, env, omapass,
+  // credential}], providers: [{name, base_url, secret}]}), or null. The daemon
+  // says it again on connecting.
   property var pendingConfig: null
   // What the held change runs, sends and where, one line each.
   readonly property string pendingText: pendingConfig === null ? "" : pendingConfig.hooks.map(hook => I18n.t("pending.hook", hook))
     .concat(pendingConfig.files.map(file => I18n.t("pending.file", { path: file })))
-    .concat(pendingConfig.models.map(model => I18n.t(model.api_key_env ? "pending.model_env" : model.api_key_omapass ? "pending.model_omapass" : model.api_key_credential ? "pending.model_credential" : "pending.model_keyless", model)))
+    .concat(pendingConfig.providers.map(provider => {
+      const secret = pendingConfig.secrets.find(s => s.name === provider.secret) || {}
+      return I18n.t(secret.env ? "pending.provider_env" : secret.omapass ? "pending.provider_omapass" : secret.credential ? "pending.provider_credential" : "pending.provider_keyless", Object.assign({}, provider, secret, { name: provider.name }))
+    }))
     .join("\n")
   // Met again, the warning that the daemon was not reached goes. Gone, it
   // takes the held change with it, and a save under way never answers.
@@ -287,6 +290,7 @@ Singleton {
     }
     pendingConfig = null
     updateChecking = false
+    modelTests = {}
     if (configSaving) {
       configSaving = false
       configSaveFailed(I18n.t("start.offline"))
@@ -318,9 +322,15 @@ Singleton {
   // The error code that says why echo cancellation cannot run here, or "".
   property string echoCancelError: ""
   property string omapassPage: ""
-  // Provider presets by model type, from the daemon: {chat: [...], transcription: [...]},
-  // each {name, values} with the model fields it sets.
-  property var presets: ({ chat: [], transcription: [] })
+  // The system the daemon runs on, "linux", "windows" or "macos".
+  property string platform: "linux"
+  // Whether each secret resolves now, by name: {resolved, code?, params?}. Never the key.
+  property var secretStatus: ({})
+  // The models that wait for a key, by name: {code, params}.
+  property var disabledModels: ({})
+  // The test of each saved model, by name, while it runs and after: {busy: true},
+  // {ok: true, ms} or {ok: false, code, params, message}. Never a key.
+  property var modelTests: ({})
 
   // Asks the overlay to open the new-session dialog, e.g. from a shortcut.
   signal newSessionRequested()
@@ -775,17 +785,44 @@ Singleton {
     configSaving = true
     send("config.set " + JSON.stringify(Object.assign({ token: token }, draft)))
   }
-  // requestModels lists a provider's models, with its key from `section`.
-  function requestModels(target, section) {
+  // requestModels lists the models the saved provider `provider` offers.
+  function requestModels(target, provider) {
     if (!connected)
       return
     modelsLoading = Object.assign({}, modelsLoading, { [target]: true })
     modelsAsked = Object.assign({}, modelsAsked, { [target]: true })
-    send("models " + JSON.stringify({
-      target: target, base_url: section.base_url || "",
-      api_key_env: section.api_key_env || "", api_key_omapass: section.api_key_omapass || "",
-      api_key_credential: section.api_key_credential || ""
-    }))
+    send("models " + JSON.stringify({ target: target, provider: provider }))
+  }
+  // testModel asks the daemon for the smallest real request the saved model
+  // `name` answers; it may be billed, so it runs only when the user presses.
+  function testModel(name) {
+    if (!connected || (modelTests[name] || {}).busy)
+      return
+    modelTests = Object.assign({}, modelTests, { [name]: { busy: true } })
+    send("model.test " + JSON.stringify({ name: name }))
+  }
+  // Asks whether each secret resolves now.
+  function requestSecrets() { send("secrets") }
+  // The secret whose CHECK waits for the daemon's reply, "" when none does.
+  property string secretChecking: ""
+  // checkSecret asks again and, once the reply comes, tells what it found for `name`.
+  function checkSecret(name) {
+    secretChecking = name
+    requestSecrets()
+  }
+  // The text key that tells how to set a variable on the system the daemon runs on.
+  readonly property string setHintKey: platform === "windows" ? "secrets.set_windows" : platform === "macos" ? "secrets.set_macos" : "secrets.set_linux"
+  // The notice of the CHECK of the secret `name` after the reply `status`.
+  function secretChecked(name, status) {
+    const state = status[name]
+    if (state === undefined)
+      return
+    if (state.resolved)
+      return post([{ key: "secrets.checked_ok", args: { name: name } }], "success", {})
+    const parts = [{ key: "secrets.checked_no", args: { name: name } }, { key: "error." + state.code, args: state.params }]
+    if (state.code === "secret.env_unset")
+      parts.push({ key: setHintKey, args: { name: state.params.variable } })
+    post(parts, "error", {})
   }
   function requestOmapass() { send("omapass") }
   function requestKeys() { send("keys") }
@@ -1082,6 +1119,7 @@ Singleton {
       languageCodes = event.language_codes
       kinds = event.kinds
       kindModels = event.kind_models || {}
+      disabledModels = event.disabled_models || {}
       defaultModels = event.default_models || defaultModels
       contexts = event.contexts || []
       uiLanguage = event.ui_language
@@ -1286,12 +1324,16 @@ Singleton {
       }
       break
     }
-    case "transcription":
-      links = Object.assign({}, links, { [event.who]: {
-        state: event.state, code: event.code || "", detail: event.detail || "",
-        dropped_s: event.dropped_s || 0, at: Date.now() / 1000
+    case "transcription": {
+      // A diarizer behind is its own outage of the source, apart from its transcription.
+      const diarizing = (event.code || "").startsWith("diarization.")
+      links = Object.assign({}, links, { [diarizing ? event.who + " · diarization" : event.who]: {
+        who: event.who, state: event.state, code: event.code || "", detail: event.detail || "",
+        model: event.model || "", secret: event.secret || "",
+        dropped_s: event.dropped_s || 0, count: event.count || 0, at: Date.now() / 1000
       } })
       break
+    }
     case "transcript_partial":
       if (session !== null && event.session === session.id)
         speaking(event.who, event.name, event.text)
@@ -1437,8 +1479,7 @@ Singleton {
       break
     }
     case "config":
-      // Presets first: the settings draft is made from the config.
-      presets = event.presets
+      platform = event.platform
       config = event.config
       Theme.configure((config.ui || {}).appearance)
       devices = event.devices
@@ -1446,6 +1487,21 @@ Singleton {
       omapassPage = event.omapass.page
       credentialManager = event.credential_manager
       echoCancelError = event.echo_cancel || ""
+      // A result belongs to the model as it was saved.
+      modelTests = Object.keys(modelTests).filter(name => modelTests[name].busy).reduce((kept, name) => Object.assign(kept, { [name]: modelTests[name] }), {})
+      requestSecrets()
+      break
+    case "secrets":
+      secretStatus = event.status
+      if (secretChecking !== "") {
+        const checked = secretChecking
+        secretChecking = ""
+        secretChecked(checked, event.status)
+      }
+      break
+    case "model_test":
+      modelTests = Object.assign({}, modelTests, { [event.name]: event.ok ? { ok: true, ms: event.ms }
+        : { ok: false, code: event.code, params: event.params, message: event.message } })
       break
     case "devices":
       devices = event.devices
@@ -1467,7 +1523,7 @@ Singleton {
       post([{ key: "uninstall.stage." + event.stage, args: event }], event.stage === "failed" ? "error" : "info", { topic: "uninstall" })
       break
     case "config_pending":
-      pendingConfig = event.hooks.length + event.files.length + event.models.length > 0 ? event : null
+      pendingConfig = event.hooks.length + event.files.length + event.providers.length > 0 ? event : null
       break
     case "config_saved":
       configSaving = false
@@ -1531,9 +1587,18 @@ Singleton {
       const coded = event.code && I18n.has("error." + event.code)
       if (coded || event.message)
         post(coded ? [{ key: "error." + event.code, args: event.params || {} }] : [{ text: event.message }],
-          "error", { live: liveCodes.some(code => (event.code || "").startsWith(code)) })
+          "error", { live: liveCodes.some(code => (event.code || "").startsWith(code)),
+            topic: event.code === "session.unsaved" ? "unsaved " + about : "",
+            pinned: event.code === "session.unsaved" })
       break
     }
+    // A log that can be written again gives way to the notice that it could not.
+    case "session_saved":
+      removeNotices(notice => notice.topic === "unsaved " + event.session)
+      if (onScreen !== null && onScreen.id === event.session)
+        post([{ key: event.dropped > 0 ? "status.session_saved_dropped" : "status.session_saved",
+          args: { path: event.path, count: event.dropped } }], "success", { topic: "unsaved " + event.session })
+      break
     }
   }
 

@@ -88,8 +88,9 @@ by `LANGUAGE`, `LC_ALL`, `LC_MESSAGES` or `LANG` (the Windows display language o
 Windows), and English for any other. The window's language, the language
 sessions are transcribed in and the answer rules follow it; the settings
 change each of them. Start eco (step 5) and its window opens; `SUPER+ALT+C` opens the
-settings. **Models** registers a transcription model and a chat model, each
-with where its key comes from ([how to register models](how-to-register-models.md)),
+settings. **Secrets** says where each key lives, **Providers** gives each an address
+and its secret, and **Models** registers a transcription model and a chat model
+on a provider ([how to register models](how-to-register-models.md)),
 and **Audio** says who is heard
 ([how to set up audio sources](how-to-set-up-audio-sources.md)). Each change
 is saved on its own — a value in a row, such as a device's **HEARD AS**, saves
@@ -98,7 +99,7 @@ writes the file; from then on the settings window edits it. Every field is in [`
 
 Until then, what needs a model says so: a session started transcribes nothing
 and says `no transcription model is chosen`, and an answer fails with `no chat
-model is chosen`. A model whose key is missing does not stop the daemon
+model is chosen`. A model whose secret is missing does not stop the daemon
 either: everything else works, and what uses that model says why.
 
 ## 4. Load the Hyprland rules
@@ -196,7 +197,7 @@ eco: daemon running (pid 434054, version 0.1.0)
 `eco status` prints `eco: daemon stopped` and exits 3 when nothing answers, so a
 script can test it.
 
-**To have eco in the tray,** open **Settings › General** (`Ctrl+8`) and
+**To have eco in the tray,** open **Settings › General** (section 10: `Ctrl+Tab`, or the rail) and
 press the **OFF** chip of **SHOW ECO IN THE TRAY** to turn it **ON**: it saves at once, and the
 icon shows in the bar's tray at once (on
 Omarchy it may sit in the drawer behind the `<` arrow). A click opens the
@@ -328,13 +329,13 @@ the MSI by hand and the old install is still there; remove it with
    the machine eco was built on); what needs a model says
    `DEEPGRAM_API_KEY is not set` or `OPENROUTER_API_KEY is not set` (read in
    the code). omapass keeps its secrets in a keyring
-   Windows does not have, so a model with `api_key_omapass` says `omapass is
+   Windows does not have, so a secret with `omapass` says `omapass is
    not available on Windows`.
 
-   **Keys in the Windows Credential Manager.** A model whose key source is
-   **CREDENTIAL MANAGER** in Settings › Models names a key, say `deepgram`;
+   **Keys in the Windows Credential Manager.** A secret whose source is
+   **CREDENTIAL MANAGER** in Settings › Secrets names a key, say `deepgram`;
    the daemon reads the generic credential `eco:deepgram` each time it builds
-   that model. The window never sees the key. Store it from a terminal, typed
+   a provider that uses it. The window never sees the key. Store it from a terminal, typed
    without showing:
 
    ```
@@ -691,7 +692,7 @@ version` when no daemon runs.
 
 ### From the window
 
-1. Open **Settings › General** (`Ctrl+8`). The **UPDATES** group has three rows:
+1. Open **Settings › General** (section 10: `Ctrl+Tab`, or the rail). The **UPDATES** group has three rows:
    **CHECK FOR UPDATES**, an ON/OFF chip; **VERSION**, with **CHECK NOW** and
    `0.4.0 · up to date · checked 2 h ago` (or `0.4.0 · not checked`,
    `0.4.0 · could not check`),
@@ -824,7 +825,7 @@ With a daemon, `latest` is what that daemon last found, `null` before its
 first check; with none, `eco version` asks GitHub itself.
 
 `eco doctor` checks the installed files, the VAD and speaker models, that the
-config loads, that each model's key source resolves (by name; it never reads
+config loads, that each secret's source resolves (by name; it never reads
 out a key), that the daemon runs and is this eco, and the global shortcuts
 (that the Hyprland config loads eco's rules on Linux; the keys the daemon
 registered on Windows). It prints one JSON object, a list of `{check, ok,
@@ -993,7 +994,7 @@ Error: the daemon was started, but did not open the socket; it said:
 and does not start:
 
 ```
-eco: a provider's key comes from one of api_key_env, api_key_omapass or api_key_credential
+eco: a secret's key comes from exactly one of env, omapass or credential
 ```
 
 **The window says OFFLINE.** Its start screen adds `Daemon disconnected · eco

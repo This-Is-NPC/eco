@@ -2,7 +2,7 @@
 //! with `-2`, `-3`… when another session already holds that name; and beside
 //! them the session index, `index.json` (docs/design.md §8).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -16,7 +16,9 @@ use unicode_normalization::UnicodeNormalization;
 
 use crate::config::{private_dir, private_file};
 use crate::domain::session::{ENDED, IMPORTING, PAUSED, RECORDING, now};
-use crate::ports::{Record, RecordSink, SessionLog, SessionStorage, StoreError};
+use crate::ports::{
+    LogAlert, LogHealth, Record, RecordSink, SessionLog, SessionStorage, StoreError,
+};
 
 /// The session index's file, in the sessions' directory.
 const INDEX: &str = "index.json";
@@ -110,16 +112,72 @@ fn slug(title: &str) -> String {
     slug.trim_matches('-').chars().take(48).collect()
 }
 
-fn append(path: &Path, record: &Record) {
+/// Records a log holds in memory while writes fail; the next ones are dropped,
+/// so what reaches the file stays a prefix of the session.
+const HELD: usize = 10_000;
+
+fn append(path: &Path, record: &Record) -> std::io::Result<()> {
     // One write per line, so two writers appending to one log never split a line.
     let line = Value::Object(record.clone()).to_string() + "\n";
-    let written = private_file()
+    private_file()
         .create(true)
         .append(true)
         .open(path)
-        .and_then(|mut file| file.write_all(line.as_bytes()));
-    if let Err(error) = written {
-        eprintln!("eco: cannot write {}: {error}", path.display());
+        .and_then(|mut file| file.write_all(line.as_bytes()))
+}
+
+/// One session's log file as a sink writes it: records that cannot be written
+/// wait here, in order, and go first once a write works; `alert` hears it once
+/// when writes start failing and once when they work again.
+struct Journal {
+    session: String,
+    path: PathBuf,
+    held: VecDeque<Record>,
+    failing: bool,
+    dropped: usize,
+    alert: LogAlert,
+}
+
+impl Journal {
+    fn new(session: String, path: PathBuf, alert: LogAlert) -> Self {
+        Self {
+            session,
+            path,
+            held: VecDeque::new(),
+            failing: false,
+            dropped: 0,
+            alert,
+        }
+    }
+
+    fn write(&mut self, record: Record) {
+        if self.held.len() < HELD {
+            self.held.push_back(record);
+        } else {
+            self.dropped += 1;
+        }
+        while let Some(next) = self.held.front() {
+            if let Err(error) = append(&self.path, next) {
+                if !self.failing {
+                    self.failing = true;
+                    (self.alert)(LogHealth::Unsaved {
+                        session: self.session.clone(),
+                        path: self.path.display().to_string(),
+                        detail: error.to_string(),
+                    });
+                }
+                return;
+            }
+            self.held.pop_front();
+        }
+        if self.failing {
+            self.failing = false;
+            (self.alert)(LogHealth::Saved {
+                session: self.session.clone(),
+                path: self.path.display().to_string(),
+                dropped: std::mem::take(&mut self.dropped),
+            });
+        }
     }
 }
 
@@ -221,19 +279,20 @@ impl SessionFiles {
                 .filter_map(|r| r["at"].as_f64())
                 .fold(0.0, f64::max);
             let record = json!({"type": "state", "state": settled, "at": at});
-            append(&path, record.as_object().expect("an object"));
+            if let Err(error) = append(&path, record.as_object().expect("an object")) {
+                eprintln!("eco: cannot write {}: {error}", path.display());
+            }
         }
     }
 }
 
 impl SessionLog for SessionFiles {
-    fn writer(&self) -> RecordSink {
+    fn writer(&self, alert: LogAlert) -> RecordSink {
         let directory = self.directory.clone();
         let index = Arc::clone(&self.index);
-        let path: Arc<Mutex<Option<PathBuf>>> = Arc::new(Mutex::new(None));
+        let mut journal: Option<Journal> = None;
         Box::new(move |record: Record| {
-            let mut path = path.lock().expect("not poisoned");
-            let target = path.get_or_insert_with(|| {
+            let journal = journal.get_or_insert_with(|| {
                 let started = record
                     .get("started_at")
                     .and_then(Value::as_f64)
@@ -264,9 +323,10 @@ impl SessionLog for SessionFiles {
                     };
                     indexed(&index, &directory, |logs| logs.insert(name, log));
                 }
-                claimed
+                let id = record.get("id").and_then(Value::as_str).unwrap_or_default();
+                Journal::new(id.into(), claimed, alert.clone())
             });
-            append(target, &record);
+            journal.write(record);
         })
     }
 
@@ -324,9 +384,9 @@ impl SessionLog for SessionFiles {
         self.path_of(session_id).map(|path| records(&path))
     }
 
-    fn append_to(&self, session_id: &str) -> Option<RecordSink> {
-        let path = self.path_of(session_id)?;
-        Some(Box::new(move |record: Record| append(&path, &record)))
+    fn append_to(&self, session_id: &str, alert: LogAlert) -> Option<RecordSink> {
+        let mut journal = Journal::new(session_id.into(), self.path_of(session_id)?, alert);
+        Some(Box::new(move |record: Record| journal.write(record)))
     }
 
     fn storage(&self, session_id: &str) -> Option<SessionStorage> {
@@ -358,7 +418,7 @@ impl SessionLog for SessionFiles {
 pub struct NoSessionFiles;
 
 impl SessionLog for NoSessionFiles {
-    fn writer(&self) -> RecordSink {
+    fn writer(&self, _: LogAlert) -> RecordSink {
         Box::new(|_| {})
     }
 
@@ -370,7 +430,7 @@ impl SessionLog for NoSessionFiles {
         None
     }
 
-    fn append_to(&self, _: &str) -> Option<RecordSink> {
+    fn append_to(&self, _: &str, _: LogAlert) -> Option<RecordSink> {
         None
     }
 
@@ -386,6 +446,11 @@ impl SessionLog for NoSessionFiles {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+
+    /// An alert nobody hears.
+    pub(crate) fn quiet() -> LogAlert {
+        Arc::new(|_| {})
+    }
     use crate::domain::session::{ENDED, IMPORT, LIVE, Session, now};
 
     impl SessionFiles {
@@ -422,7 +487,7 @@ pub(crate) mod tests {
     fn a_line_comes_back_at_the_very_time_it_was_heard() {
         let directory = tempfile::tempdir().unwrap();
         let files = SessionFiles::new(directory.path().into());
-        let mut session = Session::begin("", "meeting", LIVE, "pt", files.writer());
+        let mut session = Session::begin("", "meeting", LIVE, "pt", files.writer(quiet()));
         // A time the default float parse reads one step off.
         let at = 1792034916.0726755;
         session.hear_at("Recrutador", "Oi.", at);
@@ -440,12 +505,12 @@ pub(crate) mod tests {
             "meeting",
             LIVE,
             "pt",
-            files.writer(),
+            files.writer(quiet()),
         );
         open.hear_at("Recrutador", "Oi.", now());
-        let mut closed = Session::begin("", "idea", LIVE, "en", files.writer());
+        let mut closed = Session::begin("", "idea", LIVE, "en", files.writer(quiet()));
         closed.set_state(ENDED);
-        let imported = Session::begin("Palestra", "other", IMPORT, "pt", files.writer());
+        let imported = Session::begin("Palestra", "other", IMPORT, "pt", files.writer(quiet()));
         let names = names(directory.path());
         assert!(
             names
@@ -477,12 +542,33 @@ pub(crate) mod tests {
         assert_eq!(state_of(&imported.id), "ended");
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn a_session_file_that_cannot_be_written_is_left_as_it_was() {
+        use std::os::unix::fs::PermissionsExt;
+        let directory = tempfile::tempdir().unwrap();
+        let files = SessionFiles::new(directory.path().into());
+        let mut open = Session::begin("Call", "meeting", LIVE, "pt", files.writer(quiet()));
+        open.hear_at("Eles", "Oi.", now());
+        let path = fs::read_dir(directory.path())
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o444)).unwrap();
+        files.pause_unfinished();
+        let records = files.read(&open.id).unwrap();
+        let state = records.iter().rev().find(|r| r["type"] == "state").unwrap();
+        assert_eq!(state["state"], "recording");
+    }
+
     #[test]
     fn same_title_sessions_in_one_second_keep_their_own_files() {
         let directory = tempfile::tempdir().unwrap();
         let files = SessionFiles::new(directory.path().into());
         for id in ["a", "b", "c"] {
-            let mut sink = files.writer();
+            let mut sink = files.writer(quiet());
             let head = json!({"type": "session", "id": id, "title": "Call", "started_at": 1.0e9});
             sink(head.as_object().unwrap().clone());
             let line = json!({"type": "speech", "text": id, "at": 1.0e9});
@@ -501,9 +587,9 @@ pub(crate) mod tests {
     fn files_list_read_and_continue_sessions() {
         let directory = tempfile::tempdir().unwrap();
         let files = SessionFiles::new(directory.path().into());
-        let mut first = Session::begin("Primeira", "meeting", LIVE, "pt", files.writer());
+        let mut first = Session::begin("Primeira", "meeting", LIVE, "pt", files.writer(quiet()));
         first.set_state(PAUSED);
-        let second = Session::begin("Segunda", "meeting", LIVE, "en", files.writer());
+        let second = Session::begin("Segunda", "meeting", LIVE, "en", files.writer(quiet()));
         let titles: Vec<String> = files
             .all()
             .iter()
@@ -513,7 +599,7 @@ pub(crate) mod tests {
         assert!(titles.contains(&"Primeira".into()) && titles.contains(&"Segunda".into()));
 
         assert_eq!(files.read(&first.id).unwrap()[0]["title"], "Primeira");
-        let mut sink = files.append_to(&first.id).unwrap();
+        let mut sink = files.append_to(&first.id, quiet()).unwrap();
         sink(
             json!({"type": "state", "state": "recording", "at": 1.0})
                 .as_object()
@@ -525,7 +611,7 @@ pub(crate) mod tests {
             "recording"
         );
         assert!(files.read("nope").is_none());
-        assert!(files.append_to("nope").is_none());
+        assert!(files.append_to("nope", quiet()).is_none());
         assert_eq!(files.read(&second.id).unwrap()[0]["language"], "en");
     }
 
@@ -534,7 +620,7 @@ pub(crate) mod tests {
         let directory = tempfile::tempdir().unwrap();
         let sessions = directory.path().join("sessions");
         let files = SessionFiles::new(sessions.clone());
-        let mut session = Session::begin("Call", "meeting", LIVE, "pt", files.writer());
+        let mut session = Session::begin("Call", "meeting", LIVE, "pt", files.writer(quiet()));
         session.hear_at("Eles", "Hello", now());
         let storage = files.storage(&session.id).unwrap();
         let real = crate::paths::real(directory.path())
@@ -573,12 +659,15 @@ pub(crate) mod tests {
 
     #[test]
     fn no_session_files_keeps_nothing() {
-        let mut sink = NoSessionFiles.writer();
+        let mut sink = NoSessionFiles.writer(quiet());
         sink(Record::new());
         let entry = |_: &[Record]| json!({});
         assert!(NoSessionFiles.index(&entry, &|_| true).is_empty());
         assert!(NoSessionFiles.read("x").is_none());
-        assert!(NoSessionFiles.append_to("x").is_none() && NoSessionFiles.storage("x").is_none());
+        assert!(
+            NoSessionFiles.append_to("x", quiet()).is_none()
+                && NoSessionFiles.storage("x").is_none()
+        );
         assert!(!NoSessionFiles.delete("x").unwrap());
     }
 
@@ -588,7 +677,7 @@ pub(crate) mod tests {
         let blocked = directory.path().join("sessions");
         fs::write(&blocked, "a file where the directory goes").unwrap();
         let files = SessionFiles::new(blocked);
-        let mut sink = files.writer();
+        let mut sink = files.writer(quiet());
         sink(
             json!({"type": "session", "id": "s"})
                 .as_object()
@@ -627,13 +716,13 @@ pub(crate) mod tests {
     fn the_index_follows_every_write_edit_import_and_delete() {
         let directory = tempfile::tempdir().unwrap();
         let files = SessionFiles::new(directory.path().into());
-        let mut live = Session::begin("Call", "meeting", LIVE, "pt", files.writer());
+        let mut live = Session::begin("Call", "meeting", LIVE, "pt", files.writer(quiet()));
         // Named from the first write: found without reading the other logs.
         assert_eq!(
             files.with_index(|logs| logs.values().map(|log| log.id.clone()).collect::<Vec<_>>()),
             [live.id.clone()]
         );
-        let imported = Session::begin("Talk", "other", IMPORT, "en", files.writer());
+        let imported = Session::begin("Talk", "other", IMPORT, "en", files.writer(quiet()));
         let (entries, made) = listed(&files, &always);
         assert_eq!(made, 2);
         assert_eq!(entries.len(), 2);
@@ -651,7 +740,7 @@ pub(crate) mod tests {
         assert_eq!(made, 1);
         assert!(entries.contains(&json!({"id": live.id, "records": 3})));
         // An edit appended to a stored log, the same.
-        let mut sink = files.append_to(&imported.id).unwrap();
+        let mut sink = files.append_to(&imported.id, quiet()).unwrap();
         sink(
             json!({"type": "meta", "title": "Palestra", "kind": "other", "at": 1.0})
                 .as_object()
@@ -671,7 +760,7 @@ pub(crate) mod tests {
     fn a_log_whose_first_record_has_no_id_is_kept_and_indexed() {
         let directory = tempfile::tempdir().unwrap();
         let files = SessionFiles::new(directory.path().into());
-        let mut sink = files.writer();
+        let mut sink = files.writer(quiet());
         sink(
             json!({"type": "note", "text": "Oi"})
                 .as_object()
@@ -690,7 +779,7 @@ pub(crate) mod tests {
         let directory = tempfile::tempdir().unwrap();
         let files = SessionFiles::new(directory.path().into());
         for title in ["One", "Two"] {
-            Session::begin(title, "meeting", LIVE, "pt", files.writer());
+            Session::begin(title, "meeting", LIVE, "pt", files.writer(quiet()));
         }
         let (entries, made) = listed(&files, &always);
         assert_eq!(made, 2);
@@ -710,8 +799,8 @@ pub(crate) mod tests {
     fn a_log_modified_since_or_an_entry_no_longer_fresh_is_read_again() {
         let directory = tempfile::tempdir().unwrap();
         let files = SessionFiles::new(directory.path().into());
-        let kept = Session::begin("Kept", "meeting", LIVE, "pt", files.writer());
-        let touched = Session::begin("Touched", "meeting", LIVE, "pt", files.writer());
+        let kept = Session::begin("Kept", "meeting", LIVE, "pt", files.writer(quiet()));
+        let touched = Session::begin("Touched", "meeting", LIVE, "pt", files.writer(quiet()));
         fs::write(
             directory.path().join("2026-01-01-000000-quebrada.jsonl"),
             "{not json\n",
@@ -745,7 +834,7 @@ pub(crate) mod tests {
     fn an_index_that_cannot_be_written_still_lists_the_sessions() {
         let directory = tempfile::tempdir().unwrap();
         let files = SessionFiles::new(directory.path().into());
-        Session::begin("One", "meeting", LIVE, "pt", files.writer());
+        Session::begin("One", "meeting", LIVE, "pt", files.writer(quiet()));
         fs::create_dir(directory.path().join(format!("{INDEX}.partial"))).unwrap();
         let (entries, made) = listed(&files, &always);
         assert_eq!((entries.len(), made), (1, 1));
@@ -758,8 +847,8 @@ pub(crate) mod tests {
     fn a_session_the_index_misnames_is_still_found() {
         let directory = tempfile::tempdir().unwrap();
         let files = SessionFiles::new(directory.path().into());
-        let first = Session::begin("One", "meeting", LIVE, "pt", files.writer());
-        let second = Session::begin("Two", "meeting", LIVE, "pt", files.writer());
+        let first = Session::begin("One", "meeting", LIVE, "pt", files.writer(quiet()));
+        let second = Session::begin("Two", "meeting", LIVE, "pt", files.writer(quiet()));
         listed(&files, &always);
         // The index says each log holds the other session.
         files.with_index(|logs| {
@@ -773,5 +862,82 @@ pub(crate) mod tests {
         });
         assert_eq!(files.read(&first.id).unwrap()[0]["title"], "One");
         assert_eq!(files.read(&second.id).unwrap()[0]["title"], "Two");
+    }
+
+    /// A journal whose file cannot be created (its directory is missing), the
+    /// alerts it told, and the directory to make for writes to work.
+    fn failing_journal() -> (Journal, Arc<Mutex<Vec<LogHealth>>>, PathBuf) {
+        let directory = tempfile::tempdir().unwrap().keep();
+        let told = Arc::new(Mutex::new(Vec::new()));
+        let hear = Arc::clone(&told);
+        let alert: LogAlert = Arc::new(move |health| hear.lock().unwrap().push(health));
+        let journal = Journal::new("s1".into(), directory.join("gone/s1.jsonl"), alert);
+        (journal, told, directory)
+    }
+
+    fn numbered(n: usize) -> Record {
+        json!({"type": "speech", "n": n})
+            .as_object()
+            .unwrap()
+            .clone()
+    }
+
+    #[test]
+    fn a_log_that_cannot_be_written_tells_once_then_once_when_it_can() {
+        let (mut journal, told, directory) = failing_journal();
+        for n in 0..3 {
+            journal.write(numbered(n));
+        }
+        let told_now = told.lock().unwrap().clone();
+        assert_eq!(told_now.len(), 1);
+        assert!(
+            matches!(&told_now[0], LogHealth::Unsaved { session, path, .. }
+            if session == "s1" && path.ends_with("gone/s1.jsonl"))
+        );
+
+        fs::create_dir(directory.join("gone")).unwrap();
+        journal.write(numbered(3));
+        journal.write(numbered(4));
+        let told_now = told.lock().unwrap().clone();
+        assert_eq!(told_now.len(), 2);
+        assert!(matches!(&told_now[1], LogHealth::Saved { session, .. } if session == "s1"));
+
+        let written: Vec<_> = records(&directory.join("gone/s1.jsonl"))
+            .iter()
+            .map(|record| record["n"].as_u64().unwrap())
+            .collect();
+        assert_eq!(written, [0, 1, 2, 3, 4]);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn a_log_failing_again_after_it_recovered_tells_again() {
+        let (mut journal, told, directory) = failing_journal();
+        journal.write(numbered(0));
+        fs::create_dir(directory.join("gone")).unwrap();
+        journal.write(numbered(1));
+        fs::remove_dir_all(directory.join("gone")).unwrap();
+        journal.write(numbered(2));
+        assert_eq!(told.lock().unwrap().len(), 3);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn records_held_while_writes_fail_are_bounded_to_the_first_ones() {
+        let (mut journal, told, directory) = failing_journal();
+        for n in 0..HELD + 5 {
+            journal.write(numbered(n));
+        }
+        fs::create_dir(directory.join("gone")).unwrap();
+        journal.write(numbered(HELD + 5));
+        let written = records(&directory.join("gone/s1.jsonl"));
+        assert_eq!(written.len(), HELD);
+        assert_eq!(written[0]["n"], 0);
+        assert_eq!(written[HELD - 1]["n"], HELD - 1);
+        assert!(matches!(
+            told.lock().unwrap().last(),
+            Some(LogHealth::Saved { dropped: 6, .. })
+        ));
+        fs::remove_dir_all(directory).unwrap();
     }
 }

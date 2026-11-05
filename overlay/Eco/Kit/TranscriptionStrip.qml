@@ -3,13 +3,14 @@ import QtQuick.Layouts
 import Eco.Core
 
 // TranscriptionStrip says, a line per source, whose transcription is down and
-// reconnecting, and whose is back and how much audio it lost meanwhile. The
+// reconnecting, and whose is back and how much audio it lost meanwhile, or how many
+// regions went without a speaker while the diarizer was behind. The
 // provider's reason shows on hover.
 Column {
   id: strip
 
   // Each source to tell about: {who, color, state ("down" or "back"), code,
-  // detail, dropped_s}.
+  // detail, dropped_s, model, secret}.
   property var sources: []
 
   visible: sources.length > 0
@@ -40,14 +41,18 @@ Column {
         Label {
           Layout.fillWidth: true
           text: row.down
-            ? I18n.t(I18n.has("error." + row.modelData.code) ? "error." + row.modelData.code : "error.stt.down")
+            ? I18n.t(I18n.has("error." + row.modelData.code) ? "error." + row.modelData.code : "error.stt.down", row.modelData)
+            : row.modelData.code === "stt.rearmed"
+              ? I18n.t("transcription.rearmed")
+            : row.modelData.code === "diarization.caught_up"
+              ? I18n.t("diarization.caught_up", { count: row.modelData.count })
             : row.modelData.dropped_s >= 0.5
               ? I18n.t("transcription.back_dropped", { n: Math.round(row.modelData.dropped_s) })
               : I18n.t("transcription.back")
           color: row.tone
           font.pixelSize: 10
           font.letterSpacing: 2
-          elide: Text.ElideRight
+          wrapMode: Text.WordWrap
         }
       }
 

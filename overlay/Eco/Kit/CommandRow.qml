@@ -11,11 +11,12 @@ import Eco.Core
 // the short names still too wide, every action but the main one shows only its
 // icon, its name in the tip, and when even that is wider than `fit`, the main
 // one too; wider still, one menu button holds them all, `folds` first, those
-// that cannot run left out.
+// that cannot run left out. A `busy` command shows its work under way and does
+// not run again until it is over.
 Item {
   id: row
 
-  // [{text, short, icon, tip, role, tone, group, checked, enabled, run}];
+  // [{text, short, icon, tip, role, tone, group, checked, enabled, busy, run}];
   // role is "primary", "guarded" or left out.
   property var commands: []
   // How wide the row may be with every name shown.
@@ -148,6 +149,7 @@ Item {
           width: iconOnly ? 32 : implicitWidth
           tip: modelData.tip || (iconOnly ? modelData.text.toLowerCase() : "")
           enabled: modelData.enabled !== false
+          busy: modelData.busy === true
           onClicked: modelData.run()
         }
       }
