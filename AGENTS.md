@@ -152,10 +152,11 @@ eco keeps voice sessions for Omarchy (Arch Linux, Hyprland/Wayland,
 PipeWire): meetings, conversations, other sessions, spoken ideas — each a session
 with a kind the user picks. It captures the audio, transcribes it, and
 streams short answers from an LLM into an overlay, live or afterwards.
-It runs on Linux, on Windows and on macOS (Apple Silicon only, macOS 14.6 or
-later). Development happens on the Omarchy laptop.
+It runs on Linux, on Windows, on macOS (Apple Silicon only, macOS 14.6 or
+later) and on Android. Development happens on the Omarchy laptop.
 Windows is built and tested by hand on a Windows machine, and macOS on a
-Mac (`mise run check` on each); there is no CI for either. A
+Mac (`mise run check` on each); there is no CI for any of them. Android is
+built on the Linux laptop and tested on the emulator through mise tasks. A
 Windows machine on the LAN may also serve models over HTTP, reached
 through the same adapters as any provider.
 
@@ -168,7 +169,10 @@ the daemon. The host is a bridge and holds no logic: it gives QML the socket,
 files, the environment and the clipboard (`EcoHost`), and nothing in it knows
 the compositor — focus, raising and screen-share hiding go through the
 daemon's `WindowControl` port; a call only Windows or macOS needs from a
-window is a bridge method there, behind `Q_OS_WIN` or `Q_OS_MACOS`. Both
+window is a bridge method there, behind `Q_OS_WIN`, `Q_OS_MACOS` or
+`Q_OS_ANDROID`. On Android the window host starts and owns the daemon from a foreground
+service, and the daemon launches no windows; elsewhere the daemon launches
+them. Both
 talk over one local socket (a Unix socket at `$XDG_RUNTIME_DIR/eco.sock` on
 Linux and at `$TMPDIR/eco.sock` on macOS, a named pipe on Windows, behind
 `src/adapters/local_socket.rs`), one
@@ -200,14 +204,16 @@ is an adapter under `src/adapters/`, composed from the config in
 `src/session.rs`. No `unsafe`: the crate forbids it; a Windows or macOS
 API is reached through a crate with a safe interface, or from the C++ host. Add a port only when two real adapters exist or
 a test needs the seam. A *platform seam* is a port in `src/ports.rs`
-(or the window host's bridge) with a Linux, a Windows and a macOS adapter, for
+(or the window host's bridge) with a Linux, a Windows, a macOS and an Android adapter (or a limitation the
+adapter reports), for
 paths, the daemon socket, audio devices and capture, service lifecycle
 and desktop setup, window control, shortcuts and the shell that runs
 hooks. Its adapter is chosen with `#[cfg]` in one place — the
 composition in `src/session.rs` or the module that owns the seam;
 nothing else in the tree names a platform. Code that is POSIX (the Unix
 socket, file modes, signals, `sh -c`) is `#[cfg(unix)]` and shared by
-Linux and macOS; code that is Linux alone (PipeWire, Hyprland, systemd,
+Linux, macOS and Android; `target_os = "android"` is `cfg(unix)` but not
+`linux`, so code that is Linux alone (PipeWire, Hyprland, systemd,
 `/proc`, pacman) is `#[cfg(target_os = "linux")]`. A capability one platform
 lacks (echo cancellation, the omapass keyring on Windows) is a known
 limitation the adapter reports, not a silent no-op. The LLM has one adapter: the OpenAI-compatible
@@ -231,11 +237,12 @@ code. Adapters that only run a program (`hyprctl`, `pw-*`, `systemctl`) are
 tested for the arguments they build and the output they read. A platform's
 adapters are tested on that platform: tests that need Linux are
 `#[cfg(target_os = "linux")]`, those that need macOS
-`#[cfg(target_os = "macos")]`, those that need either `#[cfg(unix)]`, those
-that need Windows `#[cfg(windows)]`, and the rest run on all three. `mise run
+`#[cfg(target_os = "macos")]`, those that need Android `#[cfg(target_os = "android")]` and run on the
+emulator through mise tasks, those that need any of the three `#[cfg(unix)]`,
+those that need Windows `#[cfg(windows)]`, and the rest run on all four. `mise run
 coverage` measures lines per file: the target is 100% of `src/` except
 `src/bench/`, and every line left without a test is listed with its reason
-in `docs/benchmarks.md`, in the same change that leaves it; until a file
+in `docs/benchmarks.md` (lines reachable only on Android included), in the same change that leaves it; until a file
 reaches the target, no change lowers its coverage.
 
 Never write raw audio to disk. Outside a session, audio is only measured

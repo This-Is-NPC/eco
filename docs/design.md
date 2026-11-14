@@ -3076,3 +3076,26 @@ is `src/adapters/unsupported.rs`, which says so whenever it is used.
 | The omapass keyring | a secret with `omapass` reads a key through the omapass CLI | omapass does not exist: it is never installed, and a key from it fails | as on Linux, looked up on `PATH`; Omarchy does not exist there, so it is not installed | `src/adapters/omapass.rs` |
 | Installing a release | `pkexec pacman -U --noconfirm` on the Arch package, else `sudo pacman -U` from a terminal; Hyprland's binds are what `eco doctor` checks for shortcuts | the per-machine MSI in `%ProgramFiles%\eco`, installed by `msiexec` from a copy of eco once the daemon has stopped (`eco apply-update`); the registered keys are what `eco doctor` checks | adapter `Folder`: `~/Applications/eco`, which `install-macos.sh` fills, replaced in place by a rename, the folder moved aside deleted at once (§13); the restart after an update runs `eco restart` as a process of its own. Tested against an archive served by a test server; `eco update` against the published 0.10.1, which carries no macOS archive, failed with `the SHA256SUMS of v0.10.1 names no package for this system` and left the install as it was (seen) | `src/ports.rs` (`Releases`, `Installer`), `src/installer.rs`, `src/adapters/releases_github.rs`, `src/adapters/installer_linux.rs`, `src/adapters/installer_windows.rs`, `src/apply.rs`, `src/session/update.rs`, `src/doctor.rs` (§13), `src/adapters/installer_macos.rs`, `install-macos.sh` |
 | The Windows Credential Manager | none: a secret with `credential` and `eco key set`/`remove` fail, naming omapass and the environment; the `keys` event's `credentials` is `null` | a secret with `credential` reads the generic credential `eco:<name>`; `eco key set`/`remove` write and delete it; the `keys` command lists them by name (§9.1) | as on Linux: none. The macOS Keychain is not used: it ties a key to the program's signature, and eco is not signed, so each new build would ask for every key again; keys come from the environment | `src/adapters/credentials.rs` |
+
+**Android.** `target_os = "android"` is `cfg(unix)` but not `linux`: POSIX
+code runs there, and Linux-only code stays `#[cfg(target_os = "linux")]`. The
+window host (`eco-window`, Qt for Android) starts and owns the daemon from a
+foreground service, and the daemon launches no windows. A seam without an
+Android adapter reports the limitation. The table lists each seam with the
+file that holds its `#[cfg]` selection and what Android answers.
+
+| Seam | Port or bridge | `#[cfg]` selected in | Android |
+|---|---|---|---|
+| Paths | functions in `src/paths.rs` | `src/paths.rs` | an Android adapter: the data and socket directories are given by the host in the environment |
+| The daemon socket | the local socket | `src/adapters/local_socket.rs` | the existing Unix socket, in the app's files directory |
+| Audio devices and capture | `AudioDevices`, `AudioSource` | `src/session.rs` (`PlatformAudio`) | AAudio through `cpal`, pending the emulator test |
+| Echo cancellation | `AudioDevices::cancels_echo`, `cancel_echo` | `src/session.rs` (`PlatformAudio`) | a reported limitation |
+| Service lifecycle | `ServiceManager` | `src/lib.rs` (`PlatformService`) | the host's foreground service; the daemon side reports install and start commands as unsupported |
+| Desktop setup | `DesktopIntegration` | `src/setup.rs` (`desktop`) | a reported limitation |
+| Window control | `WindowControl` | `src/session.rs` (`window_control`) | a reported limitation: the daemon launches no windows |
+| The window host's bridge | `EcoHost` in `window/` | `Q_OS_*` in `window/` | the calls Android needs are bridge methods behind `Q_OS_ANDROID` |
+| System notifications | `Notifier` | `src/session.rs` (`notifier`) | a reported limitation for now |
+| Shortcuts | `shortcuts` in `src/session.rs` | `src/session.rs` (`shortcuts`) | a reported limitation |
+| Installing a release and updating | `Installer` (`Releases` has one adapter, GitHub, on every platform) | `src/installer.rs` (`installer`) | a reported limitation |
+| The hook shell | `shell()` in `src/adapters/hook_shell.rs` | `src/adapters/hook_shell.rs` | `sh -c`, POSIX and shared |
+| Credentials | `src/adapters/credentials.rs` | `src/adapters/credentials.rs` | no source yet, reported |
