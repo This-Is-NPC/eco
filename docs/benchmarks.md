@@ -1064,6 +1064,7 @@ The lines only an Android build compiles, and the ones no test will reach:
 |---|---|
 | `src/adapters/android.rs` | `NoNotifications::notify`, which only writes a line to the daemon's stderr; the empty path `NoInstaller::program` falls back to when the running executable cannot be found. |
 | `src/session.rs` | the Android arms of `window_control`, `notifier`, `shortcuts` and `restart_command`, composed only by `run()`, which builds the real VAD model, audio and socket; `windows` and `NoWindows` are tested. |
+| `src/adapters/audio_cpal.rs` | the Android `listing`, and the Android refusal in `open`, are tested without a microphone on the emulator; what stays untested is `open` past it (the default microphone's stream), which needs a microphone. |
 | `src/adapters/http.rs` | `builder`'s Android arm, which `client` reaches; the test builds a client, and no request crosses the network. |
 | `src/doctor.rs` | the Android `shipped`, read only by `Places::here`, which reads the real executable path. |
 | `src/paths.rs` | the public wrappers that read the real environment; the Android layout behind them is tested with a fixed one. |
