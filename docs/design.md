@@ -2887,9 +2887,10 @@ mise run android:setup      # Linux: the pinned Android SDK, NDK and emulator, i
 mise run android:emulator   # Linux: boot the eco emulator, or reuse a running one; it keeps running, stop it with `adb emu kill`
 mise run android:install -- [apk] [package]   # Linux: install an APK on the running emulator and launch it (default target/android/eco.apk, eco.app)
 mise run android:lint       # Linux: clippy for x86_64-linux-android, tests included, warnings fatal
-mise run android:test       # Linux: the window host's Android bridge test, run on the running emulator with androidtestrunner
+mise run android:test       # Linux: on the emulator (booted and killed if none runs), the daemon's Android unit tests pushed with adb and the window host's bridge test through androidtestrunner
+mise run android:e2e -- [scenario ...]   # Linux: the APK on the emulator against a fake transcription server on the host: launch, replay, retry, outage (default all)
 mise run android:build      # Linux: the debug APK, x86_64 only, into target/android/eco.apk
-mise run android:check      # Linux: every check of the Android build (for now, android:lint)
+mise run android:check      # Linux: every check of the Android build: android:lint, android:test, android:e2e; not part of check
 mise run qt:install         # the Qt into .qt: eco-window's on Windows and macOS, Qt for Android and its host tools on Linux
 mise run check              # the gate: lint, test, cli:check, docs:check
 mise run lint               # cargo fmt and clippy, every warning fatal
@@ -3161,3 +3162,43 @@ one `libeco.so` under its uid, the window reading `CONNECTED`; opening the app
 again, or from a cold start after `am force-stop`, left exactly one daemon; the
 bridge test passed under `mise run android:test`. Stopping the service itself
 was not run: `am stopservice` cannot reach a service that is not exported.
+
+**How Android is verified.** `mise run check` and its pre-push `local-check`
+cover the desktop only; `mise run android:check` covers the emulator, in tiers
+from the cheapest. (1) The host tests run what is shared with the other
+platforms, with fake adapters and a paused clock. (2) `android:lint` compiles
+the crate and its tests for `x86_64-linux-android` with clippy, warnings fatal.
+(3) `android:test` builds the library's test binary for that target, pushes it
+to `/data/local/tmp`, runs it with `adb shell` filtered to `android` (the tests
+marked `#[cfg(target_os = "android")]` and those of `src/adapters/android.rs`),
+removes it and takes its exit code, then runs the bridge test through Qt's
+`androidtestrunner`. The filter is deliberate: of the 906 library tests, run as
+the shell 82 fail on the device (it may not bind a unix socket, ffmpeg is not
+there) and run as the app, which may, the tests that serve on loopback TCP fail
+instead; the others run on the host. (4) `android:e2e` (`scripts/android-e2e`, the runner
+`tests/android/e2e.py`, the fake server `tests/android/fake_stt.py`) runs the
+scenarios below on the emulator, each from `pm clear`, with the animation scales
+at 0 (put back after), every wait a condition polled with a deadline that fails
+with what it saw, and, at the end, the app uninstalled, the pushed files and the
+fake server gone, and `adb unroot`. An emulator already running is used and left
+running; when none is, the task boots one and kills it. `launch` starts the app
+as a user does and waits for the daemon's socket to answer (`libeco.so status`
+run as the app). The other three run the `libeco.so` of the APK as root, with
+`ECO_DATA_DIR` and `ECO_RUNTIME_DIR` under `/data/local/tmp/eco-e2e`, `daemon
+--headless --replay` on a WAV the runner writes from a 6 s speech clip of the
+repository's test fixtures (public AMI speech: the VAD needs speech, and a tone
+is not), and a config whose only transcription model is the OpenAI-compatible
+endpoint at `http://10.0.2.2:<free port>/v1` with a secret read from an
+environment variable holding a dummy value. They read the daemon's events with
+`nc -U` on its socket, send `session.start`, and assert on the session log:
+`replay` (the fake server receives a WAV with the key and model, and its text
+is in the log), `retry` (the server answers 503 twice: the first segment is sent
+three times and is not lost) and `outage` (the server stays down: the daemon
+tells `transcription.failed` naming the provider, and the speech after it is
+transcribed once the server answers). The daemon runs as root, not as the app,
+because a process run as the app by `run-as` has no network and one run as the
+shell may not bind a unix socket: the app itself does both, and has no way to be
+started on a replay without code for the test. The models are downloaded once
+by the app on the first run and kept under `target/android/models`. The
+microphone is the only part that stays a manual check on a device: the capture
+of `@default-input` through AAudio, the permission dialog and the notification.
