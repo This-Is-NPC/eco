@@ -2888,7 +2888,7 @@ mise run android:emulator   # Linux: boot the eco emulator, or reuse a running o
 mise run android:install -- [apk] [package]   # Linux: install an APK on the running emulator and launch it (default target/android/eco.apk, eco.app)
 mise run android:lint       # Linux: clippy for x86_64-linux-android, tests included, warnings fatal
 mise run android:test       # Linux: on the emulator (booted and killed if none runs), the daemon's Android unit tests pushed with adb and the window host's bridge test through androidtestrunner
-mise run android:e2e -- [scenario ...]   # Linux: the APK on the emulator against a fake transcription server on the host: launch, offline, replay, retry, outage (default all)
+mise run android:e2e -- [scenario ...]   # Linux: the APK on the emulator against a fake transcription server on the host: launch, offline, microphone, replay, retry, outage (default all)
 mise run android:build      # Linux: the debug APK, x86_64 only, into target/android/eco.apk
 mise run android:check      # Linux: every check of the Android build: android:lint, android:test, android:e2e; not part of check
 mise run qt:install         # the Qt into .qt: eco-window's on Windows and macOS, Qt for Android and its host tools on Linux
@@ -3146,13 +3146,17 @@ for the microphone and, once it is allowed, for notifications (Android 13 and
 later) and starts `eco.app.DaemonService`
 (`window/android/src/eco/app/DaemonService.java`), declared in the manifest
 with `foregroundServiceType="microphone"` (a service of that type cannot start
-without the microphone, so a refused microphone starts nothing and the window
-shows the daemon down). The window says why the daemon is not running through
-`AndroidBridge::Status` (`window/bridge_android.h`), which `Host.phoneStatus`
-gives QML and the phone window shows in a `StatusMessage`: `models.preparing`
-while the service gets the models and `models.failed` when it could not. The
-host decides none of it: the service calls the bridge's native `report`. The
-service shows the ongoing
+without the microphone, so a refused microphone starts nothing). The window
+says why the daemon is not running through `AndroidBridge::Status`
+(`window/bridge_android.h`), which `Host.phoneStatus` gives QML and the phone
+window shows in a `StatusMessage`: `microphone.denied` (Android still asks:
+the button asks again), `microphone.blocked` (Android will not, which the
+bridge reads from `shouldShowRequestPermissionRationale`: the button opens the
+app's settings page, `ACTION_APPLICATION_DETAILS_SETTINGS`),
+`models.preparing` and `models.failed`. The host decides none of it: the
+microphone states come from the permission answer, the model states from the
+service, which calls the bridge's native `report`. Back in front with the
+microphone allowed, the app starts the service. The service shows the ongoing
 notification and, on one thread, runs `libeco.so setup` (the models,
 downloaded when missing) until it succeeds, waiting 2 s after the first
 failure and twice as long after each, up to 60 s, and only then runs
@@ -3197,7 +3201,10 @@ mobile data off (`svc wifi disable`, `svc data disable`, put back after: the
 model URLs in `src/setup.rs` are fixed, so the real download is the one that
 fails and then succeeds), waits for the service to tell `models.failed`, checks
 no daemon runs, turns the network on and waits for the daemon's socket, with no
-relaunch. The other three run the `libeco.so` of the APK as root, with
+relaunch. `microphone` revokes `RECORD_AUDIO`, launches, dismisses the system's
+question with Back, waits for the window host to log the refusal,
+checks no daemon runs, grants the permission, brings the app to the front again
+and waits for the daemon's socket. The other three run the `libeco.so` of the APK as root, with
 `ECO_DATA_DIR` and `ECO_RUNTIME_DIR` under `/data/local/tmp/eco-e2e`, `daemon
 --headless --replay` on a WAV the runner writes from a 6 s speech clip of the
 repository's test fixtures (public AMI speech: the VAD needs speech, and a tone

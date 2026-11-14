@@ -126,8 +126,10 @@ public:
   // nothing does, and on every other platform.
 #ifdef Q_OS_ANDROID
   QString phoneStatus() const { return AndroidBridge::Status::instance().value(); }
+  Q_INVOKABLE void phoneAct() const { AndroidBridge::act(); }
 #else
   QString phoneStatus() const { return {}; }
+  Q_INVOKABLE void phoneAct() const {}
 #endif
 
   // The value of the environment variable `name`, or "" when it is unset.

@@ -4,8 +4,8 @@ the host (10.0.2.2 from the emulator). Standard library only.
 
     e2e.py --adb ADB --serial SERIAL --apk APK --cache DIR [scenario ...]
 
-launch runs the real app, which starts its daemon; offline runs
-it where it cannot (no network on a first launch). The replay scenarios run
+launch runs the real app, which starts its daemon; offline and microphone run
+it where it cannot (no network on a first launch, no microphone allowed). The replay scenarios run
 the `libeco.so` the APK ships as root, replaying a clip of public speech: the
 shipped app has no test-only path, and a process run as the app has no network,
 one run as the shell no socket of its own. Each scenario starts from `pm clear`, waits on
@@ -55,6 +55,7 @@ LAUNCH_DEADLINE = 90
 SETUP_DEADLINE = 600
 SESSION_DEADLINE = 90
 OUTAGE_DEADLINE = 90
+DIALOG_DEADLINE = 30
 # The silence between the two copies of the clip in the outage: longer than the retries (7 s).
 OUTAGE_GAP_S = 12
 
@@ -357,6 +358,28 @@ class Run:
         if "status models.preparing" not in log or "status models.failed" in log.split("status models.preparing", 1)[0]:
             raise Failure(f"setup did not run again from the retry: {log[-600:]}")
 
+    def microphone(self):
+        """With the microphone refused the daemon is not started and the window host reports it;
+        once it is allowed and the app is back in front, the daemon starts."""
+        self.device.fresh()
+        for name in MODELS:
+            self.device.stage(self.cache / name, name)
+            self.device.give(name, f"{DATA}/models/{name}")
+        self.device.shell(f"pm revoke {PACKAGE} android.permission.RECORD_AUDIO")
+        self.device.shell("logcat -c")
+        self.device.shell(f"monkey -p {PACKAGE} -c android.intent.category.LAUNCHER 1")
+        until("the system asks for the microphone", DIALOG_DEADLINE, lambda: self.device.shell("dumpsys window | grep mCurrentFocus").stdout,
+              lambda: "GrantPermissionsActivity" in self.device.shell("dumpsys window | grep mCurrentFocus").stdout)
+        self.device.shell("input keyevent KEYCODE_BACK")
+        until("the refusal is told", DIALOG_DEADLINE, self.device.log, lambda: "status: microphone." in self.device.log())
+        if "libeco.so daemon" in self.device.processes() or "daemon running" in self.device.eco("status").stdout:
+            raise Failure(f"a daemon runs without the microphone: {self.device.processes()}")
+        self.device.shell(f"pm grant {PACKAGE} android.permission.RECORD_AUDIO")
+        self.device.shell("input keyevent KEYCODE_HOME")
+        self.device.shell(f"monkey -p {PACKAGE} -c android.intent.category.LAUNCHER 1")
+        until("the daemon starts once the microphone is allowed", LAUNCH_DEADLINE, self.device.log,
+              lambda: "daemon running" in self.device.eco("status").stdout)
+
     def replay(self):
         """A replayed session reaches the fake server with the key, and its text is in the session log."""
         self.device.fresh()
@@ -444,7 +467,7 @@ def main():
     args = parser.parse_args()
     device = Device(args.adb, args.serial)
     run = Run(device, args.apk, args.cache)
-    available = {"launch": run.launch, "offline": run.offline, "replay": run.replay, "retry": run.retry, "outage": run.outage}
+    available = {"launch": run.launch, "offline": run.offline, "microphone": run.microphone, "replay": run.replay, "retry": run.retry, "outage": run.outage}
     unknown = [name for name in args.scenarios if name not in available]
     if unknown:
         sys.exit(f"unknown scenarios {unknown}; they are {list(available)}")

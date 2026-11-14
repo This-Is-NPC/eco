@@ -3,7 +3,8 @@ import Eco.Core
 
 // The phone window, run by tests/window.rs: it says the daemon is reached and
 // draws a trace for each input, with the level that arrives, and says what keeps
-// the daemon from running; once the daemon closes, it says it is down. Each check that fails is printed, and the exit
+// the daemon from running with the action the microphone's states offer; once the
+// daemon closes, it says it is down. Each check that fails is printed, and the exit
 // status is how many failed.
 QtObject {
   id: root
@@ -52,11 +53,15 @@ QtObject {
           && traces[0].source.levels[0] === 0.5 && traces[0].source.speech)
         root.check("the input is named", root.labels().includes("MIC"))
         root.check("with an input, the empty note goes", !root.labels().includes(I18n.t("phone.no_input")))
-        root.check("nothing keeps the daemon: no reason", !root.byName("reason").visible)
-        for (const status of ["models.preparing", "models.failed"]) {
+        root.check("nothing keeps the daemon: no reason, no action",
+          !root.byName("reason").visible && !root.byName("action").visible)
+        for (const [status, action] of [["microphone.denied", "phone.allow_microphone"], ["microphone.blocked", "phone.open_settings"],
+                                        ["models.preparing", ""], ["models.failed", ""]]) {
           root.phone.status = status
           root.check(status + ": the reason is said", root.byName("reason").visible
             && root.labels().includes(I18n.t("phone.status." + status)))
+          root.check(status + ": the action", action === "" ? !root.byName("action").visible
+            : root.byName("action").visible && root.labels().includes(I18n.t(action)))
         }
         Eco.send("closing")
         root.sent = true

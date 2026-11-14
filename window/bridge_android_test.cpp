@@ -34,6 +34,14 @@ private Q_SLOTS:
     QCOMPARE(qEnvironmentVariable("ECO_SOCKET"), AndroidBridge::socketPath());
   }
 
+  void a_denied_microphone_is_asked_again_only_where_android_still_asks() {
+    using Permission = Qt::PermissionStatus;
+    QCOMPARE(AndroidBridge::microphoneStatus(Permission::Denied, true), QStringLiteral("microphone.denied"));
+    QCOMPARE(AndroidBridge::microphoneStatus(Permission::Denied, false), QStringLiteral("microphone.blocked"));
+    QCOMPARE(AndroidBridge::microphoneStatus(Permission::Granted, false), QString());
+    QCOMPARE(AndroidBridge::microphoneStatus(Permission::Undetermined, true), QString());
+  }
+
   void the_services_report_becomes_the_status_the_window_binds() {
     QSignalSpy changed(&AndroidBridge::Status::instance(), &AndroidBridge::Status::changed);
     AndroidBridge::report(QStringLiteral("models.failed"));

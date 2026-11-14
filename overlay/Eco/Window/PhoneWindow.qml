@@ -43,6 +43,15 @@ Window {
       message: phone.status === "" ? "" : I18n.t("phone.status." + phone.status)
     }
 
+    TraceButton {
+      objectName: "action"
+      Layout.fillWidth: true
+      visible: phone.status.startsWith("microphone.")
+      role: "primary"
+      text: I18n.t(phone.status === "microphone.blocked" ? "phone.open_settings" : "phone.allow_microphone")
+      onClicked: Eco.phoneAct()
+    }
+
     Kicker {
       Layout.fillWidth: true
       text: I18n.t("phone.monitor")
