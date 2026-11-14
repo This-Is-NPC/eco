@@ -18,6 +18,10 @@
 #include "line_socket.h"
 #include "text_file.h"
 
+#ifdef Q_OS_ANDROID
+#include "bridge_android.h"
+#endif
+
 #ifdef Q_OS_MACOS
 #include <QDir>
 #include <QProcess>
@@ -65,6 +69,7 @@ int main(int argc, char **argv) {
       &engine, &QQmlApplicationEngine::objectCreationFailed, &app, [] { QCoreApplication::exit(1); },
       Qt::QueuedConnection);
 #ifdef Q_OS_ANDROID
+  AndroidBridge::start();
   // The activity gives no arguments: the entry is the phone's window, in the
   // resources of the APK.
   engine.addImportPath(QStringLiteral("qrc:/overlay"));
