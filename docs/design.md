@@ -147,7 +147,8 @@ files import modules by name (`import Eco.Kit`), never by relative path:
 Live, Sessions, Dialogs and Settings never import each other: a piece two of
 them share belongs in `Eco.Kit`, and what joins them lives in `Eco.Window`.
 `shell.qml` composes `OverlayPanel` with the settings window; `tray.qml` is
-the tray icon, on `Eco.Core` alone; `lab.qml` runs `ControlLab`.
+the tray icon, on `Eco.Core` alone; `phone.qml` is `PhoneWindow`, the entry for a phone: the
+connection to the daemon and the input monitor, nothing else; `lab.qml` runs `ControlLab`.
 
 `mise run overlay:check` (`scripts/overlay-check`, part of `mise run check`)
 enforces this table: it fails on an import a module may not make, a relative
