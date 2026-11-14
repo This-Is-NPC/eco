@@ -28,8 +28,10 @@ use clap::{Parser, Subcommand};
 use crate::adapters::control_socket::Address;
 use crate::adapters::credentials;
 // What runs the daemon in the background: the systemd user service, the
-// launchd agent on macOS, or on Windows a process of the user's own
-// (docs/design.md §15).
+// launchd agent on macOS, or on Windows a process of the user's own; on
+// Android the app does, and the daemon reports that it cannot (docs/design.md §15).
+#[cfg(target_os = "android")]
+use crate::adapters::android::NoService as PlatformService;
 #[cfg(target_os = "macos")]
 use crate::adapters::service_launchd::LaunchAgent as PlatformService;
 #[cfg(target_os = "linux")]
@@ -837,7 +839,7 @@ fn line_named(value: &str) -> std::result::Result<(String, f64), String> {
 /// A SHA-256 written as its 64 hex digits.
 #[cfg(windows)]
 fn sha256(value: &str) -> std::result::Result<[u8; 32], String> {
-    installer::checksum(value).ok_or_else(|| format!("{value:?} is not 64 hex digits"))
+    installer::download::checksum(value).ok_or_else(|| format!("{value:?} is not 64 hex digits"))
 }
 
 /// What `eco window <words>` asks, as a global shortcut's command runs it.
@@ -1156,7 +1158,7 @@ mod tests {
             run(&["apply-update", r"C:\Temp\eco.msi", digest]),
             Run::ApplyUpdate { package, sha256 }
                 if package == Path::new(r"C:\Temp\eco.msi")
-                    && Some(sha256) == crate::installer::checksum(digest)
+                    && Some(sha256) == crate::installer::download::checksum(digest)
         ));
         assert_eq!(
             rejected(&["apply-update", r"C:\Temp\eco.msi"]),

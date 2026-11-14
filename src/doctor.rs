@@ -74,19 +74,9 @@ struct Places {
 impl Places {
     /// This eco's own.
     fn here() -> Self {
-        let window = crate::adapters::overlay::PROGRAM;
         Self {
             exe: std::env::current_exe().unwrap_or_default(),
-            shipped: vec![
-                (
-                    format!("lib/eco/{window}"),
-                    paths::shipped_program(window).is_some(),
-                ),
-                (
-                    "share/eco/overlay/shell.qml".into(),
-                    paths::shipped("overlay/shell.qml").is_some(),
-                ),
-            ],
+            shipped: shipped(),
             models: vec![
                 ("Silero VAD", paths::vad_model()),
                 ("WeSpeaker CAM++", paths::speaker_model()),
@@ -96,6 +86,30 @@ impl Places {
             bindings: paths::hypr_bindings(),
         }
     }
+}
+
+/// What eco ships beside its executable, each with whether it is there: the
+/// window program and the overlay.
+#[cfg(not(target_os = "android"))]
+fn shipped() -> Vec<(String, bool)> {
+    let window = crate::adapters::overlay::PROGRAM;
+    vec![
+        (
+            format!("lib/eco/{window}"),
+            paths::shipped_program(window).is_some(),
+        ),
+        (
+            "share/eco/overlay/shell.qml".into(),
+            paths::shipped("overlay/shell.qml").is_some(),
+        ),
+    ]
+}
+
+/// What eco ships beside its executable: nothing on Android, where the app
+/// holds the windows and the overlay.
+#[cfg(target_os = "android")]
+fn shipped() -> Vec<(String, bool)> {
+    Vec::new()
 }
 
 async fn checks(address: &Address, places: &Places) -> Vec<Check> {
@@ -303,6 +317,16 @@ fn shortcuts(_: &Result<Option<Vec<Value>>, Failure>, _: &Places) -> Check {
         "shortcuts",
         "global shortcuts are not available on this system yet",
         "bind a key to an eco window command in the Shortcuts app",
+    )
+}
+
+/// The global shortcuts: none on Android, where the app has no keys to bind.
+#[cfg(target_os = "android")]
+fn shortcuts(_: &Result<Option<Vec<Value>>, Failure>, _: &Places) -> Check {
+    fail(
+        "shortcuts",
+        "global shortcuts are not available on this system yet",
+        "use the buttons of the app",
     )
 }
 
@@ -608,6 +632,15 @@ model = "x"
             check.fix,
             "bind a key to an eco window command in the Shortcuts app"
         );
+    }
+
+    #[cfg(target_os = "android")]
+    #[test]
+    fn on_android_the_shortcuts_fail_and_say_what_to_use() {
+        let directory = tempfile::tempdir().unwrap();
+        let check = shortcuts(&Ok(None), &places(directory.path()));
+        assert!(!check.ok);
+        assert_eq!(check.fix, "use the buttons of the app");
     }
 
     #[cfg(target_os = "linux")]

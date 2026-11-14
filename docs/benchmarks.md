@@ -1053,3 +1053,17 @@ and the disabled models moved out of `src/presets.rs`.
 | `src/config.rs` | 99.87% (2 of 1596) | 99.88% (2 of 1645) | as before: the closing line of `write_atomically`; the summary counts one more line than the line view shows. |
 | `src/session.rs` | 97.21% (153 of 5480) | 97.25% (153 of 5557) | as in the section above. |
 | `src/session/model_test.rs` | 99.26% (2 of 272) | 99.26% (2 of 272) | as in the section above. |
+
+## Android compile coverage (2026-11-14)
+
+Not measured: the Android tests compile under `mise run android:lint` and run
+on the emulator in a later change, so no coverage figure exists for them yet.
+The lines only an Android build compiles, and the ones no test will reach:
+
+| File | Left without a test, and why |
+|---|---|
+| `src/adapters/android.rs` | `NoNotifications::notify`, which only writes a line to the daemon's stderr; the empty path `NoInstaller::program` falls back to when the running executable cannot be found. |
+| `src/session.rs` | the Android arms of `window_control`, `notifier`, `shortcuts` and `restart_command`, composed only by `run()`, which builds the real VAD model, audio and socket; `windows` and `NoWindows` are tested. |
+| `src/adapters/http.rs` | `builder`'s Android arm, which `client` reaches; the test builds a client, and no request crosses the network. |
+| `src/doctor.rs` | the Android `shipped`, read only by `Places::here`, which reads the real executable path. |
+| `src/paths.rs` | the public wrappers that read the real environment; the Android layout behind them is tested with a fixed one. |

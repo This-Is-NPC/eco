@@ -1,5 +1,6 @@
 //! An OpenAI-compatible endpoint: base URL, bearer key, and how long it may stay silent.
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use reqwest::{Client, ClientBuilder, RequestBuilder};
@@ -11,11 +12,45 @@ use crate::ports::TranscriptionError;
 /// How long a server may take to accept a connection.
 const CONNECT: Duration = Duration::from_secs(10);
 
-/// A client builder with rustls on ring; installs ring as the process's TLS provider.
-fn builder() -> ClientBuilder {
+/// Installs ring as the process's TLS provider.
+fn install_ring() {
     // Fails only when a provider is already installed, which is the goal.
     let _ = rustls::crypto::ring::default_provider().install_default();
-    Client::builder()
+}
+
+/// The TLS client configuration every connection uses (docs/design.md §15):
+/// rustls on ring, trusting the system's roots, or on Android the pinned
+/// webpki roots, which need no JVM.
+pub fn tls() -> Result<Arc<rustls::ClientConfig>, String> {
+    install_ring();
+    roots().map(Arc::new)
+}
+
+#[cfg(not(target_os = "android"))]
+fn roots() -> Result<rustls::ClientConfig, String> {
+    use rustls_platform_verifier::ConfigVerifierExt;
+    rustls::ClientConfig::with_platform_verifier().map_err(|e| e.to_string())
+}
+
+#[cfg(target_os = "android")]
+fn roots() -> Result<rustls::ClientConfig, String> {
+    let roots = rustls::RootCertStore {
+        roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
+    };
+    Ok(rustls::ClientConfig::builder()
+        .with_root_certificates(roots)
+        .with_no_client_auth())
+}
+
+/// A client builder that trusts what [`tls`] trusts: on the other platforms
+/// reqwest builds that configuration itself.
+fn builder() -> ClientBuilder {
+    install_ring();
+    let builder = Client::builder();
+    #[cfg(target_os = "android")]
+    let builder = builder
+        .tls_backend_preconfigured(roots().expect("the pinned roots make a TLS configuration"));
+    builder
 }
 
 /// An HTTP client whose whole request must finish within `timeout`, if given.
@@ -215,6 +250,15 @@ mod tests {
     use super::*;
 
     const SILENCE: Duration = Duration::from_secs(5);
+
+    /// The platform verifier needs a JVM on Android, which the daemon has not:
+    /// a configuration of the pinned roots builds, and so does a client.
+    #[cfg(target_os = "android")]
+    #[test]
+    fn on_android_tls_trusts_the_pinned_roots_without_a_jvm() {
+        assert!(tls().is_ok());
+        assert!(client(None).is_ok());
+    }
 
     /// A server that answers `reply`, raw, to one request and closes.
     async fn raw(reply: &'static [u8]) -> String {

@@ -395,10 +395,24 @@ pub trait DesktopIntegration {
 
 #[derive(Debug, thiserror::Error)]
 #[error("{0}")]
+#[cfg_attr(
+    all(target_os = "android", not(test)),
+    expect(
+        dead_code,
+        reason = "the daemon controls no window on Android, so none of its control fails"
+    )
+)]
 pub struct WindowError(pub String);
 
 /// The desktop's control of the windows of eco's window processes, each
 /// process named by its pid.
+#[cfg_attr(
+    all(target_os = "android", not(test)),
+    expect(
+        dead_code,
+        reason = "the daemon controls no window on Android, so it never asks"
+    )
+)]
 pub trait WindowControl: Send + Sync {
     /// Give the keyboard to the window of process `pid`, once it shows.
     fn focus(&self, pid: u32) -> BoxFuture<'static, Result<(), WindowError>>;
@@ -441,6 +455,13 @@ pub trait Releases: Send + Sync {
 /// How far an install has come.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
+#[cfg_attr(
+    all(target_os = "android", not(test)),
+    expect(
+        dead_code,
+        reason = "the system installs eco on Android, so no stage is told"
+    )
+)]
 pub enum InstallStage {
     Downloading,
     Verifying,
@@ -470,6 +491,13 @@ pub enum Installed {
         expect(
             dead_code,
             reason = "the Windows installer always leaves its package pending"
+        )
+    )]
+    #[cfg_attr(
+        all(target_os = "android", not(test)),
+        expect(
+            dead_code,
+            reason = "the system installs eco on Android, so nothing is done"
         )
     )]
     Done,

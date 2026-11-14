@@ -59,8 +59,8 @@ pub mod update;
 
 use update::{Parts, Updates};
 
-// The platform's audio: PipeWire on Linux, cpal on Windows and macOS (docs/design.md §15).
-#[cfg(any(windows, target_os = "macos"))]
+// The platform's audio: PipeWire on Linux, cpal on Windows, macOS and Android (docs/design.md §15).
+#[cfg(any(windows, target_os = "macos", target_os = "android"))]
 use crate::adapters::audio_cpal::Cpal as PlatformAudio;
 #[cfg(target_os = "linux")]
 use crate::adapters::audio_pipewire::PipeWire as PlatformAudio;
@@ -69,6 +69,13 @@ use crate::adapters::audio_pipewire::PipeWire as PlatformAudio;
 #[cfg(target_os = "linux")]
 fn window_control(_: &Emit) -> Arc<dyn WindowControl> {
     Arc::new(crate::adapters::window_hyprland::HyprlandWindows::default())
+}
+
+/// The platform's window control (docs/design.md §15): on Android none, the
+/// app owns the windows.
+#[cfg(target_os = "android")]
+fn window_control(_: &Emit) -> Arc<dyn WindowControl> {
+    Arc::new(crate::adapters::android::NoWindowControl)
 }
 
 /// The platform's window control (docs/design.md §15): on Windows and macOS
@@ -84,6 +91,12 @@ fn window_control(emit: &Emit) -> Arc<dyn WindowControl> {
 #[cfg(target_os = "linux")]
 pub fn notifier() -> Arc<dyn Notifier> {
     Arc::new(crate::adapters::notify_linux::NotifySend)
+}
+
+/// The desktop's notifications (docs/design.md §15): none yet on Android.
+#[cfg(target_os = "android")]
+pub fn notifier() -> Arc<dyn Notifier> {
+    Arc::new(crate::adapters::android::NoNotifications)
 }
 
 /// The desktop's notifications (docs/design.md §15): osascript on macOS.
@@ -147,9 +160,9 @@ fn shortcuts(_: &Config, _: &mpsc::UnboundedSender<String>) -> Vec<String> {
     Vec::new()
 }
 
-/// The global shortcuts (docs/design.md §15): none yet on macOS, so every
-/// key is unavailable, and the log says why.
-#[cfg(target_os = "macos")]
+/// The global shortcuts (docs/design.md §15): none yet on macOS or Android, so
+/// every key is unavailable, and the log says why.
+#[cfg(any(target_os = "macos", target_os = "android"))]
 fn shortcuts(config: &Config, _: &mpsc::UnboundedSender<String>) -> Vec<String> {
     eprintln!("eco: global shortcuts are not available on this system yet");
     crate::shortcuts::bindings(config.shortcuts.as_ref())
@@ -1352,6 +1365,91 @@ trait Overlay: Send {
     fn close(self: Box<Self>) -> BoxFuture<'static, ()>;
 }
 
+/// The platform's windows (docs/design.md §15): processes the daemon launches.
+#[cfg(not(target_os = "android"))]
+fn windows(
+    socket: PathBuf,
+    token: String,
+    control: Arc<dyn WindowControl>,
+    hidden: bool,
+) -> Box<dyn Overlay> {
+    Box::new(overlay::Windows::new(socket, token, control, hidden))
+}
+
+/// The platform's windows (docs/design.md §15): none on Android, where the app
+/// shows them and the daemon launches none.
+#[cfg(target_os = "android")]
+fn windows(_: PathBuf, _: String, _: Arc<dyn WindowControl>, _: bool) -> Box<dyn Overlay> {
+    Box::new(NoWindows)
+}
+
+/// The windows of a platform whose app shows them: the daemon has none to
+/// open, and says so when asked for one.
+#[cfg(target_os = "android")]
+struct NoWindows;
+
+#[cfg(target_os = "android")]
+impl Overlay for NoWindows {
+    fn shown(&self) -> Vec<String> {
+        Vec::new()
+    }
+
+    fn newest(&self) -> Option<u32> {
+        None
+    }
+
+    fn numbers(&self) -> Vec<u32> {
+        Vec::new()
+    }
+
+    fn is_open(&self) -> bool {
+        false
+    }
+
+    fn open<'a>(
+        &'a mut self,
+        _: Option<&'a str>,
+        _: Option<&'a str>,
+    ) -> BoxFuture<'a, io::Result<()>> {
+        Box::pin(async {
+            Err(io::Error::other(crate::adapters::unsupported::unsupported(
+                "opening a window from the daemon",
+            )))
+        })
+    }
+
+    fn focus(&self, _: u32) -> BoxFuture<'_, io::Result<()>> {
+        Box::pin(async { Err(io::Error::other("no eco window is open")) })
+    }
+
+    fn shows(&mut self, _: u32, _: &str) {}
+
+    fn closed(&mut self, _: u32) {}
+
+    fn hide_from_share(&mut self, _: bool) -> BoxFuture<'_, ()> {
+        Box::pin(async {})
+    }
+
+    fn tray(&mut self, on: bool) -> BoxFuture<'_, ()> {
+        Box::pin(async move {
+            if on {
+                eprintln!("eco: the tray icon is not available on this system yet");
+            }
+        })
+    }
+
+    fn tray_again(&mut self) {}
+
+    fn exited(&mut self) -> BoxFuture<'_, overlay::Exit> {
+        Box::pin(std::future::pending())
+    }
+
+    fn close(self: Box<Self>) -> BoxFuture<'static, ()> {
+        Box::pin(async {})
+    }
+}
+
+#[cfg(not(target_os = "android"))]
 impl Overlay for overlay::Windows {
     fn shown(&self) -> Vec<String> {
         overlay::Windows::shown(self).map(String::from).collect()
@@ -2760,7 +2858,7 @@ pub async fn run(
     let address = Address::user();
     let _control =
         ControlSocket::bind(&address, token.clone(), clients, greeting, commands).await?;
-    let mut windows = overlay::Windows::new(
+    let mut windows = windows(
         address.socket,
         token.clone(),
         control,
@@ -2795,7 +2893,7 @@ pub async fn run(
         log,
         people,
         importing: None,
-        windows: Box::new(windows),
+        windows,
         overlay_open,
         updates,
         daily: None,
@@ -2845,6 +2943,15 @@ fn restart_command(exe: &Path) -> std::process::Command {
         .args(["--user", "--collect", "--quiet"])
         .arg(exe)
         .arg("restart");
+    command
+}
+
+/// `exe restart`, which the app answers: Android installs no update from the
+/// daemon, so nothing restarts it this way.
+#[cfg(target_os = "android")]
+fn restart_command(exe: &Path) -> std::process::Command {
+    let mut command = std::process::Command::new(exe);
+    command.arg("restart");
     command
 }
 
@@ -5352,7 +5459,27 @@ esac"#;
         assert!(d.session.daily.is_none());
     }
 
-    #[cfg(unix)]
+    #[cfg(target_os = "android")]
+    #[tokio::test]
+    async fn on_android_the_daemon_opens_no_window_and_says_so() {
+        let mut windows = windows(
+            PathBuf::new(),
+            String::new(),
+            Arc::new(crate::adapters::android::NoWindowControl),
+            false,
+        );
+        let error = windows.open(Some("s1"), None).await.unwrap_err();
+        assert!(error.to_string().contains("is not available"), "{error}");
+        assert!(!windows.is_open());
+        assert!(windows.numbers().is_empty() && windows.shown().is_empty());
+        assert_eq!(windows.newest(), None);
+        assert!(windows.focus(1).await.is_err());
+        windows.tray(true).await;
+        let waited = tokio::time::timeout(Duration::from_secs(1), windows.exited()).await;
+        assert!(waited.is_err(), "no window or tray ever exits");
+    }
+
+    #[cfg(all(unix, not(target_os = "android")))]
     #[tokio::test]
     async fn real_windows_are_driven_through_the_overlay_port() {
         let dir = tempfile::tempdir().unwrap();

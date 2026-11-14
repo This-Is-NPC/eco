@@ -1,5 +1,6 @@
 //! The overlay's JavaScript modules pass the QML test cases in
 //! `tests/overlay/`, run offscreen by Qt's own test runner.
+#![cfg(not(target_os = "android"))]
 
 use std::path::{Path, PathBuf};
 use std::process::Command;

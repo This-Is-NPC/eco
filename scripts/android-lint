@@ -1,0 +1,26 @@
+#!/usr/bin/env python3
+"""Run clippy for x86_64-linux-android, tests included, warnings fatal. The
+crates that compile C (ring) need the NDK's clang and llvm-ar, which
+android:setup installs into .android-sdk."""
+
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+import android  # noqa: E402
+
+TARGET = "x86_64-linux-android"
+clang = android.llvm_bin() / f"{TARGET}{android.MIN_API}-clang"
+if not clang.exists():
+    sys.exit(f"the Android NDK is not installed ({clang} is missing): run `mise run android:setup`")
+
+triple = TARGET.replace("-", "_")
+env = {
+    **os.environ,
+    f"CC_{triple}": str(clang),
+    f"AR_{triple}": str(android.llvm_bin() / "llvm-ar"),
+    f"CARGO_TARGET_{triple.upper()}_LINKER": str(clang),
+}
+sys.exit(subprocess.run(["cargo", "clippy", "--locked", "--target", TARGET, "--all-targets", "--", "-D", "warnings"], env=env).returncode)

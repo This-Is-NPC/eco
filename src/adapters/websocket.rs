@@ -1,7 +1,6 @@
 //! A streaming transcription over a WebSocket: frames go out as the provider's
 //! protocol wants them, finished phrases come back.
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
@@ -71,14 +70,6 @@ fn refused(error: tokio_tungstenite::tungstenite::Error) -> TranscriptionError {
     }
 }
 
-fn tls() -> Result<Arc<rustls::ClientConfig>, String> {
-    use rustls_platform_verifier::ConfigVerifierExt;
-    // Fails only when a provider is already installed, which is the goal.
-    let _ = rustls::crypto::ring::default_provider().install_default();
-    let config = rustls::ClientConfig::with_platform_verifier().map_err(|e| e.to_string())?;
-    Ok(Arc::new(config))
-}
-
 /// Stream `frames` to `url` (with `headers`), speaking `protocol`.
 pub fn transcribe<'a, Audio, Read>(
     url: String,
@@ -125,7 +116,7 @@ where
             request.headers_mut().insert(name, value);
         }
         let connector = match request.uri().scheme_str() {
-            Some("wss") => Some(Connector::Rustls(tls()?)),
+            Some("wss") => Some(Connector::Rustls(super::http::tls()?)),
             _ => None,
         };
         let opening = connect_async_tls_with_config(request, None, false, connector);

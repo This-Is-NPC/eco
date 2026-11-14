@@ -2884,6 +2884,8 @@ mise run overlay            # only the window; start it after the daemon
 mise watch overlay -o restart   # the same, run again on every save under overlay/
 mise run window:build       # eco-window, into target/window (the tasks that run it build it first)
 mise run android:setup      # Linux: the pinned Android SDK, NDK and emulator, into .android-sdk
+mise run android:lint       # Linux: clippy for x86_64-linux-android, tests included, warnings fatal
+mise run android:check      # Linux: every check of the Android build (for now, android:lint)
 mise run qt:install         # the Qt into .qt: eco-window's on Windows and macOS, Qt for Android and its host tools on Linux
 mise run check              # the gate: lint, test, cli:check, docs:check
 mise run lint               # cargo fmt and clippy, every warning fatal
@@ -3095,16 +3097,17 @@ file that holds its `#[cfg]` selection and what Android answers.
 
 | Seam | Port or bridge | `#[cfg]` selected in | Android |
 |---|---|---|---|
-| Paths | functions in `src/paths.rs` | `src/paths.rs` | an Android adapter: the data and socket directories are given by the host in the environment |
+| Paths | functions in `src/paths.rs` | `src/paths.rs` | the app gives the directories in the environment: `ECO_DATA_DIR` (config, data and state, all in it) and `ECO_RUNTIME_DIR` (the socket and token); unset, each is a relative directory (`eco`, `run`) |
 | The daemon socket | the local socket | `src/adapters/local_socket.rs` | the existing Unix socket, in the app's files directory |
-| Audio devices and capture | `AudioDevices`, `AudioSource` | `src/session.rs` (`PlatformAudio`) | AAudio through `cpal`, pending the emulator test |
+| Audio devices and capture | `AudioDevices`, `AudioSource` | `src/session.rs` (`PlatformAudio`) | `cpal`, which reaches AAudio, composed as on Windows and macOS; a child of the app has no JVM, so only the default input can be opened (`input_devices()` panics) |
 | Echo cancellation | `AudioDevices::cancels_echo`, `cancel_echo` | `src/session.rs` (`PlatformAudio`) | a reported limitation |
-| Service lifecycle | `ServiceManager` | `src/lib.rs` (`PlatformService`) | the host's foreground service; the daemon side reports install and start commands as unsupported |
-| Desktop setup | `DesktopIntegration` | `src/setup.rs` (`desktop`) | a reported limitation |
-| Window control | `WindowControl` | `src/session.rs` (`window_control`) | a reported limitation: the daemon launches no windows |
+| Service lifecycle | `ServiceManager` | `src/lib.rs` (`PlatformService`) | the host's foreground service; `NoService` (`src/adapters/android.rs`) reports `eco start` as unsupported |
+| Desktop setup | `DesktopIntegration` | `src/setup.rs` (`desktop`) | a reported limitation, as on macOS (`Unsupported`) |
+| Window control | `WindowControl` | `src/session.rs` (`window_control`) | `NoWindowControl`, a reported limitation: the daemon launches no windows, and `windows` in `src/session.rs` selects `NoWindows`, which refuses `open`, instead of the launcher in `src/adapters/overlay/windows.rs`, which is not compiled on Android |
 | The window host's bridge | `EcoHost` in `window/` | `Q_OS_*` in `window/` | the calls Android needs are bridge methods behind `Q_OS_ANDROID` |
-| System notifications | `Notifier` | `src/session.rs` (`notifier`) | a reported limitation for now |
-| Shortcuts | `shortcuts` in `src/session.rs` | `src/session.rs` (`shortcuts`) | a reported limitation |
-| Installing a release and updating | `Installer` (`Releases` has one adapter, GitHub, on every platform) | `src/installer.rs` (`installer`) | a reported limitation |
+| System notifications | `Notifier` | `src/session.rs` (`notifier`) | `NoNotifications`, a reported limitation for now |
+| Shortcuts | `shortcuts` in `src/session.rs` | `src/session.rs` (`shortcuts`) | a reported limitation, as on macOS: every key is unavailable |
+| Installing a release and updating | `Installer` (`Releases` has one adapter, GitHub, on every platform) | `src/installer.rs` (`installer`) | `NoInstaller`, a reported limitation: the system installs the app; the download the installers share is not compiled on Android |
 | The hook shell | `shell()` in `src/adapters/hook_shell.rs` | `src/adapters/hook_shell.rs` | `sh -c`, POSIX and shared |
 | Credentials | `src/adapters/credentials.rs` | `src/adapters/credentials.rs` | no source yet, reported |
+| TLS roots | `tls()` in `src/adapters/http.rs`, used by reqwest and by the WebSocket | `src/adapters/http.rs` (`roots`) | the pinned `webpki-roots`: `rustls-platform-verifier` panics without a JVM, and `rustls-native-certs` finds no certificate there; models download through the same client |
