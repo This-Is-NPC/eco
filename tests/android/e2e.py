@@ -4,7 +4,7 @@ the host (10.0.2.2 from the emulator). Standard library only.
 
     e2e.py --adb ADB --serial SERIAL --apk APK --cache DIR [scenario ...]
 
-launch runs the real app, which starts its daemon; offline and microphone run
+launch runs the real app, which starts its daemon, and restart kills that daemon; offline and microphone run
 it where it cannot (no network on a first launch, no microphone allowed). The replay scenarios run
 the `libeco.so` the APK ships as root, replaying a clip of public speech: the
 shipped app has no test-only path, and a process run as the app has no network,
@@ -123,6 +123,11 @@ class Device:
 
     def processes(self):
         return self.shell("ps -A -o ARGS", check=False).stdout
+
+    def daemon_pids(self):
+        """The pids of the daemons the service runs."""
+        lines = self.shell("ps -A -o PID,ARGS", check=False).stdout.splitlines()
+        return {int(line.split()[0]) for line in lines if "libeco.so daemon --headless" in line}
 
     @contextlib.contextmanager
     def network_off(self):
@@ -339,6 +344,25 @@ class Run:
         if not self.device.shell(f"pidof {PACKAGE}").stdout.strip():
             raise Failure("the app is not running")
 
+    def restart(self):
+        """A daemon that is killed is started again by the service, which says so meanwhile,
+        and the new one answers at the socket."""
+        self.launch()
+        old = until("a daemon runs", LAUNCH_DEADLINE, self.device.processes, self.device.daemon_pids)
+        if len(old) != 1:
+            raise Failure(f"expected one daemon, saw {sorted(old)}")
+        self.device.shell("logcat -c")
+        self.device.shell(f"kill -9 {next(iter(old))}")
+        until("the old daemon is gone", DIALOG_DEADLINE, lambda: sorted(self.device.daemon_pids()),
+              lambda: not old & self.device.daemon_pids())
+        until("the restart is told", DIALOG_DEADLINE, self.device.log, lambda: "status daemon.restarting" in self.device.log())
+        until("a new daemon runs and answers", LAUNCH_DEADLINE,
+              lambda: f"{sorted(self.device.daemon_pids())} {self.device.eco('status').stdout}",
+              lambda: self.device.daemon_pids() - old and "daemon running" in self.device.eco("status").stdout)
+        until("the restart is cleared", DIALOG_DEADLINE, self.device.log,
+              lambda: [l for l in self.device.log().splitlines() if "eco-daemon: status" in l][-1:] == [] or
+              [l for l in self.device.log().splitlines() if "eco-daemon: status" in l][-1].strip().endswith("status"))
+
     def offline(self):
         """A first launch without the network starts no daemon and says why; once the network is
         back, the models are downloaded and the daemon starts, with no relaunch."""
@@ -467,7 +491,7 @@ def main():
     args = parser.parse_args()
     device = Device(args.adb, args.serial)
     run = Run(device, args.apk, args.cache)
-    available = {"launch": run.launch, "offline": run.offline, "microphone": run.microphone, "replay": run.replay, "retry": run.retry, "outage": run.outage}
+    available = {"launch": run.launch, "offline": run.offline, "microphone": run.microphone, "restart": run.restart, "replay": run.replay, "retry": run.retry, "outage": run.outage}
     unknown = [name for name in args.scenarios if name not in available]
     if unknown:
         sys.exit(f"unknown scenarios {unknown}; they are {list(available)}")

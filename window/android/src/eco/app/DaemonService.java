@@ -24,7 +24,8 @@ import java.util.concurrent.TimeUnit;
 // libeco.so from the native library directory, `setup` and then
 // `daemon --headless`, with the directories the window host gives it, and ends
 // the daemon with the service. `setup` runs again, with a growing wait, until
-// it succeeds: the daemon never starts without its models.
+// it succeeds: the daemon never starts without its models. A daemon that exits
+// while the service lives is started again with the same wait.
 public class DaemonService extends Service {
   private static final String TAG = "eco-daemon";
   private static final String CHANNEL = "eco";
@@ -33,9 +34,12 @@ public class DaemonService extends Service {
   private static final long TERMINATE_MS = 3000;
   private static final long FIRST_RETRY_MS = 2000;
   private static final long LAST_RETRY_MS = 60000;
+  private static final long STABLE_MS = 60000;
+  private static final long ANSWER_POLL_MS = 500;
 
   private volatile Process child;
   private volatile boolean stopped;
+  private volatile int attempt;
   private Thread worker;
 
   // start runs the service, which starts the daemon in dataDir and runtimeDir.
@@ -46,7 +50,8 @@ public class DaemonService extends Service {
 
   // report tells the window what keeps the daemon from running: "" nothing,
   // "models.preparing" while setup runs, "models.failed" when it failed and
-  // will run again. The window host implements it.
+  // will run again, "daemon.restarting" while a daemon that exited waits to be
+  // started again. The window host implements it.
   private static native void report(String status);
 
   // askNotifications asks for the notification the service shows, where the
@@ -116,7 +121,7 @@ public class DaemonService extends Service {
     // The daemon needs the models, which `setup` downloads when they are missing.
     worker = new Thread(() -> {
       if (setUp(new String[] {program, "setup"}, dataDir, runtimeDir))
-        run(new String[] {program, "daemon", "--headless"}, dataDir, runtimeDir);
+        supervise(new String[] {program, "daemon", "--headless"}, dataDir, runtimeDir);
     });
     worker.start();
   }
@@ -140,6 +145,52 @@ public class DaemonService extends Service {
       wait = Math.min(wait * 2, LAST_RETRY_MS);
     }
     return false;
+  }
+
+  // supervise runs the daemon and runs it again when it exits, waiting twice as
+  // long after each exit up to LAST_RETRY_MS, and FIRST_RETRY_MS again after
+  // one that ran for STABLE_MS; it returns when the service ended. The window
+  // is told while the daemon is down and when it answers again.
+  private void supervise(String[] daemon, String dataDir, String runtimeDir) {
+    long wait = FIRST_RETRY_MS;
+    boolean restarted = false;
+    while (!stopped) {
+      int mine = ++attempt;
+      if (restarted)
+        watch(mine, new File(runtimeDir, "eco.sock"));
+      long began = System.nanoTime();
+      run(daemon, dataDir, runtimeDir);
+      if (stopped)
+        return;
+      attempt++;
+      tell("daemon.restarting");
+      restarted = true;
+      if (TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - began) >= STABLE_MS)
+        wait = FIRST_RETRY_MS;
+      try {
+        Thread.sleep(wait);
+      } catch (InterruptedException e) {
+        return;
+      }
+      wait = Math.min(wait * 2, LAST_RETRY_MS);
+    }
+  }
+
+  // watch clears the status once the daemon of that attempt answers at the socket.
+  private void watch(int mine, File socket) {
+    new Thread(() -> {
+      while (!stopped && attempt == mine) {
+        if (answers(socket)) {
+          tell("");
+          return;
+        }
+        try {
+          Thread.sleep(ANSWER_POLL_MS);
+        } catch (InterruptedException e) {
+          return;
+        }
+      }
+    }).start();
   }
 
   private static void tell(String status) {

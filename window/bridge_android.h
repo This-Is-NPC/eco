@@ -11,7 +11,8 @@ namespace AndroidBridge {
 // does, "microphone.denied" (Android asks again) or "microphone.blocked"
 // (Android will not: the app's settings page is the way), "models.preparing"
 // while the service gets the models, "models.failed" when it could not and
-// will try again. The host reports it and decides nothing.
+// will try again, "daemon.restarting" while a daemon that exited is started
+// again. The host reports it and decides nothing.
 class Status : public QObject {
   Q_OBJECT
 public:
