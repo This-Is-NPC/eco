@@ -2,7 +2,8 @@
 //! On Linux they sit under the home, the XDG base directories and
 //! `/run/user/<uid>`; on macOS under `~/Library/Application Support/eco`,
 //! with the daemon socket in `$TMPDIR`; on Windows under `%APPDATA%` and
-//! `%LOCALAPPDATA%`, with the daemon's named pipe at `\\.\pipe\eco-<user>`.
+//! `%LOCALAPPDATA%`, with the daemon's named pipe at `\\.\pipe\eco-<user>`; on
+//! Android in the directories the app gives the daemon in its environment.
 
 use std::env;
 use std::ffi::OsString;
@@ -164,6 +165,28 @@ impl<V: Fn(&str) -> Option<OsString>> Layout<V> {
     }
 }
 
+/// Android: the app that starts the daemon gives it its directories in the
+/// environment: `ECO_DATA_DIR` for everything eco keeps and `ECO_RUNTIME_DIR`
+/// for the socket and token. Unset, each is a directory under the working one.
+#[cfg(target_os = "android")]
+impl<V: Fn(&str) -> Option<OsString>> Layout<V> {
+    fn data_dir(&self) -> PathBuf {
+        self.base("ECO_DATA_DIR", "eco")
+    }
+
+    fn runtime_dir(&self) -> PathBuf {
+        self.base("ECO_RUNTIME_DIR", "run")
+    }
+
+    fn config_file(&self) -> PathBuf {
+        self.data_dir().join("config.toml")
+    }
+
+    fn update_state(&self) -> PathBuf {
+        self.data_dir().join("update.json")
+    }
+}
+
 /// Windows and macOS: the log of the daemon started in the background.
 #[cfg(any(windows, target_os = "macos"))]
 impl<V: Fn(&str) -> Option<OsString>> Layout<V> {
@@ -261,6 +284,7 @@ pub fn shipped(path: &str) -> Option<PathBuf> {
 
 /// A program eco ships for itself alone, `<prefix>/lib/eco/<name>` for
 /// `<prefix>/bin/eco`, when it is there.
+#[cfg(not(target_os = "android"))]
 pub fn shipped_program(name: &str) -> Option<PathBuf> {
     beside_binary("lib/eco", name)
 }
@@ -456,6 +480,36 @@ mod tests {
     fn on_windows_the_state_is_in_the_data_directory() {
         let layout = with(&[("APPDATA", r"C:\r"), ("LOCALAPPDATA", r"C:\l")]);
         assert_eq!(layout.kept(), [r"C:\r\eco", r"C:\l\eco"].map(PathBuf::from));
+    }
+
+    #[cfg(target_os = "android")]
+    #[test]
+    fn on_android_everything_sits_in_the_directories_the_app_gives() {
+        let layout = with(&[
+            ("ECO_DATA_DIR", "/data/user/0/app/files"),
+            ("ECO_RUNTIME_DIR", "/data/user/0/app/cache"),
+        ]);
+        assert_eq!(
+            layout.config_file(),
+            PathBuf::from("/data/user/0/app/files/config.toml")
+        );
+        assert_eq!(
+            layout.model(VAD_MODEL_FILE),
+            PathBuf::from("/data/user/0/app/files/models/silero_vad.onnx")
+        );
+        assert_eq!(
+            layout.socket_path(),
+            PathBuf::from("/data/user/0/app/cache/eco.sock")
+        );
+        assert_eq!(layout.kept(), [PathBuf::from("/data/user/0/app/files")]);
+    }
+
+    #[cfg(target_os = "android")]
+    #[test]
+    fn without_the_app_s_directories_android_paths_are_relative() {
+        let layout = with(&[]);
+        assert_eq!(layout.data_dir(), PathBuf::from("eco"));
+        assert_eq!(layout.socket_path(), PathBuf::from("run/eco.sock"));
     }
 
     #[cfg(target_os = "linux")]
