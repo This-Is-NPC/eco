@@ -20,14 +20,15 @@ from pathlib import Path
 QT = "6.11.2"
 ARCHIVES = ["qtbase", "qtdeclarative"]
 # Per platform, the targets to install: the aqt host, the aqt target, the
-# architecture, the folder it installs into, and a file that tells the install
-# is whole.
+# architecture, the folder it installs into, a file that tells the install is
+# whole, and the archives besides ARCHIVES (the host Qt's tools, qmlimportscanner,
+# load the ICU it ships).
 TARGETS = {
-    "win32": [("windows", "desktop", "win64_msvc2022_64", "msvc2022_64", "bin/qmltestrunner.exe")],
-    "darwin": [("mac", "desktop", "clang_64", "macos", "bin/qmltestrunner")],
+    "win32": [("windows", "desktop", "win64_msvc2022_64", "msvc2022_64", "bin/qmltestrunner.exe", [])],
+    "darwin": [("mac", "desktop", "clang_64", "macos", "bin/qmltestrunner", [])],
     "linux": [
-        ("all_os", "android", "android_x86_64", "android_x86_64", "bin/qt-cmake"),
-        ("linux", "desktop", "linux_gcc_64", "gcc_64", "bin/androiddeployqt"),
+        ("all_os", "android", "android_x86_64", "android_x86_64", "bin/qt-cmake", []),
+        ("linux", "desktop", "linux_gcc_64", "gcc_64", "bin/androiddeployqt", ["icu"]),
     ],
 }
 
@@ -42,13 +43,13 @@ if cache.is_dir():
         if entry.name != QT:
             shutil.rmtree(entry) if entry.is_dir() else entry.unlink()
 cache.mkdir(exist_ok=True)
-for host, target, arch, folder, whole in TARGETS[sys.platform]:
+for host, target, arch, folder, whole, extra in TARGETS[sys.platform]:
     if (cache / QT / folder / whole).is_file():
         continue
     shutil.rmtree(cache / QT / folder, ignore_errors=True)
     # Run inside .qt, where aqt's own log stays out of the checkout.
     subprocess.run(
-        ["aqt", "install-qt", host, target, QT, arch, "--outputdir", str(cache), "--archives", *ARCHIVES],
+        ["aqt", "install-qt", host, target, QT, arch, "--outputdir", str(cache), "--archives", *ARCHIVES, *extra],
         check=True,
         cwd=cache,
     )
