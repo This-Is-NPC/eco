@@ -38,7 +38,7 @@ run = "scripts/qt-install"
 run_windows = "python scripts/qt-install"
 
 [tasks."android:setup"]
-description = "Linux only: install the pinned Android SDK packages, NDK and emulator into .android-sdk and create the eco virtual device; asks for the SDK licences the first time"
+description = "Linux only: install the pinned Android SDK packages, NDK and emulator into .android-sdk and create the eco virtual device"
 run = "scripts/android-setup"
 
 [tasks."window:build"]
