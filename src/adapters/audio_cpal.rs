@@ -1,8 +1,9 @@
-//! The platform's audio on Windows and macOS, through cpal: WASAPI endpoints or
+//! The platform's audio on Windows, macOS and Android, through cpal: WASAPI endpoints or
 //! Core Audio devices. An output is captured in loopback (what it plays: WASAPI
 //! loopback, or a Core Audio process tap), and each device's own format becomes
 //! the domain's frames through `audio_convert`. Neither offers eco echo
-//! cancellation.
+//! cancellation. On Android the daemon has no JVM, so cpal cannot enumerate:
+//! only the default microphone is listed and opened.
 
 use std::collections::VecDeque;
 
@@ -29,18 +30,12 @@ const QUEUED_FRAMES: usize = 256;
 /// user has not let hear the microphone.
 const REFUSED_AFTER: usize = 2 * SAMPLE_RATE as usize / FRAME_SAMPLES;
 
-/// The audio of a Windows or macOS session.
+/// The audio of a Windows, macOS or Android session.
 pub struct Cpal;
 
 impl AudioDevices for Cpal {
     fn list(&self) -> BoxFuture<'static, Vec<Device>> {
-        async {
-            // A device that cannot be described panics inside cpal: that listing
-            // keeps the defaults alone.
-            let found = tokio::task::spawn_blocking(endpoints).await;
-            listed(found.unwrap_or_default())
-        }
-        .boxed()
+        listing()
     }
 
     fn capture(&self, device: &Device) -> Box<dyn AudioSource> {
@@ -59,6 +54,27 @@ impl AudioDevices for Cpal {
     fn cancel_echo(&self, _: &str) -> BoxFuture<'static, Result<EchoCancelling, EchoError>> {
         async { Err(EchoError::Unavailable) }.boxed()
     }
+}
+
+/// The defaults, then every active device that is a microphone or an output.
+/// Android has no JVM for cpal to enumerate with (it panics) and cannot capture
+/// an output: the default microphone alone is listed.
+fn listing() -> BoxFuture<'static, Vec<Device>> {
+    async {
+        // A device that cannot be described panics inside cpal: that listing
+        // keeps the defaults alone.
+        let found = if cfg!(target_os = "android") {
+            Ok(Vec::new())
+        } else {
+            tokio::task::spawn_blocking(endpoints).await
+        };
+        let mut devices = listed(found.unwrap_or_default());
+        if cfg!(target_os = "android") {
+            devices.truncate(1);
+        }
+        devices
+    }
+    .boxed()
 }
 
 /// Every active device that is a microphone or an output.
@@ -216,6 +232,12 @@ impl AudioSource for CpalSource {
 fn open(device: &Device) -> Result<Open, AudioError> {
     let failed = |error: cpal::Error| AudioError(format!("{}: {error}", device.label));
     let host = cpal::default_host();
+    if cfg!(target_os = "android") && device.id != DEFAULT_INPUT {
+        return Err(AudioError(format!(
+            "{}: only the default microphone can be captured on Android",
+            device.label
+        )));
+    }
     let endpoint = match device.id.as_str() {
         DEFAULT_INPUT => host.default_input_device(),
         DEFAULT_OUTPUT => host.default_output_device(),
@@ -425,6 +447,29 @@ mod tests {
         );
     }
 
+    #[cfg(target_os = "android")]
+    #[tokio::test]
+    async fn android_lists_the_default_microphone_alone() {
+        assert_eq!(Cpal.list().await, defaults()[..1]);
+    }
+
+    #[cfg(target_os = "android")]
+    #[test]
+    fn android_opens_no_device_but_the_default_microphone() {
+        for device in [
+            Device::new(DEFAULT_OUTPUT, "Default output", "output"),
+            Device::new("7", "Headset", "input"),
+        ] {
+            let error = open(&device).err().expect("refused");
+            assert!(
+                error.0.contains("only the default microphone"),
+                "{}",
+                error.0
+            );
+        }
+    }
+
+    #[cfg(not(target_os = "android"))]
     #[tokio::test]
     async fn the_listing_starts_with_the_system_defaults() {
         assert_eq!(Cpal.list().await[..2], defaults()[..]);
