@@ -2888,7 +2888,7 @@ mise run android:emulator   # Linux: boot the eco emulator, or reuse a running o
 mise run android:install -- [apk] [package]   # Linux: install an APK on the running emulator and launch it (default target/android/eco.apk, eco.app)
 mise run android:lint       # Linux: clippy for x86_64-linux-android, tests included, warnings fatal
 mise run android:test       # Linux: on the emulator (booted and killed if none runs), the daemon's Android unit tests pushed with adb and the window host's bridge test through androidtestrunner
-mise run android:e2e -- [scenario ...]   # Linux: the APK on the emulator against a fake transcription server on the host: launch, offline, microphone, replay, retry, outage (default all)
+mise run android:e2e -- [scenario ...]   # Linux: the APK on the emulator against a fake transcription server on the host: launch, offline, microphone, restart, replay, retry, outage (default all)
 mise run android:build      # Linux: the debug APK, x86_64 only, into target/android/eco.apk
 mise run android:check      # Linux: every check of the Android build: android:lint, android:test, android:e2e; not part of check
 mise run qt:install         # the Qt into .qt: eco-window's on Windows and macOS, Qt for Android and its host tools on Linux
@@ -3153,7 +3153,7 @@ window shows in a `StatusMessage`: `microphone.denied` (Android still asks:
 the button asks again), `microphone.blocked` (Android will not, which the
 bridge reads from `shouldShowRequestPermissionRationale`: the button opens the
 app's settings page, `ACTION_APPLICATION_DETAILS_SETTINGS`),
-`models.preparing` and `models.failed`. The host decides none of it: the
+`models.preparing`, `models.failed` and `daemon.restarting`. The host decides none of it: the
 microphone states come from the permission answer, the model states from the
 service, which calls the bridge's native `report`. Back in front with the
 microphone allowed, the app starts the service. The service shows the ongoing
@@ -3164,7 +3164,12 @@ failure and twice as long after each, up to 60 s, and only then runs
 never starts a daemon, which would end at once for want of its models), with
 `ECO_DATA_DIR=<files>/eco` and `ECO_RUNTIME_DIR=<files>/run` (the same
 directories the bridge names; the service only receives them), its output in
-logcat under `eco-daemon`. The daemon is a child of the app's process: when
+logcat under `eco-daemon`. A daemon that exits while the service lives (a
+crash, a kill) is run again: the service reports `daemon.restarting`, waits 2 s
+after the first exit and twice as long after each, up to 60 s, and starts it
+again; a daemon that ran for 60 s starts the wait over at 2 s. The status
+clears once the new daemon answers at the socket. Ending the service ends the
+daemon and the restarts. The daemon is a child of the app's process: when
 the service is destroyed it gets `SIGTERM` and, after 3 s, `SIGKILL`; when the
 app is stopped, Android ends its whole uid, the daemon with it. A second
 `start` while the service runs, or while a daemon already answers at the
@@ -3204,7 +3209,11 @@ no daemon runs, turns the network on and waits for the daemon's socket, with no
 relaunch. `microphone` revokes `RECORD_AUDIO`, launches, dismisses the system's
 question with Back, waits for the window host to log the refusal,
 checks no daemon runs, grants the permission, brings the app to the front again
-and waits for the daemon's socket. The other three run the `libeco.so` of the APK as root, with
+and waits for the daemon's socket. `restart` launches, kills the daemon
+process (`kill -9`, as root: the runner runs under `adb root` from the start),
+and waits for the old pid to be gone, for the service to tell
+`daemon.restarting`, for a new daemon with another pid to answer at the socket
+and for the status to clear. The other three run the `libeco.so` of the APK as root, with
 `ECO_DATA_DIR` and `ECO_RUNTIME_DIR` under `/data/local/tmp/eco-e2e`, `daemon
 --headless --replay` on a WAV the runner writes from a 6 s speech clip of the
 repository's test fixtures (public AMI speech: the VAD needs speech, and a tone

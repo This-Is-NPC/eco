@@ -56,7 +56,7 @@ QtObject {
         root.check("nothing keeps the daemon: no reason, no action",
           !root.byName("reason").visible && !root.byName("action").visible)
         for (const [status, action] of [["microphone.denied", "phone.allow_microphone"], ["microphone.blocked", "phone.open_settings"],
-                                        ["models.preparing", ""], ["models.failed", ""]]) {
+                                        ["models.preparing", ""], ["models.failed", ""], ["daemon.restarting", ""]]) {
           root.phone.status = status
           root.check(status + ": the reason is said", root.byName("reason").visible
             && root.labels().includes(I18n.t("phone.status." + status)))
