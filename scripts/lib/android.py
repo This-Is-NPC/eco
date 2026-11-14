@@ -1,7 +1,10 @@
 """The Android SDK pieces eco pins, and where they sit in the checkout."""
 
+import contextlib
 import os
+import subprocess
 import sys
+import time
 from pathlib import Path
 
 PLATFORM = "android-36"
@@ -12,6 +15,7 @@ AVD = "eco"
 # The oldest Android the daemon runs on; the NDK compilers are named by it.
 MIN_API = 26
 TARGET = "x86_64-linux-android"
+EMULATOR_STOP_DEADLINE = 60  # seconds for a killed emulator to leave `adb devices`
 
 
 def root():
@@ -75,3 +79,30 @@ def cargo_env():
         f"AR_{triple}": str(llvm_bin() / "llvm-ar"),
         f"CARGO_TARGET_{triple.upper()}_LINKER": str(clang),
     }
+
+
+def running_emulators():
+    done = subprocess.run([str(adb()), "devices"], capture_output=True, text=True)
+    return booted_emulators(done.stdout)
+
+
+@contextlib.contextmanager
+def emulator_session():
+    """The serial of an emulator to run on: the one already running, which is
+    left running, or one booted here, which is killed on the way out, whether
+    the body passed or not."""
+    serials = running_emulators()
+    if serials:
+        yield serials[0]
+        return
+    subprocess.run([str(root() / "scripts" / "android-emulator")], check=True)
+    serial = running_emulators()[0]
+    try:
+        yield serial
+    finally:
+        subprocess.run([str(adb()), "-s", serial, "emu", "kill"], capture_output=True)
+        end = time.monotonic() + EMULATOR_STOP_DEADLINE
+        while serial in running_emulators():
+            if time.monotonic() > end:
+                sys.exit(f"{serial} is still running {EMULATOR_STOP_DEADLINE} s after it was killed")
+            time.sleep(1)

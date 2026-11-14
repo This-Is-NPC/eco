@@ -1,0 +1,31 @@
+#!/usr/bin/env python3
+"""Run the Android end-to-end scenarios (tests/android/e2e.py) on the emulator
+with the APK android:build made. An emulator already running is used and left
+running; when none is, one is booted here and killed when the scenarios end,
+whether they passed or not. Scenario names given as arguments (`usage_scenarios`)
+run alone."""
+
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+import android  # noqa: E402
+
+ROOT = android.root()
+APK = ROOT / "target" / "android" / "eco.apk"
+CACHE = ROOT / "target" / "android" / "models"
+RUNNER = ROOT / "tests" / "android" / "e2e.py"
+
+
+if not APK.is_file():
+    sys.exit(f"android-e2e: no APK at {APK}: run `mise run android:build`")
+scenarios = os.environ.get("usage_scenarios", "").split()
+with android.emulator_session() as serial:
+    command = [
+        sys.executable, str(RUNNER), "--adb", str(android.adb()), "--serial", serial,
+        "--apk", str(APK), "--cache", str(CACHE), *scenarios,
+    ]
+    status = subprocess.run(command, cwd=ROOT).returncode
+sys.exit(status)

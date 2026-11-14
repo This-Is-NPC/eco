@@ -58,7 +58,7 @@ description = "Linux only: run clippy for x86_64-linux-android, tests included, 
 run = "scripts/android-lint"
 
 [tasks."android:test"]
-description = "Linux only: run the window host's Android bridge test on the running emulator with Qt's androidtestrunner"
+description = "Linux only: on the running emulator, run the daemon's unit tests (the library's test binary pushed with adb) and the window host's Android bridge test (Qt's androidtestrunner)"
 depends = ["qt:install"]
 run = "scripts/android-test"
 
@@ -69,9 +69,18 @@ run = "scripts/android-build"
 sources = ["src/**/*", "Cargo.toml", "Cargo.lock", "window/**/*", "overlay/**/*", "scripts/android-build", "scripts/lib/android.py"]
 outputs = ["target/android/eco.apk"]
 
+[tasks."android:e2e"]
+description = "Linux only: replay a speech clip through the APK's daemon on the emulator, against a fake transcription server on the host; an emulator it boots is killed after (scenario names run alone)"
+usage = '''
+arg "[scenarios]" help="The scenarios to run, by name: launch, replay, retry, outage; all by default" var=#true required=#false
+'''
+depends = ["android:build"]
+run = "scripts/android-e2e"
+
 [tasks."android:check"]
-description = "Linux only: run every check of the Android build"
+description = "Linux only: run every check of the Android build: lint, then the tests and the end-to-end scenarios, which share one emulator"
 depends = ["android:lint"]
+run = ["mise run android:test", "mise run android:e2e"]
 
 [tasks."window:build"]
 description = "Build eco-window, the Qt 6 program that runs the overlay, into target/window (on macOS eco.app, into target/window.noindex)"

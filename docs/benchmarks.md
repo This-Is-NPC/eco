@@ -1056,8 +1056,9 @@ and the disabled models moved out of `src/presets.rs`.
 
 ## Android compile coverage (2026-11-14)
 
-Not measured: the Android tests compile under `mise run android:lint` and run
-on the emulator in a later change, so no coverage figure exists for them yet.
+Not measured: the Android tests run on the emulator under `mise run
+android:test`, and `mise run coverage` measures the host only, so no coverage
+figure exists for them.
 The lines only an Android build compiles, and the ones no test will reach:
 
 | File | Left without a test, and why |
@@ -1068,3 +1069,27 @@ The lines only an Android build compiles, and the ones no test will reach:
 | `src/adapters/http.rs` | `builder`'s Android arm, which `client` reaches; the test builds a client, and no request crosses the network. |
 | `src/doctor.rs` | the Android `shipped`, read only by `Places::here`, which reads the real executable path. |
 | `src/paths.rs` | the public wrappers that read the real environment; the Android layout behind them is tested with a fixed one. |
+
+## Android build and start (2026-11-14)
+
+Measured on the Android 16 x86_64 emulator (Google APIs image, KVM, host GPU)
+on the development laptop, with the debug APK that `mise run android:build`
+makes. The numbers come from `mise run android:e2e` and from `ls`; nothing was
+measured on a phone.
+
+| What | Measured |
+|---|---|
+| APK size (`target/android/eco.apk`, debug, x86_64 only) | 41,403,975 bytes (39.5 MiB) |
+| Emulator boot to `sys.boot_completed` | 14 to 31 s |
+| First launch with the models absent: the app starts its daemon, which downloads Silero VAD (2.8 MB) and WeSpeaker CAM++ (29.3 MB) over the host's network, until the socket answers | 12.0 s, once |
+| Cold launch with the models in place, from `monkey` to `libeco.so status` answering at the socket | 1.7 to 3.1 s over four runs |
+| Silero VAD load | not timed apart: the daemon loads it before it binds the socket, so it is inside the cold launch above, and it prints no timing |
+| The four scenarios of `android:e2e` (launch 3.7 s, replay 9.4 s, retry 13.6 s, outage 20.1 s) | 51 s |
+| `mise run android:check` from no emulator, with the APK and the test binary built | 127 s the first time, 93 s the second: the lint, the Rust and bridge tests (an emulator boot) and the scenarios (another) |
+
+The tests that run on the device, and why not all of them, are in
+`docs/design.md`: 10 of the 906 library tests run on the emulator (those that
+say android). Run as the shell, 82 others fail (the shell may not bind a unix
+socket, ffmpeg is not there); run as the app, which may bind one, the tests
+that serve on loopback TCP fail instead. The scenarios read the transcript from
+the session log and the daemon's events, not the screen.
