@@ -33,10 +33,12 @@ int main(int argc, char **argv) {
     return QProcess::startDetached(QDir::cleanPath(eco), {QStringLiteral("start")}) ? 0 : 1;
   }
 #endif
+#ifndef Q_OS_ANDROID
   if (argc != 2) {
     std::fputs("usage: eco-window <file.qml>\n", stderr);
     return 2;
   }
+#endif
   // Logs go to stderr, which the daemon passes on, never straight to the journal.
   qputenv("QT_FORCE_STDERR_LOGGING", "1");
 #ifdef Q_OS_WIN
@@ -62,9 +64,16 @@ int main(int argc, char **argv) {
   QObject::connect(
       &engine, &QQmlApplicationEngine::objectCreationFailed, &app, [] { QCoreApplication::exit(1); },
       Qt::QueuedConnection);
+#ifdef Q_OS_ANDROID
+  // The activity gives no arguments: the entry is the phone's window, in the
+  // resources of the APK.
+  engine.addImportPath(QStringLiteral("qrc:/overlay"));
+  engine.load(QUrl(QStringLiteral("qrc:/overlay/phone.qml")));
+#else
   const QFileInfo entry(QString::fromLocal8Bit(argv[1]));
   engine.addImportPath(entry.absolutePath());
   engine.load(QUrl::fromLocalFile(entry.absoluteFilePath()));
+#endif
   if (engine.rootObjects().isEmpty())
     return 1;
   return app.exec();

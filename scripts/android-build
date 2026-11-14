@@ -1,0 +1,91 @@
+#!/usr/bin/env python3
+"""Build the debug APK, x86_64 only, into target/android/eco.apk: eco-window
+built with Qt for Android and the overlay in its resources, and the daemon,
+built for x86_64-linux-android, as lib/x86_64/libeco.so (an executable named
+like a library, which Android extracts into the app's native library
+directory). Gradle, which androiddeployqt drives, downloads itself and its
+dependencies on the first run. The APK is then checked: the daemon, the
+permissions and the manifest flags must be in it."""
+
+import os
+import re
+import shutil
+import subprocess
+import sys
+import zipfile
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+import android  # noqa: E402
+
+ROOT = android.root()
+OUT = ROOT / "target" / "android"
+APK = OUT / "eco.apk"
+QT = sorted((ROOT / ".qt").glob("*/android_x86_64"))
+PERMISSIONS = [
+    "android.permission.RECORD_AUDIO",
+    "android.permission.INTERNET",
+    "android.permission.FOREGROUND_SERVICE",
+    "android.permission.FOREGROUND_SERVICE_MICROPHONE",
+]
+
+
+def run(*command, **kwargs):
+    subprocess.run(command, check=True, cwd=ROOT, **kwargs)
+
+
+def build_daemon():
+    """The release daemon: it runs the models, which a debug build slows."""
+    run("cargo", "build", "--release", "--locked", "--target", android.TARGET, env=android.cargo_env())
+    daemon = OUT / "daemon" / "libeco.so"
+    daemon.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(ROOT / "target" / android.TARGET / "release" / "eco", daemon)
+    return daemon
+
+
+def build_apk(daemon):
+    if len(QT) != 1:
+        sys.exit("android-build: no Qt for Android under .qt; run `mise run qt:install`")
+    qt = QT[0]
+    env = {**os.environ, "ANDROID_SDK_ROOT": str(android.sdk()), "ANDROID_NDK_ROOT": str(android.ndk())}
+    build = OUT / "window"
+    run(
+        str(qt / "bin" / "qt-cmake"), "-S", "window", "-B", str(build), "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Debug",
+        f"-DQT_HOST_PATH={qt.parent / 'gcc_64'}", f"-DECO_DAEMON={daemon}",
+        env=env, stdout=subprocess.DEVNULL,
+    )
+    run("cmake", "--build", str(build), "--target", "apk", env=env)
+    built = build / "android-build" / "build" / "outputs" / "apk" / "debug" / "android-build-debug.apk"
+    shutil.copy(built, APK)
+
+
+def aapt2(*arguments):
+    tool = android.sdk() / "build-tools" / android.BUILD_TOOLS / "aapt2"
+    return subprocess.run([str(tool), *arguments], check=True, capture_output=True, text=True).stdout
+
+
+def verify():
+    """Fail unless the APK holds the daemon, the permissions and the flags."""
+    problems = []
+    with zipfile.ZipFile(APK) as apk:
+        names = apk.namelist()
+    for member in ("lib/x86_64/libeco.so", "lib/x86_64/libeco-window_x86_64.so"):
+        if member not in names:
+            problems.append(f"{member} is missing")
+    badging = aapt2("dump", "badging", str(APK))
+    for permission in PERMISSIONS:
+        if f"uses-permission: name='{permission}'" not in badging:
+            problems.append(f"permission {permission} is missing")
+    if "package: name='eco.app'" not in badging:
+        problems.append("the package is not eco.app")
+    manifest = aapt2("dump", "xmltree", "--file", "AndroidManifest.xml", str(APK))
+    for attribute, want in (("extractNativeLibs", "true"), ("allowBackup", "false")):
+        if not re.search(rf"android:{attribute}\(0x[0-9a-f]+\)={want}\b", manifest):
+            problems.append(f"{attribute} is not {want}")
+    if problems:
+        sys.exit("android-build: the APK is wrong: " + "; ".join(problems))
+    print(f"android-build: {APK} ({APK.stat().st_size} bytes) holds libeco.so, the permissions, extractNativeLibs and allowBackup=false")
+
+
+build_apk(build_daemon())
+verify()

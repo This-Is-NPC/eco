@@ -2887,6 +2887,7 @@ mise run android:setup      # Linux: the pinned Android SDK, NDK and emulator, i
 mise run android:emulator   # Linux: boot the eco emulator, or reuse a running one; it keeps running, stop it with `adb emu kill`
 mise run android:install -- [apk] [package]   # Linux: install an APK on the running emulator and launch it (default target/android/eco.apk, eco.app)
 mise run android:lint       # Linux: clippy for x86_64-linux-android, tests included, warnings fatal
+mise run android:build      # Linux: the debug APK, x86_64 only, into target/android/eco.apk
 mise run android:check      # Linux: every check of the Android build (for now, android:lint)
 mise run qt:install         # the Qt into .qt: eco-window's on Windows and macOS, Qt for Android and its host tools on Linux
 mise run check              # the gate: lint, test, cli:check, docs:check
@@ -2989,7 +2990,7 @@ so it runs from the checkout only; `mise run test` runs
 **On Linux** `eco-window` builds with the system's Qt. `mise install` pins uv
 and aqt there too, and `mise run qt:install` installs Qt 6.11.2 for Android
 (`android_x86_64`) and the desktop Qt that holds its host tools
-(`gcc_64`, with `androiddeployqt`), each with `qtbase` and
+(`gcc_64`, with `androiddeployqt` and the ICU its `qmlimportscanner` loads), each with `qtbase` and
 `qtdeclarative`, under `.qt/6.11.2`: 1.7 GB, in 75 s, on the laptop it was
 measured on. Each target has its own marker file, so one already installed is
 left alone and none removes another; a second run does nothing.
@@ -3113,3 +3114,24 @@ file that holds its `#[cfg]` selection and what Android answers.
 | The hook shell | `shell()` in `src/adapters/hook_shell.rs` | `src/adapters/hook_shell.rs` | `sh -c`, POSIX and shared |
 | Credentials | `src/adapters/credentials.rs` | `src/adapters/credentials.rs` | no source yet, reported |
 | TLS roots | `tls()` in `src/adapters/http.rs`, used by reqwest and by the WebSocket | `src/adapters/http.rs` (`roots`) | the pinned `webpki-roots`: `rustls-platform-verifier` panics without a JVM, and `rustls-native-certs` finds no certificate there; models download through the same client |
+
+**The APK.** `mise run android:build` (`scripts/android-build`) builds the
+debug APK, x86_64 only, into `target/android/eco.apk`; the package is
+`eco.app`, with `minSdk` 26 and `targetSdk` 36. Three steps: cargo builds the
+daemon in release (it runs the models, which a debug build slows) for
+`x86_64-linux-android` with the NDK environment `scripts/lib/android.py`
+shares with `android:lint`; `window/` is configured with Qt's `qt-cmake` for
+Android (the desktop Qt under `.qt` as `QT_HOST_PATH`) and its `apk` target
+runs `androiddeployqt`, which drives the Gradle that Qt pins and downloads it
+and its dependencies on the first run; the APK is copied to the stable path.
+The window host is a library there, with the overlay in its Qt resources
+(`:/overlay`, `window/CMakeLists.txt`), where `window/main.cpp` loads
+`phone.qml` with no argument. The daemon is an executable named
+`libeco.so`, an extra library of the package: the manifest
+(`window/android/AndroidManifest.xml`) sets `extractNativeLibs="true"`, so
+Android extracts it into the app's native library directory, where it can
+run. The manifest also sets `allowBackup="false"` and asks for
+`RECORD_AUDIO`, `INTERNET`, `FOREGROUND_SERVICE` and
+`FOREGROUND_SERVICE_MICROPHONE`. After packaging, the script reads the APK
+with `aapt2` and fails unless the daemon, those permissions and both flags
+are in it.
