@@ -2994,8 +2994,9 @@ and aqt there too, and `mise run qt:install` installs Qt 6.11.2 for Android
 (`android_x86_64`) and the desktop Qt that holds its host tools
 (`gcc_64`, with `androiddeployqt` and the ICU its `qmlimportscanner` loads), each with `qtbase` and
 `qtdeclarative`, under `.qt/6.11.2`: 1.7 GB, in 75 s, on the laptop it was
-measured on. Each target has its own marker file, so one already installed is
-left alone and none removes another; a second run does nothing.
+measured on. Each target has its own marker files, one per archive, so one missing
+an archive is installed again, one already whole is left alone and none
+removes another; a second run does nothing.
 
 On Windows mise runs a task's command through `cmd`, which runs no script
 by its shebang, so a task that runs there names a Python script, on the

@@ -7,9 +7,10 @@ imports), into the checkout under .qt/<QT>/<folder>:
 - Linux: android_x86_64, the Qt for Android, and gcc_64, the desktop Qt that
   holds its host tools (androiddeployqt, qsb, moc). eco-window on Linux still
   builds with the system's Qt.
-Removes any other Qt version there. Idempotent: each target has its own file
-that tells it is whole, a target already installed is left alone, and none
-removes another."""
+Removes any other Qt version there. Idempotent: each target has its own files
+that tell it is whole (one per archive that brings tools or libraries), a
+target missing any of them is installed again, one that has them all is left
+alone, and none removes another."""
 
 import os
 import shutil
@@ -20,15 +21,15 @@ from pathlib import Path
 QT = "6.11.2"
 ARCHIVES = ["qtbase", "qtdeclarative"]
 # Per platform, the targets to install: the aqt host, the aqt target, the
-# architecture, the folder it installs into, a file that tells the install is
-# whole, and the archives besides ARCHIVES (the host Qt's tools, qmlimportscanner,
+# architecture, the folder it installs into, the files that tell the install is
+# whole (one per archive), and the archives besides ARCHIVES (the host Qt's tools, qmlimportscanner,
 # load the ICU it ships).
 TARGETS = {
-    "win32": [("windows", "desktop", "win64_msvc2022_64", "msvc2022_64", "bin/qmltestrunner.exe", [])],
-    "darwin": [("mac", "desktop", "clang_64", "macos", "bin/qmltestrunner", [])],
+    "win32": [("windows", "desktop", "win64_msvc2022_64", "msvc2022_64", ["bin/qmltestrunner.exe"], [])],
+    "darwin": [("mac", "desktop", "clang_64", "macos", ["bin/qmltestrunner"], [])],
     "linux": [
-        ("all_os", "android", "android_x86_64", "android_x86_64", "bin/qt-cmake", []),
-        ("linux", "desktop", "linux_gcc_64", "gcc_64", "bin/androiddeployqt", ["icu"]),
+        ("all_os", "android", "android_x86_64", "android_x86_64", ["bin/qt-cmake"], []),
+        ("linux", "desktop", "linux_gcc_64", "gcc_64", ["bin/androiddeployqt", "lib/libicui18n.so.73"], ["icu"]),
     ],
 }
 
@@ -44,7 +45,7 @@ if cache.is_dir():
             shutil.rmtree(entry) if entry.is_dir() else entry.unlink()
 cache.mkdir(exist_ok=True)
 for host, target, arch, folder, whole, extra in TARGETS[sys.platform]:
-    if (cache / QT / folder / whole).is_file():
+    if all((cache / QT / folder / marker).is_file() for marker in whole):
         continue
     shutil.rmtree(cache / QT / folder, ignore_errors=True)
     # Run inside .qt, where aqt's own log stays out of the checkout.
