@@ -41,6 +41,18 @@ run_windows = "python scripts/qt-install"
 description = "Linux only: install the pinned Android SDK packages, NDK and emulator into .android-sdk and create the eco virtual device"
 run = "scripts/android-setup"
 
+[tasks."android:emulator"]
+description = "Linux only: boot the eco Android emulator on the host GPU and wait until it has booted; an emulator already running is reused, one started here keeps running (stop it with adb emu kill)"
+run = "scripts/android-emulator"
+
+[tasks."android:install"]
+description = "Linux only: install an APK on the running emulator and launch it"
+usage = '''
+arg "[apk]" help="The APK to install" default="target/android/eco.apk"
+arg "[package]" help="The Android package to launch" default="eco.app"
+'''
+run = "scripts/android-install"
+
 [tasks."android:lint"]
 description = "Linux only: run clippy for x86_64-linux-android, tests included, warnings fatal"
 run = "scripts/android-lint"

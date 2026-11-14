@@ -26,3 +26,35 @@ def ndk():
 
 def llvm_bin():
     return ndk() / "toolchains/llvm/prebuilt/linux-x86_64/bin"
+
+
+def adb():
+    return sdk() / "platform-tools" / "adb"
+
+
+def emulator():
+    return sdk() / "emulator" / "emulator"
+
+
+def emulator_args():
+    """The emulator command line for the `AVD`: the host GPU, because
+    SwiftShader paints Qt Quick rectangles wrongly, and no snapshot written."""
+    return [str(emulator()), "-avd", AVD, "-gpu", "host", "-no-snapshot-save", "-no-boot-anim"]
+
+
+def emulator_env(environ):
+    return {**environ, "ANDROID_AVD_HOME": str(sdk() / "avd"), "ANDROID_HOME": str(sdk())}
+
+
+def booted_emulators(devices_output):
+    """The serials of the emulators `adb devices` lists as online."""
+    serials = []
+    for line in devices_output.splitlines()[1:]:
+        words = line.split()
+        if len(words) == 2 and words[0].startswith("emulator-") and words[1] == "device":
+            serials.append(words[0])
+    return serials
+
+
+def boot_timeout_message(seconds, log_tail):
+    return f"the emulator did not finish booting within {seconds} s; end of its log:\n{log_tail}"

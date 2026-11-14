@@ -2884,6 +2884,8 @@ mise run overlay            # only the window; start it after the daemon
 mise watch overlay -o restart   # the same, run again on every save under overlay/
 mise run window:build       # eco-window, into target/window (the tasks that run it build it first)
 mise run android:setup      # Linux: the pinned Android SDK, NDK and emulator, into .android-sdk
+mise run android:emulator   # Linux: boot the eco emulator, or reuse a running one; it keeps running, stop it with `adb emu kill`
+mise run android:install -- [apk] [package]   # Linux: install an APK on the running emulator and launch it (default target/android/eco.apk, eco.app)
 mise run android:lint       # Linux: clippy for x86_64-linux-android, tests included, warnings fatal
 mise run android:check      # Linux: every check of the Android build (for now, android:lint)
 mise run qt:install         # the Qt into .qt: eco-window's on Windows and macOS, Qt for Android and its host tools on Linux
