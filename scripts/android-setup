@@ -3,9 +3,8 @@
 into .android-sdk in the checkout, through the command-line tools mise pins:
 platform tools, platform `PLATFORM`, build tools `BUILD_TOOLS`, NDK `NDK`,
 the emulator and its x86_64 system image, then the `AVD` virtual device under
-.android-sdk/avd. Asks for the SDK licences the first time. Idempotent: an
-installed package or an existing device is left alone; packages of other
-versions are removed."""
+.android-sdk/avd. Idempotent: an installed package or an existing device is
+left alone; packages of other versions are removed."""
 
 import os
 import subprocess
@@ -35,7 +34,14 @@ root = Path(os.environ.get("MISE_PROJECT_ROOT") or Path(__file__).resolve().pare
 sdk = root / ".android-sdk"
 avd_home = sdk / "avd"
 avd_home.mkdir(parents=True, exist_ok=True)
-env = {**os.environ, "ANDROID_HOME": str(sdk), "ANDROID_AVD_HOME": str(avd_home)}
+# avdmanager takes its SDK from where its tools live, not from ANDROID_HOME:
+# a tools directory under .android-sdk points it there.
+env = {
+    **os.environ,
+    "ANDROID_HOME": str(sdk),
+    "ANDROID_AVD_HOME": str(avd_home),
+    "AVDMANAGER_OPTS": f"-Dcom.android.sdkmanager.toolsdir={sdk / 'cmdline-tools' / 'latest'}",
+}
 
 
 def sdkmanager(*args, **kwargs):
@@ -62,7 +68,6 @@ if stale:
     sdkmanager("--uninstall", *stale)
 missing = [name for name in PACKAGES if name not in installed]
 if missing:
-    sdkmanager("--licenses")
     sdkmanager("--install", *missing)
 
 avds = subprocess.run(["avdmanager", "list", "avd", "--compact"], env=env, check=True, capture_output=True, text=True).stdout.split()
