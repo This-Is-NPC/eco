@@ -11,11 +11,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-PLATFORM = "android-36"
-BUILD_TOOLS = "36.0.0"
-NDK = "29.0.14206865"
-IMAGE = f"system-images;{PLATFORM};google_apis;x86_64"
-AVD = "eco"
+sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+from android import AVD, BUILD_TOOLS, IMAGE, NDK, PLATFORM, sdk as sdk_dir  # noqa: E402
+
 PACKAGES = [
     "platform-tools",
     f"platforms;{PLATFORM}",
@@ -30,8 +28,7 @@ VERSIONED = {"platforms": PLATFORM, "build-tools": BUILD_TOOLS, "ndk": NDK}
 if not sys.platform.startswith("linux"):
     sys.exit("android:setup runs on Linux, where Android is built")
 
-root = Path(os.environ.get("MISE_PROJECT_ROOT") or Path(__file__).resolve().parents[1])
-sdk = root / ".android-sdk"
+sdk = sdk_dir()
 avd_home = sdk / "avd"
 avd_home.mkdir(parents=True, exist_ok=True)
 # avdmanager takes its SDK from where its tools live, not from ANDROID_HOME:

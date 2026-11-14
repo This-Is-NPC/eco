@@ -41,6 +41,14 @@ run_windows = "python scripts/qt-install"
 description = "Linux only: install the pinned Android SDK packages, NDK and emulator into .android-sdk and create the eco virtual device"
 run = "scripts/android-setup"
 
+[tasks."android:lint"]
+description = "Linux only: run clippy for x86_64-linux-android, tests included, warnings fatal"
+run = "scripts/android-lint"
+
+[tasks."android:check"]
+description = "Linux only: run every check of the Android build"
+depends = ["android:lint"]
+
 [tasks."window:build"]
 description = "Build eco-window, the Qt 6 program that runs the overlay, into target/window (on macOS eco.app, into target/window.noindex)"
 depends = ["qt:install"]
