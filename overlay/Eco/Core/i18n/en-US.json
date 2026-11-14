@@ -114,6 +114,8 @@
   "phone.down": "offline",
   "phone.monitor": "input monitor",
   "phone.no_input": "No input heard yet",
+  "phone.status.models.preparing": "Getting the models ready. The first start downloads them.",
+  "phone.status.models.failed": "The models cannot be downloaded. Check the network; eco tries again by itself.",
   "section.history": "sessions",
   "section.config": "settings",
   "kind.meeting": "Meeting",

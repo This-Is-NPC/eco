@@ -43,8 +43,11 @@ int main(int argc, char **argv) {
     return 2;
   }
 #endif
-  // Logs go to stderr, which the daemon passes on, never straight to the journal.
+#ifndef Q_OS_ANDROID
+  // Logs go to stderr, which the daemon passes on, never straight to the journal;
+  // on Android they go to logcat, where the app's are read.
   qputenv("QT_FORCE_STDERR_LOGGING", "1");
+#endif
 #ifdef Q_OS_WIN
   // The tray icon is native on Windows, and only a native menu opens on its
   // right click; a platform chosen from outside (offscreen tests) is kept.

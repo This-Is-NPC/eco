@@ -23,13 +23,16 @@ import java.util.concurrent.TimeUnit;
 // DaemonService is the foreground service that owns the eco daemon: it runs
 // libeco.so from the native library directory, `setup` and then
 // `daemon --headless`, with the directories the window host gives it, and ends
-// the daemon with the service.
+// the daemon with the service. `setup` runs again, with a growing wait, until
+// it succeeds: the daemon never starts without its models.
 public class DaemonService extends Service {
   private static final String TAG = "eco-daemon";
   private static final String CHANNEL = "eco";
   private static final String DATA = "data";
   private static final String RUNTIME = "runtime";
   private static final long TERMINATE_MS = 3000;
+  private static final long FIRST_RETRY_MS = 2000;
+  private static final long LAST_RETRY_MS = 60000;
 
   private volatile Process child;
   private volatile boolean stopped;
@@ -40,6 +43,11 @@ public class DaemonService extends Service {
     Intent intent = new Intent(context, DaemonService.class).putExtra(DATA, dataDir).putExtra(RUNTIME, runtimeDir);
     context.startForegroundService(intent);
   }
+
+  // report tells the window what keeps the daemon from running: "" nothing,
+  // "models.preparing" while setup runs, "models.failed" when it failed and
+  // will run again. The window host implements it.
+  private static native void report(String status);
 
   // askNotifications asks for the notification the service shows, where the
   // system makes it a permission; the service runs without it.
@@ -68,6 +76,8 @@ public class DaemonService extends Service {
   @Override
   public void onDestroy() {
     stopped = true;
+    if (worker != null)
+      worker.interrupt();
     Process running = child;
     if (running == null)
       return;
@@ -105,15 +115,41 @@ public class DaemonService extends Service {
     String program = new File(getApplicationInfo().nativeLibraryDir, "libeco.so").getPath();
     // The daemon needs the models, which `setup` downloads when they are missing.
     worker = new Thread(() -> {
-      run(new String[] {program, "setup"}, dataDir, runtimeDir);
-      if (!stopped)
+      if (setUp(new String[] {program, "setup"}, dataDir, runtimeDir))
         run(new String[] {program, "daemon", "--headless"}, dataDir, runtimeDir);
     });
     worker.start();
   }
 
-  // run runs a command with the app's directories until it ends, its output in the log.
-  private void run(String[] command, String dataDir, String runtimeDir) {
+  // setUp runs setup until it succeeds, waiting twice as long after each
+  // failure up to LAST_RETRY_MS; false when the service ended first.
+  private boolean setUp(String[] setup, String dataDir, String runtimeDir) {
+    long wait = FIRST_RETRY_MS;
+    while (!stopped) {
+      tell("models.preparing");
+      if (run(setup, dataDir, runtimeDir) == 0) {
+        tell("");
+        return !stopped;
+      }
+      tell("models.failed");
+      try {
+        Thread.sleep(wait);
+      } catch (InterruptedException e) {
+        return false;
+      }
+      wait = Math.min(wait * 2, LAST_RETRY_MS);
+    }
+    return false;
+  }
+
+  private static void tell(String status) {
+    Log.i(TAG, "status " + status);
+    report(status);
+  }
+
+  // run runs a command with the app's directories until it ends, its output in
+  // the log; it returns the exit status, or -1 when it did not run.
+  private int run(String[] command, String dataDir, String runtimeDir) {
     ProcessBuilder builder = new ProcessBuilder(command).redirectErrorStream(true);
     builder.environment().put("ECO_DATA_DIR", dataDir);
     builder.environment().put("ECO_RUNTIME_DIR", runtimeDir);
@@ -124,9 +160,12 @@ public class DaemonService extends Service {
         for (String line; (line = out.readLine()) != null; )
           Log.i(TAG, line);
       }
-      Log.i(TAG, command[1] + " ended with " + child.waitFor());
+      int status = child.waitFor();
+      Log.i(TAG, command[1] + " ended with " + status);
+      return status;
     } catch (IOException | InterruptedException e) {
       Log.e(TAG, command[1] + " did not run", e);
+      return -1;
     }
   }
 }

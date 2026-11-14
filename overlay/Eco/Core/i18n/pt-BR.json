@@ -114,6 +114,8 @@
   "phone.down": "desconectado",
   "phone.monitor": "monitor de entrada",
   "phone.no_input": "Nenhuma entrada ouvida ainda",
+  "phone.status.models.preparing": "Preparando os modelos. O primeiro início os baixa.",
+  "phone.status.models.failed": "Não foi possível baixar os modelos. Verifique a rede; o eco tenta de novo sozinho.",
   "section.history": "sessões",
   "section.config": "configuração",
   "kind.meeting": "Reunião",

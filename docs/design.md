@@ -2888,7 +2888,7 @@ mise run android:emulator   # Linux: boot the eco emulator, or reuse a running o
 mise run android:install -- [apk] [package]   # Linux: install an APK on the running emulator and launch it (default target/android/eco.apk, eco.app)
 mise run android:lint       # Linux: clippy for x86_64-linux-android, tests included, warnings fatal
 mise run android:test       # Linux: on the emulator (booted and killed if none runs), the daemon's Android unit tests pushed with adb and the window host's bridge test through androidtestrunner
-mise run android:e2e -- [scenario ...]   # Linux: the APK on the emulator against a fake transcription server on the host: launch, replay, retry, outage (default all)
+mise run android:e2e -- [scenario ...]   # Linux: the APK on the emulator against a fake transcription server on the host: launch, offline, replay, retry, outage (default all)
 mise run android:build      # Linux: the debug APK, x86_64 only, into target/android/eco.apk
 mise run android:check      # Linux: every check of the Android build: android:lint, android:test, android:e2e; not part of check
 mise run qt:install         # the Qt into .qt: eco-window's on Windows and macOS, Qt for Android and its host tools on Linux
@@ -3147,9 +3147,17 @@ later) and starts `eco.app.DaemonService`
 (`window/android/src/eco/app/DaemonService.java`), declared in the manifest
 with `foregroundServiceType="microphone"` (a service of that type cannot start
 without the microphone, so a refused microphone starts nothing and the window
-shows the daemon down). The service shows the ongoing notification and, on one
-thread, runs `libeco.so setup` (the models, downloaded when missing) and then
-`libeco.so daemon --headless` from the native library directory, with
+shows the daemon down). The window says why the daemon is not running through
+`AndroidBridge::Status` (`window/bridge_android.h`), which `Host.phoneStatus`
+gives QML and the phone window shows in a `StatusMessage`: `models.preparing`
+while the service gets the models and `models.failed` when it could not. The
+host decides none of it: the service calls the bridge's native `report`. The
+service shows the ongoing
+notification and, on one thread, runs `libeco.so setup` (the models,
+downloaded when missing) until it succeeds, waiting 2 s after the first
+failure and twice as long after each, up to 60 s, and only then runs
+`libeco.so daemon --headless` from the native library directory (a failed setup
+never starts a daemon, which would end at once for want of its models), with
 `ECO_DATA_DIR=<files>/eco` and `ECO_RUNTIME_DIR=<files>/run` (the same
 directories the bridge names; the service only receives them), its output in
 logcat under `eco-daemon`. The daemon is a child of the app's process: when
@@ -3184,7 +3192,12 @@ with what it saw, and, at the end, the app uninstalled, the pushed files and the
 fake server gone, and `adb unroot`. An emulator already running is used and left
 running; when none is, the task boots one and kills it. `launch` starts the app
 as a user does and waits for the daemon's socket to answer (`libeco.so status`
-run as the app). The other three run the `libeco.so` of the APK as root, with
+run as the app). `offline` starts a first launch with the emulator's wifi and
+mobile data off (`svc wifi disable`, `svc data disable`, put back after: the
+model URLs in `src/setup.rs` are fixed, so the real download is the one that
+fails and then succeeds), waits for the service to tell `models.failed`, checks
+no daemon runs, turns the network on and waits for the daemon's socket, with no
+relaunch. The other three run the `libeco.so` of the APK as root, with
 `ECO_DATA_DIR` and `ECO_RUNTIME_DIR` under `/data/local/tmp/eco-e2e`, `daemon
 --headless --replay` on a WAV the runner writes from a 6 s speech clip of the
 repository's test fixtures (public AMI speech: the VAD needs speech, and a tone

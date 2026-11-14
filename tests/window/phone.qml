@@ -2,8 +2,8 @@ import QtQuick
 import Eco.Core
 
 // The phone window, run by tests/window.rs: it says the daemon is reached and
-// draws a trace for each input, with the level that arrives; once the daemon
-// closes, it says it is down. Each check that fails is printed, and the exit
+// draws a trace for each input, with the level that arrives, and says what keeps
+// the daemon from running; once the daemon closes, it says it is down. Each check that fails is printed, and the exit
 // status is how many failed.
 QtObject {
   id: root
@@ -30,6 +30,7 @@ QtObject {
   }
   function labels() { return findAll(phone.contentItem, item => item.visible && item.text !== undefined).map(item => item.text) }
 
+  function byName(name) { return findAll(phone.contentItem, item => item.objectName === name)[0] }
   function state() { return findAll(phone.contentItem, item => item.objectName === "state")[0].section }
 
   property bool sent: false
@@ -51,6 +52,12 @@ QtObject {
           && traces[0].source.levels[0] === 0.5 && traces[0].source.speech)
         root.check("the input is named", root.labels().includes("MIC"))
         root.check("with an input, the empty note goes", !root.labels().includes(I18n.t("phone.no_input")))
+        root.check("nothing keeps the daemon: no reason", !root.byName("reason").visible)
+        for (const status of ["models.preparing", "models.failed"]) {
+          root.phone.status = status
+          root.check(status + ": the reason is said", root.byName("reason").visible
+            && root.labels().includes(I18n.t("phone.status." + status)))
+        }
         Eco.send("closing")
         root.sent = true
       } else if (root.sent && !Eco.connected) {
