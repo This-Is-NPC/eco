@@ -2882,8 +2882,8 @@ mise run start -- --no-save              # keep sessions in memory only
 mise run overlay            # only the window; start it after the daemon
 mise watch overlay -o restart   # the same, run again on every save under overlay/
 mise run window:build       # eco-window, into target/window (the tasks that run it build it first)
-mise run qt:install         # Windows and macOS: the Qt eco-window builds with, into .qt
 mise run android:setup      # Linux: the pinned Android SDK, NDK and emulator, into .android-sdk
+mise run qt:install         # the Qt into .qt: eco-window's on Windows and macOS, Qt for Android and its host tools on Linux
 mise run check              # the gate: lint, test, cli:check, docs:check
 mise run lint               # cargo fmt and clippy, every warning fatal
 mise run test               # the domain tests, i18n, VAD and speaker parity
@@ -2981,6 +2981,14 @@ not this build too. It finds its libraries at the path CMake writes into it,
 so it runs from the checkout only; `mise run test` runs
 `tests/window.rs` and `tests/overlay.rs` there, the second with the
 `qmltestrunner` under `.qt`.
+**On Linux** `eco-window` builds with the system's Qt. `mise install` pins uv
+and aqt there too, and `mise run qt:install` installs Qt 6.11.2 for Android
+(`android_x86_64`) and the desktop Qt that holds its host tools
+(`gcc_64`, with `androiddeployqt`), each with `qtbase` and
+`qtdeclarative`, under `.qt/6.11.2`: 1.7 GB, in 75 s, on the laptop it was
+measured on. Each target has its own marker file, so one already installed is
+left alone and none removes another; a second run does nothing.
+
 On Windows mise runs a task's command through `cmd`, which runs no script
 by its shebang, so a task that runs there names a Python script, on the
 Python mise pins, in its `run_windows`: besides the tasks above, `mise run
