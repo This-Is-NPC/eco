@@ -70,13 +70,16 @@ def daemon_tests(serial):
 def bridge_test(serial):
     """Qt's androidtestrunner on the bridge test; its exit code."""
     env["ANDROID_SERIAL"] = serial
-    subprocess.run(
+    configured = subprocess.run(
         [
             str(qt / "bin" / "qt-cmake"), "-S", "window", "-B", str(BUILD), "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Debug",
             f"-DQT_HOST_PATH={qt.parent / 'gcc_64'}", "-DECO_ANDROID_TEST=ON", "-DQT_SKIP_ANDROID_BUILD_DIR_CHECK=TRUE",
         ],
-        check=True, cwd=ROOT, env=env, stdout=subprocess.DEVNULL,
+        cwd=ROOT, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
     )
+    if configured.returncode != 0:
+        print(configured.stdout, end="", file=sys.stderr)
+        return configured.returncode
     target = "bridge-android-test"
     return (
         subprocess.run(
