@@ -10,7 +10,7 @@ set(CMAKE_COMPILE_WARNING_AS_ERROR ON)
 
 find_package(Qt6 6.5 REQUIRED COMPONENTS Gui Network Qml Quick Widgets)
 
-add_executable(eco-window main.cpp host.h line_socket.h text_file.h)
+qt_add_executable(eco-window main.cpp host.h line_socket.h text_file.h)
 if(APPLE)
   # NSWindow's sharing type, which leaves a window out of screen capture, and
   # the pasteboard, which keeps a copied text.
@@ -24,6 +24,23 @@ if(APPLE)
   set_source_files_properties(${icon} PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
   set_target_properties(eco-window PROPERTIES MACOSX_BUNDLE ON OUTPUT_NAME eco
     MACOSX_BUNDLE_INFO_PLIST ${CMAKE_CURRENT_SOURCE_DIR}/Info.plist)
+endif()
+if(ANDROID)
+  # An Android app is a library the activity loads, and the APK carries the
+  # overlay's files as resources, since no QML file sits beside it. The daemon,
+  # built apart (scripts/android-build, ECO_DAEMON), ships as libeco.so, which
+  # Android extracts into the app's native library directory.
+  file(GLOB_RECURSE overlay_files ${CMAKE_CURRENT_SOURCE_DIR}/../overlay/*.qml
+    ${CMAKE_CURRENT_SOURCE_DIR}/../overlay/*.js ${CMAKE_CURRENT_SOURCE_DIR}/../overlay/*.json
+    ${CMAKE_CURRENT_SOURCE_DIR}/../overlay/*.png ${CMAKE_CURRENT_SOURCE_DIR}/../overlay/qmldir)
+  qt_add_resources(eco-window overlay PREFIX /overlay
+    BASE ${CMAKE_CURRENT_SOURCE_DIR}/../overlay FILES ${overlay_files})
+  set_target_properties(eco-window PROPERTIES
+    QT_ANDROID_PACKAGE_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/android
+    QT_ANDROID_MIN_SDK_VERSION 26
+    QT_ANDROID_TARGET_SDK_VERSION 36
+    QT_ANDROID_LEGACY_PACKAGING ON
+    QT_ANDROID_EXTRA_LIBS ${ECO_DAEMON})
 endif()
 if(WIN32)
   target_sources(eco-window PRIVATE eco-window.rc)
