@@ -2883,6 +2883,7 @@ mise run overlay            # only the window; start it after the daemon
 mise watch overlay -o restart   # the same, run again on every save under overlay/
 mise run window:build       # eco-window, into target/window (the tasks that run it build it first)
 mise run qt:install         # Windows and macOS: the Qt eco-window builds with, into .qt
+mise run android:setup      # Linux: the pinned Android SDK, NDK and emulator, into .android-sdk
 mise run check              # the gate: lint, test, cli:check, docs:check
 mise run lint               # cargo fmt and clippy, every warning fatal
 mise run test               # the domain tests, i18n, VAD and speaker parity

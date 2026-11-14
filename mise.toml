@@ -4,7 +4,7 @@
 ## bench, which runs the self-contained benchmark/ tool.
 
 [tools]
-rust = { version = "1.97.1", components = "rustfmt,clippy,llvm-tools" }
+rust = { version = "1.97.1", components = "rustfmt,clippy,llvm-tools", targets = "aarch64-linux-android,x86_64-linux-android" }
 python = "3.14.8"
 cmake = "4.4.4"
 ninja = "1.13.2"
@@ -19,6 +19,10 @@ uv = { version = "0.12.24", os = ["windows", "macos"] }
 # asks the person who builds to accept the OSMF EULA, so it is not used.
 dotnet = { version = "8.0.427", os = ["windows"] }
 "dotnet:wix" = { version = "6.0.2", os = ["windows"] }
+# Android, built on Linux (scripts/android-setup): the JDK its tools run on and
+# the SDK command-line tools that install the rest into .android-sdk.
+java = { version = "temurin-21.0.13+9.0.LTS", os = ["linux"] }
+android-sdk = { version = "23.0", os = ["linux"] }
 
 [env]
 _.file = ".env"
@@ -32,6 +36,10 @@ run_windows = "python scripts/setup"
 description = "Install the Qt eco-window builds with on Windows and macOS into .qt (on Linux, nothing: the system's Qt)"
 run = "scripts/qt-install"
 run_windows = "python scripts/qt-install"
+
+[tasks."android:setup"]
+description = "Linux only: install the pinned Android SDK packages, NDK and emulator into .android-sdk and create the eco virtual device; asks for the SDK licences the first time"
+run = "scripts/android-setup"
 
 [tasks."window:build"]
 description = "Build eco-window, the Qt 6 program that runs the overlay, into target/window (on macOS eco.app, into target/window.noindex)"
