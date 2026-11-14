@@ -18,7 +18,8 @@
 //! in `tests/window/close.qml`; the uninstall dialog, in
 //! `tests/window/uninstall.qml`; its views and settings made only while
 //! wanted, in `tests/window/lazy.qml`; and the tray icon's states and menu, in
-//! `tests/window/tray.qml`. Needs `mise run window:build`.
+//! `tests/window/tray.qml`; and the phone window's connection and input monitor, in
+//! `tests/window/phone.qml`. Needs `mise run window:build`.
 
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -658,6 +659,36 @@ async fn the_tray_shows_the_state_and_its_menu_sends_the_cli_lines() {
     let output = tokio::time::timeout(Duration::from_secs(10), tray.wait_with_output())
         .await
         .expect("the tray did not exit")
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+/// The phone window says the daemon is reached and draws a trace for each
+/// input; once the daemon closes the connection, it says it is down. Unix
+/// only: a closed named pipe is met again at once.
+#[cfg(unix)]
+#[tokio::test]
+async fn the_phone_window_shows_the_connection_and_the_input_monitor() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut listener = Listener::bind(dir.path());
+    let mut phone = offscreen("phone", dir.path())
+        .env("ECO_SOCKET", listener.name())
+        .env("ECO_TOKEN", "secret")
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .unwrap();
+    let mut daemon = accept(&mut listener, &mut phone).await;
+    while read(&mut daemon).await != "closing" {}
+    drop(daemon);
+    let output = tokio::time::timeout(Duration::from_secs(10), phone.wait_with_output())
+        .await
+        .expect("the phone window did not exit")
         .unwrap();
     assert!(
         output.status.success(),
