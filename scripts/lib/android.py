@@ -1,6 +1,7 @@
 """The Android SDK pieces eco pins, and where they sit in the checkout."""
 
 import os
+import sys
 from pathlib import Path
 
 PLATFORM = "android-36"
@@ -10,6 +11,7 @@ IMAGE = f"system-images;{PLATFORM};google_apis;x86_64"
 AVD = "eco"
 # The oldest Android the daemon runs on; the NDK compilers are named by it.
 MIN_API = 26
+TARGET = "x86_64-linux-android"
 
 
 def root():
@@ -58,3 +60,18 @@ def booted_emulators(devices_output):
 
 def boot_timeout_message(seconds, log_tail):
     return f"the emulator did not finish booting within {seconds} s; end of its log:\n{log_tail}"
+
+
+def cargo_env():
+    """The environment cargo builds TARGET in: crates that compile C (ring) need
+    the NDK's clang and llvm-ar."""
+    clang = llvm_bin() / f"{TARGET}{MIN_API}-clang"
+    if not clang.exists():
+        sys.exit(f"the Android NDK is not installed ({clang} is missing): run `mise run android:setup`")
+    triple = TARGET.replace("-", "_")
+    return {
+        **os.environ,
+        f"CC_{triple}": str(clang),
+        f"AR_{triple}": str(llvm_bin() / "llvm-ar"),
+        f"CARGO_TARGET_{triple.upper()}_LINKER": str(clang),
+    }
