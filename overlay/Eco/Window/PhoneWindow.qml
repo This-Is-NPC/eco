@@ -16,7 +16,10 @@ Window {
 
   ColumnLayout {
     anchors.fill: parent
-    anchors.margins: 20
+    anchors.leftMargin: 20 + phone.SafeArea.margins.left
+    anchors.topMargin: 20 + phone.SafeArea.margins.top
+    anchors.rightMargin: 20 + phone.SafeArea.margins.right
+    anchors.bottomMargin: 20 + phone.SafeArea.margins.bottom
     spacing: 18
 
     Masthead {
