@@ -268,6 +268,11 @@ Singleton {
   property var config: null
   // The token the daemon gave this window: its config.set is the user's own.
   readonly property string token: Host.env("ECO_TOKEN") || ""
+  // What keeps the phone's daemon from running, as the app reports it
+  // ("microphone.denied", "microphone.blocked", "models.preparing",
+  // "models.failed"); empty when nothing does.
+  readonly property string phoneStatus: Host.phoneStatus
+  function phoneAct() { Host.phoneAct() }
   // A change another client asked for, held until the user approves or rejects
   // it ({id, hooks: [{action, command}], files, secrets: [{name, env, omapass,
   // credential}], providers: [{name, base_url, secret}]}), or null. The daemon

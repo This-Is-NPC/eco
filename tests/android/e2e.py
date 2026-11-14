@@ -4,7 +4,8 @@ the host (10.0.2.2 from the emulator). Standard library only.
 
     e2e.py --adb ADB --serial SERIAL --apk APK --cache DIR [scenario ...]
 
-launch runs the real app, which starts its daemon. The replay scenarios run
+launch runs the real app, which starts its daemon; offline and microphone run
+it where it cannot (no network on a first launch, no microphone allowed). The replay scenarios run
 the `libeco.so` the APK ships as root, replaying a clip of public speech: the
 shipped app has no test-only path, and a process run as the app has no network,
 one run as the shell no socket of its own. Each scenario starts from `pm clear`, waits on
@@ -13,6 +14,7 @@ the device (the app, /data/local/tmp/eco-e2e) and the fake server are removed
 when it ends, whether it passed or not."""
 
 import argparse
+import contextlib
 import json
 import math
 import socket
@@ -53,6 +55,7 @@ LAUNCH_DEADLINE = 90
 SETUP_DEADLINE = 600
 SESSION_DEADLINE = 90
 OUTAGE_DEADLINE = 90
+DIALOG_DEADLINE = 30
 # The silence between the two copies of the clip in the outage: longer than the retries (7 s).
 OUTAGE_GAP_S = 12
 
@@ -113,6 +116,26 @@ class Device:
     def give(self, name, target):
         """Copy a staged file into the app's directory, as the app."""
         self.run_as(f"mkdir -p $(dirname {target}) && cp {STAGE}/{name} {target}")
+
+    def log(self):
+        """What the app logged since the log was cleared: the service under `eco-daemon`, the window host under `default`, the tag Qt gives it."""
+        return self.shell("logcat -d -s eco-daemon:I default:I", check=False).stdout
+
+    def processes(self):
+        return self.shell("ps -A -o ARGS", check=False).stdout
+
+    @contextlib.contextmanager
+    def network_off(self):
+        """The emulator without wifi and mobile data; the settings are put back, whether the body passed or not."""
+        before = {name: self.shell(f"settings get global {name}").stdout.strip() for name in ("wifi_on", "mobile_data")}
+        self.shell("svc wifi disable; svc data disable")
+        try:
+            yield
+        finally:
+            if before["wifi_on"] != "0":
+                self.shell("svc wifi enable", check=False)
+            if before["mobile_data"] != "0":
+                self.shell("svc data enable", check=False)
 
     def fresh(self):
         """The app as just installed: no data, the microphone and notifications allowed."""
@@ -316,6 +339,47 @@ class Run:
         if not self.device.shell(f"pidof {PACKAGE}").stdout.strip():
             raise Failure("the app is not running")
 
+    def offline(self):
+        """A first launch without the network starts no daemon and says why; once the network is
+        back, the models are downloaded and the daemon starts, with no relaunch."""
+        self.device.fresh()
+        self.device.shell("logcat -c")
+        with self.device.network_off():
+            self.device.shell(f"monkey -p {PACKAGE} -c android.intent.category.LAUNCHER 1")
+            until("the failed setup is told", LAUNCH_DEADLINE, self.device.log, lambda: "status models.failed" in self.device.log())
+            if "libeco.so daemon" in self.device.processes():
+                raise Failure(f"a daemon runs without models: {self.device.processes()}")
+            if "daemon running" in self.device.eco("status").stdout:
+                raise Failure("the daemon answers without models")
+            self.device.shell("logcat -c")
+        until("the daemon starts once the network is back", SETUP_DEADLINE, self.device.log,
+              lambda: "daemon running" in self.device.eco("status").stdout)
+        log = self.device.log()
+        if "status models.preparing" not in log or "status models.failed" in log.split("status models.preparing", 1)[0]:
+            raise Failure(f"setup did not run again from the retry: {log[-600:]}")
+
+    def microphone(self):
+        """With the microphone refused the daemon is not started and the window host reports it;
+        once it is allowed and the app is back in front, the daemon starts."""
+        self.device.fresh()
+        for name in MODELS:
+            self.device.stage(self.cache / name, name)
+            self.device.give(name, f"{DATA}/models/{name}")
+        self.device.shell(f"pm revoke {PACKAGE} android.permission.RECORD_AUDIO")
+        self.device.shell("logcat -c")
+        self.device.shell(f"monkey -p {PACKAGE} -c android.intent.category.LAUNCHER 1")
+        until("the system asks for the microphone", DIALOG_DEADLINE, lambda: self.device.shell("dumpsys window | grep mCurrentFocus").stdout,
+              lambda: "GrantPermissionsActivity" in self.device.shell("dumpsys window | grep mCurrentFocus").stdout)
+        self.device.shell("input keyevent KEYCODE_BACK")
+        until("the refusal is told", DIALOG_DEADLINE, self.device.log, lambda: "status: microphone." in self.device.log())
+        if "libeco.so daemon" in self.device.processes() or "daemon running" in self.device.eco("status").stdout:
+            raise Failure(f"a daemon runs without the microphone: {self.device.processes()}")
+        self.device.shell(f"pm grant {PACKAGE} android.permission.RECORD_AUDIO")
+        self.device.shell("input keyevent KEYCODE_HOME")
+        self.device.shell(f"monkey -p {PACKAGE} -c android.intent.category.LAUNCHER 1")
+        until("the daemon starts once the microphone is allowed", LAUNCH_DEADLINE, self.device.log,
+              lambda: "daemon running" in self.device.eco("status").stdout)
+
     def replay(self):
         """A replayed session reaches the fake server with the key, and its text is in the session log."""
         self.device.fresh()
@@ -403,7 +467,7 @@ def main():
     args = parser.parse_args()
     device = Device(args.adb, args.serial)
     run = Run(device, args.apk, args.cache)
-    available = {"launch": run.launch, "replay": run.replay, "retry": run.retry, "outage": run.outage}
+    available = {"launch": run.launch, "offline": run.offline, "microphone": run.microphone, "replay": run.replay, "retry": run.retry, "outage": run.outage}
     unknown = [name for name in args.scenarios if name not in available]
     if unknown:
         sys.exit(f"unknown scenarios {unknown}; they are {list(available)}")

@@ -1,5 +1,6 @@
 // The bridge's Android methods, run on the emulator: the directories it gives
-// the daemon, the socket the window connects to, and the environment it sets.
+// the daemon, the socket the window connects to, the environment it sets, and
+// the status the window shows.
 
 #include <QFileInfo>
 #include <QGuiApplication>
@@ -31,6 +32,26 @@ private Q_SLOTS:
     qunsetenv("ECO_SOCKET");
     AndroidBridge::start();
     QCOMPARE(qEnvironmentVariable("ECO_SOCKET"), AndroidBridge::socketPath());
+  }
+
+  void a_denied_microphone_is_asked_again_only_where_android_still_asks() {
+    using Permission = Qt::PermissionStatus;
+    QCOMPARE(AndroidBridge::microphoneStatus(Permission::Denied, true), QStringLiteral("microphone.denied"));
+    QCOMPARE(AndroidBridge::microphoneStatus(Permission::Denied, false), QStringLiteral("microphone.blocked"));
+    QCOMPARE(AndroidBridge::microphoneStatus(Permission::Granted, false), QString());
+    QCOMPARE(AndroidBridge::microphoneStatus(Permission::Undetermined, true), QString());
+  }
+
+  void the_services_report_becomes_the_status_the_window_binds() {
+    QSignalSpy changed(&AndroidBridge::Status::instance(), &AndroidBridge::Status::changed);
+    AndroidBridge::report(QStringLiteral("models.failed"));
+    QTRY_COMPARE(AndroidBridge::Status::instance().value(), QStringLiteral("models.failed"));
+    QCOMPARE(changed.count(), 1);
+    // The same status again is not a change.
+    AndroidBridge::report(QStringLiteral("models.failed"));
+    AndroidBridge::report(QString());
+    QTRY_COMPARE(AndroidBridge::Status::instance().value(), QString());
+    QCOMPARE(changed.count(), 2);
   }
 };
 

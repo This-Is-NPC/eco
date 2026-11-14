@@ -1084,7 +1084,7 @@ measured on a phone.
 | First launch with the models absent: the app starts its daemon, which downloads Silero VAD (2.8 MB) and WeSpeaker CAM++ (29.3 MB) over the host's network, until the socket answers | 12.0 s, once |
 | Cold launch with the models in place, from `monkey` to `libeco.so status` answering at the socket | 1.7 to 3.1 s over four runs |
 | Silero VAD load | not timed apart: the daemon loads it before it binds the socket, so it is inside the cold launch above, and it prints no timing |
-| The four scenarios of `android:e2e` (launch 3.7 s, replay 9.4 s, retry 13.6 s, outage 20.1 s) | 51 s |
+| The six scenarios of `android:e2e` (launch 5.3 s, offline 13.7 s, microphone 2.7 s, replay 20.3 s, retry 13.6 s, outage 20.1 s) | 81.5 s |
 | `mise run android:check` from no emulator, with the APK and the test binary built | 127 s the first time, 93 s the second: the lint, the Rust and bridge tests (an emulator boot) and the scenarios (another) |
 
 The tests that run on the device, and why not all of them, are in

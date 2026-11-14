@@ -8,6 +8,8 @@ import Eco.Kit
 Window {
   id: phone
 
+  // What keeps the daemon from running (Eco.phoneStatus), or "".
+  property string status: Eco.phoneStatus
   title: "eco"
   width: 360
   height: 720
@@ -31,6 +33,23 @@ Window {
         filled: Eco.connected
         tone: Eco.connected ? Theme.success : Theme.warning
       }
+    }
+
+    StatusMessage {
+      objectName: "reason"
+      Layout.fillWidth: true
+      visible: phone.status !== ""
+      kind: phone.status.startsWith("models.preparing") ? "info" : "error"
+      message: phone.status === "" ? "" : I18n.t("phone.status." + phone.status)
+    }
+
+    TraceButton {
+      objectName: "action"
+      Layout.fillWidth: true
+      visible: phone.status.startsWith("microphone.")
+      role: "primary"
+      text: I18n.t(phone.status === "microphone.blocked" ? "phone.open_settings" : "phone.allow_microphone")
+      onClicked: Eco.phoneAct()
     }
 
     Kicker {
