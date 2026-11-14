@@ -1,9 +1,11 @@
 //! Every external system, behind a port.
 
-#[cfg(any(windows, target_os = "macos"))]
+#[cfg(target_os = "android")]
+pub mod android;
+#[cfg(any(windows, target_os = "macos", target_os = "android"))]
 pub mod audio_cpal;
 // Platform-neutral; only the cpal audio needs it outside the tests.
-#[cfg(any(windows, target_os = "macos", test))]
+#[cfg(any(windows, target_os = "macos", target_os = "android", test))]
 pub mod audio_convert;
 pub mod audio_ffmpeg;
 pub mod audio_file;
@@ -38,7 +40,7 @@ pub mod local_socket;
 pub mod notify_linux;
 #[cfg(target_os = "macos")]
 pub mod notify_macos;
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "android")))]
 pub mod notify_program;
 #[cfg(windows)]
 pub mod notify_windows;
@@ -63,7 +65,7 @@ pub mod stt_deepgram;
 pub mod stt_elevenlabs;
 pub mod stt_openai;
 pub mod terminal;
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "android"))]
 pub mod unsupported;
 pub mod vad_silero;
 pub mod websocket;

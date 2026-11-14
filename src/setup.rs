@@ -118,8 +118,8 @@ pub fn desktop() -> Vec<Box<dyn DesktopIntegration>> {
     ))]
 }
 
-/// What `eco setup` ties eco into: nothing yet on macOS, which it says.
-#[cfg(target_os = "macos")]
+/// What `eco setup` ties eco into: nothing yet on macOS or on Android, which it says.
+#[cfg(any(target_os = "macos", target_os = "android"))]
 pub fn desktop() -> Vec<Box<dyn DesktopIntegration>> {
     vec![Box::new(crate::adapters::unsupported::Unsupported)]
 }
