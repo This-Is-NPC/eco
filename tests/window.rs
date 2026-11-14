@@ -19,7 +19,8 @@
 //! `tests/window/uninstall.qml`; its views and settings made only while
 //! wanted, in `tests/window/lazy.qml`; and the tray icon's states and menu, in
 //! `tests/window/tray.qml`; and the phone window's connection and input monitor, in
-//! `tests/window/phone.qml`. Needs `mise run window:build`.
+//! `tests/window/phone.qml`. Needs `mise run window:build`; Android has no host window to run them against.
+#![cfg(not(target_os = "android"))]
 
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
