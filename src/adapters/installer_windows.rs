@@ -34,7 +34,8 @@ use crate::adapters::control_socket::Address;
 use crate::adapters::notify_windows::{self, Toasts};
 use crate::adapters::service_windows::{CREATE_NO_WINDOW, hidden};
 use crate::apply::{self, Steps};
-use crate::installer::{self, SCRATCH, Scratch};
+use crate::installer::download::{SCRATCH, checksum};
+use crate::installer::{self, Scratch};
 use crate::lifecycle;
 use crate::ports::{
     InstallError, InstallProgress, Installed, Installer, Notifier, Pending, Urgency,
@@ -540,7 +541,7 @@ mod tests {
 
     #[test]
     fn the_copy_is_told_the_quoted_package_and_its_checksum() {
-        let sha256 = installer::checksum(ABC).unwrap();
+        let sha256 = checksum(ABC).unwrap();
         assert_eq!(
             parameters(Path::new(r"C:\Users\Zoe Lima\eco.msi"), &sha256),
             format!(r#"apply-update "C:\Users\Zoe Lima\eco.msi" {ABC}"#)
@@ -569,7 +570,7 @@ mod tests {
     fn a_digest_reads_back_as_its_hex_and_a_file_hashes_to_it() {
         let digest = sha256_of(&b"abc"[..]).unwrap();
         assert_eq!(hex(&digest), ABC);
-        assert_eq!(installer::checksum(&hex(&digest)), Some(digest));
+        assert_eq!(checksum(&hex(&digest)), Some(digest));
     }
 
     #[test]
@@ -577,7 +578,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let msi = directory.path().join(MSI);
         fs::write(&msi, "abc").unwrap();
-        let held = hold(&msi, &installer::checksum(ABC).unwrap()).unwrap();
+        let held = hold(&msi, &checksum(ABC).unwrap()).unwrap();
         assert!(fs::write(&msi, "evil").is_err());
         assert!(fs::rename(&msi, directory.path().join("moved.msi")).is_err());
         assert!(fs::remove_file(&msi).is_err());
@@ -592,7 +593,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let msi = directory.path().join(MSI);
         fs::write(&msi, "abd").unwrap();
-        let error = hold(&msi, &installer::checksum(ABC).unwrap()).unwrap_err();
+        let error = hold(&msi, &checksum(ABC).unwrap()).unwrap_err();
         assert!(
             error
                 .0
