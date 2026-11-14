@@ -2887,6 +2887,7 @@ mise run android:setup      # Linux: the pinned Android SDK, NDK and emulator, i
 mise run android:emulator   # Linux: boot the eco emulator, or reuse a running one; it keeps running, stop it with `adb emu kill`
 mise run android:install -- [apk] [package]   # Linux: install an APK on the running emulator and launch it (default target/android/eco.apk, eco.app)
 mise run android:lint       # Linux: clippy for x86_64-linux-android, tests included, warnings fatal
+mise run android:test       # Linux: the window host's Android bridge test, run on the running emulator with androidtestrunner
 mise run android:build      # Linux: the debug APK, x86_64 only, into target/android/eco.apk
 mise run android:check      # Linux: every check of the Android build (for now, android:lint)
 mise run qt:install         # the Qt into .qt: eco-window's on Windows and macOS, Qt for Android and its host tools on Linux
@@ -3107,7 +3108,7 @@ file that holds its `#[cfg]` selection and what Android answers.
 | Service lifecycle | `ServiceManager` | `src/lib.rs` (`PlatformService`) | the host's foreground service; `NoService` (`src/adapters/android.rs`) reports `eco start` as unsupported |
 | Desktop setup | `DesktopIntegration` | `src/setup.rs` (`desktop`) | a reported limitation, as on macOS (`Unsupported`) |
 | Window control | `WindowControl` | `src/session.rs` (`window_control`) | `NoWindowControl`, a reported limitation: the daemon launches no windows, and `windows` in `src/session.rs` selects `NoWindows`, which refuses `open`, instead of the launcher in `src/adapters/overlay/windows.rs`, which is not compiled on Android |
-| The window host's bridge | `EcoHost` in `window/` | `Q_OS_*` in `window/` | the calls Android needs are bridge methods behind `Q_OS_ANDROID` |
+| The window host's bridge | `EcoHost` in `window/` | `Q_OS_*` in `window/` | `window/bridge_android.*`, behind `Q_OS_ANDROID`: `AndroidBridge::dataDir()`, `runtimeDir()` and `socketPath()` (the directories the daemon gets, under the app's files directory, and its socket) and `AndroidBridge::start()` (names the socket in `ECO_SOCKET`, asks for the microphone, then for notifications, and starts the service). Its test is `window/bridge_android_test.cpp`, run by `mise run android:test` |
 | System notifications | `Notifier` | `src/session.rs` (`notifier`) | `NoNotifications`, a reported limitation for now |
 | Shortcuts | `shortcuts` in `src/session.rs` | `src/session.rs` (`shortcuts`) | a reported limitation, as on macOS: every key is unavailable |
 | Installing a release and updating | `Installer` (`Releases` has one adapter, GitHub, on every platform) | `src/installer.rs` (`installer`) | `NoInstaller`, a reported limitation: the system installs the app; the download the installers share is not compiled on Android |
@@ -3132,6 +3133,31 @@ The window host is a library there, with the overlay in its Qt resources
 Android extracts it into the app's native library directory, where it can
 run. The manifest also sets `allowBackup="false"` and asks for
 `RECORD_AUDIO`, `INTERNET`, `FOREGROUND_SERVICE` and
-`FOREGROUND_SERVICE_MICROPHONE`. After packaging, the script reads the APK
+`FOREGROUND_SERVICE_MICROPHONE` (and `POST_NOTIFICATIONS`, for the service's notification). After packaging, the script reads the APK
 with `aapt2` and fails unless the daemon, those permissions and both flags
 are in it.
+
+**The daemon on Android.** The app owns the daemon's life. At startup
+`window/main.cpp` calls `AndroidBridge::start()`: it names the socket in
+`ECO_SOCKET` (`<files>/run/eco.sock`, short enough for a Unix address), asks
+for the microphone and, once it is allowed, for notifications (Android 13 and
+later) and starts `eco.app.DaemonService`
+(`window/android/src/eco/app/DaemonService.java`), declared in the manifest
+with `foregroundServiceType="microphone"` (a service of that type cannot start
+without the microphone, so a refused microphone starts nothing and the window
+shows the daemon down). The service shows the ongoing notification and, on one
+thread, runs `libeco.so setup` (the models, downloaded when missing) and then
+`libeco.so daemon --headless` from the native library directory, with
+`ECO_DATA_DIR=<files>/eco` and `ECO_RUNTIME_DIR=<files>/run` (the same
+directories the bridge names; the service only receives them), its output in
+logcat under `eco-daemon`. The daemon is a child of the app's process: when
+the service is destroyed it gets `SIGTERM` and, after 3 s, `SIGKILL`; when the
+app is stopped, Android ends its whole uid, the daemon with it. A second
+`start` while the service runs, or while a daemon already answers at the
+socket, starts nothing; the socket a stopped daemon left behind is replaced by
+the next daemon. `PhoneWindow` keeps its content out of the system bars with
+`SafeArea.margins`. Measured on the emulator (Android 16, x86_64): the app and
+one `libeco.so` under its uid, the window reading `CONNECTED`; opening the app
+again, or from a cold start after `am force-stop`, left exactly one daemon; the
+bridge test passed under `mise run android:test`. Stopping the service itself
+was not run: `am stopservice` cannot reach a service that is not exported.

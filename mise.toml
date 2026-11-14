@@ -57,6 +57,11 @@ run = "scripts/android-install"
 description = "Linux only: run clippy for x86_64-linux-android, tests included, warnings fatal"
 run = "scripts/android-lint"
 
+[tasks."android:test"]
+description = "Linux only: run the window host's Android bridge test on the running emulator with Qt's androidtestrunner"
+depends = ["qt:install"]
+run = "scripts/android-test"
+
 [tasks."android:build"]
 description = "Linux only: build the debug APK, x86_64 only, into target/android/eco.apk: eco-window with the overlay, and the daemon as lib/x86_64/libeco.so"
 depends = ["qt:install"]

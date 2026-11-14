@@ -40,7 +40,18 @@ if(ANDROID)
     QT_ANDROID_MIN_SDK_VERSION 26
     QT_ANDROID_TARGET_SDK_VERSION 36
     QT_ANDROID_LEGACY_PACKAGING ON
-    QT_ANDROID_EXTRA_LIBS ${ECO_DAEMON})
+    QT_ANDROID_EXTRA_LIBS "${ECO_DAEMON}")
+  # The calls into the Android system, which the window host and its test share.
+  target_sources(eco-window PRIVATE bridge_android.h bridge_android.cpp)
+  # The bridge's test is an APK of its own, in a build of its own (both APKs
+  # share one android-build directory): scripts/android-test runs it
+  # on the emulator with Qt's androidtestrunner.
+  if(ECO_ANDROID_TEST)
+    find_package(Qt6 REQUIRED COMPONENTS Test)
+    qt_add_executable(bridge-android-test bridge_android_test.cpp bridge_android.h bridge_android.cpp)
+    target_compile_definitions(bridge-android-test PRIVATE QT_NO_CAST_FROM_ASCII QT_NO_KEYWORDS)
+    target_link_libraries(bridge-android-test PRIVATE Qt6::Gui Qt6::Test)
+  endif()
 endif()
 if(WIN32)
   target_sources(eco-window PRIVATE eco-window.rc)
