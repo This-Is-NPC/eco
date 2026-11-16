@@ -4,21 +4,25 @@
 ## bench, which runs the self-contained benchmark/ tool.
 
 [tools]
-rust = { version = "1.97.1", components = "rustfmt,clippy,llvm-tools" }
+rust = { version = "1.97.1", components = "rustfmt,clippy,llvm-tools", targets = "aarch64-linux-android,x86_64-linux-android" }
 python = "3.14.8"
 cmake = "4.4.4"
 ninja = "1.13.2"
 watchexec = "2.8.0"
 "cargo:cargo-llvm-cov" = "0.9.1"
 usage = "5.1.0"
-# Qt for eco-window on Windows and macOS (scripts/qt-install): aqt from the
+# Qt for eco-window on Windows and macOS, and for Android on Linux (scripts/qt-install): aqt from the
 # commit that reads Qt 6.11's repository layout, which no release does yet, run by uv.
-uv = { version = "0.12.24", os = ["windows", "macos"] }
-"pipx:miurahr/aqtinstall" = { version = "076e1659807d0b362a3ed684d54c2e9c775eb9c7", os = ["windows", "macos"] }
+uv = { version = "0.12.24", os = ["linux", "windows", "macos"] }
+"pipx:miurahr/aqtinstall" = { version = "076e1659807d0b362a3ed684d54c2e9c775eb9c7", os = ["linux", "windows", "macos"] }
 # The Windows installer (scripts/package): WiX 6, run by the .NET SDK. WiX 7
 # asks the person who builds to accept the OSMF EULA, so it is not used.
 dotnet = { version = "8.0.427", os = ["windows"] }
 "dotnet:wix" = { version = "6.0.2", os = ["windows"] }
+# Android, built on Linux (scripts/android-setup): the JDK its tools run on and
+# the SDK command-line tools that install the rest into .android-sdk.
+java = { version = "temurin-21.0.13+9.0.LTS", os = ["linux"] }
+android-sdk = { version = "23.0", os = ["linux"] }
 
 [env]
 _.file = ".env"
@@ -29,9 +33,54 @@ run = "scripts/setup"
 run_windows = "python scripts/setup"
 
 [tasks."qt:install"]
-description = "Install the Qt eco-window builds with on Windows and macOS into .qt (on Linux, nothing: the system's Qt)"
+description = "Install Qt into .qt: the one eco-window builds with on Windows and macOS, on Linux Qt for Android and its host tools"
 run = "scripts/qt-install"
 run_windows = "python scripts/qt-install"
+
+[tasks."android:setup"]
+description = "Linux only: install the pinned Android SDK packages, NDK and emulator into .android-sdk and create the eco virtual device"
+run = "scripts/android-setup"
+
+[tasks."android:emulator"]
+description = "Linux only: boot the eco Android emulator on the host GPU, with the computer's microphone, and wait until it has booted; an emulator already running is reused, one started here keeps running (stop it with adb emu kill)"
+run = "scripts/android-emulator"
+
+[tasks."android:install"]
+description = "Linux only: install an APK on the running emulator and launch it"
+usage = '''
+arg "[apk]" help="The APK to install" default="target/android/eco.apk"
+arg "[package]" help="The Android package to launch" default="eco.app"
+'''
+run = "scripts/android-install"
+
+[tasks."android:lint"]
+description = "Linux only: run clippy for x86_64-linux-android, tests included, warnings fatal"
+run = "scripts/android-lint"
+
+[tasks."android:test"]
+description = "Linux only: on the running emulator, run the daemon's unit tests (the library's test binary pushed with adb) and the window host's Android bridge test (Qt's androidtestrunner)"
+depends = ["qt:install"]
+run = "scripts/android-test"
+
+[tasks."android:build"]
+description = "Linux only: build the debug APK, x86_64 only, into target/android/eco.apk: eco-window with the overlay, and the daemon as lib/x86_64/libeco.so"
+depends = ["qt:install"]
+run = "scripts/android-build"
+sources = ["src/**/*", "Cargo.toml", "Cargo.lock", "window/**/*", "overlay/**/*", "scripts/android-build", "scripts/lib/android.py"]
+outputs = ["target/android/eco.apk"]
+
+[tasks."android:e2e"]
+description = "Linux only: replay a speech clip through the APK's daemon on the emulator, against a fake transcription server on the host; an emulator it boots is killed after (scenario names run alone)"
+usage = '''
+arg "[scenarios]" help="The scenarios to run, by name: launch, replay, retry, outage; all by default" var=#true required=#false
+'''
+depends = ["android:build"]
+run = "scripts/android-e2e"
+
+[tasks."android:check"]
+description = "Linux only: run every check of the Android build: lint, then the tests and the end-to-end scenarios, which share one emulator"
+depends = ["android:lint"]
+run = ["mise run android:test", "mise run android:e2e"]
 
 [tasks."window:build"]
 description = "Build eco-window, the Qt 6 program that runs the overlay, into target/window (on macOS eco.app, into target/window.noindex)"

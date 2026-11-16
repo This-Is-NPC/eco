@@ -4,7 +4,7 @@
 use crate::ports::DesktopIntegration;
 
 /// Why every use of this adapter fails: the platform has no adapter for the seam yet.
-fn unsupported(what: &str) -> String {
+pub(crate) fn unsupported(what: &str) -> String {
     format!("{what} is not available on this system yet")
 }
 

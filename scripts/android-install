@@ -1,0 +1,29 @@
+#!/usr/bin/env python3
+"""Install an APK on the running emulator and launch it. Arguments come from
+the usage spec: the APK (`usage_apk`) and its package (`usage_package`)."""
+
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+import android  # noqa: E402
+
+
+def adb(*args):
+    return subprocess.run([str(android.adb()), *args], capture_output=True, text=True, timeout=300)
+
+
+apk = Path(os.environ["usage_apk"])
+package = os.environ["usage_package"]
+if not apk.is_file():
+    sys.exit(f"no APK at {apk}: build it first")
+if not android.booted_emulators(adb("devices").stdout):
+    sys.exit("no emulator is running: run `mise run android:emulator`")
+
+for step in (["install", "-r", "-t", str(apk)], ["shell", "monkey", "-p", package, "-c", "android.intent.category.LAUNCHER", "1"]):
+    done = adb(*step)
+    if done.returncode != 0 or "Failure" in done.stdout or "Error" in done.stdout:
+        sys.exit(f"adb {step[0]} failed:\n{done.stdout}{done.stderr}")
+print(f"installed and launched {package}")

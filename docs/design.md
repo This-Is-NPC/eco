@@ -147,7 +147,8 @@ files import modules by name (`import Eco.Kit`), never by relative path:
 Live, Sessions, Dialogs and Settings never import each other: a piece two of
 them share belongs in `Eco.Kit`, and what joins them lives in `Eco.Window`.
 `shell.qml` composes `OverlayPanel` with the settings window; `tray.qml` is
-the tray icon, on `Eco.Core` alone; `lab.qml` runs `ControlLab`.
+the tray icon, on `Eco.Core` alone; `phone.qml` is `PhoneWindow`, the entry for a phone: the
+connection to the daemon and the input monitor, nothing else; `lab.qml` runs `ControlLab`.
 
 `mise run overlay:check` (`scripts/overlay-check`, part of `mise run check`)
 enforces this table: it fails on an import a module may not make, a relative
@@ -2882,7 +2883,15 @@ mise run start -- --no-save              # keep sessions in memory only
 mise run overlay            # only the window; start it after the daemon
 mise watch overlay -o restart   # the same, run again on every save under overlay/
 mise run window:build       # eco-window, into target/window (the tasks that run it build it first)
-mise run qt:install         # Windows and macOS: the Qt eco-window builds with, into .qt
+mise run android:setup      # Linux: the pinned Android SDK, NDK and emulator, into .android-sdk
+mise run android:emulator   # Linux: boot the eco emulator with the computer's microphone, or reuse a running one; it keeps running, stop it with `adb emu kill`
+mise run android:install -- [apk] [package]   # Linux: install an APK on the running emulator and launch it (default target/android/eco.apk, eco.app)
+mise run android:lint       # Linux: clippy for x86_64-linux-android, tests included, warnings fatal
+mise run android:test       # Linux: on the emulator (booted and killed if none runs), the daemon's Android unit tests pushed with adb and the window host's bridge test through androidtestrunner
+mise run android:e2e -- [scenario ...]   # Linux: the APK on the emulator against a fake transcription server on the host: launch, offline, microphone, restart, replay, retry, outage (default all)
+mise run android:build      # Linux: the debug APK, x86_64 only, into target/android/eco.apk
+mise run android:check      # Linux: every check of the Android build: android:lint, android:test, android:e2e; not part of check
+mise run qt:install         # the Qt into .qt: eco-window's on Windows and macOS, Qt for Android and its host tools on Linux
 mise run check              # the gate: lint, test, cli:check, docs:check
 mise run lint               # cargo fmt and clippy, every warning fatal
 mise run test               # the domain tests, i18n, VAD and speaker parity
@@ -2980,6 +2989,15 @@ not this build too. It finds its libraries at the path CMake writes into it,
 so it runs from the checkout only; `mise run test` runs
 `tests/window.rs` and `tests/overlay.rs` there, the second with the
 `qmltestrunner` under `.qt`.
+**On Linux** `eco-window` builds with the system's Qt. `mise install` pins uv
+and aqt there too, and `mise run qt:install` installs Qt 6.11.2 for Android
+(`android_x86_64`) and the desktop Qt that holds its host tools
+(`gcc_64`, with `androiddeployqt` and the ICU its `qmlimportscanner` loads), each with `qtbase` and
+`qtdeclarative`, under `.qt/6.11.2`: 1.7 GB, in 75 s, on the laptop it was
+measured on. Each target has its own marker files, one per archive, so one missing
+an archive is installed again, one already whole is left alone and none
+removes another; a second run does nothing.
+
 On Windows mise runs a task's command through `cmd`, which runs no script
 by its shebang, so a task that runs there names a Python script, on the
 Python mise pins, in its `run_windows`: besides the tasks above, `mise run
@@ -3062,7 +3080,7 @@ is `src/adapters/unsupported.rs`, which says so whenever it is used.
 | Paths | the home and the XDG base directories (`HOME`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_RUNTIME_DIR`, else `/run/user/<uid>`), and Hyprland's event socket under the runtime directory (`HYPRLAND_INSTANCE_SIGNATURE`) | the user profile (`USERPROFILE`), the config under `%APPDATA%\eco`, the data and the windows' token under `%LOCALAPPDATA%\eco`, each else under the profile's `AppData`, and the pipe `\\.\pipe\eco-<USERNAME>` | the home (`HOME`); config, data and the update state under `~/Library/Application Support/eco`; the socket and the windows' token in `$TMPDIR`, the per-user temporary directory, else in the data directory; no XDG variable is read | `src/paths.rs` |
 | Private files | files `0600` and directories `0700` | plain files and directories: under the user profile they inherit an access list that admits only the user, the system and administrators | as on Linux: files `0600` and directories `0700` | `src/config.rs` |
 | The daemon socket | a Unix domain socket at `$XDG_RUNTIME_DIR/eco.sock`, `0600`; a socket file a crashed daemon left is replaced | a named pipe that refuses clients on other machines; its first instance is created as the first, so a second daemon is refused while one runs, and the pipe goes with its last handle; a new instance waits for the next client before each accepted one is handed out, and a client finding every instance taken tries again for two seconds. The pipe keeps Windows' default access list, which lets any local account open it (setting its own takes a call tokio offers only as `unsafe`), so a client is admitted only once its first line is `auth <token>`, the token in `%LOCALAPPDATA%\eco\eco.token`; anything else is disconnected without a byte (§10) | as on Linux, a Unix domain socket, `0600`, at `$TMPDIR/eco.sock`. A client that shuts only its read half is not dropped, for macOS takes and discards the daemon's writes to it (seen in `control_socket`'s test) | `src/adapters/local_socket.rs`; the admission and the protocol (`src/adapters/control_socket.rs`), the CLI client (`src/cli.rs`) and the service commands (`src/lifecycle.rs`) reach it only through it |
-| Audio devices and capture | the `AudioDevices` port, adapter `PipeWire`: devices from `pw-dump`, an `AudioSource` per device through `pw-record`, echo cancellation by `libpipewire-module-echo-cancel` loaded through `pw-cli` | adapter `Cpal`, on WASAPI through the `cpal` crate: the devices are the active endpoints, each with its endpoint id (`{0.0.1.00000000}.{…}`) and friendly name, a capture endpoint as `input` and a render endpoint as `output`, after the same two defaults; `@default-input` and `@default-output` follow the system default (the daemon names them `Default microphone` and `Default output`, in English as its messages are; the overlay names them by id in the interface language), and when it changes the stream opens again on the new one. An output is captured in loopback, beside a silent stream of eco's own on that output, because WASAPI hands a loopback nothing while its output plays nothing. Capture runs on cpal's thread in the device's own format (often 48 kHz float stereo); `src/adapters/audio_convert.rs`, platform-neutral and tested on both, averages the channels, resamples to 16 kHz with a Blackman-windowed sinc (rational polyphase, cutoff at 90% of the lower Nyquist) and cuts 512-sample frames across chunks. Frames reach the session through a queue of 256 (about 8 s) that drops new audio rather than make the device's thread wait; a device that cannot be opened or goes away is reported as `capture.down` and opened again, while the other inputs keep capturing (§4). Echo cancellation is not available: `cancel_echo` fails with `echo_cancel.unavailable`, and the "cancelled" microphone is the default microphone as it is. Measured on the Windows machine over ssh: the endpoints listed, one second of the default microphone gave 30 frames and of the default output 31 silent frames, and a 440 Hz tone at 0.2 played on it came back with a peak of 6554 | the same adapter `Cpal`, on Core Audio: the devices are the Core Audio devices, each with its UID (`BuiltInSpeakerDevice`, `AppleUSBAudioEngine:…`) and name; a device that both captures and plays is listed as `input`, and opening it as an output fails with `<device>: what it plays cannot be captured, it is also a microphone`, since cpal would open its microphone. An output is captured through a Core Audio process tap of every process, which cpal opens on that output and which hands silence while nothing plays, so no silent stream is opened. A microphone macOS denies hands silence, not an error, and the daemon cannot read that permission without `unsafe`. macOS asks when the daemon first opens the microphone, and the daemon takes a microphone that gives nothing but zeros for its first 2 s as refused (a real one always hears some noise). Those frames are held until it hears anything, so a refused microphone is never heard, not even once: the source ends with why and where to allow eco, the strip says `capture.down` with it as the hint until it is back, and the microphone is opened again with the usual backoff. Measured on macOS 27.0.1: refused, the strip held `capture.down`; allowed in System Settings, the running daemon heard it again at the next opening. Echo cancellation is not available, as on Windows. Measured on macOS 27.0.1 (Mac mini): every device listed by UID, one second of each microphone gave 27 to 29 frames, and the default output 28 silent frames, with or without the silent stream; a 440 Hz tone at 0.2 on it came back with a peak of 6554, while the outputs that did not play it gave silence | `src/session.rs` composes it; `src/adapters/audio_pipewire.rs`, `src/adapters/pipewire_devices.rs`, `src/adapters/echo_cancel.rs`, `src/adapters/devices.rs` (all three), `src/adapters/audio_cpal.rs` (Windows and macOS), `src/adapters/audio_convert.rs` |
+| Audio devices and capture | the `AudioDevices` port, adapter `PipeWire`: devices from `pw-dump`, an `AudioSource` per device through `pw-record`, echo cancellation by `libpipewire-module-echo-cancel` loaded through `pw-cli` | adapter `Cpal`, on WASAPI through the `cpal` crate: the devices are the active endpoints, each with its endpoint id (`{0.0.1.00000000}.{…}`) and friendly name, a capture endpoint as `input` and a render endpoint as `output`, after the same two defaults; `@default-input` and `@default-output` follow the system default (the daemon names them `Default microphone` and `Default output`, in English as its messages are; the overlay names them by id in the interface language), and when it changes the stream opens again on the new one. An output is captured in loopback, beside a silent stream of eco's own on that output, because WASAPI hands a loopback nothing while its output plays nothing. Capture runs on cpal's thread in the device's own format (often 48 kHz float stereo); `src/adapters/audio_convert.rs`, platform-neutral and tested on both, averages the channels, resamples to 16 kHz with a Blackman-windowed sinc (rational polyphase, cutoff at 90% of the lower Nyquist) and cuts 512-sample frames across chunks. Frames reach the session through a queue of 256 (about 8 s) that drops new audio rather than make the device's thread wait; a device that cannot be opened or goes away is reported as `capture.down` and opened again, while the other inputs keep capturing (§4). Echo cancellation is not available: `cancel_echo` fails with `echo_cancel.unavailable`, and the "cancelled" microphone is the default microphone as it is. Measured on the Windows machine over ssh: the endpoints listed, one second of the default microphone gave 30 frames and of the default output 31 silent frames, and a 440 Hz tone at 0.2 played on it came back with a peak of 6554 | the same adapter `Cpal`, on Core Audio: the devices are the Core Audio devices, each with its UID (`BuiltInSpeakerDevice`, `AppleUSBAudioEngine:…`) and name; a device that both captures and plays is listed as `input`, and opening it as an output fails with `<device>: what it plays cannot be captured, it is also a microphone`, since cpal would open its microphone. An output is captured through a Core Audio process tap of every process, which cpal opens on that output and which hands silence while nothing plays, so no silent stream is opened. A microphone macOS denies hands silence, not an error, and the daemon cannot read that permission without `unsafe`. macOS asks when the daemon first opens the microphone, and the daemon takes a microphone that gives nothing but zeros for its first 2 s as refused (a real one always hears some noise). Those frames are held until it hears anything, so a refused microphone is never heard, not even once: the source ends with why and where to allow eco, the strip says `capture.down` with it as the hint until it is back, and the microphone is opened again with the usual backoff. Measured on macOS 27.0.1: refused, the strip held `capture.down`; allowed in System Settings, the running daemon heard it again at the next opening. Echo cancellation is not available, as on Windows. Measured on macOS 27.0.1 (Mac mini): every device listed by UID, one second of each microphone gave 27 to 29 frames, and the default output 28 silent frames, with or without the silent stream; a 440 Hz tone at 0.2 on it came back with a peak of 6554, while the outputs that did not play it gave silence | `src/session.rs` composes it; `src/adapters/audio_pipewire.rs`, `src/adapters/pipewire_devices.rs`, `src/adapters/echo_cancel.rs`, `src/adapters/devices.rs` (all three), `src/adapters/audio_cpal.rs` (Windows, macOS and Android), `src/adapters/audio_convert.rs` |
 | Service lifecycle and desktop setup | `ServiceManager`: the systemd user service (`systemctl --user`), chosen in `src/lib.rs`; `DesktopIntegration`: the line loaded into the Hyprland Lua config (`~/.config/hypr/bindings.lua`), chosen in `src/setup.rs` | `ServiceManager`, adapter `BackgroundProcess`: `eco start` has the shell start `eco detach` through `ShellExecuteEx` (the `winsafe` crate) with a hidden window and no user interface, and `eco detach` runs `eco daemon --headless` from the same executable as a process of the user's own and returns. No PowerShell and no `conhost.exe` are involved. A process Rust's standard library starts inherits every inheritable handle of its parent, and a shell or ssh reading `eco start`'s output waits until the last holder of that pipe exits: started directly, or through `cmd /c start`, the daemon held it and `eco start 2>&1 \| Out-String` never returned; a process the shell starts inherits nothing, so `eco start` returns once `eco detach` has started the daemon (measured over ssh in an earlier design with PowerShell's `Start-Process`, which uses the same call: 12 s against 0.2 s with a 12-second program; a direct `Command::spawn` held a captured caller for 11.3 s). The daemon runs with `CREATE_NO_WINDOW` (a console of its own that is never shown, which the programs it runs, a hook's `cmd` say, share instead of each opening one; `DETACHED_PROCESS` would leave it none, and Windows ignores `CREATE_NO_WINDOW` beside it), out of reach of a Ctrl-C in the terminal that ran `eco start`; its output goes to `%LOCALAPPDATA%\eco\daemon.log`, emptied at each start, and `eco start` waits for the pipe as on Linux; stop, status and restart go through the pipe. `DesktopIntegration`, adapter `OldLoginScript`: eco starts only when the user opens it, so `eco setup` removes the `eco.cmd` an earlier `eco setup` wrote into the user's Startup folder, says so, and says nothing when there is none. The Start menu entry is the MSI's, not setup's (§13). `eco-launch` is a second binary of the crate, `src/bin/eco-launch.rs`, built with the Windows GUI subsystem so that starting it opens no console, and it calls `lifecycle::open_window`, which is `eco start` with its window; since no console shows an error, it goes out as a critical notification (§15), and the process waits for the toast to show before it exits. Adapter `ToastName`: `eco setup` registers eco's app id for the notifications (below). `setup::desktop()` lists the two; Linux lists Hyprland alone | `ServiceManager`, adapter `LaunchAgent`: `eco start` writes the launchd agent `io.github.this-is-npc.eco` to `~/Library/LaunchAgents/io.github.this-is-npc.eco.plist` (`<exe> daemon --headless`, the `PATH` of what ran it with Homebrew's `/opt/homebrew/bin` and `/usr/local/bin` added when it lacks them, since launchd's own, which eco opened from Finder or Launchpad has, finds no Homebrew program, its output to `~/Library/Application Support/eco/daemon.log`, `RunAtLoad` false so it never runs at login), empties that log, and runs `launchctl bootstrap gui/<uid>` when launchd does not hold the agent (`launchctl print`) or held another definition (`bootout` first), then `launchctl kickstart gui/<uid>/io.github.this-is-npc.eco`; the log is what a start that fails shows, read through `src/adapters/daemon_log.rs`, shared with Windows. Stop, status and restart go through the socket. Only `PATH` is written into the agent: a key reaches it from the login session's environment (`launchctl setenv`), never from a file. The arguments and the definition are tested with a stand-in `launchctl`. Measured on macOS 27.0.1 in a real login session: `eco start` loads and starts the agent, with Homebrew's folders on its `PATH`, and RESTART in the window or `eco restart` starts a new daemon, which runs `eco restart` in a process group of its own, since launchd kills what is left in the agent's group once the daemon exits. `DesktopIntegration`: none yet, adapter `Unsupported`: `eco setup` says eco is not tied into the desktop | `src/adapters/service_systemd.rs`, `src/adapters/desktop_hyprland.rs`, `src/adapters/service_windows.rs`, `src/adapters/desktop_windows.rs`, `src/adapters/service_launchd.rs`, `src/adapters/daemon_log.rs` (Windows and macOS) |
 | Stopping the daemon and its windows | the daemon stops on Ctrl-C or `SIGTERM`; a window process is sent `SIGTERM` | the daemon stops on Ctrl-C, Ctrl-Break, its console closing or Windows shutting down; a window process is terminated | as on Linux: Ctrl-C or `SIGTERM`; a window process is sent `SIGTERM` | `src/session.rs`, `src/adapters/overlay.rs` |
 | The running executable | `eco status --expect-current-exe` compares the daemon's `/proc/<pid>/exe` with this executable by device and inode | it compares the `exe` the daemon's greeting names with this executable's path; Windows lets no one overwrite a running executable | no `/proc`: it compares the `exe` the daemon's greeting names with this executable's path, as on Windows, so one replaced at the same path goes unseen | `src/lifecycle.rs` |
@@ -3075,3 +3093,147 @@ is `src/adapters/unsupported.rs`, which says so whenever it is used.
 | The omapass keyring | a secret with `omapass` reads a key through the omapass CLI | omapass does not exist: it is never installed, and a key from it fails | as on Linux, looked up on `PATH`; Omarchy does not exist there, so it is not installed | `src/adapters/omapass.rs` |
 | Installing a release | `pkexec pacman -U --noconfirm` on the Arch package, else `sudo pacman -U` from a terminal; Hyprland's binds are what `eco doctor` checks for shortcuts | the per-machine MSI in `%ProgramFiles%\eco`, installed by `msiexec` from a copy of eco once the daemon has stopped (`eco apply-update`); the registered keys are what `eco doctor` checks | adapter `Folder`: `~/Applications/eco`, which `install-macos.sh` fills, replaced in place by a rename, the folder moved aside deleted at once (§13); the restart after an update runs `eco restart` as a process of its own. Tested against an archive served by a test server; `eco update` against the published 0.10.1, which carries no macOS archive, failed with `the SHA256SUMS of v0.10.1 names no package for this system` and left the install as it was (seen) | `src/ports.rs` (`Releases`, `Installer`), `src/installer.rs`, `src/adapters/releases_github.rs`, `src/adapters/installer_linux.rs`, `src/adapters/installer_windows.rs`, `src/apply.rs`, `src/session/update.rs`, `src/doctor.rs` (§13), `src/adapters/installer_macos.rs`, `install-macos.sh` |
 | The Windows Credential Manager | none: a secret with `credential` and `eco key set`/`remove` fail, naming omapass and the environment; the `keys` event's `credentials` is `null` | a secret with `credential` reads the generic credential `eco:<name>`; `eco key set`/`remove` write and delete it; the `keys` command lists them by name (§9.1) | as on Linux: none. The macOS Keychain is not used: it ties a key to the program's signature, and eco is not signed, so each new build would ask for every key again; keys come from the environment | `src/adapters/credentials.rs` |
+
+**Android.** `target_os = "android"` is `cfg(unix)` but not `linux`: POSIX
+code runs there, and Linux-only code stays `#[cfg(target_os = "linux")]`. The
+window host (`eco-window`, Qt for Android) starts and owns the daemon from a
+foreground service, and the daemon launches no windows. A seam without an
+Android adapter reports the limitation. The table lists each seam with the
+file that holds its `#[cfg]` selection and what Android answers.
+
+| Seam | Port or bridge | `#[cfg]` selected in | Android |
+|---|---|---|---|
+| Paths | functions in `src/paths.rs` | `src/paths.rs` | the app gives the directories in the environment: `ECO_DATA_DIR` (config, data and state, all in it) and `ECO_RUNTIME_DIR` (the socket and token); unset, each is a relative directory (`eco`, `run`) |
+| The daemon socket | the local socket | `src/adapters/local_socket.rs` | the existing Unix socket, in the app's files directory |
+| Audio devices and capture | `AudioDevices`, `AudioSource` | `src/session.rs` (`PlatformAudio`) | `cpal`, which reaches AAudio, composed as on Windows and macOS; the daemon has no JVM, so cpal cannot enumerate (`input_devices()` panics): the listing is the default microphone alone, without calling cpal, and capture opens `@default-input` through `default_input_device()` (measured: 48 kHz, 2 channels, F32); any other device, an output included, fails with `<device>: only the default microphone can be captured on Android`, and a missing default microphone with `<device>: not connected`. Choosing another device is a known limitation |
+| Echo cancellation | `AudioDevices::cancels_echo`, `cancel_echo` | `src/session.rs` (`PlatformAudio`) | a reported limitation |
+| Service lifecycle | `ServiceManager` | `src/lib.rs` (`PlatformService`) | the host's foreground service; `NoService` (`src/adapters/android.rs`) reports `eco start` as unsupported |
+| Desktop setup | `DesktopIntegration` | `src/setup.rs` (`desktop`) | a reported limitation, as on macOS (`Unsupported`) |
+| Window control | `WindowControl` | `src/session.rs` (`window_control`) | `NoWindowControl`, a reported limitation: the daemon launches no windows, and `windows` in `src/session.rs` selects `NoWindows`, which refuses `open`, instead of the launcher in `src/adapters/overlay/windows.rs`, which is not compiled on Android |
+| The window host's bridge | `EcoHost` in `window/` | `Q_OS_*` in `window/` | `window/bridge_android.*`, behind `Q_OS_ANDROID`: `AndroidBridge::dataDir()`, `runtimeDir()` and `socketPath()` (the directories the daemon gets, under the app's files directory, and its socket) and `AndroidBridge::start()` (names the socket in `ECO_SOCKET`, asks for the microphone, then for notifications, and starts the service). Its test is `window/bridge_android_test.cpp`, run by `mise run android:test` |
+| System notifications | `Notifier` | `src/session.rs` (`notifier`) | `NoNotifications`, a reported limitation for now |
+| Shortcuts | `shortcuts` in `src/session.rs` | `src/session.rs` (`shortcuts`) | a reported limitation, as on macOS: every key is unavailable |
+| Installing a release and updating | `Installer` (`Releases` has one adapter, GitHub, on every platform) | `src/installer.rs` (`installer`) | `NoInstaller`, a reported limitation: the system installs the app; the download the installers share is not compiled on Android |
+| The hook shell | `shell()` in `src/adapters/hook_shell.rs` | `src/adapters/hook_shell.rs` | `sh -c`, POSIX and shared |
+| Credentials | `src/adapters/credentials.rs` | `src/adapters/credentials.rs` | no source yet, reported |
+| TLS roots | `tls()` in `src/adapters/http.rs`, used by reqwest and by the WebSocket | `src/adapters/http.rs` (`roots`) | the pinned `webpki-roots`: `rustls-platform-verifier` panics without a JVM, and `rustls-native-certs` finds no certificate there; models download through the same client |
+
+**The APK.** `mise run android:build` (`scripts/android-build`) builds the
+debug APK, x86_64 only, into `target/android/eco.apk`; the package is
+`eco.app`, with `minSdk` 26 and `targetSdk` 36. Three steps: cargo builds the
+daemon in release (it runs the models, which a debug build slows) for
+`x86_64-linux-android` with the NDK environment `scripts/lib/android.py`
+shares with `android:lint`; `window/` is configured with Qt's `qt-cmake` for
+Android (the desktop Qt under `.qt` as `QT_HOST_PATH`) and its `apk` target
+runs `androiddeployqt`, which drives the Gradle that Qt pins and downloads it
+and its dependencies on the first run; the APK is copied to the stable path.
+The window host is a library there, with the overlay in its Qt resources
+(`:/overlay`, `window/CMakeLists.txt`), where `window/main.cpp` loads
+`phone.qml` with no argument. The daemon is an executable named
+`libeco.so`, an extra library of the package: the manifest
+(`window/android/AndroidManifest.xml`) sets `extractNativeLibs="true"`, so
+Android extracts it into the app's native library directory, where it can
+run. The manifest also sets `allowBackup="false"` and asks for
+`RECORD_AUDIO`, `INTERNET`, `FOREGROUND_SERVICE` and
+`FOREGROUND_SERVICE_MICROPHONE` (and `POST_NOTIFICATIONS`, for the service's notification). After packaging, the script reads the APK
+with `aapt2` and fails unless the daemon, those permissions and both flags
+are in it.
+
+**The daemon on Android.** The app owns the daemon's life. At startup
+`window/main.cpp` calls `AndroidBridge::start()`: it names the socket in
+`ECO_SOCKET` (`<files>/run/eco.sock`, short enough for a Unix address), asks
+for the microphone and, once it is allowed, for notifications (Android 13 and
+later) and starts `eco.app.DaemonService`
+(`window/android/src/eco/app/DaemonService.java`), declared in the manifest
+with `foregroundServiceType="microphone"` (a service of that type cannot start
+without the microphone, so a refused microphone starts nothing). The window
+says why the daemon is not running through `AndroidBridge::Status`
+(`window/bridge_android.h`), which `Host.phoneStatus` gives QML and the phone
+window shows in a `StatusMessage`: `microphone.denied` (Android still asks:
+the button asks again), `microphone.blocked` (Android will not, which the
+bridge reads from `shouldShowRequestPermissionRationale`: the button opens the
+app's settings page, `ACTION_APPLICATION_DETAILS_SETTINGS`),
+`models.preparing`, `models.failed` and `daemon.restarting`. The host decides none of it: the
+microphone states come from the permission answer, the model states from the
+service, which calls the bridge's native `report`. Back in front with the
+microphone allowed, the app starts the service. The service shows the ongoing
+notification and, on one thread, runs `libeco.so setup` (the models,
+downloaded when missing) until it succeeds, waiting 2 s after the first
+failure and twice as long after each, up to 60 s, and only then runs
+`libeco.so daemon --headless` from the native library directory (a failed setup
+never starts a daemon, which would end at once for want of its models), with
+`ECO_DATA_DIR=<files>/eco` and `ECO_RUNTIME_DIR=<files>/run` (the same
+directories the bridge names; the service only receives them), its output in
+logcat under `eco-daemon`. A daemon that exits while the service lives (a
+crash, a kill) is run again: the service reports `daemon.restarting`, waits 2 s
+after the first exit and twice as long after each, up to 60 s, and starts it
+again; a daemon that ran for 60 s starts the wait over at 2 s. The status
+clears once the new daemon answers at the socket. Ending the service ends the
+daemon and the restarts. The daemon is a child of the app's process: when
+the service is destroyed it gets `SIGTERM` and, after 3 s, `SIGKILL`; when the
+app is stopped, Android ends its whole uid, the daemon with it. A second
+`start` while the service runs, or while a daemon already answers at the
+socket, starts nothing; the socket a stopped daemon left behind is replaced by
+the next daemon. `PhoneWindow` keeps its content out of the system bars with
+`SafeArea.margins`. Measured on the emulator (Android 16, x86_64): the app and
+one `libeco.so` under its uid, the window reading `CONNECTED`; opening the app
+again, or from a cold start after `am force-stop`, left exactly one daemon; the
+bridge test passed under `mise run android:test`. Stopping the service itself
+was not run: `am stopservice` cannot reach a service that is not exported.
+
+**How Android is verified.** `mise run check` and its pre-push `local-check`
+cover the desktop only; `mise run android:check` covers the emulator, in tiers
+from the cheapest. (1) The host tests run what is shared with the other
+platforms, with fake adapters and a paused clock. (2) `android:lint` compiles
+the crate and its tests for `x86_64-linux-android` with clippy, warnings fatal.
+(3) `android:test` builds the library's test binary for that target, pushes it
+to `/data/local/tmp`, runs it with `adb shell` filtered to `android` (the tests
+marked `#[cfg(target_os = "android")]` and those of `src/adapters/android.rs`),
+removes it and takes its exit code, then runs the bridge test through Qt's
+`androidtestrunner`. The filter is deliberate: of the 906 library tests, run as
+the shell 82 fail on the device (it may not bind a unix socket, ffmpeg is not
+there) and run as the app, which may, the tests that serve on loopback TCP fail
+instead; the others run on the host. (4) `android:e2e` (`scripts/android-e2e`, the runner
+`tests/android/e2e.py`, the fake server `tests/android/fake_stt.py`) runs the
+scenarios below on the emulator, each from `pm clear`, with the animation scales
+at 0 (put back after), every wait a condition polled with a deadline that fails
+with what it saw, and, at the end, the app uninstalled, the pushed files and the
+fake server gone, and `adb unroot`. An emulator already running is used and left
+running; when none is, the task boots one and kills it. `launch` starts the app
+as a user does and waits for the daemon's socket to answer (`libeco.so status`
+run as the app). `offline` starts a first launch with the emulator's wifi and
+mobile data off (`svc wifi disable`, `svc data disable`, put back after: the
+model URLs in `src/setup.rs` are fixed, so the real download is the one that
+fails and then succeeds), waits for the service to tell `models.failed`, checks
+no daemon runs, turns the network on and waits for the daemon's socket, with no
+relaunch. `microphone` revokes `RECORD_AUDIO`, launches, dismisses the system's
+question with Back, waits for the window host to log the refusal,
+checks no daemon runs, grants the permission, brings the app to the front again
+and waits for the daemon's socket. `restart` launches, kills the daemon
+process (`kill -9`, as root: the runner runs under `adb root` from the start),
+and waits for the old pid to be gone, for the service to tell
+`daemon.restarting`, for a new daemon with another pid to answer at the socket
+and for the status to clear. The other three run the `libeco.so` of the APK as root, with
+`ECO_DATA_DIR` and `ECO_RUNTIME_DIR` under `/data/local/tmp/eco-e2e`, `daemon
+--headless --replay` on a WAV the runner writes from a 6 s speech clip of the
+repository's test fixtures (public AMI speech: the VAD needs speech, and a tone
+is not), and a config whose only transcription model is the OpenAI-compatible
+endpoint at `http://10.0.2.2:<free port>/v1` with a secret read from an
+environment variable holding a dummy value. They read the daemon's events with
+`nc -U` on its socket, send `session.start`, and assert on the session log:
+`replay` (the fake server receives a WAV with the key and model, and its text
+is in the log), `retry` (the server answers 503 twice: the first segment is sent
+three times and is not lost) and `outage` (the server stays down: the daemon
+tells `transcription.failed` naming the provider, and the speech after it is
+transcribed once the server answers). The daemon runs as root, not as the app,
+because a process run as the app by `run-as` has no network and one run as the
+shell may not bind a unix socket: the app itself does both, and has no way to be
+started on a replay without code for the test. The models are downloaded once
+by the app on the first run and kept under `target/android/models`. The
+microphone stays a manual check: `mise run android:emulator` gives the emulator
+the computer's microphone (`-allow-host-audio`, then `adb emu avd hostmicon`:
+the emulator starts with it off), and the input monitor of the phone window
+moves with speech. Seen once on the emulator, with a USB headset as the
+computer's default input: the daemon, a child of the app, captures
+`@default-input` through AAudio. The emulators the test tasks start do not take
+the computer's microphone.

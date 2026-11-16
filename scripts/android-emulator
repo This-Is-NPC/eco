@@ -1,0 +1,87 @@
+#!/usr/bin/env python3
+"""Boot the `AVD` virtual device and wait until Android has finished booting,
+with the computer's microphone as its microphone. An emulator already running
+is used and left alone, its microphone turned on. One started here keeps
+running after the task, for development: stop it with `adb emu kill`."""
+
+import os
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+import android  # noqa: E402
+
+BOOT_DEADLINE = 240  # seconds
+POLL = 2  # seconds between boot checks
+
+
+def run(*args):
+    return subprocess.run([str(android.adb()), *args], capture_output=True, text=True, timeout=60)
+
+
+def running():
+    return android.booted_emulators(run("devices").stdout)
+
+
+def tail(path, lines=30):
+    return "\n".join(Path(path).read_text(errors="replace").splitlines()[-lines:])
+
+
+if not sys.platform.startswith("linux"):
+    sys.exit("android:emulator runs on Linux")
+if not android.emulator().exists():
+    sys.exit("the emulator is not installed: run `mise run android:setup`")
+
+def host_mic():
+    """Turns on the computer's microphone in the emulator: allowing it at boot
+    is not enough, the emulator starts with it off."""
+    run("emu", "avd", "hostmicon")
+
+
+serials = running()
+if serials:
+    host_mic()
+    print(f"using the running emulator {serials[0]}; it stays running")
+    sys.exit(0)
+
+env = android.emulator_env(os.environ)
+check = subprocess.run([str(android.emulator()), "-accel-check"], env=env, capture_output=True, text=True)
+if check.returncode != 0:
+    sys.exit(f"the emulator needs KVM and it is not usable (is /dev/kvm accessible to you?):\n{check.stdout}{check.stderr}")
+# The emulator's own Qt has only the xcb platform plugin: on Wayland it needs XWayland.
+if not os.environ.get("DISPLAY"):
+    sys.exit("the emulator needs an X display (DISPLAY, XWayland on Wayland): Qt Quick is wrong on the software renderer, so it runs with -gpu host")
+
+started = time.monotonic()
+with tempfile.NamedTemporaryFile("w+b", prefix="eco-emulator-", suffix=".log", delete=False) as log:
+    proc = subprocess.Popen(android.emulator_args(host_mic=True), env=env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+log_path = log.name
+
+
+def fail(message):
+    proc.kill()
+    proc.wait()
+    print(message, file=sys.stderr)
+    Path(log_path).unlink(missing_ok=True)
+    sys.exit(1)
+
+
+deadline = started + BOOT_DEADLINE
+while True:
+    if proc.poll() is not None:
+        fail(f"the emulator exited with {proc.returncode}; end of its log:\n{tail(log_path)}")
+    if time.monotonic() > deadline:
+        fail(android.boot_timeout_message(BOOT_DEADLINE, tail(log_path)))
+    if running() and run("shell", "getprop", "sys.boot_completed").stdout.strip() == "1":
+        break
+    try:
+        proc.wait(POLL)
+    except subprocess.TimeoutExpired:
+        pass
+
+Path(log_path).unlink(missing_ok=True)
+host_mic()
+print(f"emulator ready in {time.monotonic() - started:.0f} s; stop it with `adb emu kill`")

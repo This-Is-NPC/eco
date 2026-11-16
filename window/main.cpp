@@ -18,6 +18,10 @@
 #include "line_socket.h"
 #include "text_file.h"
 
+#ifdef Q_OS_ANDROID
+#include "bridge_android.h"
+#endif
+
 #ifdef Q_OS_MACOS
 #include <QDir>
 #include <QProcess>
@@ -33,12 +37,17 @@ int main(int argc, char **argv) {
     return QProcess::startDetached(QDir::cleanPath(eco), {QStringLiteral("start")}) ? 0 : 1;
   }
 #endif
+#ifndef Q_OS_ANDROID
   if (argc != 2) {
     std::fputs("usage: eco-window <file.qml>\n", stderr);
     return 2;
   }
-  // Logs go to stderr, which the daemon passes on, never straight to the journal.
+#endif
+#ifndef Q_OS_ANDROID
+  // Logs go to stderr, which the daemon passes on, never straight to the journal;
+  // on Android they go to logcat, where the app's are read.
   qputenv("QT_FORCE_STDERR_LOGGING", "1");
+#endif
 #ifdef Q_OS_WIN
   // The tray icon is native on Windows, and only a native menu opens on its
   // right click; a platform chosen from outside (offscreen tests) is kept.
@@ -62,9 +71,17 @@ int main(int argc, char **argv) {
   QObject::connect(
       &engine, &QQmlApplicationEngine::objectCreationFailed, &app, [] { QCoreApplication::exit(1); },
       Qt::QueuedConnection);
+#ifdef Q_OS_ANDROID
+  AndroidBridge::start();
+  // The activity gives no arguments: the entry is the phone's window, in the
+  // resources of the APK.
+  engine.addImportPath(QStringLiteral("qrc:/overlay"));
+  engine.load(QUrl(QStringLiteral("qrc:/overlay/phone.qml")));
+#else
   const QFileInfo entry(QString::fromLocal8Bit(argv[1]));
   engine.addImportPath(entry.absolutePath());
   engine.load(QUrl::fromLocalFile(entry.absoluteFilePath()));
+#endif
   if (engine.rootObjects().isEmpty())
     return 1;
   return app.exec();

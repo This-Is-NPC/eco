@@ -1,4 +1,5 @@
 module Eco.Window
 OverlayPanel 1.0 OverlayPanel.qml
+PhoneWindow 1.0 PhoneWindow.qml
 SessionView 1.0 SessionView.qml
 ViewStage 1.0 ViewStage.qml

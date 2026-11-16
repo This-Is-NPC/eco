@@ -10,6 +10,10 @@
 #include <QStyleHints>
 #include <QWindow>
 
+#ifdef Q_OS_ANDROID
+#include "bridge_android.h"
+#endif
+
 #ifdef Q_OS_WIN
 #include <QClipboard>
 #include <QEvent>
@@ -43,10 +47,14 @@ class Host : public QObject {
   Q_PROPERTY(bool foreground READ foreground NOTIFY foregroundChanged)
   Q_PROPERTY(QString monospaceFamily READ monospaceFamily CONSTANT)
   Q_PROPERTY(bool trayHoldsMenu READ trayHoldsMenu CONSTANT)
+  Q_PROPERTY(QString phoneStatus READ phoneStatus NOTIFY phoneStatusChanged)
 
 public:
   explicit Host(QObject *parent = nullptr) : QObject(parent) {
     connect(QGuiApplication::styleHints(), &QStyleHints::colorSchemeChanged, this, &Host::systemThemeChanged);
+#ifdef Q_OS_ANDROID
+    connect(&AndroidBridge::Status::instance(), &AndroidBridge::Status::changed, this, &Host::phoneStatusChanged);
+#endif
 #ifdef Q_OS_WIN
     qApp->installEventFilter(this);
     instance = this;
@@ -112,6 +120,16 @@ public:
   bool trayHoldsMenu() const { return false; }
 #else
   bool trayHoldsMenu() const { return true; }
+#endif
+
+  // What keeps the phone's daemon from running (bridge_android.h); "" where
+  // nothing does, and on every other platform.
+#ifdef Q_OS_ANDROID
+  QString phoneStatus() const { return AndroidBridge::Status::instance().value(); }
+  Q_INVOKABLE void phoneAct() const { AndroidBridge::act(); }
+#else
+  QString phoneStatus() const { return {}; }
+  Q_INVOKABLE void phoneAct() const {}
 #endif
 
   // The value of the environment variable `name`, or "" when it is unset.
@@ -225,4 +243,5 @@ private:
 Q_SIGNALS:
   void foregroundChanged();
   void systemThemeChanged();
+  void phoneStatusChanged();
 };

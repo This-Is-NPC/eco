@@ -1,0 +1,99 @@
+#!/usr/bin/env python3
+"""Run the Android tests on the running emulator. First the daemon's unit tests:
+the library's test binary for x86_64-linux-android is pushed to
+/data/local/tmp, run there by `adb shell` and removed; its exit code is the
+result. Only the tests that say android in their path or name run: they are
+the ones marked `#[cfg(target_os = "android")]` and the Android adapters'. The
+rest of the library runs on the host: on the emulator, run as the shell, 82 of
+its 906 tests fail (no unix sockets, no ffmpeg), and run as the app the tests
+that serve on loopback TCP do. None
+of them opens a microphone: capture is tested with fake sources, and the real
+one is the manual check. Then the window host's bridge
+test: window/ is configured once more with the test target, in
+target/android/test, and Qt's androidtestrunner builds the test's APK,
+installs it, runs it and removes it. An emulator already running is used and
+left running; when none is, one is booted here and killed at the end."""
+
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+import android  # noqa: E402
+
+ROOT = android.root()
+BUILD = ROOT / "target" / "android" / "test"
+REMOTE = "/data/local/tmp/eco-lib-tests"
+FILTER = "android"
+QT = sorted((ROOT / ".qt").glob("*/android_x86_64"))
+if len(QT) != 1:
+    sys.exit("android-test: no Qt for Android under .qt; run `mise run qt:install`")
+qt = QT[0]
+env = {**os.environ, "ANDROID_SDK_ROOT": str(android.sdk()), "ANDROID_NDK_ROOT": str(android.ndk())}
+
+
+def adb(serial, *args, **kwargs):
+    return subprocess.run([str(android.adb()), "-s", serial, *args], **kwargs)
+
+
+def daemon_tests(serial):
+    """Build the library's test binary, run it on the emulator and return its exit code."""
+    built = subprocess.run(
+        ["cargo", "test", "--locked", "--no-run", "--lib", "--target", android.TARGET, "--message-format=json"],
+        cwd=ROOT, env=android.cargo_env(), stdout=subprocess.PIPE, text=True,
+    )
+    if built.returncode != 0:
+        return built.returncode
+    messages = [json.loads(line) for line in built.stdout.splitlines() if line.startswith("{")]
+    executables = [
+        m["executable"] for m in messages
+        if m.get("reason") == "compiler-artifact" and m.get("executable") and m["profile"]["test"]
+    ]
+    if len(executables) != 1:
+        sys.exit(f"android-test: expected one test binary, cargo built {executables}")
+    try:
+        if adb(serial, "push", executables[0], REMOTE, capture_output=True).returncode != 0:
+            sys.exit("android-test: the test binary could not be pushed")
+        done = adb(serial, "shell", f"chmod 755 {REMOTE} && cd /data/local/tmp && TMPDIR=/data/local/tmp {REMOTE} {FILTER}; echo exit=$?", capture_output=True, text=True)
+    finally:
+        adb(serial, "shell", "rm", "-f", REMOTE, capture_output=True)
+    print(done.stdout, end="")
+    status = [line for line in done.stdout.splitlines() if line.startswith("exit=")]
+    code = int(status[-1].removeprefix("exit=")) if status else 1
+    if code == 0 and "test result: ok. 0 passed" in done.stdout:
+        sys.exit(f"android-test: no test matches {FILTER!r}")
+    return code
+
+
+def bridge_test(serial):
+    """Qt's androidtestrunner on the bridge test; its exit code."""
+    env["ANDROID_SERIAL"] = serial
+    configured = subprocess.run(
+        [
+            str(qt / "bin" / "qt-cmake"), "-S", "window", "-B", str(BUILD), "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Debug",
+            f"-DQT_HOST_PATH={qt.parent / 'gcc_64'}", "-DECO_ANDROID_TEST=ON", "-DQT_SKIP_ANDROID_BUILD_DIR_CHECK=TRUE",
+        ],
+        cwd=ROOT, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+    )
+    if configured.returncode != 0:
+        print(configured.stdout, end="", file=sys.stderr)
+        return configured.returncode
+    target = "bridge-android-test"
+    return (
+        subprocess.run(
+            [
+                str(qt.parent / "gcc_64" / "bin" / "androidtestrunner"), "--path", str(BUILD / "android-build"),
+                "--make", f"cmake --build {BUILD} --target {target}_make_apk",
+                "--apk", str(BUILD / "android-build" / "build" / "outputs" / "apk" / "debug" / "android-build-debug.apk"),
+                "--adb", str(android.adb()), "--skip-install-root", "--show-logcat",
+            ],
+            cwd=BUILD, env=env,  # it writes its stdout.txt in its working directory
+        ).returncode
+    )
+
+
+with android.emulator_session() as serial:
+    status = daemon_tests(serial) or bridge_test(serial)
+sys.exit(status)

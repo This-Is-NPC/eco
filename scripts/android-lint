@@ -1,0 +1,14 @@
+#!/usr/bin/env python3
+"""Run clippy for x86_64-linux-android, tests included, warnings fatal. The
+crates that compile C (ring) need the NDK's clang and llvm-ar, which
+android:setup installs into .android-sdk."""
+
+import subprocess
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+import android  # noqa: E402
+
+command = ["cargo", "clippy", "--locked", "--target", android.TARGET, "--all-targets", "--", "-D", "warnings"]
+sys.exit(subprocess.run(command, env=android.cargo_env()).returncode)
