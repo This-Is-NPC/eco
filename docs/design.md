@@ -2884,7 +2884,7 @@ mise run overlay            # only the window; start it after the daemon
 mise watch overlay -o restart   # the same, run again on every save under overlay/
 mise run window:build       # eco-window, into target/window (the tasks that run it build it first)
 mise run android:setup      # Linux: the pinned Android SDK, NDK and emulator, into .android-sdk
-mise run android:emulator   # Linux: boot the eco emulator, or reuse a running one; it keeps running, stop it with `adb emu kill`
+mise run android:emulator   # Linux: boot the eco emulator with the computer's microphone, or reuse a running one; it keeps running, stop it with `adb emu kill`
 mise run android:install -- [apk] [package]   # Linux: install an APK on the running emulator and launch it (default target/android/eco.apk, eco.app)
 mise run android:lint       # Linux: clippy for x86_64-linux-android, tests included, warnings fatal
 mise run android:test       # Linux: on the emulator (booted and killed if none runs), the daemon's Android unit tests pushed with adb and the window host's bridge test through androidtestrunner
@@ -3230,5 +3230,10 @@ because a process run as the app by `run-as` has no network and one run as the
 shell may not bind a unix socket: the app itself does both, and has no way to be
 started on a replay without code for the test. The models are downloaded once
 by the app on the first run and kept under `target/android/models`. The
-microphone is the only part that stays a manual check on a device: the capture
-of `@default-input` through AAudio, the permission dialog and the notification.
+microphone stays a manual check: `mise run android:emulator` gives the emulator
+the computer's microphone (`-allow-host-audio`, then `adb emu avd hostmicon`:
+the emulator starts with it off), and the input monitor of the phone window
+moves with speech. Seen once on the emulator, with a USB headset as the
+computer's default input: the daemon, a child of the app, captures
+`@default-input` through AAudio. The emulators the test tasks start do not take
+the computer's microphone.
