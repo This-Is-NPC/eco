@@ -42,7 +42,7 @@ description = "Linux only: install the pinned Android SDK packages, NDK and emul
 run = "scripts/android-setup"
 
 [tasks."android:emulator"]
-description = "Linux only: boot the eco Android emulator on the host GPU and wait until it has booted; an emulator already running is reused, one started here keeps running (stop it with adb emu kill)"
+description = "Linux only: boot the eco Android emulator on the host GPU, with the computer's microphone, and wait until it has booted; an emulator already running is reused, one started here keeps running (stop it with adb emu kill)"
 run = "scripts/android-emulator"
 
 [tasks."android:install"]

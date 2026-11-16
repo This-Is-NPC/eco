@@ -42,10 +42,13 @@ def emulator():
     return sdk() / "emulator" / "emulator"
 
 
-def emulator_args():
+def emulator_args(host_mic=False):
     """The emulator command line for the `AVD`: the host GPU, because
-    SwiftShader paints Qt Quick rectangles wrongly, and no snapshot written."""
-    return [str(emulator()), "-avd", AVD, "-gpu", "host", "-no-snapshot-save", "-no-boot-anim"]
+    SwiftShader paints Qt Quick rectangles wrongly, and no snapshot written.
+    With `host_mic`, the emulator may take the computer's microphone, which
+    `adb emu avd hostmicon` then turns on."""
+    args = [str(emulator()), "-avd", AVD, "-gpu", "host", "-no-snapshot-save", "-no-boot-anim"]
+    return args + ["-allow-host-audio"] if host_mic else args
 
 
 def emulator_env(environ):
